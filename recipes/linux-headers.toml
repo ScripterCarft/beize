@@ -1,0 +1,9 @@
+# Kernel UAPI headers for glibc and userspace, from the same kernel we boot.
+name = "linux-headers"
+source_from = "linux"
+stage = "target"
+
+[build]
+script = '''
+make -C "$SRC" O="$BUILD" ARCH=x86_64 headers_install INSTALL_HDR_PATH="$PKG/usr"
+'''

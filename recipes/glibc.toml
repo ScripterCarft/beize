@@ -1,0 +1,23 @@
+# GNU C library. Required for binary compatibility (ADR 0002).
+# Tarball verified against gnu-keyring.gpg on 2026-10-06.
+name = "glibc"
+version = "2.44"
+stage = "target"
+deps = ["gcc-pass1", "linux-headers"]
+
+[source]
+url = "https://mirrors.kernel.org/gnu/glibc/glibc-{version}.tar.xz"
+sha256 = "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667"
+
+[build]
+script = '''
+echo "rootsbindir=/usr/bin" > configparms
+"$SRC/configure" \
+  --prefix=/usr --libdir=/usr/lib --libexecdir=/usr/lib \
+  --host="$TARGET" --build="$("$SRC/scripts/config.guess")" \
+  --with-headers="$SYSROOT/usr/include" --enable-kernel=6.1 \
+  --enable-stack-protector=strong --disable-werror --disable-nscd \
+  libc_cv_slibdir=/usr/lib
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

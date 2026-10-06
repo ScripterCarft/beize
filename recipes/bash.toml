@@ -1,0 +1,24 @@
+# GNU Bash, the interactive shell for development images.
+# Tarball verified against gnu-keyring.gpg on 2026-10-06.
+name = "bash"
+version = "5.3"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://mirrors.kernel.org/gnu/bash/bash-{version}.tar.gz"
+sha256 = "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+
+[build]
+script = '''
+# Answers for checks that cannot run when cross compiling.
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/support/config.guess")" --prefix=/usr \
+  --without-bash-malloc --disable-nls \
+  bash_cv_getcwd_malloc=yes bash_cv_job_control_missing=present \
+  bash_cv_sys_named_pipes=present bash_cv_func_sigsetjmp=present \
+  bash_cv_printf_a_format=yes bash_cv_strtold_broken=no
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+ln -s bash "$PKG/usr/bin/sh"
+'''

@@ -1,0 +1,21 @@
+#!/usr/bin/bash
+# Reports the outcome of the boot on the console once systemd has finished
+# starting up. `bz smoke` evaluates this line; with beize.smoke on the kernel
+# command line the machine powers off afterwards.
+set -u
+
+state=$(systemctl is-system-running --wait)
+read -r uptime _ < /proc/uptime
+
+failed=()
+while read -r unit _; do
+    failed+=("$unit")
+done < <(systemctl list-units --failed --plain --no-legend)
+failed_list=$(IFS=,; echo "${failed[*]}")
+
+echo "BEIZE-BOOT-REPORT state=${state} uptime=${uptime}s failed=${failed_list:-none}"
+
+read -r cmdline < /proc/cmdline
+if [[ " $cmdline " == *" beize.smoke "* ]]; then
+    systemctl poweroff --no-block
+fi

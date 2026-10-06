@@ -1,0 +1,18 @@
+# XML parser, required by the D-Bus daemon for its configuration.
+name = "expat"
+version = "2.9.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://github.com/libexpat/libexpat/releases/download/R_2_9_0/expat-{version}.tar.xz"
+sha256 = "1e6371862cc31999b368c3b89b49994f0677e1bab5f1b2b85ae3741f5d803051"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --disable-static --without-docbook --without-examples --without-tests
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

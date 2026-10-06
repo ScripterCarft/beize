@@ -1,0 +1,25 @@
+# D-Bus system and session bus. Required by logind and, later, the desktop.
+name = "dbus"
+version = "1.16.2"
+stage = "target"
+deps = ["gcc", "glibc", "expat", "systemd"]
+
+[source]
+url = "https://dbus.freedesktop.org/releases/dbus/dbus-{version}.tar.xz"
+sha256 = "0ba2a1a4b16afe7bceb2c07e9ce99a8c2c3508e5dec290dbb643384bd6beb7e2"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --libexecdir=/usr/lib/dbus-1.0 \
+  --sysconfdir=/etc --localstatedir=/var --buildtype=release \
+  -Dauto_features=disabled \
+  -Dsystemd=enabled -Dinotify=enabled -Depoll=enabled \
+  -Duser_session=true -Dmessage_bus=true -Dtools=true \
+  -Dmodular_tests=disabled -Dasserts=false \
+  -Druntime_dir=/run -Dsystem_socket=/run/dbus/system_bus_socket \
+  -Dsystemd_system_unitdir=/usr/lib/systemd/system \
+  -Dsystemd_user_unitdir=/usr/lib/systemd/user
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''

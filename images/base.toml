@@ -1,0 +1,3 @@
+# Packages in the base system image. Their target dependencies (glibc, ...)
+# are included automatically; build-only files are filtered out.
+packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "bash", "coreutils"]

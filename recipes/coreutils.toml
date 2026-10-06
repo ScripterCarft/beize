@@ -1,0 +1,21 @@
+# GNU core utilities (ls, cat, cp, ...).
+# Tarball verified against gnu-keyring.gpg on 2026-10-06.
+name = "coreutils"
+version = "9.12"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://mirrors.kernel.org/gnu/coreutils/coreutils-{version}.tar.xz"
+sha256 = "a480198559733e9b3da999e90543ac6f888a2caa544d8d664c5a1f17e528e210"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/build-aux/config.guess")" --prefix=/usr \
+  --disable-nls --without-selinux --without-openssl \
+  --enable-install-program=hostname --enable-no-install-program=kill,uptime \
+  gl_cv_macro_MB_CUR_MAX_good=y
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

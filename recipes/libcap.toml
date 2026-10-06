@@ -1,0 +1,19 @@
+# POSIX capabilities library, required by systemd.
+name = "libcap"
+version = "2.78"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://cdn.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-{version}.tar.xz"
+sha256 = "0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11"
+
+[build]
+script = '''
+# libcap only builds in-tree.
+cp -a "$SRC/." .
+opts=(CROSS_COMPILE="$TARGET-" BUILD_CC=gcc prefix=/usr lib=lib
+      GOLANG=no PAM_CAP=no SHARED=yes RAISE_SETFCAP=no)
+make -j"$JOBS" "${opts[@]}"
+make "${opts[@]}" DESTDIR="$PKG" install
+'''

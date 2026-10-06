@@ -1,0 +1,14 @@
+# Runtime libraries shipped by gcc (libgcc_s, libstdc++).
+# glibc loads libgcc_s for thread cancellation, so every system needs it.
+name = "gcc-runtime"
+version = "16.2.0"
+stage = "target"
+deps = ["gcc"]
+
+[build]
+script = '''
+mkdir -p "$PKG/usr/lib"
+cp -a "$TOOLS/$TARGET"/lib/libgcc_s.so.1 "$PKG/usr/lib/"
+cp -a "$TOOLS/$TARGET"/lib/libstdc++.so.6* "$PKG/usr/lib/"
+rm -f "$PKG"/usr/lib/*.py
+'''

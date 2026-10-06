@@ -1,0 +1,16 @@
+# Writable /var on top of the read-only root. Volatile for now; replaced by a
+# persistent partition together with A/B images in M2 (ADR 0003).
+[Unit]
+Description=Variable Data (volatile)
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+
+[Mount]
+What=tmpfs
+Where=/var
+Type=tmpfs
+Options=mode=0755,nosuid,nodev
+
+[Install]
+WantedBy=local-fs.target

@@ -1,0 +1,27 @@
+# Core system libraries (libblkid, libmount for systemd) and a few tools.
+name = "util-linux"
+version = "2.42.4"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-{version}.tar.xz"
+sha256 = "fbd62a100ab7bb8746ba0661255c3c48185b1e9021507c624da01fbc696330ec"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --bindir=/usr/bin --sbindir=/usr/bin --runstatedir=/run \
+  --disable-all-programs \
+  --enable-libuuid --enable-libblkid --enable-libmount --enable-libsmartcols \
+  --enable-agetty --enable-mount --enable-lsblk --enable-dmesg \
+  --disable-nls --disable-static --disable-liblastlog2 --disable-pylibmount \
+  --disable-makeinstall-chown --disable-makeinstall-setuid \
+  --without-python --without-systemd --without-udev --without-econf \
+  --without-ncurses --without-ncursesw --without-tinfo --without-readline \
+  --without-btrfs --without-cryptsetup --without-libmagic \
+  ADJTIME_PATH=/var/lib/hwclock/adjtime
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

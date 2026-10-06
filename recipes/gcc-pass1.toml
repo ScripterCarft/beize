@@ -1,0 +1,27 @@
+# Minimal C/C++ cross compiler without libc, just enough to build glibc.
+# Replaced by the full cross compiler (recipes/gcc.toml) afterwards.
+name = "gcc-pass1"
+source_from = "gcc"
+stage = "toolchain"
+deps = ["binutils"]
+
+[build]
+script = '''
+# Beize uses /usr/lib for 64-bit libraries, not lib64.
+sed -e '/m64=/s/lib64/lib/' -i "$SRC/gcc/config/i386/t-linux64"
+
+"$SRC/configure" \
+  --target="$TARGET" --prefix="$TOOLS" --with-sysroot="$SYSROOT" \
+  --with-glibc-version=2.44 --with-newlib --without-headers \
+  --enable-default-pie --enable-default-ssp \
+  --disable-nls --disable-shared --disable-multilib --disable-threads \
+  --disable-libatomic --disable-libgomp --disable-libquadmath \
+  --disable-libssp --disable-libvtv --disable-libstdcxx \
+  --enable-languages=c,c++
+make -j"$JOBS"
+make install
+
+# Without libc headers gcc installs an incomplete limits.h; use the full one.
+cat "$SRC"/gcc/{limitx.h,glimits.h,limity.h} \
+  > "$(dirname "$("$TARGET-gcc" -print-libgcc-file-name)")/include/limits.h"
+'''

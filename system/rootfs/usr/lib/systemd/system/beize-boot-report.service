@@ -1,0 +1,13 @@
+[Unit]
+Description=Report the boot outcome on the console
+
+[Service]
+# exec: counts as started immediately, so the script can wait for the end of
+# the boot transaction it is part of.
+Type=exec
+ExecStart=/usr/lib/beize/boot-report
+StandardOutput=tty
+TTYPath=/dev/console
+
+[Install]
+WantedBy=multi-user.target

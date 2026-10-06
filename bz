@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Entry point for the Beize build tool. Builds and runs tools/bz.
+set -euo pipefail
+cd "$(dirname "$0")"
+exec cargo run --quiet --release -p bz -- "$@"

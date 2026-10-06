@@ -1,0 +1,23 @@
+# systemd: init, device management, logging (ADR 0002).
+# Every optional feature starts disabled; enable them deliberately.
+name = "systemd"
+version = "262"
+stage = "target"
+deps = ["gcc", "glibc", "libcap", "util-linux"]
+
+[source]
+url = "https://github.com/systemd/systemd/archive/refs/tags/v{version}.tar.gz"
+file = "systemd-{version}.tar.gz"
+sha256 = "6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
+  -Dmode=release -Dauto_features=disabled \
+  -Dblkid=enabled -Dlibmount=enabled \
+  -Dtests=false -Dinstall-tests=false \
+  -Ddefault-dnssec=no
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
