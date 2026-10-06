@@ -1,0 +1,51 @@
+# Ubuntu 26.04 packages needed to build and test Beize.
+# Used by ci/system.sh and the README; one package per line.
+
+# Toolchain bootstrap
+build-essential
+bison
+flex
+gawk
+# glibc builds its message translations only if msgfmt is present
+gettext
+m4
+perl
+python3
+texinfo
+
+# Kernel
+bc
+cpio
+kmod
+libelf-dev
+libssl-dev
+rsync
+
+# Meson projects (systemd, dbus)
+gperf
+meson
+ninja-build
+pkg-config
+python3-jinja2
+
+# Sources and verification
+ca-certificates
+curl
+git
+gpgv
+xz-utils
+zstd
+
+# Images
+dosfstools
+erofs-utils
+fdisk
+mtools
+systemd
+systemd-boot-efi
+systemd-ukify
+util-linux
+
+# Boot test
+ovmf
+qemu-system-x86

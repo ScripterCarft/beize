@@ -3,9 +3,14 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, to notice when an upstream download or signature changes.
+    - cron: "17 4 * * 1"
 
 jobs:
   check:
+    name: Format, lint, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,3 +21,36 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  system:
+    name: Build and boot
+    needs: check
+    # The full build takes a while; run it for main, by hand and weekly.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    container:
+      image: ubuntu:26.04
+      # Privileged for user namespaces (image assembly) and /dev/kvm (boot test).
+      options: --privileged --device /dev/kvm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: build/cache
+          key: sources-${{ hashFiles('recipes/*.toml') }}
+          restore-keys: sources-
+      - run: ci/system.sh
+      - name: Upload disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: beize-disk-image
+          path: build/out/disk.img
+          retention-days: 7
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/work/logs/
+          retention-days: 7

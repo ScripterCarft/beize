@@ -24,17 +24,18 @@ A/B-Partitionen, persistentes `/var`, LUKS, NVIDIA, Netzwerk).
 ## Voraussetzungen
 
 Entwickelt wird unter Linux, auf Windows in WSL2 (siehe [ADR 0004](docs/adr/0004-entwicklung-in-wsl2.md)).
-Unter Ubuntu 26.04:
+Unter Ubuntu 26.04 – dieselbe Paketliste nutzt auch die CI:
 
 ```sh
-sudo apt install build-essential git curl pkg-config bison flex bc cpio kmod gawk texinfo \
-  libelf-dev libssl-dev zstd xz-utils meson ninja-build gperf python3-jinja2 \
-  qemu-system-x86 qemu-utils ovmf swtpm sbsigntool systemd-ukify systemd-boot-efi \
-  mtools dosfstools fdisk erofs-utils
+grep -vE '^\s*(#|$)' ci/packages.txt | xargs sudo apt install -y
 curl https://sh.rustup.rs -sSf | sh
 ```
 
 Für schnelle VMs muss der Benutzer in der Gruppe `kvm` sein.
+
+`ci/system.sh` führt den kompletten Ablauf der CI aus (Quellen prüfen, alles
+bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
+`podman run --rm --privileged --device /dev/kvm -v "$PWD:/src" -w /src ubuntu:26.04 ci/system.sh`
 
 ## Benutzung
 
@@ -44,6 +45,7 @@ Für schnelle VMs muss der Benutzer in der Gruppe `kvm` sein.
 ./bz smoke                  # Image headless starten und prüfen, ob das System hochkommt
 ./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
 ./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
+./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen
 ```
 
 Einzelschritte: `./bz kernel`, `./bz rootfs`, `./bz image`.
@@ -55,7 +57,9 @@ Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 | Pfad | Inhalt |
 | --- | --- |
 | `tools/bz` | Build-Werkzeug: Rezepte → Toolchain, Pakete, Root-Image, UKI, Disk |
-| `recipes/` | Ein Rezept pro Paket: gepinnte Quelle, Abhängigkeiten, Build-Skript |
+| `recipes/` | Ein Rezept pro Paket: gepinnte, signierte Quelle, Abhängigkeiten, Build-Skript |
+| `keys/` | Öffentliche Schlüssel der Upstream-Maintainer (siehe `keys/README.md`) |
+| `ci/` | Paketliste und kompletter CI-Ablauf |
 | `images/` | Welche Pakete in ein Image gehören |
 | `system/rootfs/` | Eigene Dateien im Root-Dateisystem (Konfiguration, systemd-Units) |
 | `kernel/config/` | Kernel-Konfigurationsfragmente, nach dem Mergen verifiziert |
@@ -63,7 +67,8 @@ Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 
 ## Grundsätze
 
-- Jede Upstream-Quelle ist auf Version und Prüfsumme gepinnt.
+- Jede Upstream-Quelle ist auf Version und Prüfsumme (bzw. Commit) gepinnt und
+  muss von ihren Maintainern signiert sein; unsignierte Quellen nimmt `bz` nicht an.
 - Gleicher Quellstand ergibt das gleiche Image (feste Zeitstempel, IDs, Metadaten).
-- Schlüssel liegen nie im Repository, sondern in 1Password.
+- Private Schlüssel (Secure Boot, Signaturen) liegen nie im Repository, sondern in 1Password.
 - Größere Entscheidungen werden als ADR festgehalten.
