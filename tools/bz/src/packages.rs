@@ -5,7 +5,6 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -99,11 +98,8 @@ fn fingerprint(recipe: &Recipe, known: &BTreeMap<String, String>) -> String {
         "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {BUILD_EPOCH}\n"
     ));
     hasher.update(&recipe.text);
-    if let Some(source) = &recipe.source {
-        hasher.update(&source.sha256);
-    }
-    for extra in &recipe.extra {
-        hasher.update(&extra.source.sha256);
+    for source in recipe.sources() {
+        hasher.update(source.pin());
     }
     for dep in &recipe.deps {
         hasher.update(format!(
@@ -141,7 +137,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
     let log_path = logs.join(format!("{}.log", recipe.name));
     let log = File::create(&log_path)?;
 
-    let jobs = thread::available_parallelism().map_or(1, |n| n.get());
+    let jobs = util::job_count();
     let mut cmd = Command::new("bash");
     cmd.args(["-euo", "pipefail", "-c", script])
         .current_dir(&build_dir)

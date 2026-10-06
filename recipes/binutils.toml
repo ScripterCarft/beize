@@ -1,5 +1,4 @@
 # Cross binutils: assembler and linker for x86_64-beize-linux-gnu.
-# Tarball verified against gnu-keyring.gpg on 2026-10-06.
 name = "binutils"
 version = "2.47"
 stage = "toolchain"
@@ -7,6 +6,8 @@ stage = "toolchain"
 [source]
 url = "https://mirrors.kernel.org/gnu/binutils/binutils-{version}.tar.xz"
 sha256 = "154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff"
+signature = "https://mirrors.kernel.org/gnu/binutils/binutils-{version}.tar.xz.sig"
+keyring = "binutils"
 
 [build]
 script = '''

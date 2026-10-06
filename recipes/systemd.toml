@@ -5,10 +5,12 @@ version = "262"
 stage = "target"
 deps = ["gcc", "glibc", "libcap", "util-linux"]
 
+# systemd publishes no signed tarballs; release tags are signed instead.
 [source]
-url = "https://github.com/systemd/systemd/archive/refs/tags/v{version}.tar.gz"
-file = "systemd-{version}.tar.gz"
-sha256 = "6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab"
+git = "https://github.com/systemd/systemd.git"
+tag = "v{version}"
+commit = "8cc40e0c5e9234bf45084751ac53b1fbfe70b492"
+keyring = "systemd"
 
 [build]
 script = '''

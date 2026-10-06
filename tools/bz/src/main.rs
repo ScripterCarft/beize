@@ -11,6 +11,7 @@ mod paths;
 mod qemu;
 mod recipe;
 mod rootfs;
+mod source;
 mod util;
 
 use anyhow::Result;
@@ -46,6 +47,8 @@ enum Command {
     Smoke,
     /// Show which package installed a file (e.g. `bz owner /usr/bin/bash`)
     Owner { path: String },
+    /// Download every source and check its pin and its maintainers' signature
+    Verify,
 }
 
 fn main() -> Result<()> {
@@ -64,7 +67,25 @@ fn main() -> Result<()> {
             println!("{}", install::owner(&paths, &path)?);
             Ok(())
         }
+        Command::Verify => verify_sources(&paths),
     }
+}
+
+fn verify_sources(paths: &Paths) -> Result<()> {
+    let mut count = 0;
+    for name in recipe::all_names(paths)? {
+        let recipe = recipe::Recipe::load(paths, &name)?;
+        if recipe.source_from.is_some() {
+            continue; // verified with the recipe it borrows from
+        }
+        for source in recipe.sources() {
+            util::step(&format!("Verifying {name} ({})", source.stem()?));
+            source.fetch(paths, true)?;
+            count += 1;
+        }
+    }
+    eprintln!("\n  ok: {count} sources pinned and signed by their maintainers");
+    Ok(())
 }
 
 fn build_all(paths: &Paths) -> Result<()> {

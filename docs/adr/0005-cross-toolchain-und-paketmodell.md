@@ -16,10 +16,14 @@ binutils → gcc (Stufe 1, ohne libc) → Kernel-Header → glibc → gcc (volls
 Alles für Beize wird damit gegen den eigenen Sysroot gebaut, der Host liefert
 nur Werkzeuge.
 
-**Rezepte.** Jedes Paket ist eine TOML-Datei unter `recipes/`: gepinnte Quelle
-mit SHA-256, Abhängigkeiten, Stufe (`toolchain` oder `target`) und ein
-Build-Skript. GNU-Quellen werden beim Pinnen zusätzlich gegen die GPG-Signatur
-geprüft.
+**Rezepte.** Jedes Paket ist eine TOML-Datei unter `recipes/`: gepinnte Quelle,
+Abhängigkeiten, Stufe (`toolchain` oder `target`) und ein Build-Skript.
+
+**Signierte Quellen.** Jede Quelle ist doppelt abgesichert: gepinnt (SHA-256 des
+Archivs bzw. Commit eines Git-Tags) und von ihren Upstream-Maintainern signiert.
+`bz` prüft die Signatur mit `gpgv` gegen einen minimalen Schlüsselbund unter
+`keys/` und nimmt unsignierte Quellen nicht an. Wo ein Projekt keine signierten
+Archive veröffentlicht (systemd), wird der signierte Release-Tag verwendet.
 
 **Inkrementell.** Ein Paket wird neu gebaut, wenn sich sein Rezept, seine
 Quellen, die Build-Umgebung oder eine Abhängigkeit geändert haben (Fingerprint).

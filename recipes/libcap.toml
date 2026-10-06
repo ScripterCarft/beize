@@ -7,6 +7,9 @@ deps = ["gcc", "glibc"]
 [source]
 url = "https://cdn.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-{version}.tar.xz"
 sha256 = "0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11"
+signature = "https://cdn.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "libcap"
 
 [build]
 script = '''

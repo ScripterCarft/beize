@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::thread;
 
 use anyhow::{Context, Result, bail};
 
@@ -38,7 +37,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     verify_config(&fragment, &obj.join(".config"))?;
 
     util::step(&format!("Building linux {}", recipe.version));
-    let jobs = thread::available_parallelism().map_or(1, |n| n.get());
+    let jobs = util::job_count();
     util::run(make(&src, &obj).arg(format!("-j{jobs}")).arg("bzImage"))?;
 
     let release = util::output(make(&src, &obj).args(["-s", "kernelrelease"]))?;

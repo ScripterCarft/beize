@@ -1,5 +1,4 @@
 # GNU Bash, the interactive shell for development images.
-# Tarball verified against gnu-keyring.gpg on 2026-10-06.
 name = "bash"
 version = "5.3"
 stage = "target"
@@ -8,6 +7,8 @@ deps = ["gcc", "glibc"]
 [source]
 url = "https://mirrors.kernel.org/gnu/bash/bash-{version}.tar.gz"
 sha256 = "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+signature = "https://mirrors.kernel.org/gnu/bash/bash-{version}.tar.gz.sig"
+keyring = "bash"
 
 [build]
 script = '''
