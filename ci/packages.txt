@@ -27,6 +27,8 @@ meson
 ninja-build
 pkg-config
 python3-jinja2
+# systemd-boot and the UKI stub
+python3-pyelftools
 
 # Sources and verification
 ca-certificates
@@ -35,6 +37,11 @@ git
 gpgv
 xz-utils
 zstd
+
+# Secure Boot: test keys, signing, firmware with enrolled keys
+openssl
+python3-virt-firmware
+sbsigntool
 
 # Images
 dosfstools

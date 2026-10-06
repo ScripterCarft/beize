@@ -26,8 +26,9 @@ VERSION_ID=0.1
 ";
 
 /// Empty directories every root needs (mount points and runtime state).
-const ROOT_DIRS: [&str; 12] = [
-    "dev", "proc", "sys", "run", "tmp", "var", "root", "home", "mnt", "etc", "srv", "opt",
+/// `boot` is where systemd mounts the EFI system partition it booted from.
+const ROOT_DIRS: [&str; 13] = [
+    "dev", "proc", "sys", "run", "tmp", "var", "root", "home", "mnt", "etc", "srv", "opt", "boot",
 ];
 
 /// Build-time files that are not part of the running system.

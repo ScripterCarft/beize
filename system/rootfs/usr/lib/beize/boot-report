@@ -1,11 +1,18 @@
 #!/usr/bin/bash
 # Reports the outcome of the boot on the console once systemd has finished
-# starting up. `bz smoke` evaluates this line; with beize.smoke on the kernel
-# command line the machine powers off afterwards.
+# starting up. `bz smoke` evaluates this line; when the beize.smoke credential
+# is present (passed by `bz smoke` via SMBIOS) the machine powers off afterwards.
 set -u
 
 state=$(systemctl is-system-running --wait)
 read -r uptime _ < /proc/uptime
+
+# EFI variable SecureBoot: 4 attribute bytes, then 1 = enabled.
+secureboot=off
+sb_var=/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
+if [[ -r $sb_var ]] && [[ $(od -An -tu1 -j4 -N1 "$sb_var") -eq 1 ]]; then
+    secureboot=on
+fi
 
 failed=()
 while read -r unit _; do
@@ -13,9 +20,8 @@ while read -r unit _; do
 done < <(systemctl list-units --failed --plain --no-legend)
 failed_list=$(IFS=,; echo "${failed[*]}")
 
-echo "BEIZE-BOOT-REPORT state=${state} uptime=${uptime}s failed=${failed_list:-none}"
+echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} uptime=${uptime}s failed=${failed_list:-none}"
 
-read -r cmdline < /proc/cmdline
-if [[ " $cmdline " == *" beize.smoke "* ]]; then
+if [[ -e /run/credentials/@system/beize.smoke ]]; then
     systemctl poweroff --no-block
 fi

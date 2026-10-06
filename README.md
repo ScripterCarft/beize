@@ -18,8 +18,16 @@ Meilenstein **M1 – Bootet in QEMU** ist erreicht.
 - [x] Shell auf der seriellen Konsole in QEMU
 - [x] Automatischer Boot-Test: systemd `running`, keine fehlgeschlagene Unit
 
-Nächster Meilenstein: **M2 – Echte Hardware** (Secure Boot mit eigenen Schlüsseln,
-A/B-Partitionen, persistentes `/var`, LUKS, NVIDIA, Netzwerk).
+Meilenstein **M2 – Echte Hardware** ist in Arbeit.
+
+- [x] Alle Quellen gepinnt und von ihren Maintainern signiert (`bz verify`)
+- [x] CI baut und bootet das komplette System
+- [x] Secure Boot: signiertes systemd-boot + UKI, eigene Schlüssel; der Boot-Test
+      läuft unter erzwungenem Secure Boot und prüft, dass Unsigniertes abgewiesen wird
+- [ ] Produktionsschlüssel (1Password) und Signieren für echte Hardware
+- [ ] A/B-Systempartitionen mit Rückfall, persistentes `/var`, LUKS + TPM2
+- [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
+- [ ] Start von der zweiten SSD
 
 ## Voraussetzungen
 
@@ -42,7 +50,7 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 ```sh
 ./bz build                  # Toolchain, Kernel, Pakete, Root-Image und Disk bauen
 ./bz run                    # Image in QEMU starten (beenden mit Ctrl-A X)
-./bz smoke                  # Image headless starten und prüfen, ob das System hochkommt
+./bz smoke                  # Booten unter Secure Boot prüfen (und dass Unsigniertes abgewiesen wird)
 ./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
 ./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
 ./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen

@@ -19,7 +19,11 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dmode=release -Dauto_features=disabled \
   -Dblkid=enabled -Dlibmount=enabled \
   -Dtests=false -Dinstall-tests=false \
-  -Ddefault-dnssec=no
+  -Ddefault-dnssec=no \
+  -Dbootloader=enabled \
+  -Dsbat-distro=beize -Dsbat-distro-summary=Beize \
+  -Dsbat-distro-pkgname=systemd -Dsbat-distro-version="$VERSION" \
+  -Dsbat-distro-url=https://github.com/ScripterCarft/beize
 meson compile -j "$JOBS"
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''

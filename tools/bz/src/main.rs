@@ -11,6 +11,7 @@ mod paths;
 mod qemu;
 mod recipe;
 mod rootfs;
+mod secureboot;
 mod source;
 mod util;
 

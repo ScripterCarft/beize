@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::paths::Paths;
 use crate::rootfs::OS_RELEASE;
-use crate::util;
+use crate::{secureboot, util};
 
 const SECTOR: u64 = 512;
 const MIB: u64 = 1024 * 1024;
@@ -15,6 +15,15 @@ const MIB: u64 = 1024 * 1024;
 /// Partition layout: 1 MiB alignment gap, ESP, root, 1 MiB for the backup GPT.
 const ESP_START: u64 = MIB / SECTOR;
 const ESP_SIZE: u64 = 64 * MIB;
+/// Byte offset of the ESP inside the disk image (for mtools `-i disk@@offset`).
+pub const ESP_OFFSET: u64 = ESP_START * SECTOR;
+/// The Unified Kernel Image on the ESP, as an mtools path.
+pub const UKI_PATH_ON_ESP: &str = "::/EFI/Linux/beize.efi";
+
+/// The UKI before signing; kept for the Secure Boot rejection test.
+pub fn unsigned_uki(paths: &Paths) -> PathBuf {
+    paths.work.join("beize.unsigned.efi")
+}
 
 /// Fixed identifiers keep the image reproducible.
 const DISK_GUID: &str = "6265697A-6500-4000-8000-000000000001";
@@ -33,9 +42,13 @@ fn kernel_cmdline() -> String {
     )
 }
 
-/// Wraps the kernel into a UKI and writes `out/disk.img`: a GPT disk whose
-/// ESP boots the UKI through the removable-media path and whose second
-/// partition holds the read-only root filesystem.
+/// Boot loader configuration: boot the newest entry immediately; the menu
+/// appears while a key is held. No command line editing under Secure Boot.
+const LOADER_CONF: &str = "timeout 0\neditor no\nconsole-mode keep\n";
+
+/// Builds and signs the boot chain and writes `out/disk.img`: a GPT disk
+/// whose ESP holds systemd-boot and the Unified Kernel Image, and whose
+/// second partition holds the read-only root filesystem.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let kernel = paths.out.join("vmlinuz");
     let root_image = paths.out.join("root.erofs");
@@ -46,22 +59,34 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     }
     let release = fs::read_to_string(paths.out.join("kernel.release"))
         .context("reading kernel.release; run `bz kernel`")?;
+    // Boot loader and UKI stub come from Beize's own systemd build.
+    let efi_dir = paths.sysroot.join("usr/lib/systemd/boot/efi");
+    let keys = secureboot::Keys::test(paths)?;
 
     util::step("Building Unified Kernel Image");
     let os_release = paths.work.join("os-release");
     fs::write(&os_release, OS_RELEASE)?;
-    let uki = paths.out.join("beize.efi");
+    let unsigned_uki = unsigned_uki(paths);
     util::run(
         Command::new("ukify")
             .arg("build")
             .arg("--linux")
             .arg(&kernel)
+            .arg("--stub")
+            .arg(efi_dir.join("linuxx64.efi.stub"))
             .arg(format!("--cmdline={}", kernel_cmdline()))
             .arg(format!("--os-release=@{}", os_release.display()))
             .arg(format!("--uname={}", release.trim()))
             .arg("--output")
-            .arg(&uki),
+            .arg(&unsigned_uki),
     )?;
+
+    util::step("Signing boot chain (test keys)");
+    let uki = paths.out.join("beize.efi");
+    keys.sign(&unsigned_uki, &uki)?;
+    let boot_loader = paths.out.join("systemd-bootx64.efi");
+    keys.sign(&efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
+    keys.firmware_vars(&paths.out.join("ovmf-vars-secureboot.fd"))?;
 
     util::step("Writing disk image");
     let root_size = fs::metadata(&root_image)?.len().div_ceil(MIB) * MIB;
@@ -81,14 +106,26 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(&disk)
             .arg((ESP_SIZE / 1024).to_string()),
     )?;
-    let esp = format!("{}@@{}", disk.display(), ESP_START * SECTOR);
-    util::run(Command::new("mmd").args(["-i", &esp, "::/EFI", "::/EFI/BOOT"]))?;
-    util::run(
-        Command::new("mcopy")
-            .args(["-i", &esp])
-            .arg(&uki)
-            .arg("::/EFI/BOOT/BOOTX64.EFI"),
-    )?;
+    let esp = format!("{}@@{ESP_OFFSET}", disk.display());
+    util::run(Command::new("mmd").args(["-i", &esp]).args([
+        "::/EFI",
+        "::/EFI/BOOT",
+        "::/EFI/systemd",
+        "::/EFI/Linux",
+        "::/loader",
+    ]))?;
+    let loader_conf = paths.work.join("loader.conf");
+    fs::write(&loader_conf, LOADER_CONF)?;
+    for (file, dest) in [
+        // Removable-media path: what firmware boots without NVRAM entries.
+        (&boot_loader, "::/EFI/BOOT/BOOTX64.EFI"),
+        (&boot_loader, "::/EFI/systemd/systemd-bootx64.efi"),
+        // Type #2 entry, discovered by systemd-boot without a config file.
+        (&uki, UKI_PATH_ON_ESP),
+        (&loader_conf, "::/loader/loader.conf"),
+    ] {
+        util::run(Command::new("mcopy").args(["-i", &esp]).arg(file).arg(dest))?;
+    }
     write_at(&disk, root_start * SECTOR, &root_image)?;
 
     eprintln!(
