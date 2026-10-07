@@ -27,7 +27,8 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [ ] Produktionsschlüssel (1Password) und Signieren für echte Hardware
 - [x] Nur `/usr` wird ausgeliefert; die initrd legt beim ersten Start `/usr`-Slot B und die
       Root-Partition (`/etc`, `/var`, `/home`) an; Boot-Counting mit automatischem Rückfall
-- [ ] dm-verity für `/usr`, Root-Partition mit LUKS + TPM2, Updater (systemd-sysupdate)
+- [x] dm-verity für `/usr`: Root-Hash im signierten UKI, jeder Block wird beim Lesen geprüft
+- [ ] Root-Partition mit LUKS + TPM2, Updater (systemd-sysupdate)
 - [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
 - [ ] Start von der zweiten SSD
 
@@ -61,10 +62,11 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`.
 
 `./bz smoke` installiert das Image auf eine frische 8-GB-Test-Disk und prüft:
-Secure Boot aktiv, erster Start legt Partitionen an, systemd `running` ohne eine
+Secure Boot aktiv, `/usr` über dm-verity, erster Start legt Partitionen an, systemd `running` ohne eine
 einzige fehlgeschlagene Unit (auch in der initrd), Boot-Counting markiert den Start
-als gut, der zweite Start findet dieselbe Installation – und ein unsigniertes
-Kernel-Image wird von der Firmware abgewiesen.
+als gut, der zweite Start findet dieselbe Installation – und zwei Gegentests:
+ein unsigniertes Kernel-Image wird von der Firmware abgewiesen, ein einziges
+verändertes Byte in `/usr` wird von dm-verity erkannt.
 Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden.
 Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 

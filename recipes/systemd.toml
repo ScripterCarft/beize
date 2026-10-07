@@ -6,7 +6,7 @@
 name = "systemd"
 version = "262"
 stage = "target"
-deps = ["gcc", "glibc", "libcap", "util-linux"]
+deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -21,6 +21,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
   -Dmode=release -Dauto_features=disabled \
   -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \
+  -Dlibcryptsetup=enabled \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \
   -Dinstall-sysconfdir=false -Dfallback-hostname=beize \

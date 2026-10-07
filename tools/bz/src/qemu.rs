@@ -2,7 +2,7 @@
 //! automated end-to-end test (`bz smoke`).
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -36,6 +36,8 @@ const SMOKE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.smoke=
 struct BootReport {
     state: String,
     secure_boot: String,
+    /// `verity` if /usr is mounted from a dm-verity device.
+    usr: String,
     /// How often this installation has booted, counted on the root partition.
     boot: u32,
     machine_id: String,
@@ -44,7 +46,7 @@ struct BootReport {
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on boot=1 machineid=… uptime=2.95s failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity boot=1 machineid=… uptime=2.95s failed=none`.
     fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -57,6 +59,7 @@ impl BootReport {
         Some(Self {
             state: field("state")?,
             secure_boot: field("secureboot")?,
+            usr: field("usr")?,
             boot: field("boot")?.parse().ok()?,
             machine_id: field("machineid")?,
             uptime: field("uptime")?,
@@ -184,6 +187,40 @@ pub fn smoke(paths: &Paths) -> Result<()> {
             TAMPER_TIMEOUT.as_secs()
         ),
     }
+
+    util::step("dm-verity must detect a modified /usr");
+    let machine = Machine::install(paths, "tampered")?;
+    // Flip one byte of the EROFS superblock (at 1 KiB) in /usr slot A.
+    {
+        let mut disk = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&machine.disk)?;
+        let offset = image::USR_OFFSET + 1024;
+        let mut byte = [0u8; 1];
+        disk.seek(SeekFrom::Start(offset))?;
+        disk.read_exact(&mut byte)?;
+        disk.seek(SeekFrom::Start(offset))?;
+        disk.write_all(&[byte[0] ^ 0xff])?;
+    }
+    let run = watch_boot(&machine, TAMPER_TIMEOUT, |line| {
+        if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
+            Some(false)
+        } else if line.contains("verity") && line.contains("is corrupted") {
+            Some(true)
+        } else {
+            None
+        }
+    });
+    machine.remove()?;
+    match run?.answer {
+        Some((true, _)) => eprintln!("\n  ok: the modified /usr was detected and not used"),
+        Some((false, _)) => bail!("the system booted from a modified /usr"),
+        None => bail!(
+            "no verdict on the modified /usr within {}s",
+            TAMPER_TIMEOUT.as_secs()
+        ),
+    }
     Ok(())
 }
 
@@ -197,6 +234,11 @@ fn boot_healthy(machine: &Machine, expected_boot: u32) -> Result<BootReport> {
             SMOKE_TIMEOUT.as_secs()
         );
     };
+    ensure!(
+        report.usr == "verity",
+        "/usr is not protected by dm-verity (usr={})",
+        report.usr
+    );
     ensure!(
         report.secure_boot == "on",
         "the system booted without Secure Boot (secureboot={})",
@@ -245,15 +287,34 @@ fn check_partitions(disk: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The partitions expected after first boot, as (type, label), that the
+/// `sfdisk --dump` output lacks.
 fn missing_partitions(sfdisk_dump: &str) -> Vec<String> {
+    let present: Vec<(String, String)> = sfdisk_dump
+        .lines()
+        .filter_map(|line| {
+            let field = |key: &str| {
+                let start = line.find(key)? + key.len();
+                let rest = &line[start..];
+                let end = rest.find([',', '"']).unwrap_or(rest.len());
+                Some(rest[..end].trim().to_uppercase())
+            };
+            let name = line.split("name=\"").nth(1)?.split('"').next()?.to_owned();
+            Some((field("type=")?, name))
+        })
+        .collect();
+    let usr = layout::usr_label();
     [
-        "esp".to_owned(),
-        layout::usr_label(),
-        "_empty".to_owned(),
-        "root".to_owned(),
+        ("esp", layout::ESP_TYPE, "esp"),
+        ("/usr A", layout::USR_TYPE, usr.as_str()),
+        ("/usr A verity", layout::USR_VERITY_TYPE, usr.as_str()),
+        ("/usr B", layout::USR_TYPE, "_empty"),
+        ("/usr B verity", layout::USR_VERITY_TYPE, "_empty"),
+        ("root", layout::ROOT_TYPE, "root"),
     ]
     .into_iter()
-    .filter(|name| !sfdisk_dump.contains(&format!("name=\"{name}\"")))
+    .filter(|(_, ty, name)| !present.contains(&(ty.to_string(), name.to_string())))
+    .map(|(what, _, _)| what.to_owned())
     .collect()
 }
 
@@ -411,7 +472,7 @@ fn kvm_available() -> bool {
 mod tests {
     use super::*;
 
-    const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on boot=1 \
+    const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s failed=none";
 
     #[test]
@@ -419,6 +480,7 @@ mod tests {
         let report = BootReport::parse(CLEAN).unwrap();
         assert_eq!(report.state, "running");
         assert_eq!(report.secure_boot, "on");
+        assert_eq!(report.usr, "verity");
         assert_eq!(report.boot, 1);
         assert_eq!(report.machine_id, "0123456789abcdef0123456789abcdef");
         assert_eq!(report.uptime, "2.95s");
@@ -427,7 +489,7 @@ mod tests {
 
     #[test]
     fn parses_degraded_report_behind_console_noise() {
-        let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off boot=2 \
+        let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected boot=2 \
                     machineid=x uptime=3.1s failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
@@ -466,19 +528,37 @@ mod tests {
     #[test]
     fn detects_missing_partitions() {
         let usr = layout::usr_label();
-        let after_first_boot = format!(
-            "label: gpt\n\
-             disk.img1 : start=2048, size=524288, type=C12A7328-…, name=\"esp\"\n\
-             disk.img2 : start=526336, size=2097152, type=8484680C-…, name=\"{usr}\"\n\
-             disk.img3 : start=2623488, size=2097152, type=8484680C-…, name=\"_empty\"\n\
-             disk.img4 : start=4720640, size=12056576, type=4F68BCE3-…, name=\"root\"\n"
-        );
+        let line = |n: u32, ty: &str, name: &str| {
+            format!("disk.img{n} : start=1, size=1, type={ty}, uuid=X, name=\"{name}\"\n")
+        };
+        let after_first_boot = [
+            "label: gpt\n".to_owned(),
+            line(1, layout::ESP_TYPE, "esp"),
+            line(2, layout::USR_TYPE, &usr),
+            line(3, layout::USR_VERITY_TYPE, &usr),
+            line(4, layout::USR_TYPE, "_empty"),
+            line(5, layout::USR_VERITY_TYPE, "_empty"),
+            line(6, &layout::ROOT_TYPE.to_lowercase(), "root"),
+        ]
+        .concat();
         assert!(missing_partitions(&after_first_boot).is_empty());
-        let shipped = after_first_boot
+
+        // The shipped image, before first boot.
+        let shipped: String = after_first_boot
             .lines()
-            .filter(|l| !l.contains("_empty") && !l.contains("\"root\""))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert_eq!(missing_partitions(&shipped), ["_empty", "root"]);
+            .take(4)
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert_eq!(
+            missing_partitions(&shipped),
+            ["/usr B", "/usr B verity", "root"]
+        );
+
+        // A data partition does not stand in for a missing verity partition.
+        let no_b_verity = after_first_boot.replace(
+            &line(5, layout::USR_VERITY_TYPE, "_empty"),
+            &line(5, layout::USR_TYPE, "_empty"),
+        );
+        assert_eq!(missing_partitions(&no_b_verity), ["/usr B verity"]);
     }
 }

@@ -14,6 +14,17 @@ if [[ -r $sb_var ]] && [[ $(od -An -tu1 -j4 -N1 "$sb_var") -eq 1 ]]; then
     secureboot=on
 fi
 
+# How /usr is mounted: "verity" only if it comes from a dm-verity device,
+# i.e. every block read is checked against the root hash in the signed UKI.
+usr=unprotected
+while read -r _ _ devnum _ mountpoint _; do
+    if [[ $mountpoint == /usr ]]; then
+        dm_uuid=/sys/dev/block/$devnum/dm/uuid
+        [[ -r $dm_uuid && $(< "$dm_uuid") == CRYPT-VERITY-* ]] && usr=verity
+        break
+    fi
+done < /proc/self/mountinfo
+
 failed=()
 while read -r unit _; do
     failed+=("$unit")
@@ -29,7 +40,7 @@ boot=$((boot + 1))
 mkdir -p "${counter%/*}" && echo "$boot" > "$counter" && sync "$counter"
 read -r machineid < /etc/machine-id
 
-echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} boot=${boot}" \
+echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s failed=${failed_list:-none}"
 
 if [[ -e /run/credentials/@system/beize.smoke ]]; then

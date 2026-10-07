@@ -1,17 +1,25 @@
 //! Versioning and disk layout, shared by everything that builds or boots an
-//! image (ADR 0007).
+//! image (ADR 0007, ADR 0008).
 //!
-//! The shipped image holds the ESP and one `/usr` slot (A). On first boot
-//! systemd-repart, running in the initrd, adds the second `/usr` slot (B) and
-//! the writable root partition, following [`repart_definitions`].
+//! The shipped image holds the ESP and `/usr` slot A: the EROFS data
+//! partition plus its dm-verity hash partition. On first boot systemd-repart,
+//! running in the initrd, adds slot B and the writable root partition,
+//! following [`repart_definitions`].
+
+use anyhow::{Result, ensure};
 
 pub const MIB: u64 = 1024 * 1024;
 
 /// Version of the OS image; part of partition labels and UKI names.
 pub const OS_VERSION: &str = "0.1";
 
-/// Size of each `/usr` slot. An update must fit into one slot.
+/// Size of each `/usr` data slot. An update must fit into one slot.
 pub const USR_SLOT_SIZE: u64 = 1024 * MIB;
+/// Size of each `/usr` verity slot: the hash tree of a full 1 GiB data slot
+/// with 4 KiB blocks and SHA-256 takes about 8 MiB.
+pub const USR_VERITY_SLOT_SIZE: u64 = 64 * MIB;
+/// dm-verity data and hash block size (the EROFS block size, too).
+pub const VERITY_BLOCK_SIZE: u64 = 4096;
 /// Holds systemd-boot and the UKIs of both slots with room to spare.
 pub const ESP_SIZE: u64 = 512 * MIB;
 /// FAT cluster size of the ESP. FAT32 requires at least 65525 clusters;
@@ -30,8 +38,10 @@ pub const BOOT_TRIES: u32 = 3;
 /// GPT partition types (UAPI.2 Discoverable Partitions Specification).
 pub const ESP_TYPE: &str = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B";
 pub const USR_TYPE: &str = "8484680C-9521-48C6-9C11-B0720656F69E";
+pub const USR_VERITY_TYPE: &str = "77FF5F63-E7B6-4633-ACF4-1565B864C0E6";
+pub const ROOT_TYPE: &str = "4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709";
 
-/// GPT label of the `/usr` slot holding this version, e.g. `beize_0.1`.
+/// GPT label of both partitions of the `/usr` slot holding this version, e.g. `beize_0.1`.
 pub fn usr_label() -> String {
     format!("beize_{OS_VERSION}")
 }
@@ -57,26 +67,80 @@ pub fn os_release() -> String {
     )
 }
 
+/// The partition UUIDs systemd derives from a dm-verity root hash (UAPI.2):
+/// the data partition gets the first 128 bits, the hash partition the last
+/// 128 bits. `usrhash=` on the kernel command line thereby selects exactly
+/// the slot whose content matches.
+pub fn verity_partition_uuids(root_hash: &str) -> Result<(String, String)> {
+    ensure!(
+        root_hash.len() == 64 && root_hash.bytes().all(|b| b.is_ascii_hexdigit()),
+        "expected a SHA-256 root hash, got {root_hash:?}"
+    );
+    let uuid = |hex: &str| {
+        format!(
+            "{}-{}-{}-{}-{}",
+            &hex[0..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..32]
+        )
+        .to_uppercase()
+    };
+    Ok((uuid(&root_hash[..32]), uuid(&root_hash[32..])))
+}
+
 /// systemd-repart definitions (`/usr/lib/repart.d/`), as file name and content.
 /// Existing partitions are matched to definitions of the same type in order.
+/// Every partition except root has a fixed size: repart grows partitions
+/// without an upper bound into free space, existing ones included.
 pub fn repart_definitions() -> Vec<(&'static str, String)> {
+    let fixed = |comment: &str, ty: &str, label: Option<&str>, size: u64| {
+        let label = label.map(|l| format!("Label={l}\n")).unwrap_or_default();
+        format!(
+            "# {comment}\n[Partition]\nType={ty}\n{label}\
+             SizeMinBytes={size}\nSizeMaxBytes={size}\n"
+        )
+    };
     vec![
         (
             "00-esp.conf",
-            "# Shipped in the image.\n[Partition]\nType=esp\n".to_owned(),
+            fixed("Shipped in the image.", "esp", None, ESP_SIZE),
         ),
         (
             "10-usr-a.conf",
-            "# Shipped in the image: the /usr slot the system was installed with.\n\
-             [Partition]\nType=usr\n"
-                .to_owned(),
+            fixed(
+                "Shipped in the image: data of the /usr slot the system was installed with.",
+                "usr",
+                None,
+                USR_SLOT_SIZE,
+            ),
         ),
         (
-            "11-usr-b.conf",
-            format!(
-                "# Created on first boot: the second /usr slot for A/B updates.\n\
-                 [Partition]\nType=usr\nLabel=_empty\n\
-                 SizeMinBytes={USR_SLOT_SIZE}\nSizeMaxBytes={USR_SLOT_SIZE}\n"
+            "11-usr-a-verity.conf",
+            fixed(
+                "Shipped in the image: dm-verity hash tree of /usr slot A.",
+                "usr-verity",
+                None,
+                USR_VERITY_SLOT_SIZE,
+            ),
+        ),
+        (
+            "12-usr-b.conf",
+            fixed(
+                "Created on first boot: data of /usr slot B, for A/B updates.",
+                "usr",
+                Some("_empty"),
+                USR_SLOT_SIZE,
+            ),
+        ),
+        (
+            "13-usr-b-verity.conf",
+            fixed(
+                "Created on first boot: dm-verity hash tree of /usr slot B.",
+                "usr-verity",
+                Some("_empty"),
+                USR_VERITY_SLOT_SIZE,
             ),
         ),
         (
@@ -103,16 +167,33 @@ mod tests {
     }
 
     #[test]
-    fn second_usr_slot_matches_the_first() {
+    fn only_root_grows() {
+        for (name, def) in repart_definitions() {
+            let fixed = def.contains("SizeMaxBytes=");
+            assert_eq!(fixed, !def.contains("Type=root"), "{name}");
+        }
+    }
+
+    #[test]
+    fn derives_partition_uuids_from_root_hash() {
+        let hash = "0123456789abcdef0123456789abcdeffedcba9876543210fedcba9876543210";
+        let (data, verity) = verity_partition_uuids(hash).unwrap();
+        assert_eq!(data, "01234567-89AB-CDEF-0123-456789ABCDEF");
+        assert_eq!(verity, "FEDCBA98-7654-3210-FEDC-BA9876543210");
+        assert!(verity_partition_uuids("abc").is_err());
+    }
+
+    #[test]
+    fn slot_b_matches_slot_a() {
         let defs = repart_definitions();
-        let usr_b = &defs
-            .iter()
-            .find(|(name, _)| *name == "11-usr-b.conf")
-            .unwrap()
-            .1;
-        assert!(usr_b.contains(&format!("SizeMinBytes={USR_SLOT_SIZE}")));
-        assert!(usr_b.contains(&format!("SizeMaxBytes={USR_SLOT_SIZE}")));
-        // Order matters: the shipped slot must be matched before the new one.
+        let def = |name: &str| &defs.iter().find(|(n, _)| *n == name).unwrap().1;
+        assert!(def("12-usr-b.conf").contains("Type=usr\n"));
+        assert!(def("12-usr-b.conf").contains(&format!("SizeMaxBytes={USR_SLOT_SIZE}")));
+        assert!(def("13-usr-b-verity.conf").contains("Type=usr-verity\n"));
+        assert!(
+            def("13-usr-b-verity.conf").contains(&format!("SizeMaxBytes={USR_VERITY_SLOT_SIZE}"))
+        );
+        // Order matters: shipped partitions are matched before new ones.
         let names: Vec<_> = defs.iter().map(|(name, _)| *name).collect();
         let mut sorted = names.clone();
         sorted.sort();

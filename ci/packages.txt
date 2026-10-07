@@ -21,7 +21,8 @@ libelf-dev
 libssl-dev
 rsync
 
-# Meson projects (systemd, dbus)
+# Meson and CMake projects (systemd, dbus, json-c)
+cmake
 gperf
 meson
 ninja-build
@@ -44,6 +45,7 @@ python3-virt-firmware
 sbsigntool
 
 # Images
+cryptsetup-bin
 dosfstools
 erofs-utils
 fdisk
