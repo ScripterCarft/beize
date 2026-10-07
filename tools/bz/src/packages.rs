@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
@@ -191,7 +192,8 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
 
     eprintln!("  log: {}", log_path.display());
     let started = Instant::now();
-    let status = cmd.status().context("starting bash")?;
+    let child = cmd.spawn().context("starting bash")?;
+    let status = wait_with_heartbeat(child, &recipe.name, &log_path, started)?;
     if !status.success() {
         print_tail(&log_path, 40);
         bail!("building {} failed with {status}", recipe.name);
@@ -202,6 +204,34 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
         install::merge(paths, &recipe.name, &pkg_dir)?;
     }
     Ok(())
+}
+
+/// How often a running build reports that it is still alive. Build output
+/// goes to the log, so without this a long build (GCC on a small CI runner
+/// takes over an hour) looks exactly like a hang.
+const HEARTBEAT: Duration = Duration::from_secs(60);
+
+fn wait_with_heartbeat(
+    mut child: Child,
+    name: &str,
+    log_path: &Path,
+    started: Instant,
+) -> Result<ExitStatus> {
+    let mut next = started + HEARTBEAT;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if Instant::now() >= next {
+            let log_kib = fs::metadata(log_path).map_or(0, |m| m.len() / 1024);
+            eprintln!(
+                "  still building {name}: {} min, log {log_kib} KiB",
+                started.elapsed().as_secs() / 60
+            );
+            next += HEARTBEAT;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
 }
 
 fn meson_cross_file(paths: &Paths) -> std::path::PathBuf {

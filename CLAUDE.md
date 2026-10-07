@@ -40,7 +40,8 @@ M3 Compositor · M4 Alltagstauglich · M5 Feinschliff. Detaillierter Stand: `REA
 - GitHub: `git@github.com:ScripterCarft/beize.git`. Git in WSL nutzt per
   repo-lokalem `core.sshCommand` Windows-`ssh.exe` mit dem 1Password-SSH-Agent –
   **Push hängt, wenn 1Password gesperrt ist**: Besitzer bitten zu entsperren.
-  `gh` ist nicht installiert; CI-Status sieht der Besitzer unter „Actions“.
+  `gh` ist in WSL installiert (Ubuntu-Paket); angemeldet wird es vom Besitzer selbst
+  (`gh auth login`). Damit: `gh run list`, `gh run view --log-failed`, `gh run cancel`.
 - Läuft Claude Code auf Windows (Arbeitsverzeichnis `F:\code-projects`), Befehle so ausführen:
   `WSL_UTF8=1 wsl.exe -d Ubuntu-26.04 -- bash -l -s <<'EOF' … EOF` (Heredoc!
   `bash -c '…'` wird umgeparst, `$?`/`$(…)` expandieren falsch; Git Bash
@@ -111,7 +112,13 @@ erster Start ~7 s (Verschlüsseln + Formatieren). Ganzer Smoke-Test ~3 min.
 
 CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`,
 manuell und wöchentlich `ci/system.sh` in privilegiertem `ubuntu:26.04`-Container
-mit KVM (verify, build, smoke). Ob der GitHub-Lauf grün ist, wurde noch nicht bestätigt.
+mit KVM (verify, build, smoke). Ein neuer Push bricht ältere Läufe ab
+(`concurrency`). Gebaute Pakete, Toolchain, Sysroot, Stamps und der Kernel-Objektbaum
+liegen im Actions-Cache (nach jedem Lauf gespeichert, auch nach Fehlschlag/Abbruch);
+die Fingerprints von `bz` entscheiden, was neu gebaut wird. Der erste volle Bau auf
+einem 4-Kern-Runner dauert Stunden (gcc-pass1 allein ~23 min) – `bz` meldet bei
+langen Paketen jede Minute „still building …“. Ob der GitHub-Lauf grün ist, wurde
+noch nicht bestätigt.
 
 ## 7. Sicherheitsmodell
 

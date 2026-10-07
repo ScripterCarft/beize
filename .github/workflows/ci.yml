@@ -8,6 +8,12 @@ on:
     # Weekly, to notice when an upstream download or signature changes.
     - cron: "17 4 * * 1"
 
+# A newer push to the same branch makes older runs pointless: cancel them
+# instead of letting several multi-hour builds run side by side.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Format, lint, test
@@ -40,7 +46,36 @@ jobs:
           path: build/cache
           key: sources-${{ hashFiles('recipes/*.toml') }}
           restore-keys: sources-
+      # Built packages (cross toolchain, sysroot, ownership manifests, stamps)
+      # and the kernel object tree. bz's fingerprints decide what is still up
+      # to date, so restoring an older state is safe: only what changed is
+      # rebuilt. Saved after every run, also a failed or cancelled one, so a
+      # long first build is never lost.
+      - name: Restore build state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/tools
+            build/sysroot
+            build/manifests
+            build/work/stamps
+            build/work/linux-obj
+          key: build-${{ hashFiles('recipes/*.toml', 'kernel/**', 'tools/bz/src/**') }}-${{ github.run_id }}
+          restore-keys: |
+            build-${{ hashFiles('recipes/*.toml', 'kernel/**', 'tools/bz/src/**') }}-
+            build-
       - run: ci/system.sh
+      - name: Save build state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/tools
+            build/sysroot
+            build/manifests
+            build/work/stamps
+            build/work/linux-obj
+          key: build-${{ hashFiles('recipes/*.toml', 'kernel/**', 'tools/bz/src/**') }}-${{ github.run_id }}
       - name: Upload disk image
         uses: actions/upload-artifact@v4
         with:
