@@ -1,0 +1,31 @@
+# libcryptsetup: dm-verity for /usr and (later) LUKS2 for the root partition,
+# used by systemd. The cryptsetup command line tools are not needed.
+name = "cryptsetup"
+version = "2.8.8"
+stage = "target"
+deps = ["gcc", "glibc", "util-linux", "openssl", "json-c", "lvm2"]
+
+[source]
+url = "https://cdn.kernel.org/pub/linux/utils/cryptsetup/v2.8/cryptsetup-{version}.tar.xz"
+sha256 = "3acfa685f2dd7fcc832e0b77bc7093aa7da554a51ce8dafbb4138eaa854eee35"
+signature = "https://cdn.kernel.org/pub/linux/utils/cryptsetup/v2.8/cryptsetup-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "cryptsetup"
+
+[build]
+script = '''
+# configure insists on popt, but only the command line tools use it and they
+# are disabled; answer the check instead of shipping an unused library.
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin \
+  --with-crypto_backend=openssl --with-tmpfilesdir=/usr/lib/tmpfiles.d \
+  --disable-static --disable-nls --disable-asciidoc --disable-ssh-token \
+  --disable-cryptsetup --disable-veritysetup --disable-integritysetup \
+  ac_cv_lib_popt_poptConfigFileToString=yes
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+# Guard against the workaround leaking into the library.
+if "$TARGET-readelf" -d "$PKG"/usr/lib/libcryptsetup.so.* | grep -q libpopt; then
+  echo "libcryptsetup links popt" >&2; exit 1
+fi
+'''

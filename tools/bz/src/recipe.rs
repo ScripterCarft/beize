@@ -5,6 +5,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use crate::paths::Paths;
+#[cfg(test)]
+use crate::source::Trust;
 use crate::source::{Extra, RawSource, Source};
 use crate::util;
 
@@ -208,8 +210,10 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
             assert_eq!(recipe.name, name, "{}", path.display());
             for source in recipe.sources() {
-                let keyring = root.join("keys").join(format!("{}.gpg", source.keyring));
-                assert!(keyring.exists(), "{name}: missing {}", keyring.display());
+                if let Trust::Signed { keyring } = &source.trust {
+                    let keyring = root.join("keys").join(format!("{keyring}.gpg"));
+                    assert!(keyring.exists(), "{name}: missing {}", keyring.display());
+                }
             }
         }
     }

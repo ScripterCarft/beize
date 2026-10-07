@@ -79,7 +79,8 @@ fn main() -> Result<()> {
 }
 
 fn verify_sources(paths: &Paths) -> Result<()> {
-    let mut count = 0;
+    let mut signed = 0;
+    let mut unsigned = Vec::new();
     for name in recipe::all_names(paths)? {
         let recipe = recipe::Recipe::load(paths, &name)?;
         if recipe.source_from.is_some() {
@@ -88,10 +89,22 @@ fn verify_sources(paths: &Paths) -> Result<()> {
         for source in recipe.sources() {
             util::step(&format!("Verifying {name} ({})", source.stem()?));
             source.fetch(paths, true)?;
-            count += 1;
+            match &source.trust {
+                source::Trust::Signed { .. } => signed += 1,
+                source::Trust::PinnedOnly { reason } => unsigned.push(format!("{name}: {reason}")),
+            }
         }
     }
-    eprintln!("\n  ok: {count} sources pinned and signed by their maintainers");
+    eprintln!("\n  ok: {signed} sources pinned and signed by their maintainers");
+    if !unsigned.is_empty() {
+        eprintln!(
+            "  {} sources pinned but UNSIGNED (upstream publishes no signatures):",
+            unsigned.len()
+        );
+        for entry in &unsigned {
+            eprintln!("    - {entry}");
+        }
+    }
     Ok(())
 }
 

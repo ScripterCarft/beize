@@ -1,0 +1,24 @@
+# JSON parser, required by cryptsetup for LUKS2 metadata.
+name = "json-c"
+version = "0.19"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+# json-c publishes no signatures at all (neither release archives nor tags,
+# checked 2026-10-07), so this is the one source that is only pinned.
+[source]
+git = "https://github.com/json-c/json-c.git"
+tag = "json-c-{version}-20260627"
+commit = "aa716cd8d663c976b99b0f30f102ee1d8ef63146"
+unsigned = "json-c publishes neither signed releases nor signed tags; pinned to the commit of the release tag, the same one Arch Linux builds"
+
+[build]
+script = '''
+cmake -S "$SRC" -B . -G Ninja \
+  -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+  -DCMAKE_SYSROOT="$SYSROOT" -DCMAKE_C_COMPILER="$CC" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib \
+  -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_TESTING=OFF -DBUILD_APPS=OFF
+cmake --build . --parallel "$JOBS"
+DESTDIR="$PKG" cmake --install .
+'''

@@ -1,0 +1,22 @@
+# OpenSSL: crypto backend for cryptsetup, later TPM2 support in systemd.
+name = "openssl"
+version = "4.0.3"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz"
+sha256 = "325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9"
+signature = "https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz.asc"
+keyring = "openssl"
+
+[build]
+script = '''
+# /etc/ssl is where the system's certificate store will live at runtime;
+# nothing is installed there (install_sw only installs libraries and tools).
+"$SRC/Configure" linux-x86_64 \
+  --prefix=/usr --libdir=lib --openssldir=/etc/ssl \
+  shared no-tests no-docs
+make -j"$JOBS"
+make DESTDIR="$PKG" install_sw
+'''

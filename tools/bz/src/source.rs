@@ -4,6 +4,10 @@
 //! signed by its upstream maintainers. Signatures are checked with `gpgv`
 //! against a keyring committed under `keys/`, so a source can only enter the
 //! build if both the pin and the maintainer's signature match.
+//!
+//! The only exception is a project that publishes no signatures at all: its
+//! recipe must say so with `unsigned = "<reason>"`, the pin is then the only
+//! protection, and `bz verify` lists every such source.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,8 +22,16 @@ use crate::util;
 #[derive(Debug, Clone)]
 pub struct Source {
     pub origin: Origin,
-    /// Name of the keyring in `keys/` that holds the maintainers' keys.
-    pub keyring: String,
+    pub trust: Trust,
+}
+
+/// Why a source is trusted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Trust {
+    /// Signed by upstream; checked against the keyring `keys/<keyring>.gpg`.
+    Signed { keyring: String },
+    /// Upstream publishes no signatures; only the pin protects the source.
+    PinnedOnly { reason: String },
 }
 
 #[derive(Debug, Clone)]
@@ -29,8 +41,8 @@ pub enum Origin {
         sha256: String,
         /// Cache file name, for URLs that do not end in a meaningful one.
         file: Option<String>,
-        /// Detached signature URL.
-        signature: String,
+        /// Detached signature URL; present exactly for signed sources.
+        signature: Option<String>,
         signed: SignedData,
     },
     /// An annotated, signed git tag.
@@ -75,6 +87,7 @@ pub struct RawSource {
     tag: Option<String>,
     commit: Option<String>,
     keyring: Option<String>,
+    unsigned: Option<String>,
     dest: Option<String>,
 }
 
@@ -94,9 +107,17 @@ impl RawSource {
 
     fn build(self, version: &str) -> Result<Source> {
         let expand = |s: String| s.replace("{version}", version);
-        let keyring = self
-            .keyring
-            .context("every source needs a keyring; unsigned sources are not accepted")?;
+        let trust = match (self.keyring, self.unsigned) {
+            (Some(keyring), None) => Trust::Signed { keyring },
+            (None, Some(reason)) if !reason.trim().is_empty() => Trust::PinnedOnly { reason },
+            (Some(_), Some(_)) => {
+                bail!("a source is either signed (keyring) or unsigned, not both")
+            }
+            _ => bail!(
+                "every source needs a keyring; a project without any signatures needs                  an explicit `unsigned = \"<reason>\"`"
+            ),
+        };
+        let signed = matches!(trust, Trust::Signed { .. });
 
         let origin = match (self.url, self.git) {
             (Some(url), None) => {
@@ -106,18 +127,22 @@ impl RawSource {
                 );
                 let sha256 = self.sha256.context("archive sources need sha256")?;
                 ensure!(is_hex(&sha256, 64), "sha256 must be 64 hex characters");
+                ensure!(
+                    self.signature.is_some() == signed,
+                    "signed archive sources need a signature, unsigned ones must not have one"
+                );
                 Origin::Archive {
                     url: expand(url),
                     sha256,
                     file: self.file.map(expand),
-                    signature: expand(self.signature.context("archive sources need signature")?),
+                    signature: self.signature.map(expand),
                     signed: self.signed,
                 }
             }
             (None, Some(url)) => {
                 ensure!(
                     self.sha256.is_none() && self.file.is_none() && self.signature.is_none(),
-                    "git sources are pinned by commit and verified by their signed tag"
+                    "git sources are pinned by commit (and verified by their signed tag)"
                 );
                 let commit = self.commit.context("git sources need commit")?;
                 ensure!(is_hex(&commit, 40), "commit must be 40 hex characters");
@@ -129,7 +154,7 @@ impl RawSource {
             }
             _ => bail!("a source needs exactly one of url or git"),
         };
-        Ok(Source { origin, keyring })
+        Ok(Source { origin, trust })
     }
 }
 
@@ -212,13 +237,19 @@ impl Source {
     /// With `force`, the signature is checked again even if it was before.
     /// Returns the archive file or the git clone.
     pub fn fetch(&self, paths: &Paths, force: bool) -> Result<PathBuf> {
-        let keyring = paths
-            .root
-            .join("keys")
-            .join(format!("{}.gpg", self.keyring));
-        ensure!(keyring.exists(), "keyring {} is missing", keyring.display());
+        let keyring = match &self.trust {
+            Trust::Signed { keyring } => {
+                let path = paths.root.join("keys").join(format!("{keyring}.gpg"));
+                ensure!(path.exists(), "keyring {} is missing", path.display());
+                Some(path)
+            }
+            Trust::PinnedOnly { .. } => None,
+        };
         // Re-verify whenever the keyring changes.
-        let verified_marker = format!("{} {}", self.pin(), util::sha256_file(&keyring)?);
+        let verified_marker = match &keyring {
+            Some(keyring) => format!("{} {}", self.pin(), util::sha256_file(keyring)?),
+            None => format!("{} unsigned", self.pin()),
+        };
 
         match &self.origin {
             Origin::Archive {
@@ -239,10 +270,12 @@ impl Source {
                     }
                 }
                 if force || fs::read_to_string(&marker).ok().as_deref() != Some(&verified_marker) {
-                    let sig = archive.with_extension("sig");
-                    download(signature, &sig)?;
-                    verify_detached(&keyring, &sig, &archive, *signed)
-                        .with_context(|| format!("verifying {url}"))?;
+                    if let (Some(keyring), Some(signature)) = (&keyring, signature) {
+                        let sig = archive.with_extension("sig");
+                        download(signature, &sig)?;
+                        verify_detached(keyring, &sig, &archive, *signed)
+                            .with_context(|| format!("verifying {url}"))?;
+                    }
                     fs::write(&marker, &verified_marker)?;
                 }
                 Ok(archive)
@@ -274,7 +307,7 @@ impl Source {
                     fs::rename(&partial, &clone)?;
                 }
                 if force || fs::read_to_string(&marker).ok().as_deref() != Some(&verified_marker) {
-                    verify_tag(&keyring, &clone, tag, commit)
+                    verify_tag(keyring.as_deref(), &clone, tag, commit)
                         .with_context(|| format!("verifying {url} {tag}"))?;
                     fs::write(&marker, &verified_marker)?;
                 }
@@ -333,14 +366,18 @@ fn verify_detached(keyring: &Path, sig: &Path, archive: &Path, signed: SignedDat
     }
 }
 
-/// Checks that `tag` is signed by a key in `keyring` and points at `commit`.
-fn verify_tag(keyring: &Path, clone: &Path, tag: &str, commit: &str) -> Result<()> {
+/// Checks that `tag` points at `commit` and, for signed sources, that it is
+/// signed by a key in `keyring`.
+fn verify_tag(keyring: Option<&Path>, clone: &Path, tag: &str, commit: &str) -> Result<()> {
     let git = |args: &[&str]| util::output(Command::new("git").arg("-C").arg(clone).args(args));
     let actual = git(&["rev-parse", &format!("refs/tags/{tag}^{{commit}}")])?;
     ensure!(
         actual == commit,
         "tag {tag} points at {actual}, expected {commit}"
     );
+    let Some(keyring) = keyring else {
+        return Ok(());
+    };
 
     let raw = git(&["cat-file", "tag", tag])?;
     let (payload, signature) =
@@ -447,7 +484,7 @@ mod tests {
             panic!("expected archive")
         };
         assert_eq!(url, "https://x/linux-7.2.9.tar.xz");
-        assert_eq!(signature, "https://x/linux-7.2.9.tar.sign");
+        assert_eq!(signature.as_deref(), Some("https://x/linux-7.2.9.tar.sign"));
         assert_eq!(*signed, SignedData::Uncompressed);
         assert_eq!(source.stem().unwrap(), "linux-7.2.9");
         assert_eq!(source.pin(), DIGEST);
@@ -466,7 +503,8 @@ mod tests {
     }
 
     #[test]
-    fn unsigned_sources_are_rejected() {
+    fn sources_without_signature_or_reason_are_rejected() {
+        // A keyring without a signature to check.
         let err = raw(&format!(
             "url = \"https://x/a.tar.xz\"\nsha256 = \"{DIGEST}\"\nkeyring = \"a\"\n"
         ))
@@ -474,12 +512,57 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("signature"), "{err}");
 
+        // Neither a keyring nor an explicit reason.
         let err = raw(&format!(
             "url = \"https://x/a.tar.xz\"\nsha256 = \"{DIGEST}\"\nsignature = \"https://x/a.sig\"\n"
         ))
         .into_source("1")
         .unwrap_err();
         assert!(err.to_string().contains("keyring"), "{err}");
+
+        // An empty reason does not count.
+        assert!(
+            raw(&format!(
+                "url = \"https://x/a.tar.xz\"\nsha256 = \"{DIGEST}\"\nunsigned = \" \"\n"
+            ))
+            .into_source("1")
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn unsigned_sources_need_a_reason_and_nothing_to_verify() {
+        let source = raw(&format!(
+            "git = \"https://github.com/json-c/json-c.git\"\ntag = \"json-c-{{version}}\"\n\
+             commit = \"{COMMIT}\"\nunsigned = \"upstream publishes no signatures\"\n"
+        ))
+        .into_source("0.19")
+        .unwrap();
+        assert_eq!(
+            source.trust,
+            Trust::PinnedOnly {
+                reason: "upstream publishes no signatures".to_owned()
+            }
+        );
+
+        // A signature without a keyring to check it against makes no sense.
+        let err = raw(&format!(
+            "url = \"https://x/a.tar.xz\"\nsha256 = \"{DIGEST}\"\nsignature = \"https://x/a.sig\"\n\
+             unsigned = \"why\"\n"
+        ))
+        .into_source("1")
+        .unwrap_err();
+        assert!(err.to_string().contains("signature"), "{err}");
+
+        // Signed and unsigned at once is contradictory.
+        assert!(
+            raw(&format!(
+                "git = \"https://x/a.git\"\ntag = \"v1\"\ncommit = \"{COMMIT}\"\n\
+                 keyring = \"a\"\nunsigned = \"why\"\n"
+            ))
+            .into_source("1")
+            .is_err()
+        );
     }
 
     #[test]
