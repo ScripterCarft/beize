@@ -26,6 +26,7 @@ Prüfen aller Quellen: `./bz verify`
 | `openssl` | OpenSSL | `C46E D3F2 CBEF DA1F DAAD A442 64ED 7B1D CCE7 1CB2` | openssl-library.org/source/pubkeys.asc |
 | `mpfr` | Vincent Lefèvre | `A534 BE3F 83E2 41D9 1828 0AEB 5831 D11A 0D4D B02A` | GNU-Keyring |
 | `systemd` | Luca Boccassi | `AC24 AAC7 DDC4 20F1 8ECA 6B91 286B F7EF CD77 241E` | keyserver.ubuntu.com, signierter Git-Tag |
+| `tpm2-tss` | Andreas Fuchs (Infineon) | `D533 275B 0123 D0A6 79F5  1FF4 8F4F 9A45 D7FF EE74` | keys.openpgp.org; deckungsgleich mit `MAINTAINERS.md` im Release und dem GitHub-Konto des Maintainers |
 | `util-linux` | Karel Zak | `B0C6 4D14 301C C6EF AEDF 60E4 E4B7 1D5E EC39 C284` | keyserver.ubuntu.com |
 
 Abgeglichen am 2026-10-06/07: Jeder Fingerprint ist der Aussteller der Signatur
