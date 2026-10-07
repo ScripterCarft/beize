@@ -13,6 +13,7 @@ Prüfen aller Quellen: `./bz verify`
 | `binutils` | Nick Clifton | `3A24 BC1E 8FB4 09FA 9F14 3718 13FC EF89 DD9E 3C4F` | GNU-Keyring |
 | `coreutils` | Pádraig Brady | `6C37 DC12 121A 5006 BC1D B804 DF6F D971 3060 37D9` | GNU-Keyring |
 | `dbus` | Simon McVittie | `7A07 3AD1 AE69 4FA2 5BFF 62E5 235C 099D 3EB3 3076` | keyserver.ubuntu.com |
+| `e2fsprogs` | Theodore Ts'o | `2B69 B954 DBFE 0879 2881 37C9 F2F9 5956 950D 81A3` | keys.openpgp.org |
 | `expat` | Sebastian Pipping | `CB8D E70A 90CF BF6C 3BF5 CC56 9626 2ACF FBD3 AEC6` | keyserver.ubuntu.com |
 | `gcc` | Richard Biener | `7F74 F97C 1034 68EE 5D75 0B58 3AB0 0996 FC26 A641` | GNU-Keyring |
 | `glibc` | Andreas K. Hüttel | `35B1 7DF5 7525 77CA 0C54 1CEB 94BF DF44 84AD 142F` | keys.openpgp.org (GNU-Keyring enthält eine abgelaufene Fassung) |

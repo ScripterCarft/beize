@@ -1,0 +1,30 @@
+# ext4 tools. systemd-repart formats the root partition with mkfs.ext4 on
+# first boot; e2fsck checks it.
+name = "e2fsprogs"
+version = "1.47.4"
+stage = "target"
+deps = ["gcc", "glibc", "util-linux"]
+
+[source]
+url = "https://cdn.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v{version}/e2fsprogs-{version}.tar.xz"
+sha256 = "fd5bf388cbdbe006a3d3b318d983b2948382440acc85a87f1e7d108653e8db0b"
+signature = "https://cdn.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v{version}/e2fsprogs-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "e2fsprogs"
+
+[build]
+script = '''
+# libuuid and libblkid come from util-linux.
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config/config.guess")" \
+  --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --sysconfdir=/etc \
+  --enable-elf-shlibs --disable-static --disable-nls \
+  --disable-libuuid --disable-libblkid --disable-uuidd --disable-fsck \
+  --disable-e2initrd-helper --disable-fuse2fs --without-libarchive \
+  --with-systemd-unit-dir=/usr/lib/systemd/system \
+  --with-udev-rules-dir=/usr/lib/udev/rules.d --without-crond-dir
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+# mke2fs.conf defaults are compiled in; the sample in /etc is not needed.
+rm -rf "$PKG/etc"
+'''
