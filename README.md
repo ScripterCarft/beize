@@ -32,7 +32,8 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] dm-verity für `/usr`: Root-Hash im signierten UKI, jeder Block wird beim Lesen geprüft
 - [x] Root-Partition (`/etc`, `/var`, `/home`) mit LUKS2 verschlüsselt, an TPM2 und den
       Secure-Boot-Zustand gebunden; entsperrt ohne Eingabe nur auf genau diesem Rechner
-- [ ] Wiederherstellungsschlüssel für die Root-Partition (vor echter Hardware), Updater (systemd-sysupdate)
+- [x] Wiederherstellungsschlüssel: beim ersten Start erzeugt und einmal angezeigt
+- [ ] Updater (systemd-sysupdate)
 - [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
 - [ ] Start von der zweiten SSD
 
@@ -69,9 +70,10 @@ Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`.
 Secure Boot aktiv, `/usr` über dm-verity, Root-Partition verschlüsselt und per TPM
 entsperrt, erster Start legt Partitionen an, systemd `running` ohne eine
 einzige fehlgeschlagene Unit (auch in der initrd), Boot-Counting markiert den Start
-als gut, der zweite Start findet dieselbe Installation – und vier Gegentests:
-mit einem anderen TPM und mit abgeschaltetem Secure Boot bleibt die Root-Partition
-verschlossen, ein unsigniertes Kernel-Image wird von der Firmware abgewiesen, ein
+als gut, der zweite Start findet dieselbe Installation, der Recovery-Key wird genau
+einmal angezeigt – und vier Gegentests: mit einem anderen TPM bleibt die
+Root-Partition verschlossen (der Recovery-Key öffnet sie), mit abgeschaltetem
+Secure Boot ebenfalls, ein unsigniertes Kernel-Image wird von der Firmware abgewiesen, ein
 einziges verändertes Byte in `/usr` wird von dm-verity erkannt.
 Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden.
 Build-Logs pro Paket: `build/work/logs/<paket>.log`.

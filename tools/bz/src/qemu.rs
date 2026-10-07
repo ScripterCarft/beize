@@ -2,7 +2,7 @@
 //! automated end-to-end test (`bz smoke`).
 
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -222,30 +222,43 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     let machine = Machine::install(paths, "smoke")?;
 
     util::step("First boot");
-    let first = boot_healthy(&machine, 1)?;
+    let first = boot_healthy(&machine, 1, None)?;
     check_partitions(&machine.disk)?;
     check_blessed(&machine.disk)?;
+    let recovery_key = find_recovery_key(&first.console)
+        .context("first boot did not show a recovery key for the root partition")?;
+    eprintln!("  ok: first boot created and showed a recovery key");
 
     util::step("Second boot");
-    let second = boot_healthy(&machine, 2)?;
+    let second = boot_healthy(&machine, 2, None)?;
     ensure!(
-        second.machine_id == first.machine_id,
+        second.report.machine_id == first.report.machine_id,
         "machine ID changed between boots ({} -> {}): the root partition did not persist",
-        first.machine_id,
-        second.machine_id
+        first.report.machine_id,
+        second.report.machine_id
     );
     eprintln!(
         "  ok: same installation after reboot (machine ID {})",
-        second.machine_id
+        second.report.machine_id
     );
+    ensure!(
+        find_recovery_key(&second.console).is_none(),
+        "the recovery key was shown again on the second boot"
+    );
+    eprintln!("  ok: the recovery key was shown only once");
 
-    util::step("The root partition must stay locked with another TPM");
+    util::step("Another TPM must not unlock the root partition, the recovery key must");
     let other_tpm = Machine {
         tpm: paths.work.join("smoke-other-tpm"),
         ..machine.clone()
     };
     new_tpm(&other_tpm.tpm)?;
-    expect_root_locked(&other_tpm, "a different TPM")?;
+    let third = boot_healthy(&other_tpm, 3, Some(recovery_key))?;
+    ensure!(
+        third.prompted,
+        "the root partition was unlocked without the recovery key on a different TPM"
+    );
+    eprintln!("  ok: a different TPM did not unlock the root partition, the recovery key did");
     fs::remove_dir_all(&other_tpm.tpm)?;
 
     util::step("The root partition must stay locked with Secure Boot disabled");
@@ -269,7 +282,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
             .arg(image::unsigned_uki(paths))
             .arg(image::uki_path_on_esp()),
     )?;
-    let run = watch_boot(&machine, TAMPER_TIMEOUT, |line| {
+    let run = watch_boot(&machine, TAMPER_TIMEOUT, None, |line| {
         if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
             Some(false)
         } else if line.contains("Access Denied") || line.contains("Access denied") {
@@ -303,7 +316,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         disk.seek(SeekFrom::Start(offset))?;
         disk.write_all(&[byte[0] ^ 0xff])?;
     }
-    let run = watch_boot(&machine, TAMPER_TIMEOUT, |line| {
+    let run = watch_boot(&machine, TAMPER_TIMEOUT, None, |line| {
         if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
             Some(false)
         } else if line.contains("verity") && line.contains("is corrupted") {
@@ -324,10 +337,27 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
+/// A healthy boot: its report and what appeared on the console.
+struct HealthyBoot {
+    report: BootReport,
+    console: Vec<String>,
+    /// Whether the root partition had to be unlocked with a passphrase.
+    prompted: bool,
+}
+
 /// Boots once and requires a fully healthy system: Secure Boot on, state
 /// `running`, no failed units, clean power-off, and the expected boot count.
-fn boot_healthy(machine: &Machine, expected_boot: u32) -> Result<BootReport> {
-    let run = watch_boot(machine, SMOKE_TIMEOUT, BootReport::parse)?;
+/// `passphrase` is typed in if the boot asks for one.
+fn boot_healthy(
+    machine: &Machine,
+    expected_boot: u32,
+    passphrase: Option<String>,
+) -> Result<HealthyBoot> {
+    let run = watch_boot(machine, SMOKE_TIMEOUT, passphrase, BootReport::parse)?;
+    ensure!(
+        run.answer.is_some() || !run.prompted,
+        "the boot asked for a passphrase: the TPM did not unlock the root partition"
+    );
     let Some((report, elapsed)) = run.answer else {
         bail!(
             "the system did not report within {}s",
@@ -376,37 +406,39 @@ fn boot_healthy(machine: &Machine, expected_boot: u32) -> Result<BootReport> {
         report.uptime,
         elapsed.as_secs_f64()
     );
-    Ok(report)
+    Ok(HealthyBoot {
+        report,
+        console: run.console,
+        prompted: run.prompted,
+    })
 }
 
 /// Boots an installed disk under a changed condition (another TPM, other
 /// firmware state) and requires that the TPM refuses to unlock the root
-/// partition. The root has no passphrase slot, so unlocking fails right away
-/// (a passphrase prompt would count as refused, too) and nothing boots.
+/// partition: the boot asks for the recovery key (or, without one, fails to
+/// set up the volume) and nothing boots.
 fn expect_root_locked(machine: &Machine, condition: &str) -> Result<()> {
-    let run = watch_boot(machine, TAMPER_TIMEOUT, |line| {
+    let run = watch_boot(machine, TAMPER_TIMEOUT, None, |line| {
         let line = strip_ansi(line);
         if line.contains(REPORT_MARKER) {
             Some(false)
-        } else if line.contains("Failed to start Cryptography Setup for root")
-            || line.contains("passphrase for")
-        {
+        } else if line.contains("Failed to start Cryptography Setup for root") {
             Some(true)
         } else {
             None
         }
     })?;
     match run.answer {
-        Some((true, _)) => {
-            eprintln!("\n  ok: with {condition} the TPM did not unlock the root partition");
-            Ok(())
-        }
+        Some((true, _)) => {}
+        None if run.prompted => {}
         Some((false, _)) => bail!("with {condition} the root partition was unlocked"),
         None => bail!(
             "no verdict on unlocking the root partition with {condition} within {}s",
             TAMPER_TIMEOUT.as_secs()
         ),
     }
+    eprintln!("\n  ok: with {condition} the TPM did not unlock the root partition");
+    Ok(())
 }
 
 /// After first boot the disk must hold both `/usr` slots and the root partition.
@@ -482,13 +514,32 @@ struct BootRun<T> {
     powered_off: bool,
     /// Console lines reporting failed units, from the initrd and the system.
     failures: Vec<String>,
+    /// Whether the boot asked for a passphrase (the TPM did not unlock).
+    prompted: bool,
+    /// Every console line, without terminal control sequences.
+    console: Vec<String>,
+}
+
+/// systemd's prompt for a disk passphrase or recovery key ("Please enter
+/// recovery key for disk root: ..."). It does not end with a newline, so it
+/// is looked for in incomplete lines, too.
+fn is_passphrase_prompt(text: &str) -> bool {
+    text.contains("Please enter") && text.contains(" for disk ")
+}
+
+enum ConsoleEvent<T> {
+    Verdict(T),
+    Prompted,
 }
 
 /// Boots headless and feeds every console line to `verdict` until it
-/// answers or `timeout` passes. QEMU is always stopped before returning.
+/// answers or `timeout` passes. If the boot asks for a passphrase, `passphrase`
+/// is typed in; without one, the prompt ends the boot. QEMU is always stopped
+/// before returning.
 fn watch_boot<T: Send + 'static>(
     machine: &Machine,
     timeout: Duration,
+    passphrase: Option<String>,
     verdict: impl Fn(&str) -> Option<T> + Send + 'static,
 ) -> Result<BootRun<T>> {
     let tpm = Swtpm::start(&machine.tpm)?;
@@ -496,35 +547,67 @@ fn watch_boot<T: Send + 'static>(
     let mut child = qemu(machine, &tpm)?
         .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
         .args(["-smbios", SMOKE_CREDENTIAL])
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
         .context("starting qemu")?;
 
-    let stdout = child.stdout.take().context("qemu stdout")?;
+    let mut stdout = child.stdout.take().context("qemu stdout")?;
+    let mut stdin = child.stdin.take().context("qemu stdin")?;
+    let stop_at_prompt = passphrase.is_none();
     let (tx, rx) = mpsc::channel();
     let reader = thread::spawn(move || {
         let mut failures = Vec::new();
+        let mut console = Vec::new();
         let mut answered = false;
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            eprintln!("  | {line}");
-            if is_unit_failure(&line) {
-                failures.push(strip_ansi(&line));
+        let mut prompted = false;
+        let mut pending = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(n @ 1..) = stdout.read(&mut chunk) {
+            pending.extend_from_slice(&chunk[..n]);
+            while let Some(end) = pending.iter().position(|&b| b == b'\n') {
+                let raw: Vec<u8> = pending.drain(..=end).collect();
+                let line = String::from_utf8_lossy(&raw);
+                let line = line.trim_end_matches(['\r', '\n']);
+                eprintln!("  | {line}");
+                if is_unit_failure(line) {
+                    failures.push(strip_ansi(line));
+                }
+                if !answered && let Some(answer) = verdict(line) {
+                    answered = true;
+                    let _ = tx.send(ConsoleEvent::Verdict(answer));
+                }
+                console.push(strip_ansi(line));
             }
-            if !answered && let Some(answer) = verdict(&line) {
-                answered = true;
-                let _ = tx.send(answer);
+            if !prompted && is_passphrase_prompt(&strip_ansi(&String::from_utf8_lossy(&pending))) {
+                prompted = true;
+                if let Some(passphrase) = &passphrase {
+                    eprintln!("  | (typing the recovery key)");
+                    let _ = write!(stdin, "{passphrase}\r");
+                    let _ = stdin.flush();
+                }
+                let _ = tx.send(ConsoleEvent::Prompted);
             }
         }
-        failures
+        (failures, console, prompted)
     });
 
-    let answer = rx
-        .recv_timeout(timeout)
-        .ok()
-        .map(|answer| (answer, started.elapsed()));
+    let deadline = started + timeout;
+    let mut answer = None;
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(ConsoleEvent::Verdict(verdict)) => {
+                answer = Some((verdict, started.elapsed()));
+                break;
+            }
+            Ok(ConsoleEvent::Prompted) if stop_at_prompt => break,
+            Ok(ConsoleEvent::Prompted) => {}
+            Err(_) => break,
+        }
+    }
     // A healthy guest powers off right after reporting; give it a moment.
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let grace = if answer.is_some() { 10 } else { 0 };
+    let deadline = Instant::now() + Duration::from_secs(grace);
     while child.try_wait()?.is_none() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(100));
     }
@@ -533,12 +616,31 @@ fn watch_boot<T: Send + 'static>(
         child.kill()?;
         child.wait()?;
     }
-    let failures = reader.join().unwrap_or_default();
+    let (failures, console, prompted) = reader.join().unwrap_or_default();
     Ok(BootRun {
         answer,
         powered_off,
         failures,
+        prompted,
+        console,
     })
+}
+
+/// A systemd recovery key: 64 characters from the modhex alphabet in eight
+/// groups separated by dashes.
+fn find_recovery_key(console: &[String]) -> Option<String> {
+    const MODHEX: &str = "cbdefghijklnrtuv";
+    console
+        .iter()
+        .flat_map(|line| line.split_whitespace())
+        .find(|word| {
+            let groups: Vec<&str> = word.split('-').collect();
+            groups.len() == 8
+                && groups
+                    .iter()
+                    .all(|g| g.len() == 8 && g.chars().all(|c| MODHEX.contains(c)))
+        })
+        .map(str::to_owned)
 }
 
 /// systemd's console status lines for failed units and failed dependencies.
@@ -662,6 +764,29 @@ mod tests {
         ));
         assert!(!is_unit_failure("[  OK  ] Reached target Basic System."));
         assert_eq!(strip_ansi("[[0;32m  OK  [0m] x"), "[  OK  ] x");
+        assert!(is_passphrase_prompt(
+            "Please enter recovery key for disk root: (press TAB for no echo) "
+        ));
+        assert!(is_passphrase_prompt(
+            "Please enter passphrase for disk root (root): "
+        ));
+        assert!(!is_passphrase_prompt(
+            "Starting Cryptography Setup for root..."
+        ));
+    }
+
+    #[test]
+    fn finds_the_recovery_key_on_the_console() {
+        let key = "fjbdkvhn-nrttdbuj-ecjdhtnc-glklnkjl-crtfgehi-hdgjlbbr-ghlgucnk-lccdfuhb";
+        let console = [
+            "Recovery key for the data on this computer".to_owned(),
+            format!("     {key}"),
+        ];
+        assert_eq!(find_recovery_key(&console).as_deref(), Some(key));
+        // Other dash-separated words are not mistaken for a key.
+        let noise = ["uuid 5024fb5b-d220-4ff2-9c32-385e3a1238fe".to_owned()];
+        assert_eq!(find_recovery_key(&noise), None);
+        assert_eq!(find_recovery_key(&[key.replace('f', "a")]), None);
     }
 
     #[test]

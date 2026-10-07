@@ -1,0 +1,46 @@
+#!/usr/bin/bash
+# Creates the recovery key for the encrypted root partition and shows it once.
+# The TPM unlocks the root partition only on this machine with Secure Boot
+# intact (ADR 0009); the recovery key is the way back in when that changes:
+# firmware update, new Secure Boot keys, replaced mainboard or broken TPM.
+#
+# The key is never written to disk or to the journal: it goes to the console
+# and to /run/beize/recovery-key (memory only, gone after the next restart).
+# While the TPM still unlocks, a lost key can be replaced with
+#   systemd-cryptenroll --unlock-tpm2-device=auto --wipe-slot=recovery --recovery-key
+set -euo pipefail
+
+# Without a device, systemd-cryptenroll works on the volume backing /var.
+while read -r _ type; do
+    [[ $type == recovery ]] && exit 0
+done < <(systemd-cryptenroll)
+
+umask 077
+mkdir -p /run/beize
+errors=/run/beize/recovery-key.err
+# The key is printed on stdout only; stderr carries the messages around it.
+if ! key=$(systemd-cryptenroll --unlock-tpm2-device=auto --recovery-key 2> "$errors"); then
+    cat "$errors" >&2
+    exit 1
+fi
+rm -f "$errors"
+echo "$key" > /run/beize/recovery-key
+
+cat <<MESSAGE
+
+  ==================================================================
+   Recovery key for the data on this computer
+
+       ${key}
+
+   This computer unlocks its data by itself, with its security chip
+   (TPM). If that ever fails - after a firmware update, new Secure
+   Boot keys or a new mainboard - this key is the only way back to
+   your files. Write it down or keep it in your password manager,
+   not on this computer.
+
+   It is shown only now; until the next restart it is also in
+   /run/beize/recovery-key.
+  ==================================================================
+
+MESSAGE

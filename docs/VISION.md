@@ -58,7 +58,7 @@ darüber gehört jede Zeile uns.
 - **Sicherheit:** Secure Boot mit eigenen Schlüsseln, signiertes UKI, dm-verity,
   verschlüsselte Daten mit TPM2. **[aktualisiert: die ganze Root-Partition
   (`/etc`, `/var`, `/home`) ist LUKS2-verschlüsselt, an TPM2 + Secure-Boot-Zustand
-  gebunden – ADR 0009; Wiederherstellungsschlüssel noch offen.]**
+  gebunden, Recovery-Key beim ersten Start – ADR 0009.]**
 
 ## Shell (eine eigene Komponente)
 

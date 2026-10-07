@@ -103,8 +103,9 @@ eine frische 8-GiB-Disk (jede VM mit eigenem swtpm) und verlangt: Secure Boot an
 `usr=verity`, `root=encrypted`, `running`, **keine `[FAILED]`/`[DEPEND]`-Zeile in
 initrd oder System**, sauberes Herunterfahren, 1. Start legt alle Partitionen an
 (Typ + Label geprüft), Boot-Counting „gut“, 2. Start = gleiche Machine-ID;
-Gegentests: dieselbe Disk mit anderem TPM bzw. mit Secure Boot aus → Root bleibt zu
-(„Failed to start Cryptography Setup for root“), unsigniertes UKI → „Access denied“,
+Recovery-Key beim 1. Start angezeigt, beim 2. nicht mehr; Gegentests: dieselbe Disk
+mit anderem TPM → Abfrage „Please enter recovery key for disk root“, der Test tippt
+den Key ein, System startet; mit Secure Boot aus → Root bleibt zu; unsigniertes UKI → „Access denied“,
 ein verändertes Byte in `/usr` → „data block … is corrupted“. Bei fehlgeschlagenen
 Units gibt der Boot-Report deren Journal aus (`BEIZE-FAILED-LOG …`).
 Aktuell: Start 5,23 s Gast-Uptime (Kernel 0,56 + initrd 2,42 + System 2,25 s),
@@ -131,7 +132,9 @@ noch nicht bestätigt.
 - **Boot:** Secure Boot → systemd-boot → UKI (Kommandozeile versiegelt, `editor no`)
   → `usrhash` → dm-verity für jeden `/usr`-Block.
 - **Daten:** Root-Partition LUKS2 (aes-xts), Schlüssel im TPM versiegelt an PCR 7
-  (Secure-Boot-Zustand); kein Passwort-Slot, **noch kein Recovery-Key** (ADR 0009).
+  (Secure-Boot-Zustand); kein Passwort-Slot. Recovery-Key wird beim 1. Start
+  erzeugt und einmal angezeigt (Konsole + `/run/beize/recovery-key`), nie auf
+  Platte/Journal (`beize-recovery-key.service`, ADR 0009).
 - **Schlüssel:** Tests/CI mit Wegwerf-Schlüsseln `CN=Beize TEST ONLY …` (PK, KEK, db)
   und PCR-Signaturschlüssel `pcr.key`/`pcr.pub.pem` unter `build/work/secureboot-test/`.
   Produktionsschlüssel nur beim Besitzer (1Password, Tresor „Beize“); für echte
@@ -198,31 +201,30 @@ Architekturentscheidung = neues ADR.
 - Produktionsschlüssel-Workflow, Updater (systemd-sysupdate), Verhalten bei
   verity-Fehlern zur Laufzeit (Neustart → Rückfall?), Netzwerk, NVIDIA, Bluetooth,
   Start von der zweiten SSD, Installer.
-- TPM: **Recovery-Key fehlt** (vor echter Hardware Pflicht, ADR 0009). Root später
+- TPM: Root später
   zusätzlich an die signierte PCR-11-Richtlinie binden, idealerweise mit
   Policy-Referenz `initrd` (nur in der initrd entsperrbar) – erst mit
   Produktionsschlüsseln. systemd-pcrlock-Dienste („Lock … to TPM PCR Policy“) laufen
   bei jedem Start mit, ohne dass wir pcrlock nutzen – prüfen/abschalten beim
   Verschlanken. `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009).
+- Recovery-Key wird bisher nur auf der Konsole gezeigt – das Onboarding (M3+) muss
+  ihn grafisch anzeigen und bestätigen lassen.
+- CI, vom Besitzer zurückgestellt („im Hinterkopf“): `permissions: contents: read`,
+  `push` nur auf `main` + `pull_request`, Dependabot für Actions (+ Actions auf
+  Commit-SHAs pinnen), rustup-Warnung „$HOME differs“ im Container. Repo ist privat
+  → Actions-Minuten sind begrenzt, volle Läufe sparsam.
 
 ## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
 
-Zuletzt erledigt (2026-10-07): Root-Partition mit LUKS2 + TPM2 (ADR 0009) –
-tpm2-tss-Rezept, systemd mit TPM2/OpenSSL, Kernel-TPM-Treiber + AES-NI/XTS,
-`Encrypt=tpm2`/`TPM2PCRs=7`, swtpm pro VM, signierte PCR-11-Richtlinie im UKI
-(nötig für systemd-tpm2-setup-early in systemd 262), ukify/systemd-measure aus
-eigenem Build, Boot-Report `root=encrypted`, zwei neue Gegentests. Alles grün.
+Zuletzt erledigt (2026-10-07): Root-Partition mit LUKS2 + TPM2 (ADR 0009) und
+Recovery-Key beim ersten Start (Nachtrag ADR 0009); CI mit Abbruch älterer Läufe,
+Build-Cache und Lebenszeichen.
 
 **Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
-1. **Recovery-Key** für die Root-Partition – braucht eine Entscheidung des
-   Besitzers: Vorschlag `systemd-cryptenroll --recovery-key` beim ersten Start,
-   Schlüssel einmal anzeigen (später im Onboarding), er speichert ihn selbst
-   (1Password ist für Claude tabu). Smoke-Test: Recovery-Key entsperrt, wenn der TPM
-   verweigert.
-2. **Produktionsschlüssel-Workflow** (`bz secureboot new-keys`, `bz sign`, PCR-Schlüssel,
+1. **Produktionsschlüssel-Workflow** (`bz secureboot new-keys`, `bz sign`, PCR-Schlüssel,
    Einschreiben in die Firmware) – der Besitzer führt die Schritte mit seinen
    Schlüsseln selbst aus; danach Root zusätzlich an die signierte PCR-11-Richtlinie binden.
-3. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
+2. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
 
 Erst den Besitzer fragen, womit es weitergeht; dann diesen Abschnitt durch die
 neue Aufgabe ersetzen.

@@ -61,12 +61,27 @@ mit intaktem Secure Boot.
   UKI entsperrt ebenfalls (Rollback). Abhilfe kommt mit der PCR-11-Richtlinie
   bzw. dbx-Einträgen.
 - **Ändert sich PCR 7** (Firmware-Update setzt Schlüssel zurück, Schlüsselwechsel,
-  dbx-Update) **oder stirbt der TPM, sind die Daten ohne Wiederherstellungsschlüssel
-  verloren.** Vor dem ersten Einsatz auf echter Hardware muss es einen
-  Recovery-Key geben (`systemd-cryptenroll --recovery-key`, dem Besitzer beim
-  Einrichten angezeigt) – mit dem Besitzer abzustimmen.
+  dbx-Update) **oder stirbt der TPM**, öffnet nur noch der Recovery-Key die Daten
+  (siehe unten).
 - `bz smoke` verlangt `root=encrypted` bei jedem Start und prüft die Gegenrichtung:
   dieselbe Disk mit einem anderen TPM und mit abgeschaltetem Secure Boot darf
   nicht entsperren. Jede VM hat dafür ihren eigenen Software-TPM (swtpm).
 - Kosten: rund 0,1 s Startzeit (gemessen 5,23 s statt ~5,1 s Gast-Uptime); der
   erste Start dauert durch Verschlüsseln und Formatieren ~7 s.
+
+## Nachtrag: Recovery-Key (2026-10-07)
+
+- Jede Installation bekommt beim ersten Start **verpflichtend** einen Recovery-Key
+  (`beize-recovery-key.service` → `systemd-cryptenroll --unlock-tpm2-device=auto
+  --recovery-key`): zufällig erzeugt, 64 leicht abtippbare Zeichen.
+- Er wird **genau einmal angezeigt** (Konsole, später im Onboarding) und liegt bis
+  zum nächsten Neustart nur im Arbeitsspeicher (`/run/beize/recovery-key`, nur root).
+  Er wird nie auf die Platte und nie ins Journal geschrieben; aufbewahren muss ihn
+  der Besitzer selbst (Claude greift nie auf 1Password zu).
+- Solange der TPM noch entsperrt, lässt sich ein verlorener Key ersetzen:
+  `systemd-cryptenroll --unlock-tpm2-device=auto --wipe-slot=recovery --recovery-key`.
+- Verworfen: der Assistent `systemd-cryptenroll --firstboot` von systemd 262 –
+  optional (Enter überspringt), textbasiertes Menü in der initrd; Beize verlangt den
+  Key und zeigt ihn selbst an.
+- `bz smoke` prüft: Key beim ersten Start angezeigt, beim zweiten nicht mehr; mit
+  einem anderen TPM fragt das System nach dem Key, und mit ihm startet es normal.
