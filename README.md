@@ -4,7 +4,9 @@ Ein eigenes Betriebssystem auf dem Linux-Kernel: so konsequent wie macOS, so fre
 wie Windows, technisch so offen wie Linux. Kernel, Treiber und Basisbibliotheken
 kommen aus Upstream, alles darüber ist eigener Code.
 
-Vision und Designprinzipien: [OS-Vision](https://claude.ai/code/artifact/1204e9ff-abc6-44b7-8320-17b195f5a226)
+Vision und Designprinzipien: [`docs/VISION.md`](docs/VISION.md) (Original als
+[Artifact](https://claude.ai/code/artifact/1204e9ff-abc6-44b7-8320-17b195f5a226)).
+Einstieg für Entwicklung mit Claude Code: [`CLAUDE.md`](CLAUDE.md).
 
 ## Stand
 
