@@ -1,7 +1,7 @@
 # Beize – Übergabe für Claude Code
 
 Diese Datei ist der Einstieg für jede neue Session. Sie ersetzt den bisherigen
-Chatverlauf. Stand: 2026-10-07, Commit `78bc260` (+ diese Übergabe).
+Chatverlauf. Stand: 2026-10-07, nach „Root-Partition mit LUKS2 + TPM2“ (ADR 0009).
 
 ## 1. Was Beize ist
 
@@ -51,11 +51,13 @@ M3 Compositor · M4 Alltagstauglich · M5 Feinschliff. Detaillierter Stand: `REA
 ```
 Firmware (Secure Boot, eigene PK/KEK/db)
   └─ prüft systemd-boot (signiert, eigene SBAT „beize“)
-       └─ prüft UKI beize_<ver>+3.efi  = Kernel + initrd + Kommandozeile (signiert)
+       └─ prüft UKI beize_<ver>+3.efi  = Kernel + initrd + Kommandozeile
+            + signierte PCR-11-Richtlinie (.pcrsig/.pcrpkey)          (alles signiert)
             Kommandozeile: usrhash=<root hash> mount.usr=/dev/mapper/usr …
-            └─ initrd (systemd): beim 1. Start systemd-repart → Slot B + Root anlegen,
-               dm-verity für /usr, Root auf der Boot-Disk finden (gpt-auto), switch-root
-                 └─ System: /usr (EROFS, dm-verity, read-only) + / (ext4: /etc, /var, /home)
+            └─ initrd (systemd): beim 1. Start systemd-repart → Slot B + Root anlegen
+               (Root = LUKS2, Schlüssel im TPM versiegelt an PCR 7), dm-verity für /usr,
+               Root finden (gpt-auto) + per TPM entsperren, switch-root
+                 └─ System: /usr (EROFS, dm-verity, read-only) + / (ext4 in LUKS2: /etc, /var, /home)
 ```
 
 | Partition (GPT, UAPI.2-Typen) | Inhalt | Entsteht |
@@ -63,7 +65,7 @@ Firmware (Secure Boot, eigene PK/KEK/db)
 | ESP 512 MiB (FAT32, 4-KiB-Cluster) | systemd-boot, UKIs, `loader/loader.conf` | Image |
 | `/usr` A data 1 GiB + verity 64 MiB, Label `beize_<ver>` | System; UUIDs = Hälften des Root-Hashes | Image |
 | `/usr` B data + verity, Label `_empty` | nächstes Update | 1. Start |
-| Root (ext4, `FactoryReset=yes`), wächst in den Rest | alles des Besitzers | 1. Start |
+| Root (LUKS2 `Encrypt=tpm2`, `TPM2PCRs=7`, darin ext4, `FactoryReset=yes`), wächst in den Rest | alles des Besitzers | 1. Start |
 
 Nur `/usr` wird ausgeliefert; `/etc` wird beim 1. Start aus
 `/usr/share/factory/etc` (tmpfiles) und von systemd erzeugt. Boot-Counting:
@@ -75,7 +77,7 @@ Versionen und die repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`
 | Pfad | Inhalt |
 | --- | --- |
 | `tools/bz/src/` | Build-Werkzeug (Rust, ~3300 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Testschlüssel, Signieren, OVMF-Variablen · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
-| `recipes/*.toml` | ein Rezept pro Paket (19): Quelle (gepinnt + signiert), `deps`, `stage` (toolchain/target), `[build] script` |
+| `recipes/*.toml` | ein Rezept pro Paket (20): Quelle (gepinnt + signiert), `deps`, `stage` (toolchain/target), `[build] script` |
 | `keys/` | öffentliche Maintainer-Schlüssel + `README.md` (Herkunft, Fingerprints, Ausnahmen) |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
 | `system/usr/` | eigene Dateien in `/usr` (Units, Boot-Report, Werkseinstellungen) |
@@ -96,12 +98,16 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 
 Logs: `build/work/logs/<paket>.log`. Voller Neubau ~10–15 min (GCC zweimal),
 inkrementell Sekunden bis wenige Minuten. `./bz smoke` installiert das Image auf
-eine frische 8-GiB-Disk und verlangt: Secure Boot an, `/usr` über dm-verity,
-`running`, **keine `[FAILED]`/`[DEPEND]`-Zeile in initrd oder System**, sauberes
-Herunterfahren, 1. Start legt alle Partitionen an (Typ + Label geprüft),
-Boot-Counting „gut“, 2. Start = gleiche Machine-ID; Gegentests: unsigniertes UKI
-→ „Access denied“, ein verändertes Byte in `/usr` → „data block … is corrupted“.
-Aktuell: Start ~5 s Gast-Uptime (Kernel 0,6 + initrd 2,3 + System 2,2 s).
+eine frische 8-GiB-Disk (jede VM mit eigenem swtpm) und verlangt: Secure Boot an,
+`usr=verity`, `root=encrypted`, `running`, **keine `[FAILED]`/`[DEPEND]`-Zeile in
+initrd oder System**, sauberes Herunterfahren, 1. Start legt alle Partitionen an
+(Typ + Label geprüft), Boot-Counting „gut“, 2. Start = gleiche Machine-ID;
+Gegentests: dieselbe Disk mit anderem TPM bzw. mit Secure Boot aus → Root bleibt zu
+(„Failed to start Cryptography Setup for root“), unsigniertes UKI → „Access denied“,
+ein verändertes Byte in `/usr` → „data block … is corrupted“. Bei fehlgeschlagenen
+Units gibt der Boot-Report deren Journal aus (`BEIZE-FAILED-LOG …`).
+Aktuell: Start 5,23 s Gast-Uptime (Kernel 0,56 + initrd 2,42 + System 2,25 s),
+erster Start ~7 s (Verschlüsseln + Formatieren). Ganzer Smoke-Test ~3 min.
 
 CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`,
 manuell und wöchentlich `ci/system.sh` in privilegiertem `ubuntu:26.04`-Container
@@ -117,10 +123,13 @@ mit KVM (verify, build, smoke). Ob der GitHub-Lauf grün ist, wurde noch nicht b
   System; reproduzierbar (fester Zeitstempel `BUILD_EPOCH`, feste UUIDs, Salt aus Inhalt).
 - **Boot:** Secure Boot → systemd-boot → UKI (Kommandozeile versiegelt, `editor no`)
   → `usrhash` → dm-verity für jeden `/usr`-Block.
-- **Schlüssel:** Tests/CI mit Wegwerf-Schlüsseln `CN=Beize TEST ONLY …` unter
-  `build/work/secureboot-test/`. Produktionsschlüssel nur beim Besitzer (1Password,
-  Tresor „Beize“); für echte Hardware signiert er selbst. Diese Schritte
-  (`bz secureboot new-keys`, `bz sign`, Einschreiben in die Firmware) sind **noch nicht gebaut**.
+- **Daten:** Root-Partition LUKS2 (aes-xts), Schlüssel im TPM versiegelt an PCR 7
+  (Secure-Boot-Zustand); kein Passwort-Slot, **noch kein Recovery-Key** (ADR 0009).
+- **Schlüssel:** Tests/CI mit Wegwerf-Schlüsseln `CN=Beize TEST ONLY …` (PK, KEK, db)
+  und PCR-Signaturschlüssel `pcr.key`/`pcr.pub.pem` unter `build/work/secureboot-test/`.
+  Produktionsschlüssel nur beim Besitzer (1Password, Tresor „Beize“); für echte
+  Hardware signiert er selbst. Diese Schritte (`bz secureboot new-keys`, `bz sign`,
+  Einschreiben in die Firmware, PCR-Schlüssel) sind **noch nicht gebaut**.
 
 ## 8. ADRs (`docs/adr/`)
 
@@ -128,7 +137,9 @@ mit KVM (verify, build, smoke). Ob der GitHub-Lauf grün ist, wurde noch nicht b
 signiertes Image · 0004 Entwicklung in WSL2 · 0005 Cross-Toolchain, Rezepte,
 signierte Quellen, Besitz-Manifeste · 0006 Secure Boot, Test- vs.
 Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
-0008 dm-verity für `/usr`. Neue Architekturentscheidung = neues ADR.
+0008 dm-verity für `/usr` · 0009 Root mit LUKS2 + TPM2 (PCR 7), signierte
+PCR-11-Richtlinie im UKI, UKI-Werkzeuge aus eigenem systemd. Neue
+Architekturentscheidung = neues ADR.
 
 ## 9. Regeln für Rezepte und Code
 
@@ -140,6 +151,15 @@ Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
 - `meson -Dauto_features=disabled`: jedes benötigte Feature ausdrücklich einschalten.
 - Abhängigkeitsschleifen vermeiden (libdevmapper ohne udev-Sync, weil systemd → cryptsetup → lvm2).
 - Build-Jobs werden nach RAM begrenzt (1,5 GiB/Job) – nicht zurückdrehen.
+- **Werkzeuge, die zur systemd-Version im Image passen müssen** (ukify,
+  systemd-measure), kommen aus unserem systemd-Build, nicht vom Host: ukify nach
+  `usr/lib/beize-build/` (Build-only, nie ausgeliefert), Ziel-Binaries laufen über
+  `sysroot/usr/lib/ld-linux-x86-64.so.2 --library-path …` (siehe `image.rs`).
+- Host-Werkzeuge, die `bz` aufruft, gehören in `ci/packages.txt` – fehlende fallen
+  sonst erst in der CI auf. Gegenstück: im Gast gibt es kein `sed`/`awk`/`grep`
+  (Skripte in reinem Bash).
+- Konfigurationsoptionen, die Autotools beim Host abfragen (`AC_CHECK_PROG`),
+  im Rezept beantworten (`ac_cv_…=yes`), sonst hängt das Ergebnis vom Host ab.
 - Skripte unter `system/usr` müssen ausführbar sein (Test prüft das). **Achtung:
   Write/Edit über den Windows-Pfad setzt den Modus auf 644** – solche Dateien in WSL
   ändern (z. B. Python-Patchskript) oder danach `chmod +x`.
@@ -156,6 +176,12 @@ Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
   Installieren auf größere Disks Backup-GPT verschieben (`sfdisk --relocate gpt-bak-std`).
 - systemd-repart lässt Partitionen ohne `SizeMaxBytes=` wachsen – auch bestehende
   (Test `only_root_grows`). Vorab prüfen: `systemd-repart --definitions=… --dry-run=yes <Kopie>`.
+- systemd-Konsolenzeilen enthalten ANSI-Farbcodes **mitten im Text** („Failed to
+  start \e[0;1;39mCryptography…“) → vor dem Vergleich `strip_ansi`.
+- Im Gast nachsehen (PCRs, Journal …): VM per Skript mit stdin-Pipe starten und
+  Befehle an die Autologin-Shell auf ttyS0 schicken (QEMU-Argumente wie `qemu.rs`,
+  swtpm vorher starten). So wurde z. B. der PCR-11-Wert mit `systemd-measure
+  calculate` abgeglichen.
 
 ## 11. Offene Punkte (außer der aktuellen Aufgabe)
 
@@ -165,47 +191,31 @@ Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
 - Produktionsschlüssel-Workflow, Updater (systemd-sysupdate), Verhalten bei
   verity-Fehlern zur Laufzeit (Neustart → Rückfall?), Netzwerk, NVIDIA, Bluetooth,
   Start von der zweiten SSD, Installer.
+- TPM: **Recovery-Key fehlt** (vor echter Hardware Pflicht, ADR 0009). Root später
+  zusätzlich an die signierte PCR-11-Richtlinie binden, idealerweise mit
+  Policy-Referenz `initrd` (nur in der initrd entsperrbar) – erst mit
+  Produktionsschlüsseln. systemd-pcrlock-Dienste („Lock … to TPM PCR Policy“) laufen
+  bei jedem Start mit, ohne dass wir pcrlock nutzen – prüfen/abschalten beim
+  Verschlanken. `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009).
 
-## 12. AKTUELLE AUFGABE: Root-Partition mit LUKS2 + TPM2
+## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
 
-**Ziel:** Die Root-Partition (`/etc`, `/var`, `/home`) wird beim ersten Start von
-systemd-repart in der initrd mit LUKS2 verschlüsselt und an den TPM gebunden; jeder
-Start entsperrt automatisch ohne Eingabe – aber nur auf genau diesem Rechner mit
-intaktem Secure Boot.
+Zuletzt erledigt (2026-10-07): Root-Partition mit LUKS2 + TPM2 (ADR 0009) –
+tpm2-tss-Rezept, systemd mit TPM2/OpenSSL, Kernel-TPM-Treiber + AES-NI/XTS,
+`Encrypt=tpm2`/`TPM2PCRs=7`, swtpm pro VM, signierte PCR-11-Richtlinie im UKI
+(nötig für systemd-tpm2-setup-early in systemd 262), ukify/systemd-measure aus
+eigenem Build, Boot-Report `root=encrypted`, zwei neue Gegentests. Alles grün.
 
-**Schritte (Vorschlag, in dieser Reihenfolge):**
-1. **tpm2-tss** als neues Paket (github.com/tpm2-software/tpm2-tss, Release-Archiv
-   + `.asc` – Signatur und Schlüssel wie üblich prüfen, Schlüssel in eigenem Commit).
-   `--disable-fapi` (zieht sonst libcurl), Doku aus; udev-, sysusers- und
-   tmpfiles-Verzeichnisse **explizit** setzen (pkg-config-Falle).
-2. **systemd:** `-Dtpm2=enabled -Dopenssl=enabled`, `tpm2-tss` in `deps`.
-   systemd lädt die tss2-Bibliotheken per dlopen – prüfen, dass sie in `/usr` **und**
-   in der initrd landen (initrd-Liste in `images/base.toml` ggf. ergänzen).
-3. **Kernel:** `CONFIG_TCG_TPM`, `CONFIG_TCG_CRB` (QEMU `tpm-crb`, Intel PTT),
-   `CONFIG_TCG_TIS`, `CONFIG_HW_RANDOM_TPM`, `CONFIG_SECURITYFS`; `CONFIG_DM_CRYPT` ist schon an.
-4. **Layout:** in `layout.rs` `20-root.conf` um `Encrypt=tpm2` ergänzen; PCR-Bindung
-   bewusst wählen (Startvorschlag `TPM2PCRs=7` = Secure-Boot-Zustand, signierte
-   PCR-11-Richtlinie später) und als **ADR 0009** begründen. gpt-auto setzt für
-   verschlüsseltes Root bereits `tpm2-device=auto` (geprüft in systemd 262).
-5. **QEMU:** `swtpm` pro `Machine` (eigener State-Ordner, bleibt zwischen den beiden
-   Starts erhalten): `swtpm socket --tpm2 --tpmstate dir=… --ctrl type=unixio,path=…`
-   + `-chardev socket,id=chrtpm,path=… -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-crb,tpmdev=tpm0`.
-   **`swtpm` und `swtpm-tools` fehlen in `ci/packages.txt`** – ergänzen.
-6. **Boot-Report:** Feld `root=encrypted`, wenn `/` von einem dm-Gerät mit
-   UUID `CRYPT-LUKS2-*` kommt (analog zur `usr=verity`-Prüfung).
-7. **Smoke-Test:** verlangt `root=encrypted` bei beiden Starts, kein Passwort-Prompt.
-   **Gegentest:** dieselbe Disk mit **frischem** TPM-Zustand → Root darf nicht
-   aufgehen (Passwortabfrage/Fehlschlag, kein Bericht). Optional: anderer
-   Secure-Boot-Zustand (PCR 7) → ebenfalls kein Entsperren.
-8. ADR 0009, README-Stand, `CLAUDE.md` aktualisieren, committen, pushen.
+**Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
+1. **Recovery-Key** für die Root-Partition – braucht eine Entscheidung des
+   Besitzers: Vorschlag `systemd-cryptenroll --recovery-key` beim ersten Start,
+   Schlüssel einmal anzeigen (später im Onboarding), er speichert ihn selbst
+   (1Password ist für Claude tabu). Smoke-Test: Recovery-Key entsperrt, wenn der TPM
+   verweigert.
+2. **Produktionsschlüssel-Workflow** (`bz secureboot new-keys`, `bz sign`, PCR-Schlüssel,
+   Einschreiben in die Firmware) – der Besitzer führt die Schritte mit seinen
+   Schlüsseln selbst aus; danach Root zusätzlich an die signierte PCR-11-Richtlinie binden.
+3. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
 
-**Vor echter Hardware zwingend klären (nicht für den VM-Test):** Wiederherstellung.
-Ändert sich PCR 7 (Firmware-Update, Schlüsselwechsel) oder stirbt der TPM, sind die
-Daten ohne Recovery-Key verloren. Plan nötig: Recovery-Key per
-`systemd-cryptenroll --recovery-key` im Onboarding erzeugen und dem Besitzer
-anzeigen (nicht automatisch speichern – 1Password ist für Claude tabu). Mit dem
-Besitzer abstimmen.
-
-**Fertig, wenn:** `cargo test`/clippy grün, `./bz verify` ok, `./bz smoke` grün inkl.
-neuem Gegentest, keine `[FAILED]`-Zeile, Boot-Zeit gemessen und im Bericht an den
-Besitzer genannt.
+Erst den Besitzer fragen, womit es weitergeht; dann diesen Abschnitt durch die
+neue Aufgabe ersetzen.

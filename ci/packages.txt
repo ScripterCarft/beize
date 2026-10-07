@@ -52,9 +52,12 @@ fdisk
 mtools
 systemd
 systemd-boot-efi
-systemd-ukify
+# ukify itself comes from Beize's own systemd build (sysroot)
+python3-pefile
 util-linux
 
 # Boot test
 ovmf
 qemu-system-x86
+# software TPM for the VM: unlocks the encrypted root partition
+swtpm

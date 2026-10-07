@@ -4,7 +4,7 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use crate::layout::{self, MIB};
 use crate::paths::Paths;
-use crate::{image, util};
+use crate::{image, secureboot, util};
 
 /// OVMF build that enforces Secure Boot (requires SMM).
 const OVMF_CODE: &str = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd";
@@ -38,6 +38,8 @@ struct BootReport {
     secure_boot: String,
     /// `verity` if /usr is mounted from a dm-verity device.
     usr: String,
+    /// `encrypted` if / is mounted from a LUKS2 device.
+    root: String,
     /// How often this installation has booted, counted on the root partition.
     boot: u32,
     machine_id: String,
@@ -46,7 +48,7 @@ struct BootReport {
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity boot=1 machineid=… uptime=2.95s failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s failed=none`.
     fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -60,6 +62,7 @@ impl BootReport {
             state: field("state")?,
             secure_boot: field("secureboot")?,
             usr: field("usr")?,
+            root: field("root")?,
             boot: field("boot")?.parse().ok()?,
             machine_id: field("machineid")?,
             uptime: field("uptime")?,
@@ -71,19 +74,28 @@ impl BootReport {
     }
 }
 
-/// A virtual machine: a disk and its own firmware variable store.
+/// A virtual machine: a disk, its own firmware variable store and its own
+/// TPM (the state directory of an swtpm instance).
+#[derive(Clone)]
 struct Machine {
     disk: PathBuf,
     vars: PathBuf,
+    tpm: PathBuf,
 }
 
 impl Machine {
-    /// Installs the current image onto a fresh test disk (`name.img`).
-    fn install(paths: &Paths, name: &str) -> Result<Self> {
-        let machine = Self {
+    fn named(paths: &Paths, name: &str) -> Self {
+        Self {
             disk: paths.work.join(format!("{name}.img")),
             vars: paths.work.join(format!("{name}-vars.fd")),
-        };
+            tpm: paths.work.join(format!("{name}-tpm")),
+        }
+    }
+
+    /// Installs the current image onto a fresh test disk (`name.img`), with
+    /// a factory-new TPM.
+    fn install(paths: &Paths, name: &str) -> Result<Self> {
+        let machine = Self::named(paths, name);
         let image = paths.out.join("disk.img");
         let template = paths.out.join("ovmf-vars-secureboot.fd");
         fs::copy(&image, &machine.disk)
@@ -101,13 +113,84 @@ impl Machine {
         )?;
         fs::copy(&template, &machine.vars)
             .with_context(|| format!("copying {}; run `bz image`", template.display()))?;
+        new_tpm(&machine.tpm)?;
         Ok(machine)
     }
 
     fn remove(self) -> Result<()> {
         fs::remove_file(&self.disk)?;
         fs::remove_file(&self.vars)?;
+        fs::remove_dir_all(&self.tpm)?;
         Ok(())
+    }
+}
+
+/// Creates an empty TPM state directory; swtpm initialises a factory-new TPM in it.
+fn new_tpm(dir: &Path) -> Result<()> {
+    if dir.exists() {
+        fs::remove_dir_all(dir)?;
+    }
+    fs::create_dir_all(dir)?;
+    Ok(())
+}
+
+/// A running software TPM, stopped when dropped. It also ends by itself as
+/// soon as QEMU closes the control connection.
+struct Swtpm {
+    child: Child,
+    socket: PathBuf,
+}
+
+impl Swtpm {
+    fn start(state: &Path) -> Result<Self> {
+        let socket = state.join("swtpm.sock");
+        let _ = fs::remove_file(&socket);
+        let child = Command::new("swtpm")
+            .args(["socket", "--tpm2", "--tpmstate"])
+            .arg(format!("dir={}", state.display()))
+            .arg("--ctrl")
+            .arg(format!("type=unixio,path={},terminate", socket.display()))
+            .arg("--log")
+            .arg(format!("file={}", state.join("swtpm.log").display()))
+            .stdin(Stdio::null())
+            .spawn()
+            .context("starting swtpm; install the `swtpm` package")?;
+        let mut tpm = Self { child, socket };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !tpm.socket.exists() {
+            if let Some(status) = tpm.child.try_wait()? {
+                bail!(
+                    "swtpm exited with {status}; see {}/swtpm.log",
+                    state.display()
+                );
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "swtpm did not open {}",
+                tpm.socket.display()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        Ok(tpm)
+    }
+
+    /// QEMU arguments attaching this TPM as a CRB device (like Intel PTT).
+    fn qemu_args(&self) -> Vec<String> {
+        vec![
+            "-chardev".into(),
+            format!("socket,id=chrtpm,path={}", self.socket.display()),
+            "-tpmdev".into(),
+            "emulator,id=tpm0,chardev=chrtpm".into(),
+            "-device".into(),
+            "tpm-crb,tpmdev=tpm0".into(),
+        ]
+    }
+}
+
+impl Drop for Swtpm {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -116,19 +199,17 @@ impl Machine {
 /// Quit QEMU with Ctrl-A X.
 pub fn run(paths: &Paths) -> Result<()> {
     let image = paths.out.join("disk.img");
-    let machine = Machine {
-        disk: paths.work.join("run.img"),
-        vars: paths.work.join("run-vars.fd"),
-    };
+    let machine = Machine::named(paths, "run");
     let outdated = |p: &Path| -> Result<bool> {
         Ok(!p.exists() || fs::metadata(p)?.modified()? < fs::metadata(&image)?.modified()?)
     };
-    if outdated(&machine.disk)? || outdated(&machine.vars)? {
+    if outdated(&machine.disk)? || outdated(&machine.vars)? || !machine.tpm.exists() {
         util::step("Installing the current image onto a new VM disk");
         Machine::install(paths, "run")?;
     }
     util::step("Booting in QEMU (quit with Ctrl-A X)");
-    util::run(qemu(&machine)?.args(["-nographic", "-serial", "mon:stdio"]))
+    let tpm = Swtpm::start(&machine.tpm)?;
+    util::run(qemu(&machine, &tpm)?.args(["-nographic", "-serial", "mon:stdio"]))
 }
 
 /// Verifies the image end to end on a fresh test disk:
@@ -157,6 +238,25 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         "  ok: same installation after reboot (machine ID {})",
         second.machine_id
     );
+
+    util::step("The root partition must stay locked with another TPM");
+    let other_tpm = Machine {
+        tpm: paths.work.join("smoke-other-tpm"),
+        ..machine.clone()
+    };
+    new_tpm(&other_tpm.tpm)?;
+    expect_root_locked(&other_tpm, "a different TPM")?;
+    fs::remove_dir_all(&other_tpm.tpm)?;
+
+    util::step("The root partition must stay locked with Secure Boot disabled");
+    let insecure = Machine {
+        vars: paths.work.join("smoke-insecure-vars.fd"),
+        ..machine.clone()
+    };
+    fs::copy(secureboot::OVMF_VARS, &insecure.vars)
+        .with_context(|| format!("copying {}", secureboot::OVMF_VARS))?;
+    expect_root_locked(&insecure, "Secure Boot disabled")?;
+    fs::remove_file(&insecure.vars)?;
     machine.remove()?;
 
     util::step("Secure Boot must refuse an unsigned kernel image");
@@ -240,6 +340,11 @@ fn boot_healthy(machine: &Machine, expected_boot: u32) -> Result<BootReport> {
         report.usr
     );
     ensure!(
+        report.root == "encrypted",
+        "the root partition is not encrypted (root={})",
+        report.root
+    );
+    ensure!(
         report.secure_boot == "on",
         "the system booted without Secure Boot (secureboot={})",
         report.secure_boot
@@ -272,6 +377,36 @@ fn boot_healthy(machine: &Machine, expected_boot: u32) -> Result<BootReport> {
         elapsed.as_secs_f64()
     );
     Ok(report)
+}
+
+/// Boots an installed disk under a changed condition (another TPM, other
+/// firmware state) and requires that the TPM refuses to unlock the root
+/// partition. The root has no passphrase slot, so unlocking fails right away
+/// (a passphrase prompt would count as refused, too) and nothing boots.
+fn expect_root_locked(machine: &Machine, condition: &str) -> Result<()> {
+    let run = watch_boot(machine, TAMPER_TIMEOUT, |line| {
+        let line = strip_ansi(line);
+        if line.contains(REPORT_MARKER) {
+            Some(false)
+        } else if line.contains("Failed to start Cryptography Setup for root")
+            || line.contains("passphrase for")
+        {
+            Some(true)
+        } else {
+            None
+        }
+    })?;
+    match run.answer {
+        Some((true, _)) => {
+            eprintln!("\n  ok: with {condition} the TPM did not unlock the root partition");
+            Ok(())
+        }
+        Some((false, _)) => bail!("with {condition} the root partition was unlocked"),
+        None => bail!(
+            "no verdict on unlocking the root partition with {condition} within {}s",
+            TAMPER_TIMEOUT.as_secs()
+        ),
+    }
 }
 
 /// After first boot the disk must hold both `/usr` slots and the root partition.
@@ -356,8 +491,9 @@ fn watch_boot<T: Send + 'static>(
     timeout: Duration,
     verdict: impl Fn(&str) -> Option<T> + Send + 'static,
 ) -> Result<BootRun<T>> {
+    let tpm = Swtpm::start(&machine.tpm)?;
     let started = Instant::now();
-    let mut child = qemu(machine)?
+    let mut child = qemu(machine, &tpm)?
         .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
         .args(["-smbios", SMOKE_CREDENTIAL])
         .stdin(Stdio::null())
@@ -429,7 +565,7 @@ fn strip_ansi(line: &str) -> String {
     out.trim().to_owned()
 }
 
-fn qemu(machine: &Machine) -> Result<Command> {
+fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     if !Path::new(OVMF_CODE).exists() {
         bail!("{OVMF_CODE} is missing; install the `ovmf` package");
     }
@@ -456,7 +592,8 @@ fn qemu(machine: &Machine) -> Result<Command> {
         .arg(format!(
             "if=virtio,format=raw,file={}",
             machine.disk.display()
-        ));
+        ))
+        .args(tpm.qemu_args());
     Ok(cmd)
 }
 
@@ -472,7 +609,7 @@ fn kvm_available() -> bool {
 mod tests {
     use super::*;
 
-    const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity boot=1 \
+    const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s failed=none";
 
     #[test]
@@ -481,6 +618,7 @@ mod tests {
         assert_eq!(report.state, "running");
         assert_eq!(report.secure_boot, "on");
         assert_eq!(report.usr, "verity");
+        assert_eq!(report.root, "encrypted");
         assert_eq!(report.boot, 1);
         assert_eq!(report.machine_id, "0123456789abcdef0123456789abcdef");
         assert_eq!(report.uptime, "2.95s");
@@ -489,11 +627,12 @@ mod tests {
 
     #[test]
     fn parses_degraded_report_behind_console_noise() {
-        let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected boot=2 \
+        let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
         assert_eq!(report.secure_boot, "off");
+        assert_eq!(report.root, "plain");
         assert_eq!(report.boot, 2);
         assert_eq!(
             report.failed,

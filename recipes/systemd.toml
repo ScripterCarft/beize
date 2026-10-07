@@ -6,7 +6,7 @@
 name = "systemd"
 version = "262"
 stage = "target"
-deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup"]
+deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -22,6 +22,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dmode=release -Dauto_features=disabled \
   -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \
   -Dlibcryptsetup=enabled \
+  -Dopenssl=enabled -Dtpm2=enabled \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \
   -Dinstall-sysconfdir=false -Dfallback-hostname=beize \
@@ -32,4 +33,9 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dsbat-distro-url=https://github.com/ScripterCarft/beize
 meson compile -j "$JOBS"
 DESTDIR="$PKG" meson install --no-rebuild --quiet
+# ukify builds the UKI on the build host. It must be the same version as the
+# stub and as systemd in the image (e.g. the signed PCR policies systemd 262
+# expects), so it comes from here, into a directory that is never shipped.
+meson compile ukify
+install -Dm755 ukify "$PKG/usr/lib/beize-build/ukify"
 '''

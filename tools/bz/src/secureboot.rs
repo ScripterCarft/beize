@@ -18,7 +18,7 @@ use crate::util;
 /// Owner GUID recorded with Beize's certificates in the firmware databases.
 pub const OWNER_GUID: &str = "6265697a-6500-4000-8000-000000000100";
 /// Pristine OVMF variable store (setup mode, no keys enrolled).
-const OVMF_VARS: &str = "/usr/share/OVMF/OVMF_VARS_4M.fd";
+pub const OVMF_VARS: &str = "/usr/share/OVMF/OVMF_VARS_4M.fd";
 
 /// A Secure Boot key hierarchy: PK (platform owner) signs KEK, KEK
 /// authorises db updates, db holds the certificate that signs boot binaries.
@@ -40,7 +40,17 @@ impl Keys {
                 generate(&dir, name, &format!("Beize TEST ONLY {purpose}"))?;
             }
         }
+        if !dir.join("pcr.pub.pem").exists() {
+            generate_pcr_key(&dir)?;
+        }
         Ok(Self { dir })
+    }
+
+    /// Key pair that signs the expected PCR 11 values of a UKI (`.pcrsig`).
+    /// The TPM accepts the signature as policy: secrets sealed to the public
+    /// key unlock for every UKI signed with it, so they survive updates.
+    pub fn pcr_key(&self) -> (PathBuf, PathBuf) {
+        (self.dir.join("pcr.key"), self.dir.join("pcr.pub.pem"))
     }
 
     fn cert(&self, name: &str) -> PathBuf {
@@ -100,6 +110,35 @@ impl Keys {
         .context("enrolling keys into the firmware variables")?;
         Ok(())
     }
+}
+
+/// Creates the RSA-2048 key pair for signed PCR policies; RSA-2048 is what
+/// every TPM 2.0 supports for TPM2_PolicyAuthorize.
+fn generate_pcr_key(dir: &Path) -> Result<()> {
+    let key = dir.join("pcr.key");
+    util::output(
+        Command::new("openssl")
+            .args([
+                "genpkey",
+                "-algorithm",
+                "RSA",
+                "-pkeyopt",
+                "rsa_keygen_bits:2048",
+            ])
+            .arg("-out")
+            .arg(&key),
+    )
+    .context("generating the PCR signing key")?;
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o600))?;
+    util::output(
+        Command::new("openssl")
+            .args(["pkey", "-pubout", "-in"])
+            .arg(&key)
+            .arg("-out")
+            .arg(dir.join("pcr.pub.pem")),
+    )
+    .context("extracting the PCR public key")?;
+    Ok(())
 }
 
 /// Creates a self-signed RSA-2048 certificate and key. RSA-2048 is what every

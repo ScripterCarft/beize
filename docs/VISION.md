@@ -57,7 +57,8 @@ darüber gehört jede Zeile uns.
 - **Selbstpflege:** Caches, Logs, Snapshots mit festen Obergrenzen, räumen sich selbst auf.
 - **Sicherheit:** Secure Boot mit eigenen Schlüsseln, signiertes UKI, dm-verity,
   verschlüsselte Daten mit TPM2. **[aktualisiert: die ganze Root-Partition
-  (`/etc`, `/var`, `/home`) wird LUKS2+TPM2-verschlüsselt – aktuelle Aufgabe.]**
+  (`/etc`, `/var`, `/home`) ist LUKS2-verschlüsselt, an TPM2 + Secure-Boot-Zustand
+  gebunden – ADR 0009; Wiederherstellungsschlüssel noch offen.]**
 
 ## Shell (eine eigene Komponente)
 

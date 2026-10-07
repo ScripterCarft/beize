@@ -1,0 +1,41 @@
+# TPM2 software stack: systemd uses it (via dlopen) to seal the LUKS2 key of
+# the root partition to the TPM. Only the layers systemd needs are built:
+# no FAPI (would pull in libcurl), no policy library, only the kernel device TCTI.
+name = "tpm2-tss"
+version = "4.2.0"
+stage = "target"
+deps = ["gcc", "glibc", "openssl"]
+
+[source]
+url = "https://github.com/tpm2-software/tpm2-tss/releases/download/{version}/tpm2-tss-{version}.tar.gz"
+sha256 = "b53f0c5c8c4ce17f05701a410ca9688f725ca380c9bc4640eacd0eadb1fea124"
+signature = "https://github.com/tpm2-software/tpm2-tss/releases/download/{version}/tpm2-tss-{version}.tar.gz.asc"
+keyring = "tpm2-tss"
+
+[build]
+script = '''
+# configure looks for systemd-sysusers/-tmpfiles on the build host to decide
+# whether to install their files; answer it so the result never depends on the host.
+# The directories are set explicitly (pkg-config would add the sysroot).
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin \
+  --sysconfdir=/etc --localstatedir=/var --with-runstatedir=/run \
+  --with-crypto=ossl \
+  --with-udevrulesdir=/usr/lib/udev/rules.d \
+  --with-sysusersdir=/usr/lib/sysusers.d --with-tmpfilesdir=/usr/lib/tmpfiles.d \
+  --disable-static --disable-fapi --disable-policy --disable-vendor \
+  --disable-tcti-mssim --disable-tcti-swtpm --disable-tcti-pcap \
+  --disable-tcti-libtpms --disable-tcti-cmd --disable-tcti-spi-helper \
+  --disable-tcti-spi-ltt2go --disable-tcti-spidev --disable-tcti-spi-ftdi \
+  --disable-tcti-i2c-helper --disable-tcti-i2c-ftdi \
+  --disable-doxygen-doc --disable-unit --disable-integration \
+  ac_cv_prog_systemd_sysusers=yes ac_cv_prog_systemd_tmpfiles=yes
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+# The install hook creates the FAPI state directories even with FAPI off;
+# Beize ships only /usr (ADR 0007).
+rm -r "$PKG/var" "$PKG/run"
+# The udev rules hand /dev/tpm* to the tss user, but upstream installs its
+# sysusers entry only together with FAPI.
+install -Dm644 "$SRC/dist/sysusers.d/tpm2-tss.conf" "$PKG/usr/lib/sysusers.d/tpm2-tss.conf"
+'''

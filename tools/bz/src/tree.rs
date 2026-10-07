@@ -31,7 +31,9 @@ pub fn image_definition(paths: &Paths) -> Result<ImageDefinition> {
 }
 
 /// Build-time files that are never part of a running system.
-const BUILD_ONLY_DIRS: [&str; 6] = [
+const BUILD_ONLY_DIRS: [&str; 7] = [
+    // Tools that bz runs on the build host from the sysroot (e.g. ukify).
+    "usr/lib/beize-build",
     "usr/include",
     "usr/lib/pkgconfig",
     "usr/share/pkgconfig",
@@ -149,6 +151,7 @@ mod tests {
         assert!(is_build_only(Path::new("usr/include/stdio.h")));
         assert!(is_build_only(Path::new("usr/lib/libc.a")));
         assert!(is_build_only(Path::new("usr/lib/crt1.o")));
+        assert!(is_build_only(Path::new("usr/lib/beize-build/ukify")));
         assert!(is_build_only(Path::new("usr/share/man/man1/ls.1")));
         assert!(!is_build_only(Path::new("usr/lib/libc.so.6")));
         assert!(!is_build_only(Path::new("usr/bin/bash")));

@@ -4,10 +4,11 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use crate::layout::{
     self, ESP_CLUSTER_SIZE, ESP_SIZE, ESP_TYPE, MIB, USR_SLOT_SIZE, USR_TYPE, USR_VERITY_SLOT_SIZE,
@@ -57,6 +58,36 @@ pub fn unsigned_uki(paths: &Paths) -> PathBuf {
     paths.work.join("beize.unsigned.efi")
 }
 
+/// ukify from Beize's own systemd build, using systemd-measure from the same
+/// build: both must match the stub and the systemd inside the image (e.g. the
+/// signed PCR policies systemd expects). systemd-measure is a target binary;
+/// it runs on the build host through the sysroot's dynamic loader.
+fn ukify(paths: &Paths) -> Result<Command> {
+    let ukify = paths.sysroot.join("usr/lib/beize-build/ukify");
+    ensure!(
+        ukify.exists(),
+        "{} is missing; run `bz package systemd`",
+        ukify.display()
+    );
+    let tools = paths.work.join("uki-tools");
+    fs::create_dir_all(&tools)?;
+    let measure = tools.join("systemd-measure");
+    let sysroot = paths.sysroot.display();
+    fs::write(
+        &measure,
+        format!(
+            "#!/bin/sh\n\
+             exec '{sysroot}/usr/lib/ld-linux-x86-64.so.2' \
+             --library-path '{sysroot}/usr/lib:{sysroot}/usr/lib/systemd' \
+             '{sysroot}/usr/lib/systemd/systemd-measure' \"$@\"\n"
+        ),
+    )?;
+    fs::set_permissions(&measure, fs::Permissions::from_mode(0o755))?;
+    let mut cmd = Command::new("python3");
+    cmd.arg(ukify).arg("--tools").arg(&tools);
+    Ok(cmd)
+}
+
 /// Builds and signs the boot chain and writes `out/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let kernel = paths.out.join("vmlinuz");
@@ -81,8 +112,9 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let os_release = paths.work.join("os-release");
     fs::write(&os_release, layout::os_release())?;
     let unsigned_uki = unsigned_uki(paths);
+    let (pcr_private, pcr_public) = keys.pcr_key();
     util::run(
-        Command::new("ukify")
+        ukify(paths)?
             .arg("build")
             .arg("--linux")
             .arg(&kernel)
@@ -93,6 +125,14 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(format!("--cmdline={}", kernel_cmdline(root_hash)))
             .arg(format!("--os-release=@{}", os_release.display()))
             .arg(format!("--uname={}", release.trim()))
+            // Signed PCR 11 policies (.pcrsig) and their public key (.pcrpkey).
+            // The extra initrd-only policies authorise systemd to set up the
+            // TPM's NvPCRs (systemd-tpm2-setup-early).
+            .arg("--pcr-private-key")
+            .arg(&pcr_private)
+            .arg("--pcr-public-key")
+            .arg(&pcr_public)
+            .arg("--sign-initrd-pcrs")
             .arg("--output")
             .arg(&unsigned_uki),
     )?;

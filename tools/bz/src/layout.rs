@@ -148,7 +148,9 @@ pub fn repart_definitions() -> Vec<(&'static str, String)> {
             format!(
                 "# Created on first boot: /, holding /etc, /var and /home.\n\
                  # Emptied by a factory reset.\n\
+                 # LUKS2, sealed to the TPM and the Secure Boot state (PCR 7, ADR 0009).\n\
                  [Partition]\nType=root\nLabel=root\nFormat=ext4\nFactoryReset=yes\n\
+                 Encrypt=tpm2\nTPM2PCRs=7\n\
                  SizeMinBytes={ROOT_MIN_SIZE}\n"
             ),
         ),
@@ -198,5 +200,13 @@ mod tests {
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted);
+    }
+
+    #[test]
+    fn root_is_sealed_to_the_tpm() {
+        let defs = repart_definitions();
+        let root = &defs.iter().find(|(n, _)| *n == "20-root.conf").unwrap().1;
+        assert!(root.contains("Encrypt=tpm2\n"));
+        assert!(root.contains("TPM2PCRs=7\n"));
     }
 }
