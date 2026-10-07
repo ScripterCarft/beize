@@ -1,6 +1,6 @@
 # 0003 – Unveränderliches, signiertes System-Image
 
-Status: angenommen · 2026-10-06
+Status: angenommen · 2026-10-06 · Aufbau der Partitionen präzisiert durch ADR 0007
 
 ## Kontext
 

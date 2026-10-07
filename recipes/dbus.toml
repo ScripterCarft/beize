@@ -24,4 +24,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dsystemd_user_unitdir=/usr/lib/systemd/user
 meson compile -j "$JOBS"
 DESTDIR="$PKG" meson install --no-rebuild --quiet
+# /etc/dbus-1/{system,session}.conf are empty legacy stubs; the real
+# configuration lives in /usr/share/dbus-1.
+rm -rf "$PKG/etc"
 '''

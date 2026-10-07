@@ -20,7 +20,17 @@ while read -r unit _; do
 done < <(systemctl list-units --failed --plain --no-legend)
 failed_list=$(IFS=,; echo "${failed[*]}")
 
-echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} uptime=${uptime}s failed=${failed_list:-none}"
+# Boots of this installation, counted on the root partition: proves that the
+# root partition (/etc, /var) survives a reboot.
+counter=/var/lib/beize/boot-count
+boot=0
+[[ -r $counter ]] && read -r boot < "$counter"
+boot=$((boot + 1))
+mkdir -p "${counter%/*}" && echo "$boot" > "$counter" && sync "$counter"
+read -r machineid < /etc/machine-id
+
+echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} boot=${boot}" \
+     "machineid=${machineid} uptime=${uptime}s failed=${failed_list:-none}"
 
 if [[ -e /run/credentials/@system/beize.smoke ]]; then
     systemctl poweroff --no-block

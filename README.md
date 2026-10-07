@@ -14,7 +14,7 @@ Meilenstein **M1 – Bootet in QEMU** ist erreicht.
 - [x] Kernel aus dem Quellcode mit eigener, verifizierter Konfiguration
 - [x] Eigene Cross-Toolchain (binutils, gcc) und glibc aus dem Quellcode
 - [x] systemd, D-Bus, bash, coreutils, util-linux aus dem Quellcode
-- [x] Read-only Root (EROFS) auf GPT-Disk, Unified Kernel Image, Start über UEFI
+- [x] Unified Kernel Image auf GPT-Disk, Start über UEFI
 - [x] Shell auf der seriellen Konsole in QEMU
 - [x] Automatischer Boot-Test: systemd `running`, keine fehlgeschlagene Unit
 
@@ -25,7 +25,9 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] Secure Boot: signiertes systemd-boot + UKI, eigene Schlüssel; der Boot-Test
       läuft unter erzwungenem Secure Boot und prüft, dass Unsigniertes abgewiesen wird
 - [ ] Produktionsschlüssel (1Password) und Signieren für echte Hardware
-- [ ] A/B-Systempartitionen mit Rückfall, persistentes `/var`, LUKS + TPM2
+- [x] Nur `/usr` wird ausgeliefert; die initrd legt beim ersten Start `/usr`-Slot B und die
+      Root-Partition (`/etc`, `/var`, `/home`) an; Boot-Counting mit automatischem Rückfall
+- [ ] dm-verity für `/usr`, Root-Partition mit LUKS + TPM2, Updater (systemd-sysupdate)
 - [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
 - [ ] Start von der zweiten SSD
 
@@ -48,15 +50,21 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 ## Benutzung
 
 ```sh
-./bz build                  # Toolchain, Kernel, Pakete, Root-Image und Disk bauen
-./bz run                    # Image in QEMU starten (beenden mit Ctrl-A X)
-./bz smoke                  # Booten unter Secure Boot prüfen (und dass Unsigniertes abgewiesen wird)
+./bz build                  # Toolchain, Kernel, Pakete, /usr-Image, initrd und Disk bauen
+./bz run                    # In QEMU starten; der Zustand bleibt bis zum nächsten Build erhalten
+./bz smoke                  # Auf frischer Disk zweimal booten und alles prüfen (siehe unten)
 ./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
 ./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
 ./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen
 ```
 
-Einzelschritte: `./bz kernel`, `./bz rootfs`, `./bz image`.
+Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`.
+
+`./bz smoke` installiert das Image auf eine frische 8-GB-Test-Disk und prüft:
+Secure Boot aktiv, erster Start legt Partitionen an, systemd `running` ohne eine
+einzige fehlgeschlagene Unit (auch in der initrd), Boot-Counting markiert den Start
+als gut, der zweite Start findet dieselbe Installation – und ein unsigniertes
+Kernel-Image wird von der Firmware abgewiesen.
 Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden.
 Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 
@@ -64,12 +72,12 @@ Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 
 | Pfad | Inhalt |
 | --- | --- |
-| `tools/bz` | Build-Werkzeug: Rezepte → Toolchain, Pakete, Root-Image, UKI, Disk |
+| `tools/bz` | Build-Werkzeug: Rezepte → Toolchain, Pakete, `/usr`-Image, initrd, UKI, Disk |
 | `recipes/` | Ein Rezept pro Paket: gepinnte, signierte Quelle, Abhängigkeiten, Build-Skript |
 | `keys/` | Öffentliche Schlüssel der Upstream-Maintainer (siehe `keys/README.md`) |
 | `ci/` | Paketliste und kompletter CI-Ablauf |
-| `images/` | Welche Pakete in ein Image gehören |
-| `system/rootfs/` | Eigene Dateien im Root-Dateisystem (Konfiguration, systemd-Units) |
+| `images/` | Welche Pakete in `/usr` und in die initrd gehören |
+| `system/usr/` | Eigene Dateien in `/usr` (Units, Werkseinstellungen für `/etc`) |
 | `kernel/config/` | Kernel-Konfigurationsfragmente, nach dem Mergen verifiziert |
 | `docs/adr/` | Architekturentscheidungen mit Begründung |
 

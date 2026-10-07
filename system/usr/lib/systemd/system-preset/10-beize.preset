@@ -1,3 +1,2 @@
-enable var.mount
 enable dbus.socket
 enable beize-boot-report.service

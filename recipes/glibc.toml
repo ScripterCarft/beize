@@ -21,4 +21,7 @@ echo "rootsbindir=/usr/bin" > configparms
   libc_cv_slibdir=/usr/lib
 make -j"$JOBS"
 make DESTDIR="$PKG" install
+# Only /usr is shipped: /etc/rpc (Sun RPC names) and the nscd database
+# Makefile in /var are not used by Beize.
+rm -rf "$PKG/etc" "$PKG/var"
 '''

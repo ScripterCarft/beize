@@ -18,6 +18,7 @@ script = '''
   --bindir=/usr/bin --sbindir=/usr/bin --runstatedir=/run \
   --disable-all-programs \
   --enable-libuuid --enable-libblkid --enable-libmount --enable-libsmartcols \
+  --enable-libfdisk \
   --enable-agetty --enable-mount --enable-lsblk --enable-dmesg \
   --disable-nls --disable-static --disable-liblastlog2 --disable-pylibmount \
   --disable-makeinstall-chown --disable-makeinstall-setuid \

@@ -4,15 +4,18 @@
 //! disk image and runs it in QEMU.
 
 mod image;
+mod initrd;
 mod install;
 mod kernel;
+mod layout;
 mod packages;
 mod paths;
 mod qemu;
 mod recipe;
-mod rootfs;
 mod secureboot;
 mod source;
+mod tree;
+mod usr;
 mod util;
 
 use anyhow::Result;
@@ -36,15 +39,17 @@ enum Command {
         #[arg(required = true)]
         names: Vec<String>,
     },
-    /// Build the packages of the base image and assemble the root filesystem
-    Rootfs,
-    /// Assemble the Unified Kernel Image and the GPT disk image
+    /// Build the packages of the image and write the /usr image
+    Usr,
+    /// Build the initrd that goes into the Unified Kernel Image
+    Initrd,
+    /// Assemble and sign the Unified Kernel Image and write the disk image
     Image,
-    /// Build kernel, root filesystem and disk image
+    /// Build kernel, /usr image, initrd and disk image
     Build,
-    /// Boot the disk image in QEMU with an interactive serial console
+    /// Boot the image in QEMU with an interactive serial console (state is kept between runs)
     Run,
-    /// Boot the disk image headless and verify that the system comes up
+    /// Install the image on a fresh test disk, boot it twice and verify everything
     Smoke,
     /// Show which package installed a file (e.g. `bz owner /usr/bin/bash`)
     Owner { path: String },
@@ -59,7 +64,8 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Kernel => kernel::build(&paths).map(drop),
         Command::Package { names } => packages::build(&paths, &names).map(drop),
-        Command::Rootfs => rootfs::build(&paths).map(drop),
+        Command::Usr => usr::build(&paths).map(drop),
+        Command::Initrd => initrd::build(&paths).map(drop),
         Command::Image => image::build(&paths).map(drop),
         Command::Build => build_all(&paths),
         Command::Run => qemu::run(&paths),
@@ -91,7 +97,8 @@ fn verify_sources(paths: &Paths) -> Result<()> {
 
 fn build_all(paths: &Paths) -> Result<()> {
     kernel::build(paths)?;
-    rootfs::build(paths)?;
+    usr::build(paths)?;
+    initrd::build(paths)?;
     image::build(paths)?;
     Ok(())
 }

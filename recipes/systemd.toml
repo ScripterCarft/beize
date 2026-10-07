@@ -1,5 +1,8 @@
 # systemd: init, device management, logging (ADR 0002).
 # Every optional feature starts disabled; enable them deliberately.
+# Nothing is installed to /etc: Beize ships only /usr (ADR 0007).
+# No systemd-firstboot: first-boot setup will be Beize's own onboarding;
+# until then the defaults apply (UTC, C.UTF-8, no root password prompt).
 name = "systemd"
 version = "262"
 stage = "target"
@@ -17,9 +20,11 @@ script = '''
 meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
   -Dmode=release -Dauto_features=disabled \
-  -Dblkid=enabled -Dlibmount=enabled \
+  -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \
+  -Dinstall-sysconfdir=false -Dfallback-hostname=beize \
+  -Dfirstboot=false \
   -Dbootloader=enabled \
   -Dsbat-distro=beize -Dsbat-distro-summary=Beize \
   -Dsbat-distro-pkgname=systemd -Dsbat-distro-version="$VERSION" \
