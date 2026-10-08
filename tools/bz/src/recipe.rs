@@ -33,6 +33,9 @@ pub struct Recipe {
     pub source_from: Option<String>,
     /// Additional archives unpacked into the main source tree.
     pub extra: Vec<Extra>,
+    /// Paths in this repository the recipe builds from (Beize's own code);
+    /// their content is part of the build fingerprint.
+    pub repo: Vec<String>,
     pub build: Option<Build>,
     /// Raw recipe text; part of the build fingerprint.
     pub text: String,
@@ -58,6 +61,8 @@ struct RawRecipe {
     source_from: Option<String>,
     #[serde(default)]
     extra: Vec<RawSource>,
+    #[serde(default)]
+    repo: Vec<String>,
     build: Option<Build>,
 }
 
@@ -80,7 +85,7 @@ impl Recipe {
         Ok(recipe)
     }
 
-    fn parse(text: &str) -> Result<Self> {
+    pub(crate) fn parse(text: &str) -> Result<Self> {
         let raw: RawRecipe = toml::from_str(text)?;
         if raw.source.is_some() && raw.source_from.is_some() {
             bail!("source and source_from are mutually exclusive");
@@ -104,6 +109,7 @@ impl Recipe {
             source,
             source_from: raw.source_from,
             extra,
+            repo: raw.repo,
             build: raw.build,
             text: text.to_owned(),
         })

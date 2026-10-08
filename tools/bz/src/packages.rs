@@ -45,7 +45,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
             visible.extend(closures[dep].iter().cloned());
         }
 
-        let fingerprint = fingerprint(recipe, &fingerprints);
+        let fingerprint = fingerprint(recipe, &repo_digest(paths, recipe)?, &fingerprints);
         let stamp = stamps.join(&recipe.name);
         if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
             eprintln!("  {} {} is up to date", recipe.name, recipe.version);
@@ -105,13 +105,15 @@ fn topological_order(
 }
 
 /// Everything that influences a build: the recipe itself, the build
-/// environment and the fingerprints of all dependencies.
-fn fingerprint(recipe: &Recipe, known: &BTreeMap<String, String>) -> String {
+/// environment, the repository content it builds from and the fingerprints
+/// of all dependencies.
+fn fingerprint(recipe: &Recipe, repo: &str, known: &BTreeMap<String, String>) -> String {
     let mut hasher = Sha256::new();
     hasher.update(format!(
         "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {BUILD_EPOCH}\n"
     ));
     hasher.update(&recipe.text);
+    hasher.update(repo);
     for source in recipe.sources() {
         hasher.update(source.pin());
     }
@@ -126,6 +128,63 @@ fn fingerprint(recipe: &Recipe, known: &BTreeMap<String, String>) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// Digest over the paths and contents of the repository files a recipe
+/// builds from (`repo = [...]`); empty for recipes without any, so their
+/// fingerprints stay what they were before `repo` existed.
+fn repo_digest(paths: &Paths, recipe: &Recipe) -> Result<String> {
+    if recipe.repo.is_empty() {
+        return Ok(String::new());
+    }
+    let mut hasher = Sha256::new();
+    for entry in &recipe.repo {
+        let mut pending = vec![paths.root.join(entry)];
+        let mut files = Vec::new();
+        while let Some(path) = pending.pop() {
+            let meta = fs::symlink_metadata(&path)
+                .with_context(|| format!("{}: repo path {}", recipe.name, path.display()))?;
+            if meta.is_dir() {
+                for child in fs::read_dir(&path)? {
+                    pending.push(child?.path());
+                }
+            } else {
+                files.push(path);
+            }
+        }
+        files.sort();
+        for file in files {
+            let rel = file.strip_prefix(&paths.root).unwrap_or(&file);
+            hasher.update(format!("{}\n", rel.display()));
+            hasher.update(util::sha256_file(&file)?);
+        }
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
+/// Cargo for building Beize's own Rust code for the target: the toolchain
+/// running bz (rust-toolchain.toml), crates cached under build/cache.
+fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path) {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let cargo = Path::new(&cargo);
+    cmd.env("CARGO", cargo)
+        .env("CARGO_HOME", paths.cache.join("cargo"))
+        .env("CARGO_TARGET_DIR", build_dir.join("target"))
+        .env("REPO", &paths.root)
+        // Only target artifacts link with the cross compiler against the
+        // sysroot; build scripts and proc macros stay with the host's cc.
+        .env("RUSTFLAGS", format!("-C linker={TARGET}-gcc"));
+    if let Some(rustc) = cargo
+        .parent()
+        .map(|bin| bin.join("rustc"))
+        .filter(|rustc| rustc.exists())
+    {
+        cmd.env("RUSTC", rustc);
+    }
 }
 
 fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
@@ -200,6 +259,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
                     ),
                 )
                 .env("MESON_CROSS", meson_cross_file(paths));
+            cargo_env(&mut cmd, paths, &build_dir);
         }
     }
 
@@ -295,6 +355,27 @@ fn print_tail(log: &Path, lines: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Recipes without `repo` must keep their fingerprints: anything else
+    /// rebuilds the whole system (and invalidates every CI cache).
+    #[test]
+    fn recipes_without_repo_sources_keep_their_fingerprint() {
+        let paths = Paths::new().unwrap();
+        let recipe = Recipe::parse("name = \"a\"\nversion = \"1\"\n").unwrap();
+        let digest = repo_digest(&paths, &recipe).unwrap();
+        assert_eq!(digest, "");
+        let mut legacy = Sha256::new();
+        legacy.update(format!(
+            "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {BUILD_EPOCH}\n"
+        ));
+        legacy.update(&recipe.text);
+        let legacy: String = legacy
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(fingerprint(&recipe, &digest, &BTreeMap::new()), legacy);
+    }
 
     fn order(graph: &[(&str, &[&str])], roots: &[&str]) -> Result<Vec<String>> {
         let graph: BTreeMap<_, _> = graph.iter().copied().collect();
