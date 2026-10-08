@@ -73,7 +73,9 @@ akzeptiert):
 **Daten (TPM):** Der TPM-Slot der Root-Partition ist an PCR 7 (Secure-Boot-Zustand)
 **und** an die signierte PCR-11-Richtlinie mit Policy-Referenz `initrd` gebunden:
 Unsere eigenen Updates brauchen nie eine Eingabe, und nur die initrd eines signierten
-Beize-UKI bekommt den Schlüssel – das laufende System nicht. PCR 7 enthält auch,
+Beize-UKI bekommt den TPM-Schlüssel – das laufende System nicht noch einmal (eine Hürde,
+kein Schutz gegen ein kompromittiertes System: nach dem Entsperren hält der Kernel den
+Datenschlüssel). PCR 7 enthält auch,
 *welches* db-Zertifikat den Start freigegeben hat: Ein anderes, von Microsoft
 signiertes System startet, bekommt den Schlüssel aber nicht.
 

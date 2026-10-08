@@ -145,7 +145,8 @@ einmal alles neu, ~1 h).
   → `usrhash` → dm-verity für jeden `/usr`-Block.
 - **Daten:** Root-Partition LUKS2 (aes-xts), TPM-Slot an PCR 7 (Secure-Boot-Zustand)
   **und** die signierte PCR-11-Richtlinie mit Referenz `initrd` – nur die initrd eines
-  signierten Beize-UKI bekommt den Schlüssel, das laufende System nicht (Boot-Report
+  signierten Beize-UKI bekommt den TPM-Schlüssel, das laufende System nicht noch einmal
+  (kein Schutz gegen ein kompromittiertes System: dm-crypt hält den Schlüssel im Kernel; Boot-Report
   `systemunlock=refused`, Header-Prüfung in `bz smoke`); kein Passwort-Slot.
   Recovery-Key wird beim 1. Start in der initrd erzeugt und einmal angezeigt
   (Konsole + `/run/beize/recovery-key`), nie auf Platte/Journal (ADR 0009 + Nachtrag).

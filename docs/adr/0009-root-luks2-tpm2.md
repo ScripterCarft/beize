@@ -95,8 +95,12 @@ mit intaktem Secure Boot.
 - Jetzt zusätzlich mit **Policy-Referenz `initrd`** (`systemd-repart.service`-Drop-in
   in `system/initrd/`): Nur die Signatur, die das UKI für die Phase „enter-initrd“
   trägt, erfüllt die Richtlinie. Sobald die initrd „leave-initrd“ in PCR 11 misst,
-  gibt der TPM den Schlüssel nicht mehr heraus – auch nicht an ein kompromittiertes
-  laufendes System. Der Boot-Report prüft das bei jedem Start (`systemunlock=refused`).
+  gibt der TPM den TPM-Schlüssel nicht **noch einmal** heraus. Das ist eine zusätzliche
+  Hürde, kein Schutz gegen ein kompromittiertes laufendes System: Nach dem Entsperren
+  hält der Kernel den Datenschlüssel (dm-crypt), wer dort root ist, liest die Daten und
+  kann den Schlüssel aus dem Speicher holen – wie bei jeder Festplattenverschlüsselung.
+  Der Boot-Report prüft einmal pro Start, dass der TPM nach der initrd verweigert
+  (`systemunlock=refused`); der TPM überwacht das laufende System nicht.
 - Der Recovery-Key wird deshalb **in der initrd** angelegt
   (`beize-recovery-key.service` in `system/initrd/`), direkt nach dem Entsperren.
   Die initrd enthält dafür bash (keine coreutils; das Skript nutzt nur Builtins).
