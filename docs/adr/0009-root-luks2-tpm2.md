@@ -103,6 +103,6 @@ mit intaktem Secure Boot.
   stderr von `systemd-cryptenroll` (im interaktiven Modus mit QR-Code des Schlüssels)
   erscheint nur im Fehlerfall und nie im Journal.
 - Verbleibende Schwäche: Jedes ältere, mit demselben PCR-Schlüssel signierte UKI
-  erfüllt die Richtlinie ebenfalls (Rollback). PCR 7 bleibt direkt gebunden – ändert
-  es sich (dbx-Update, BIOS-Update), ist bis zur Umstellung auf `systemd-pcrlock`
-  bei *jedem* Start der Recovery-Key nötig.
+  erfüllt die Richtlinie ebenfalls (Rollback). PCR 7 bleibt direkt gebunden; ändert es
+  sich (dbx-Update, BIOS-Update), bindet `beize-tpm-reseal` nach einmaliger Eingabe
+  des Recovery-Keys neu (ADR 0010).

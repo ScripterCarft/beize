@@ -326,19 +326,30 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     );
     eprintln!("  ok: the recovery key was shown only once");
 
-    util::step("Another TPM must not unlock the root partition, the recovery key must");
+    util::step("A Secure Boot update needs the recovery key once, then the TPM unlocks again");
+    // Like Windows installing a revocation: a new dbx entry changes PCR 7.
+    let updated = paths.work.join("smoke-vars-updated.fd");
+    util::output(
+        Command::new("virt-fw-vars")
+            .arg("--input")
+            .arg(&machine.vars)
+            .arg("--output")
+            .arg(&updated)
+            .args(["--add-dbx-hash", secureboot::OWNER_GUID, SMOKE_REVOKED_HASH]),
+    )?;
+    fs::rename(&updated, &machine.vars)?;
+    expect_rebound(&machine, 3, &recovery_key, "the Secure Boot update")?;
+
+    util::step("Another TPM (new mainboard) needs the recovery key once, then unlocks by itself");
     let other_tpm = Machine {
         tpm: paths.work.join("smoke-other-tpm"),
         ..machine.clone()
     };
     new_tpm(&other_tpm.tpm)?;
-    let third = boot_healthy(&other_tpm, 3, Some(recovery_key))?;
-    ensure!(
-        third.prompted,
-        "the root partition was unlocked without the recovery key on a different TPM"
-    );
-    eprintln!("  ok: a different TPM did not unlock the root partition, the recovery key did");
+    expect_rebound(&other_tpm, 5, &recovery_key, "a different TPM")?;
     fs::remove_dir_all(&other_tpm.tpm)?;
+    // From here on the volume is bound to the other TPM: the machine's own
+    // TPM must not unlock it any more (checked below, with Secure Boot off).
 
     util::step("The root partition must stay locked with Secure Boot disabled");
     let insecure = Machine {
@@ -355,6 +366,27 @@ pub fn smoke(paths: &Paths) -> Result<()> {
             .args(["--set-false", "SecureBootEnable"]),
     )?;
     expect_root_locked(&insecure, "Secure Boot disabled")?;
+    // The recovery key opens the data, but must not approve this state.
+    let run = watch_boot(
+        &insecure,
+        SMOKE_TIMEOUT,
+        Some(recovery_key.clone()),
+        BootReport::parse,
+    )?;
+    ensure!(
+        run.prompted && run.answer.is_some(),
+        "with Secure Boot disabled the recovery key did not open the root partition"
+    );
+    ensure!(
+        run.console
+            .iter()
+            .any(|line| line.contains("Secure Boot is off: the TPM stays bound")),
+        "with Secure Boot disabled the boot did not refuse to re-bind the TPM"
+    );
+    expect_root_locked(&insecure, "Secure Boot disabled after a recovery-key boot")?;
+    eprintln!(
+        "  ok: with Secure Boot disabled the recovery key opened the data without re-binding the TPM"
+    );
     fs::remove_file(&insecure.vars)?;
     machine.remove()?;
 
@@ -537,6 +569,34 @@ fn boot_healthy(
         console: run.console,
         prompted: run.prompted,
     })
+}
+
+/// A dbx entry no binary has: added to simulate a Secure Boot update.
+const SMOKE_REVOKED_HASH: &str = "62656967652d736d6f6b652d7265766f6b656462656967652d736d6f6b652d31";
+
+/// After a change the TPM refuses (PCR 7 or the TPM itself), boot `boot`
+/// must ask for the recovery key and re-bind the TPM slot; boot `boot + 1`
+/// must unlock by itself again (ADR 0010).
+fn expect_rebound(machine: &Machine, boot: u32, recovery_key: &str, change: &str) -> Result<()> {
+    let first = boot_healthy(machine, boot, Some(recovery_key.to_owned()))?;
+    ensure!(
+        first.prompted,
+        "after {change} the TPM still unlocked the root partition"
+    );
+    ensure!(
+        first
+            .console
+            .iter()
+            .any(|line| line.contains("binding the data to the current state")),
+        "after {change} the recovery-key boot did not re-bind the TPM"
+    );
+    let second = boot_healthy(machine, boot + 1, None)?;
+    ensure!(
+        !second.prompted,
+        "after re-binding the TPM still did not unlock"
+    );
+    eprintln!("  ok: after {change} the recovery key was needed once, then the TPM unlocked again");
+    Ok(())
 }
 
 /// Boots an installed disk under a changed condition (another TPM, other

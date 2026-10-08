@@ -10,19 +10,10 @@
 # system, gone after the next restart). A lost key can be replaced from the
 # running system with the old one:
 #   systemd-cryptenroll --wipe-slot=recovery --recovery-key <root partition>
-#
-# The initrd has bash and systemd, but no coreutils: builtins only.
 set -euo pipefail
+source /usr/lib/beize/luks.sh
 
-# The LUKS volume below the device-mapper device "root".
-device=
-for name in /sys/block/dm-*/dm/name; do
-    [[ -r $name && $(< "$name") == root ]] || continue
-    for slave in "${name%/dm/name}"/slaves/*; do
-        device=/dev/${slave##*/}
-    done
-done
-[[ -b $device ]] || { echo "no LUKS volume below /dev/mapper/root" >&2; exit 1; }
+device=$(root_luks_device)
 
 while read -r _ type; do
     [[ $type == recovery ]] && exit 0

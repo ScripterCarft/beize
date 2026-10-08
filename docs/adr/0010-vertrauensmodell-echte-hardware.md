@@ -70,13 +70,32 @@ akzeptiert):
   technische Absicherung, dass Automatisierung (CI, Claude) nie an die
   Produktionsschlüssel kommt.
 
-**Daten (TPM):** Ziel ist das Muster moderner image-basierter Systeme
-(ParticleOS, GNOME OS): Root an die **signierte PCR-11-Richtlinie** (übersteht jedes
-von uns signierte Update) **und** an PCR 7 über **`systemd-pcrlock`**
-(Secure-Boot-Zustand; nach Firmware-Änderungen einmal Recovery-Key, danach legt
-pcrlock die Richtlinie neu an). Bis dahin gilt ADR 0009 (PCR 7 direkt). PCR 7
-enthält auch, *welches* db-Zertifikat den Start freigegeben hat: Ein anderes, von
-Microsoft signiertes System startet, bekommt den Schlüssel aber nicht.
+**Daten (TPM):** Der TPM-Slot der Root-Partition ist an PCR 7 (Secure-Boot-Zustand)
+**und** an die signierte PCR-11-Richtlinie mit Policy-Referenz `initrd` gebunden:
+Unsere eigenen Updates brauchen nie eine Eingabe, und nur die initrd eines signierten
+Beize-UKI bekommt den Schlüssel – das laufende System nicht. PCR 7 enthält auch,
+*welches* db-Zertifikat den Start freigegeben hat: Ein anderes, von Microsoft
+signiertes System startet, bekommt den Schlüssel aber nicht.
+
+**Nach einer Änderung neu binden (BitLocker-Prinzip):** Weigert sich der TPM
+(Windows spielt ein Secure-Boot-Update ein, BIOS-Update, neue Schlüssel, neues
+Mainboard/TPM), fragt systemd-cryptsetup nach dem Recovery-Key. Direkt danach bindet
+`beize-tpm-reseal.service` (initrd) den TPM-Slot an den aktuellen Zustand – wer den
+Recovery-Key kennt, darf ihn absegnen. Ab dem nächsten Start geht es wieder ohne
+Eingabe. **Nie bei abgeschaltetem Secure Boot.** Den eingegebenen Schlüssel liest der
+Dienst aus dem Zwischenspeicher von systemd-cryptsetup (Kernel-Schlüsselbund, 2,5 min)
+über die AskPassword-Varlink-Schnittstelle, nur Cache, nie interaktiv (dafür
+`KeyringMode=shared` für `systemd-ask-password@.service` in der initrd; aufrufen darf
+nur root). Erst den alten TPM-Slot löschen, dann neu einschreiben – sonst hält
+`systemd-cryptenroll` den Slot eines anderen TPM mit gleichen PCR-Werten für aktuell.
+
+**Verworfen: `systemd-pcrlock`.** Es schützt seine NV-Richtlinie mit einer eigenen
+PIN, die an dieselbe Richtlinie gebunden ist; ändert sich PCR 7 *unvorhergesehen*
+(genau der Windows-Fall), braucht es zusätzlich eine zweite Recovery-PIN. Dazu
+NV-Index-Verwaltung, Credential auf der ESP und „experimentell“ in v262; einen
+neuen TPM deckt es nicht ab. Wieder prüfen, wenn Beize selbst Firmware-/dbx-Updates
+einspielt (dann lassen sich Änderungen vorhersagen). Die pcrlock-Dienste sind per
+Preset aus.
 
 **Tests:** Jede Test-VM startet mit Firmware im Setup-Modus; systemd-boot schreibt
 die Schlüssel ein, `bz smoke` prüft danach PK/KEK/db/dbx in der Firmware und erst

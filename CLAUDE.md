@@ -149,6 +149,9 @@ einmal alles neu, ~1 h).
   `systemunlock=refused`, Header-Prüfung in `bz smoke`); kein Passwort-Slot.
   Recovery-Key wird beim 1. Start in der initrd erzeugt und einmal angezeigt
   (Konsole + `/run/beize/recovery-key`), nie auf Platte/Journal (ADR 0009 + Nachtrag).
+  Weigert sich der TPM (dbx/BIOS-Update, neuer TPM), öffnet der Recovery-Key einmal,
+  und `beize-tpm-reseal` (initrd) bindet sofort neu – nie bei Secure Boot aus (ADR 0010).
+  `bz smoke` prüft: dbx-Update, anderer TPM, Secure Boot aus + Recovery-Key.
 - **Schlüssel (ADR 0010):** Beize ist Plattform-Eigentümer (eigener PK/KEK);
   Profil „Beize + Windows“ schreibt zusätzlich Microsofts KEK/db und dbx ein.
   Tests/CI: Wegwerf-Schlüssel `CN=Beize TEST ONLY …` (PK, KEK, db) + PCR-Schlüssel unter
@@ -234,12 +237,12 @@ Architekturentscheidung = neues ADR.
 - Updater (systemd-sysupdate), Verhalten bei
   verity-Fehlern zur Laufzeit (Neustart → Rückfall?), Netzwerk, NVIDIA, Bluetooth,
   Start von der zweiten SSD, Installer.
-- TPM (ADR 0010, Ziel): Root an die signierte PCR-11-Richtlinie binden (idealerweise
-  Policy-Referenz `initrd`, nur in der initrd entsperrbar) **und** PCR 7 über
-  `systemd-pcrlock` statt direkt – dann übersteht Beize eigene Updates ohne Eingabe
-  und legt nach Firmware-/dbx-Änderungen die Richtlinie nach einmaligem
-  Recovery-Key selbst neu an. Schließt auch die Rollback-Lücke von PCR 7 allein.
-  `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009).
+- TPM: Rollback – jedes ältere, mit demselben PCR-Schlüssel signierte UKI erfüllt die
+  Richtlinie ebenfalls (Abhilfe erst mit Versions-Sperre/Schlüsselwechsel).
+  `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009). pcrlock verworfen (ADR 0010).
+- Debug-Hilfe außerhalb des Repos: `~/probe/probe.py NAME KEY|"" TPM-DIR CMD…` bootet
+  eine liegengebliebene Test-Disk aus `build/work`, tippt ggf. den Recovery-Key und
+  führt Befehle auf der Autologin-Shell aus (kein grep im Gast: Bash-`case`).
 - Profil „Nur Beize“ (ADR 0010): vorher klären, welche Option-ROMs der Rechner
   braucht (RTX 3070 Ti: GOP mit Microsoft UEFI CA 2011 signiert) – Hashes aus dem
   TPM-Ereignisprotokoll statt der ganzen CA. Profilwechsel aus dem laufenden System.
@@ -252,7 +255,10 @@ Architekturentscheidung = neues ADR.
 
 ## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
 
-Zuletzt erledigt (2026-10-08): **Secure Boot für echte Hardware (ADR 0010)** – Beize
+Zuletzt erledigt (2026-10-08): **TPM-Richtlinie fertig** – PCR 7 + signierte PCR-11-Richtlinie
+nur für die initrd, Recovery-Key in der initrd, Neu-Binden nach Wiederherstellung
+(dbx-/BIOS-Update, neuer TPM; nie ohne Secure Boot), pcrlock verworfen (ADR 0010).
+Davor: **Secure Boot für echte Hardware (ADR 0010)** – Beize
 als Plattform-Eigentümer mit Profil „Beize + Windows“, Einschreiben durch systemd-boot
 aus dem Setup-Modus (in jedem Smoke-Test), `bz secureboot new-keys` / `bz sign` mit
 1Password (nur im Terminal des Besitzers), Microsoft-Objekte gepinnt in `keys/microsoft/`.
@@ -268,16 +274,12 @@ unterscheiden sich zwischen Container-Bau und lokalem Bau; vermutlich der Build-
 Zeitstempel/UUIDs.
 
 **Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
-1. **PCR 7 über `systemd-pcrlock`** (§11). Signierte PCR-11-Richtlinie mit Referenz
-   `initrd` ist erledigt (2026-10-08). Beobachtet: `systemd-pcrlock-make-policy.service`
-   schlug bei einem Probe-Start fehl (ohne Smoke-Credential, Disk eines abgebrochenen
-   Laufs) – beim pcrlock-Schritt untersuchen.
-2. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
+1. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
    Ziel-SSD laut Windows: **Samsung SSD 860 EVO 1 TB** (Disk 0, nur eine leere
    MSR-Partition); die SanDisk 480 GB hat Daten (E:, 36 GB) – nicht anfassen. Vor dem
    Löschen den Besitzer ausdrücklich bestätigen lassen. Mainboard bestätigt: ASUS ROG
    STRIX Z790-F GAMING WIFI, BIOS 3201; Secure Boot unter Windows an, BitLocker aus.
-3. Der Besitzer erzeugt dazwischen seine Produktionsschlüssel (`keys/secureboot/README.md`).
+2. Der Besitzer erzeugt dazwischen seine Produktionsschlüssel (`keys/secureboot/README.md`).
 
 Erst den Besitzer fragen, womit es weitergeht; dann diesen Abschnitt durch die
 neue Aufgabe ersetzen.

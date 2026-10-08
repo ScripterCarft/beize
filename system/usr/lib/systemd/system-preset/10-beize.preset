@@ -1,2 +1,5 @@
 enable dbus.socket
 enable beize-boot-report.service
+# The TPM policy is a signed PCR 11 policy plus PCR 7, re-bound after a
+# recovery-key unlock (ADR 0010); systemd-pcrlock is not used.
+disable systemd-pcrlock-*.service
