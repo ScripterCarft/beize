@@ -44,11 +44,14 @@ struct BootReport {
     boot: u32,
     machine_id: String,
     uptime: String,
+    /// `refused` if the TPM did not unlock the root partition for the running
+    /// system (it may only in the initrd).
+    system_unlock: String,
     failed: Vec<String>,
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused failed=none`.
     fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -66,6 +69,7 @@ impl BootReport {
             boot: field("boot")?.parse().ok()?,
             machine_id: field("machineid")?,
             uptime: field("uptime")?,
+            system_unlock: field("systemunlock")?,
             failed: match failed.as_str() {
                 "none" => Vec::new(),
                 list => list.split(',').map(str::to_owned).collect(),
@@ -299,6 +303,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     let first = boot_healthy(&machine, 1, None)?;
     check_partitions(&machine.disk)?;
     check_blessed(&machine.disk)?;
+    check_root_binding(&machine.disk, &paths.work)?;
     let recovery_key = find_recovery_key(&first.console)
         .context("first boot did not show a recovery key for the root partition")?;
     eprintln!("  ok: first boot created and showed a recovery key");
@@ -495,6 +500,12 @@ fn boot_healthy(
         report.secure_boot
     );
     ensure!(
+        report.system_unlock == "refused",
+        "the TPM must unlock the root partition only in the initrd, but for the \
+         running system it reported systemunlock={}",
+        report.system_unlock
+    );
+    ensure!(
         report.state == "running" && report.failed.is_empty(),
         "boot finished in state {:?}; failed units: {}",
         report.state,
@@ -567,6 +578,69 @@ fn check_partitions(disk: &Path) -> Result<()> {
     );
     eprintln!("  ok: first boot created /usr slot B and the root partition");
     Ok(())
+}
+
+/// The root partition's TPM2 slot must be bound to the Secure Boot state
+/// (PCR 7) and to the signed PCR 11 policy for the initrd phase only (ADR 0010).
+fn check_root_binding(disk: &Path, scratch: &Path) -> Result<()> {
+    let token = root_tpm2_token(disk, scratch)?;
+    let pcrs = |key: &str| token[key].as_array().cloned().unwrap_or_default();
+    ensure!(
+        pcrs("tpm2-pcrs") == [7] && pcrs("tpm2_pubkey_pcrs") == [11],
+        "the root partition is bound to PCRs {:?} and signed policies over PCRs {:?}, \
+         expected 7 and 11",
+        token["tpm2-pcrs"],
+        token["tpm2_pubkey_pcrs"]
+    );
+    ensure!(
+        token["tpm2_pubkey_ref"] == "initrd",
+        "the signed policy of the root partition is not limited to the initrd \
+         (policy reference {})",
+        token["tpm2_pubkey_ref"]
+    );
+    eprintln!(
+        "  ok: the TPM unlocks the root partition only for Secure Boot as enrolled (PCR 7) \
+         and a signed Beize UKI in its initrd (PCR 11, policy reference \"initrd\")"
+    );
+    Ok(())
+}
+
+/// systemd's TPM2 token from the LUKS2 header of the root partition: what the
+/// TPM checks before it releases the key.
+fn root_tpm2_token(disk: &Path, scratch: &Path) -> Result<serde_json::Value> {
+    let table: serde_json::Value = serde_json::from_str(&util::output(
+        Command::new("sfdisk").arg("--json").arg(disk),
+    )?)?;
+    let root = table["partitiontable"]["partitions"]
+        .as_array()
+        .and_then(|parts| {
+            parts.iter().find(|part| {
+                part["type"]
+                    .as_str()
+                    .is_some_and(|ty| ty.eq_ignore_ascii_case(layout::ROOT_TYPE))
+            })
+        })
+        .context("no root partition")?;
+    let start = root["start"].as_u64().context("root partition start")? * 512;
+    // The LUKS2 header (with both metadata copies) fits into the first 16 MiB.
+    let mut header = vec![0u8; 16 * MIB as usize];
+    let mut file = fs::File::open(disk)?;
+    file.seek(SeekFrom::Start(start))?;
+    file.read_exact(&mut header)?;
+    let copy = scratch.join("root-luks-header");
+    fs::write(&copy, &header)?;
+    let dump = util::output(
+        Command::new("cryptsetup")
+            .args(["luksDump", "--dump-json-metadata"])
+            .arg(&copy),
+    );
+    fs::remove_file(&copy)?;
+    let metadata: serde_json::Value = serde_json::from_str(&dump?)?;
+    metadata["tokens"]
+        .as_object()
+        .and_then(|tokens| tokens.values().find(|t| t["type"] == "systemd-tpm2"))
+        .cloned()
+        .context("the root partition has no systemd-tpm2 token")
 }
 
 /// The partitions expected after first boot, as (type, label), that the
@@ -827,7 +901,7 @@ mod tests {
     use super::*;
 
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
-                         machineid=0123456789abcdef0123456789abcdef uptime=2.95s failed=none";
+                         machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused failed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -839,13 +913,15 @@ mod tests {
         assert_eq!(report.boot, 1);
         assert_eq!(report.machine_id, "0123456789abcdef0123456789abcdef");
         assert_eq!(report.uptime, "2.95s");
+        assert_eq!(report.system_unlock, "refused");
         assert!(report.failed.is_empty());
     }
 
     #[test]
     fn parses_degraded_report_behind_console_noise() {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
-                    machineid=x uptime=3.1s failed=systemd-logind.service,systemd-logind-varlink.socket";
+                    machineid=x uptime=3.1s systemunlock=none \
+                    failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
         assert_eq!(report.secure_boot, "off");

@@ -1,0 +1,26 @@
+[Unit]
+Description=Create the recovery key for the encrypted root partition
+# Runs in the initrd: the TPM unlocks the root partition only here (policy
+# reference "initrd", ADR 0010), and adding a key slot needs that unlock. The
+# script skips volumes that already have a recovery key, so this does real
+# work once per installation.
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+Requires=systemd-cryptsetup@root.service
+After=systemd-cryptsetup@root.service
+Before=initrd-root-fs.target initrd-switch-root.target
+Conflicts=initrd-switch-root.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/recovery-key
+# /run/beize for the key; kept when the initrd hands over to the system.
+RuntimeDirectory=beize
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+# The key goes to the console only, never to the journal.
+StandardOutput=tty
+TTYPath=/dev/console
+# Errors also on the console: the initrd journal is easy to miss.
+StandardError=journal+console

@@ -85,3 +85,24 @@ mit intaktem Secure Boot.
   Key und zeigt ihn selbst an.
 - `bz smoke` prüft: Key beim ersten Start angezeigt, beim zweiten nicht mehr; mit
   einem anderen TPM fragt das System nach dem Key, und mit ihm startet es normal.
+
+## Nachtrag: Bindung nur in der initrd (2026-10-08, ADR 0010)
+
+- Gemessen am LUKS2-Header: repart band den TPM-Slot schon bisher **zusätzlich** an
+  die signierte PCR-11-Richtlinie (`tpm2_pubkey_pcrs: [11]`), weil es den
+  öffentlichen PCR-Schlüssel aus dem UKI (`/run/systemd/tpm2-pcr-public-key.pem`)
+  von selbst verwendet. Die Annahme oben („erst mit Produktionsschlüsseln“) war falsch.
+- Jetzt zusätzlich mit **Policy-Referenz `initrd`** (`systemd-repart.service`-Drop-in
+  in `system/initrd/`): Nur die Signatur, die das UKI für die Phase „enter-initrd“
+  trägt, erfüllt die Richtlinie. Sobald die initrd „leave-initrd“ in PCR 11 misst,
+  gibt der TPM den Schlüssel nicht mehr heraus – auch nicht an ein kompromittiertes
+  laufendes System. Der Boot-Report prüft das bei jedem Start (`systemunlock=refused`).
+- Der Recovery-Key wird deshalb **in der initrd** angelegt
+  (`beize-recovery-key.service` in `system/initrd/`), direkt nach dem Entsperren.
+  Die initrd enthält dafür bash (keine coreutils; das Skript nutzt nur Builtins).
+  stderr von `systemd-cryptenroll` (im interaktiven Modus mit QR-Code des Schlüssels)
+  erscheint nur im Fehlerfall und nie im Journal.
+- Verbleibende Schwäche: Jedes ältere, mit demselben PCR-Schlüssel signierte UKI
+  erfüllt die Richtlinie ebenfalls (Rollback). PCR 7 bleibt direkt gebunden – ändert
+  es sich (dbx-Update, BIOS-Update), ist bis zur Umstellung auf `systemd-pcrlock`
+  bei *jedem* Start der Recovery-Key nötig.

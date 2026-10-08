@@ -28,6 +28,27 @@ while read -r _ _ devnum _ mountpoint _; do
     esac
 done < /proc/self/mountinfo
 
+# The TPM must not unlock the root partition from the running system: its
+# slot is bound to the initrd phase only (ADR 0010). "refused" only if the
+# attempt failed at the TPM; anything else is reported as "unknown".
+systemunlock=none
+mapper=$(readlink -f /dev/mapper/root 2>/dev/null)
+if [[ $root == encrypted && -n $mapper ]]; then
+    for slave in "/sys/block/${mapper##*/}/slaves/"*; do
+        luks=/dev/${slave##*/}
+    done
+    if probe=$(systemd-cryptsetup attach beize-probe "$luks" - \
+            tpm2-device=auto,headless=true,readonly 2>&1); then
+        systemunlock=possible
+        systemd-cryptsetup detach beize-probe
+    elif [[ $probe == *TPM2* ]]; then
+        systemunlock=refused
+    else
+        systemunlock=unknown
+        echo "BEIZE-UNLOCK-PROBE ${probe//$'\n'/ | }"
+    fi
+fi
+
 failed=()
 while read -r unit _; do
     failed+=("$unit")
@@ -44,7 +65,8 @@ mkdir -p "${counter%/*}" && echo "$boot" > "$counter" && sync "$counter"
 read -r machineid < /etc/machine-id
 
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
-     "machineid=${machineid} uptime=${uptime}s failed=${failed_list:-none}"
+     "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
+     "failed=${failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.
 for unit in "${failed[@]}"; do

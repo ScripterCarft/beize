@@ -57,7 +57,8 @@ Firmware (Secure Boot; PK/KEK/db von Beize + Microsoft im Profil „mit Windows�
             + signierte PCR-11-Richtlinie (.pcrsig/.pcrpkey)          (alles signiert)
             Kommandozeile: usrhash=<root hash> mount.usr=/dev/mapper/usr …
             └─ initrd (systemd): beim 1. Start systemd-repart → Slot B + Root anlegen
-               (Root = LUKS2, Schlüssel im TPM versiegelt an PCR 7), dm-verity für /usr,
+               (Root = LUKS2, TPM-Slot an PCR 7 + signierte PCR-11-Richtlinie „initrd“;
+               Recovery-Key wird hier angelegt), dm-verity für /usr,
                Root finden (gpt-auto) + per TPM entsperren, switch-root
                  └─ System: /usr (EROFS, dm-verity, read-only) + / (ext4 in LUKS2: /etc, /var, /home)
 ```
@@ -67,7 +68,7 @@ Firmware (Secure Boot; PK/KEK/db von Beize + Microsoft im Profil „mit Windows�
 | ESP 512 MiB (FAT32, 4-KiB-Cluster) | systemd-boot, UKIs, `loader/loader.conf`, `loader/keys/auto/*.auth` | Image |
 | `/usr` A data 1 GiB + verity 64 MiB, Label `beize_<ver>` | System; UUIDs = Hälften des Root-Hashes | Image |
 | `/usr` B data + verity, Label `_empty` | nächstes Update | 1. Start |
-| Root (LUKS2 `Encrypt=tpm2`, `TPM2PCRs=7`, darin ext4, `FactoryReset=yes`), wächst in den Rest | alles des Besitzers | 1. Start |
+| Root (LUKS2 `Encrypt=tpm2`, `TPM2PCRs=7` + signierte PCR-11-Richtlinie mit Referenz `initrd`, darin ext4, `FactoryReset=yes`), wächst in den Rest | alles des Besitzers | 1. Start |
 
 Nur `/usr` wird ausgeliefert; `/etc` wird beim 1. Start aus
 `/usr/share/factory/etc` (tmpfiles) und von systemd erzeugt. Boot-Counting:
@@ -83,6 +84,7 @@ Versionen und die repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`
 | `keys/` | öffentliche Maintainer-Schlüssel + `README.md` (Herkunft, Fingerprints, Ausnahmen); `keys/microsoft/` Microsofts Secure-Boot-Zertifikate + dbx (gepinnt); `keys/secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
 | `system/usr/` | eigene Dateien in `/usr` (Units, Boot-Report, Werkseinstellungen) |
+| `system/initrd/` | eigene Dateien der initrd (repart-Drop-in, Recovery-Key); dort gibt es bash, aber **keine coreutils** |
 | `kernel/config/beize-base.config` | Kernel-Fragment, nach dem Merge verifiziert |
 | `ci/packages.txt`, `ci/system.sh` | einzige Liste der Build-Abhängigkeiten; kompletter CI-Ablauf |
 | `docs/adr/`, `docs/VISION.md` | Entscheidungen, Vision |
@@ -141,10 +143,12 @@ einmal alles neu, ~1 h).
   System; reproduzierbar (fester Zeitstempel `BUILD_EPOCH`, feste UUIDs, Salt aus Inhalt).
 - **Boot:** Secure Boot → systemd-boot → UKI (Kommandozeile versiegelt, `editor no`)
   → `usrhash` → dm-verity für jeden `/usr`-Block.
-- **Daten:** Root-Partition LUKS2 (aes-xts), Schlüssel im TPM versiegelt an PCR 7
-  (Secure-Boot-Zustand); kein Passwort-Slot. Recovery-Key wird beim 1. Start
-  erzeugt und einmal angezeigt (Konsole + `/run/beize/recovery-key`), nie auf
-  Platte/Journal (`beize-recovery-key.service`, ADR 0009).
+- **Daten:** Root-Partition LUKS2 (aes-xts), TPM-Slot an PCR 7 (Secure-Boot-Zustand)
+  **und** die signierte PCR-11-Richtlinie mit Referenz `initrd` – nur die initrd eines
+  signierten Beize-UKI bekommt den Schlüssel, das laufende System nicht (Boot-Report
+  `systemunlock=refused`, Header-Prüfung in `bz smoke`); kein Passwort-Slot.
+  Recovery-Key wird beim 1. Start in der initrd erzeugt und einmal angezeigt
+  (Konsole + `/run/beize/recovery-key`), nie auf Platte/Journal (ADR 0009 + Nachtrag).
 - **Schlüssel (ADR 0010):** Beize ist Plattform-Eigentümer (eigener PK/KEK);
   Profil „Beize + Windows“ schreibt zusätzlich Microsofts KEK/db und dbx ein.
   Tests/CI: Wegwerf-Schlüssel `CN=Beize TEST ONLY …` (PK, KEK, db) + PCR-Schlüssel unter
@@ -264,7 +268,10 @@ unterscheiden sich zwischen Container-Bau und lokalem Bau; vermutlich der Build-
 Zeitstempel/UUIDs.
 
 **Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
-1. **TPM-Richtlinie:** Root an signierte PCR-11-Richtlinie + PCR 7 über pcrlock (§11).
+1. **PCR 7 über `systemd-pcrlock`** (§11). Signierte PCR-11-Richtlinie mit Referenz
+   `initrd` ist erledigt (2026-10-08). Beobachtet: `systemd-pcrlock-make-policy.service`
+   schlug bei einem Probe-Start fehl (ohne Smoke-Credential, Disk eines abgebrochenen
+   Laufs) – beim pcrlock-Schritt untersuchen.
 2. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
    Ziel-SSD laut Windows: **Samsung SSD 860 EVO 1 TB** (Disk 0, nur eine leere
    MSR-Partition); die SanDisk 480 GB hat Daten (E:, 36 GB) – nicht anfassen. Vor dem

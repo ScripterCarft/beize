@@ -44,6 +44,14 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         !tree::is_build_only(file) && !SKIPPED.iter().any(|dir| file.starts_with(dir))
     })?;
 
+    // Beize's own files for the initrd (units, drop-ins, scripts).
+    util::run(
+        Command::new("cp")
+            .arg("--recursive")
+            .arg("--no-dereference")
+            .arg(format!("{}/.", paths.root.join("system/initrd").display()))
+            .arg(&root),
+    )?;
     // /etc/initrd-release tells systemd it runs in the initrd (initrd.target).
     fs::write(root.join("etc/initrd-release"), layout::os_release())?;
     symlink("usr/lib/systemd/systemd", root.join("init"))?;

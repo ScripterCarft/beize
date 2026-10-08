@@ -5,5 +5,6 @@
 packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils"]
 
 # The initrd in the UKI: finds /usr, creates the root partition on first boot
-# (systemd-repart, mkfs.ext4) and mounts it.
-initrd = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs"]
+# (systemd-repart, mkfs.ext4) and mounts it. bash runs Beize's own initrd
+# scripts (recovery key, system/initrd); there are no coreutils.
+initrd = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash"]

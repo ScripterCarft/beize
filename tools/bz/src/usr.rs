@@ -140,8 +140,9 @@ mod tests {
     /// Scripts lose their executable bit easily (e.g. when edited through a
     /// Windows path); systemd then fails with "Permission denied".
     #[test]
-    fn scripts_in_system_usr_are_executable() {
-        let mut pending = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("../../system/usr")];
+    fn scripts_in_system_are_executable() {
+        let system = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../system");
+        let mut pending = vec![system.join("usr"), system.join("initrd")];
         let mut scripts = 0;
         while let Some(dir) = pending.pop() {
             for entry in fs::read_dir(&dir).unwrap() {

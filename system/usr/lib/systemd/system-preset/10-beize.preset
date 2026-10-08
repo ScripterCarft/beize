@@ -1,3 +1,2 @@
 enable dbus.socket
 enable beize-boot-report.service
-enable beize-recovery-key.service
