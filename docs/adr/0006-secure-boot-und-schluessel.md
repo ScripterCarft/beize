@@ -1,6 +1,6 @@
 # 0006 – Secure Boot mit eigenen Schlüsseln
 
-Status: angenommen · 2026-10-06
+Status: angenommen · 2026-10-06 · Schlüssel und Firmware-Modell für echte Hardware ersetzt durch ADR 0010
 
 ## Kontext
 

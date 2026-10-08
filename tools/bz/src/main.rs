@@ -55,6 +55,21 @@ enum Command {
     Owner { path: String },
     /// Download every source and check its pin and its maintainers' signature
     Verify,
+    /// The owner's production Secure Boot keys (owner only, in a terminal)
+    Secureboot {
+        #[command(subcommand)]
+        command: SecurebootCommand,
+    },
+    /// Sign the boot chain with the owner's keys from 1Password and write the
+    /// disk image for real hardware to build/out/production (owner only)
+    Sign,
+}
+
+#[derive(Subcommand)]
+enum SecurebootCommand {
+    /// Create the production keys: private halves into 1Password, public
+    /// halves into keys/secureboot
+    NewKeys,
 }
 
 fn main() -> Result<()> {
@@ -75,6 +90,24 @@ fn main() -> Result<()> {
             Ok(())
         }
         Command::Verify => verify_sources(&paths),
+        Command::Secureboot {
+            command: SecurebootCommand::NewKeys,
+        } => secureboot::new_keys(
+            &secureboot::Store::one_password()?,
+            &secureboot::production_public_dir(&paths),
+            &secureboot::microsoft_dir(&paths),
+            secureboot::Profile::WithWindows,
+        ),
+        Command::Sign => {
+            let store = secureboot::Store::one_password()?;
+            let disk = image::sign(&paths, &store)?;
+            eprintln!(
+                "
+  ok: {} is signed with the production keys",
+                disk.display()
+            );
+            Ok(())
+        }
     }
 }
 

@@ -50,7 +50,8 @@ M3 Compositor · M4 Alltagstauglich · M5 Feinschliff. Detaillierter Stand: `REA
 ## 4. Architektur (Stand jetzt)
 
 ```
-Firmware (Secure Boot, eigene PK/KEK/db)
+Firmware (Secure Boot; PK/KEK/db von Beize + Microsoft im Profil „mit Windows“, ADR 0010;
+          im Setup-Modus schreibt systemd-boot sie aus /loader/keys/auto/ selbst ein)
   └─ prüft systemd-boot (signiert, eigene SBAT „beize“)
        └─ prüft UKI beize_<ver>+3.efi  = Kernel + initrd + Kommandozeile
             + signierte PCR-11-Richtlinie (.pcrsig/.pcrpkey)          (alles signiert)
@@ -63,7 +64,7 @@ Firmware (Secure Boot, eigene PK/KEK/db)
 
 | Partition (GPT, UAPI.2-Typen) | Inhalt | Entsteht |
 | --- | --- | --- |
-| ESP 512 MiB (FAT32, 4-KiB-Cluster) | systemd-boot, UKIs, `loader/loader.conf` | Image |
+| ESP 512 MiB (FAT32, 4-KiB-Cluster) | systemd-boot, UKIs, `loader/loader.conf`, `loader/keys/auto/*.auth` | Image |
 | `/usr` A data 1 GiB + verity 64 MiB, Label `beize_<ver>` | System; UUIDs = Hälften des Root-Hashes | Image |
 | `/usr` B data + verity, Label `_empty` | nächstes Update | 1. Start |
 | Root (LUKS2 `Encrypt=tpm2`, `TPM2PCRs=7`, darin ext4, `FactoryReset=yes`), wächst in den Rest | alles des Besitzers | 1. Start |
@@ -77,9 +78,9 @@ Versionen und die repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`
 
 | Pfad | Inhalt |
 | --- | --- |
-| `tools/bz/src/` | Build-Werkzeug (Rust, ~3300 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Testschlüssel, Signieren, OVMF-Variablen · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
+| `tools/bz/src/` | Build-Werkzeug (Rust, ~3300 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Schlüssel (Test/Produktion, 1Password), Einschreib-Dateien, Signieren · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
 | `recipes/*.toml` | ein Rezept pro Paket (20): Quelle (gepinnt + signiert), `deps`, `stage` (toolchain/target), `[build] script` |
-| `keys/` | öffentliche Maintainer-Schlüssel + `README.md` (Herkunft, Fingerprints, Ausnahmen) |
+| `keys/` | öffentliche Maintainer-Schlüssel + `README.md` (Herkunft, Fingerprints, Ausnahmen); `keys/microsoft/` Microsofts Secure-Boot-Zertifikate + dbx (gepinnt); `keys/secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
 | `system/usr/` | eigene Dateien in `/usr` (Units, Boot-Report, Werkseinstellungen) |
 | `kernel/config/beize-base.config` | Kernel-Fragment, nach dem Merge verifiziert |
@@ -95,19 +96,25 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz smoke       # DER Abnahmetest, muss nach jeder Änderung grün sein
 ./bz run         # interaktiv (Ctrl-A X), VM-Disk bleibt bis zum nächsten Image erhalten
 ./bz package <name> · ./bz usr · ./bz initrd · ./bz image · ./bz owner /usr/bin/bash
+# nur der Besitzer, im Terminal (TTY-Sperre), mit 1Password – nie von Claude ausführen:
+./bz secureboot new-keys · ./bz sign
 ```
 
 Logs: `build/work/logs/<paket>.log`. Voller Neubau ~10–15 min (GCC zweimal),
 inkrementell Sekunden bis wenige Minuten. `./bz smoke` installiert das Image auf
-eine frische 8-GiB-Disk (jede VM mit eigenem swtpm) und verlangt: Secure Boot an,
+eine frische 8-GiB-Disk (jede VM mit eigenem swtpm, Firmware im **Setup-Modus**: das
+erste Einschalten lässt systemd-boot PK/KEK/db/dbx einschreiben, danach prüft `bz` die
+Zertifikate in den Firmware-Variablen) und verlangt: Secure Boot an,
 `usr=verity`, `root=encrypted`, `running`, **keine `[FAILED]`/`[DEPEND]`-Zeile in
 initrd oder System**, sauberes Herunterfahren, 1. Start legt alle Partitionen an
 (Typ + Label geprüft), Boot-Counting „gut“, 2. Start = gleiche Machine-ID;
 Recovery-Key beim 1. Start angezeigt, beim 2. nicht mehr; Gegentests: dieselbe Disk
 mit anderem TPM → Abfrage „Please enter recovery key for disk root“, der Test tippt
-den Key ein, System startet; mit Secure Boot aus → Root bleibt zu; unsigniertes UKI → „Access denied“,
+den Key ein, System startet; mit Secure Boot aus (Schlüssel bleiben) → Root bleibt zu; unsigniertes UKI → „Access denied“,
 ein verändertes Byte in `/usr` → „data block … is corrupted“. Bei fehlgeschlagenen
-Units gibt der Boot-Report deren Journal aus (`BEIZE-FAILED-LOG …`).
+Units gibt der Boot-Report deren Journal aus (`BEIZE-FAILED-LOG …`). Zum Schluss der
+Ablauf des Besitzers (`new-keys` → `sign`) mit Wegwerf-Schlüsselspeicher statt 1Password,
+Ergebnis wird eingeschrieben und gebootet.
 Aktuell: Start 5,23 s Gast-Uptime (Kernel 0,56 + initrd 2,42 + System 2,25 s),
 erster Start ~7 s (Verschlüsseln + Formatieren). Ganzer Smoke-Test ~3 min.
 
@@ -138,11 +145,14 @@ einmal alles neu, ~1 h).
   (Secure-Boot-Zustand); kein Passwort-Slot. Recovery-Key wird beim 1. Start
   erzeugt und einmal angezeigt (Konsole + `/run/beize/recovery-key`), nie auf
   Platte/Journal (`beize-recovery-key.service`, ADR 0009).
-- **Schlüssel:** Tests/CI mit Wegwerf-Schlüsseln `CN=Beize TEST ONLY …` (PK, KEK, db)
-  und PCR-Signaturschlüssel `pcr.key`/`pcr.pub.pem` unter `build/work/secureboot-test/`.
-  Produktionsschlüssel nur beim Besitzer (1Password, Tresor „Beize“); für echte
-  Hardware signiert er selbst. Diese Schritte (`bz secureboot new-keys`, `bz sign`,
-  Einschreiben in die Firmware, PCR-Schlüssel) sind **noch nicht gebaut**.
+- **Schlüssel (ADR 0010):** Beize ist Plattform-Eigentümer (eigener PK/KEK);
+  Profil „Beize + Windows“ schreibt zusätzlich Microsofts KEK/db und dbx ein.
+  Tests/CI: Wegwerf-Schlüssel `CN=Beize TEST ONLY …` (PK, KEK, db) + PCR-Schlüssel unter
+  `build/work/secureboot-test/`. Produktion: private Teile nur im 1Password-Tresor
+  „Beize“, öffentliche Teile + signierte `.auth`-Dateien in `keys/secureboot/`;
+  `bz secureboot new-keys` (einmalig, PK/KEK/db/PCR) und `bz sign` (db + PCR) laufen nur
+  im Terminal des Besitzers, Schlüssel nur in `/dev/shm`. **Der Besitzer hat die
+  Produktionsschlüssel noch nicht erzeugt** (Stand 2026-10-08).
 
 ## 8. ADRs (`docs/adr/`)
 
@@ -151,7 +161,8 @@ signiertes Image · 0004 Entwicklung in WSL2 · 0005 Cross-Toolchain, Rezepte,
 signierte Quellen, Besitz-Manifeste · 0006 Secure Boot, Test- vs.
 Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
 0008 dm-verity für `/usr` · 0009 Root mit LUKS2 + TPM2 (PCR 7), signierte
-PCR-11-Richtlinie im UKI, UKI-Werkzeuge aus eigenem systemd. Neue
+PCR-11-Richtlinie im UKI, UKI-Werkzeuge aus eigenem systemd · 0010 Beize als
+Plattform-Eigentümer, Vertrauensprofile, Produktionsschlüssel/1Password. Neue
 Architekturentscheidung = neues ADR.
 
 ## 9. Regeln für Rezepte und Code
@@ -216,15 +227,18 @@ Architekturentscheidung = neues ADR.
 - Notfall-Shell geht nicht (`sulogin` fehlt; braucht libxcrypt → mit Benutzerpasswörtern).
 - initrd 15,9 MiB / 2,3 s – enthält noch ganz systemd; verschlanken. hwdb nicht generiert.
 - Compiler-Flags generisch (`-O2 -pipe`); Ziel x86-64-v3 + Raptor-Lake-Tuning, Kernel auf Hardware zuschneiden.
-- Produktionsschlüssel-Workflow, Updater (systemd-sysupdate), Verhalten bei
+- Updater (systemd-sysupdate), Verhalten bei
   verity-Fehlern zur Laufzeit (Neustart → Rückfall?), Netzwerk, NVIDIA, Bluetooth,
   Start von der zweiten SSD, Installer.
-- TPM: Root später
-  zusätzlich an die signierte PCR-11-Richtlinie binden, idealerweise mit
-  Policy-Referenz `initrd` (nur in der initrd entsperrbar) – erst mit
-  Produktionsschlüsseln. systemd-pcrlock-Dienste („Lock … to TPM PCR Policy“) laufen
-  bei jedem Start mit, ohne dass wir pcrlock nutzen – prüfen/abschalten beim
-  Verschlanken. `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009).
+- TPM (ADR 0010, Ziel): Root an die signierte PCR-11-Richtlinie binden (idealerweise
+  Policy-Referenz `initrd`, nur in der initrd entsperrbar) **und** PCR 7 über
+  `systemd-pcrlock` statt direkt – dann übersteht Beize eigene Updates ohne Eingabe
+  und legt nach Firmware-/dbx-Änderungen die Richtlinie nach einmaligem
+  Recovery-Key selbst neu an. Schließt auch die Rollback-Lücke von PCR 7 allein.
+  `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009).
+- Profil „Nur Beize“ (ADR 0010): vorher klären, welche Option-ROMs der Rechner
+  braucht (RTX 3070 Ti: GOP mit Microsoft UEFI CA 2011 signiert) – Hashes aus dem
+  TPM-Ereignisprotokoll statt der ganzen CA. Profilwechsel aus dem laufenden System.
 - Recovery-Key wird bisher nur auf der Konsole gezeigt – das Onboarding (M3+) muss
   ihn grafisch anzeigen und bestätigen lassen.
 - CI, vom Besitzer zurückgestellt („im Hinterkopf“): `permissions: contents: read`,
@@ -234,7 +248,11 @@ Architekturentscheidung = neues ADR.
 
 ## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
 
-Zuletzt erledigt (2026-10-08): CI repariert – Cache griff nie (zstd fehlte beim
+Zuletzt erledigt (2026-10-08): **Secure Boot für echte Hardware (ADR 0010)** – Beize
+als Plattform-Eigentümer mit Profil „Beize + Windows“, Einschreiben durch systemd-boot
+aus dem Setup-Modus (in jedem Smoke-Test), `bz secureboot new-keys` / `bz sign` mit
+1Password (nur im Terminal des Besitzers), Microsoft-Objekte gepinnt in `keys/microsoft/`.
+Vorher am selben Tag: CI repariert – Cache griff nie (zstd fehlte beim
 Wiederherstellen), Boot-Test im sauberen Bau rot (lvm2 schrieb ohne libudev eine
 udev-Regel mit `/usr/bin/blkid`). Wurzel behoben: jedes Paket sieht beim Bauen nur
 noch seine Abhängigkeiten (§9); dabei aufgefallen und festgelegt: coreutils mit libcap.
@@ -246,10 +264,13 @@ unterscheiden sich zwischen Container-Bau und lokalem Bau; vermutlich der Build-
 Zeitstempel/UUIDs.
 
 **Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
-1. **Produktionsschlüssel-Workflow** (`bz secureboot new-keys`, `bz sign`, PCR-Schlüssel,
-   Einschreiben in die Firmware) – der Besitzer führt die Schritte mit seinen
-   Schlüsseln selbst aus; danach Root zusätzlich an die signierte PCR-11-Richtlinie binden.
+1. **TPM-Richtlinie:** Root an signierte PCR-11-Richtlinie + PCR 7 über pcrlock (§11).
 2. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
+   Ziel-SSD laut Windows: **Samsung SSD 860 EVO 1 TB** (Disk 0, nur eine leere
+   MSR-Partition); die SanDisk 480 GB hat Daten (E:, 36 GB) – nicht anfassen. Vor dem
+   Löschen den Besitzer ausdrücklich bestätigen lassen. Mainboard bestätigt: ASUS ROG
+   STRIX Z790-F GAMING WIFI, BIOS 3201; Secure Boot unter Windows an, BitLocker aus.
+3. Der Besitzer erzeugt dazwischen seine Produktionsschlüssel (`keys/secureboot/README.md`).
 
 Erst den Besitzer fragen, womit es weitergeht; dann diesen Abschnitt durch die
 neue Aufgabe ersetzen.

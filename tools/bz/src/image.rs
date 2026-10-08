@@ -34,7 +34,15 @@ const ESP_VOLUME_ID: &str = "42454953";
 
 /// Boot loader configuration: boot the newest entry immediately; the menu
 /// appears while a key is held. No command line editing under Secure Boot.
-const LOADER_CONF: &str = "timeout 0\neditor no\nconsole-mode keep\n";
+/// If the firmware is in setup mode (no keys, e.g. after "clear Secure Boot
+/// keys" in the firmware setup), enroll Beize's keys from `/loader/keys/auto`
+/// – after a 15 s warning that a key press aborts, at once in a VM – and
+/// reboot (ADR 0010).
+const LOADER_CONF: &str = "timeout 0\neditor no\nconsole-mode keep\nsecure-boot-enroll force\n";
+
+/// The trust profile every image is built for; selectable once there is a
+/// second one.
+const PROFILE: secureboot::Profile = secureboot::Profile::WithWindows;
 
 /// The kernel command line, sealed into the signed UKI. `usrhash=` pins
 /// `/usr` to exactly the slot whose content matches the root hash (systemd
@@ -55,7 +63,14 @@ pub fn uki_path_on_esp() -> String {
 
 /// The UKI before signing; kept for the Secure Boot rejection test.
 pub fn unsigned_uki(paths: &Paths) -> PathBuf {
-    paths.work.join("beize.unsigned.efi")
+    paths.out.join(UNSIGNED_UKI)
+}
+
+const UNSIGNED_UKI: &str = "beize.unsigned.efi";
+
+/// Where `bz sign` puts the boot chain and disk image for real hardware.
+pub fn production_dir(paths: &Paths) -> PathBuf {
+    paths.out.join("production")
 }
 
 /// ukify from Beize's own systemd build, using systemd-measure from the same
@@ -88,8 +103,24 @@ fn ukify(paths: &Paths) -> Result<Command> {
     Ok(cmd)
 }
 
-/// Builds and signs the boot chain and writes `out/disk.img`.
+/// Builds the boot chain, signs it with the test keys and writes `out/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
+    let keys = secureboot::Keys::test(paths, PROFILE)?;
+    assemble(paths, &keys, &paths.out)
+}
+
+/// Builds the boot chain and disk image for real hardware into
+/// `out/production/`, signed with the owner's keys from `store`.
+pub fn sign(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
+    let keys = secureboot::Keys::production(store, &secureboot::production_public_dir(paths))?;
+    let out = production_dir(paths);
+    fs::create_dir_all(&out)?;
+    assemble(paths, &keys, &out)
+}
+
+/// Builds the UKI, signs it and systemd-boot with `keys` and writes the disk
+/// image, all into `out`.
+pub fn assemble(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<PathBuf> {
     let kernel = paths.out.join("vmlinuz");
     let initrd = paths.out.join("initrd.cpio.zst");
     let usr_image = paths.out.join("usr.erofs");
@@ -106,12 +137,11 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let root_hash = root_hash.trim();
     // Boot loader and UKI stub come from Beize's own systemd build.
     let efi_dir = paths.sysroot.join("usr/lib/systemd/boot/efi");
-    let keys = secureboot::Keys::test(paths)?;
 
     util::step("Building Unified Kernel Image");
     let os_release = paths.work.join("os-release");
     fs::write(&os_release, layout::os_release())?;
-    let unsigned_uki = unsigned_uki(paths);
+    let unsigned_uki = out.join(UNSIGNED_UKI);
     let (pcr_private, pcr_public) = keys.pcr_key();
     util::run(
         ukify(paths)?
@@ -137,16 +167,15 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(&unsigned_uki),
     )?;
 
-    util::step("Signing boot chain (test keys)");
-    let uki = paths.out.join("beize.efi");
+    util::step("Signing boot chain");
+    let uki = out.join("beize.efi");
     keys.sign(&unsigned_uki, &uki)?;
-    let boot_loader = paths.out.join("systemd-bootx64.efi");
+    let boot_loader = out.join("systemd-bootx64.efi");
     keys.sign(&efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
-    keys.firmware_vars(&paths.out.join("ovmf-vars-secureboot.fd"))?;
 
     util::step("Writing disk image");
     let disk_size = USR_VERITY_START * SECTOR + USR_VERITY_SLOT_SIZE + MIB;
-    let disk = paths.out.join("disk.img");
+    let disk = out.join("disk.img");
     let file = File::create(&disk)?;
     file.set_len(disk_size)?;
     drop(file);
@@ -168,6 +197,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         "::/EFI/systemd",
         "::/EFI/Linux",
         "::/loader",
+        "::/loader/keys",
+        "::/loader/keys/auto",
     ]))?;
     let loader_conf = paths.work.join("loader.conf");
     fs::write(&loader_conf, LOADER_CONF)?;
@@ -183,6 +214,14 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         (&loader_conf, "::/loader/loader.conf".to_owned()),
     ] {
         util::run(Command::new("mcopy").args(["-i", &esp]).arg(file).arg(dest))?;
+    }
+    for file in secureboot::ENROLL_FILES {
+        util::run(
+            Command::new("mcopy")
+                .args(["-i", &esp])
+                .arg(keys.enroll_dir().join(file))
+                .arg(format!("::/loader/keys/auto/{file}")),
+        )?;
     }
     write_at(&disk, USR_START * SECTOR, &usr_image)?;
     write_at(&disk, USR_VERITY_START * SECTOR, &usr_verity)?;

@@ -92,13 +92,19 @@ impl Machine {
         }
     }
 
-    /// Installs the current image onto a fresh test disk (`name.img`), with
-    /// a factory-new TPM.
+    /// Installs the current image onto a fresh test disk (`name.img`); see
+    /// [`Self::install_from`].
     fn install(paths: &Paths, name: &str) -> Result<Self> {
+        Self::install_from(paths, name, &paths.out.join("disk.img"))
+    }
+
+    /// Installs `image` onto a fresh test disk, with a factory-new TPM and
+    /// firmware in setup mode, and powers it on once: systemd-boot enrolls
+    /// the image's keys and reboots – the same first start as on real
+    /// hardware after clearing its Secure Boot keys (ADR 0010).
+    fn install_from(paths: &Paths, name: &str, image: &Path) -> Result<Self> {
         let machine = Self::named(paths, name);
-        let image = paths.out.join("disk.img");
-        let template = paths.out.join("ovmf-vars-secureboot.fd");
-        fs::copy(&image, &machine.disk)
+        fs::copy(image, &machine.disk)
             .with_context(|| format!("copying {}; run `bz build`", image.display()))?;
         fs::OpenOptions::new()
             .write(true)
@@ -111,9 +117,10 @@ impl Machine {
                 .args(["--relocate", "gpt-bak-std"])
                 .arg(&machine.disk),
         )?;
-        fs::copy(&template, &machine.vars)
-            .with_context(|| format!("copying {}; run `bz image`", template.display()))?;
+        fs::copy(secureboot::OVMF_VARS, &machine.vars)
+            .with_context(|| format!("copying {}; install ovmf", secureboot::OVMF_VARS))?;
         new_tpm(&machine.tpm)?;
+        enroll_keys(&machine)?;
         Ok(machine)
     }
 
@@ -123,6 +130,69 @@ impl Machine {
         fs::remove_dir_all(&self.tpm)?;
         Ok(())
     }
+}
+
+/// Certificates the firmware must hold after enrollment (profile "with
+/// Windows"): Beize's own, Microsoft's KEK (Windows' Secure Boot updates)
+/// and db (Windows boot manager, option ROMs).
+const ENROLLED: [(&str, &str); 6] = [
+    ("PK", "Beize"),
+    ("KEK", "Beize"),
+    ("KEK", "Microsoft Corporation KEK 2K CA 2023"),
+    ("db", "Beize"),
+    ("db", "Windows UEFI CA 2023"),
+    ("db", "Microsoft Option ROM UEFI CA 2023"),
+];
+
+/// Powers a machine in setup mode on once and requires systemd-boot to
+/// enroll the keys from the ESP and reboot, leaving PK, KEK, db and dbx set.
+fn enroll_keys(machine: &Machine) -> Result<()> {
+    eprintln!("  first power-on: enrolling the Secure Boot keys");
+    let run = watch_boot(machine, TAMPER_TIMEOUT, None, |line| {
+        line.contains("Enrolling secure boot keys").then_some(())
+    })?;
+    ensure!(
+        run.answer.is_some(),
+        "systemd-boot did not enroll the Secure Boot keys"
+    );
+    ensure!(
+        run.powered_off,
+        "the machine did not reboot after enrolling the Secure Boot keys"
+    );
+    let firmware = util::output(
+        Command::new("virt-fw-vars")
+            .arg("--input")
+            .arg(&machine.vars)
+            .args(["--print", "--verbose"]),
+    )?;
+    let enrolled = enrolled_certificates(&firmware);
+    for (var, name) in ENROLLED {
+        ensure!(
+            enrolled
+                .iter()
+                .any(|(v, subject)| v == var && subject.contains(name)),
+            "after enrollment {var} holds no certificate \"{name}\"; it holds: {enrolled:?}"
+        );
+    }
+    ensure!(
+        firmware.lines().any(|line| line.starts_with("name=dbx")),
+        "after enrollment the firmware has no revocation list (dbx)"
+    );
+    Ok(())
+}
+
+/// (variable, certificate subject) pairs from `virt-fw-vars --print --verbose`.
+fn enrolled_certificates(firmware: &str) -> Vec<(String, String)> {
+    let mut variable = String::new();
+    let mut found = Vec::new();
+    for line in firmware.lines() {
+        if let Some(rest) = line.strip_prefix("name=") {
+            variable = rest.split_whitespace().next().unwrap_or("").to_owned();
+        } else if let Some(subject) = line.trim().strip_prefix("subject ") {
+            found.push((variable.clone(), subject.to_owned()));
+        }
+    }
+    found
 }
 
 /// Creates an empty TPM state directory; swtpm initialises a factory-new TPM in it.
@@ -217,7 +287,11 @@ pub fn run(paths: &Paths) -> Result<()> {
 ///    root partition, reaches `running` without failed units and marks the
 ///    UKI as good (boot counting);
 /// 2. the second boot finds the same installation (state persisted);
-/// 3. the image with an unsigned kernel image is refused by the firmware.
+/// 3. the image with an unsigned kernel image is refused by the firmware;
+/// 4. the owner's workflow (`new-keys`, `sign`) yields an image that boots.
+///
+/// The firmware is set up like a PC as shipped, with Beize's db certificate
+/// appended (ADR 0010).
 pub fn smoke(paths: &Paths) -> Result<()> {
     let machine = Machine::install(paths, "smoke")?;
 
@@ -266,8 +340,15 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         vars: paths.work.join("smoke-insecure-vars.fd"),
         ..machine.clone()
     };
-    fs::copy(secureboot::OVMF_VARS, &insecure.vars)
-        .with_context(|| format!("copying {}", secureboot::OVMF_VARS))?;
+    // Keys stay enrolled, Secure Boot is switched off – as in the firmware setup.
+    util::output(
+        Command::new("virt-fw-vars")
+            .arg("--input")
+            .arg(&machine.vars)
+            .arg("--output")
+            .arg(&insecure.vars)
+            .args(["--set-false", "SecureBootEnable"]),
+    )?;
     expect_root_locked(&insecure, "Secure Boot disabled")?;
     fs::remove_file(&insecure.vars)?;
     machine.remove()?;
@@ -334,6 +415,40 @@ pub fn smoke(paths: &Paths) -> Result<()> {
             TAMPER_TIMEOUT.as_secs()
         ),
     }
+
+    util::step("The owner's signing workflow must yield an image that boots");
+    owner_workflow(paths)?;
+    Ok(())
+}
+
+/// Runs the owner's workflow end to end – `bz secureboot new-keys`, then
+/// `bz sign` – with a throwaway directory instead of 1Password, and boots the
+/// result: enrollment from setup mode, then a healthy first boot.
+fn owner_workflow(paths: &Paths) -> Result<()> {
+    let dir = paths.work.join("owner-workflow");
+    if dir.exists() {
+        fs::remove_dir_all(&dir)?;
+    }
+    let store = secureboot::Store::Directory(dir.join("store"));
+    let public = dir.join("public");
+    let microsoft = secureboot::microsoft_dir(paths);
+    let profile = secureboot::Profile::WithWindows;
+    secureboot::new_keys(&store, &public, &microsoft, profile)?;
+    ensure!(
+        secureboot::new_keys(&store, &public, &microsoft, profile).is_err(),
+        "new-keys replaced existing production keys"
+    );
+    let keys = secureboot::Keys::production(&store, &public)?;
+    let out = dir.join("out");
+    fs::create_dir_all(&out)?;
+    let disk = image::assemble(paths, &keys, &out)?;
+    drop(keys);
+
+    let machine = Machine::install_from(paths, "owner", &disk)?;
+    boot_healthy(&machine, 1, None)?;
+    machine.remove()?;
+    fs::remove_dir_all(&dir)?;
+    eprintln!("  ok: keys from the key store signed an image that boots under Secure Boot");
     Ok(())
 }
 
