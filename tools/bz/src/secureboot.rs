@@ -36,6 +36,10 @@ pub const OVMF_VARS: &str = "/usr/share/OVMF/OVMF_VARS_4M.fd";
 
 /// The signed variable updates systemd-boot enrolls, in `/loader/keys/auto/`.
 pub const ENROLL_FILES: [&str; 4] = ["PK.auth", "KEK.auth", "db.auth", "dbx.auth"];
+/// What the firmware may hold (signature lists, unsigned), next to the
+/// enrollment files. beize-tpm checks the measured state against it before
+/// it re-binds the root partition (ADR 0010); built into the signed UKI.
+pub const PROFILE_FILES: [&str; 4] = ["PK.esl", "KEK.esl", "db.esl", "beize-db.esl"];
 /// Attributes of the Secure Boot variables, as systemd-boot sets them; the
 /// signature covers them.
 const VARIABLE_ATTRS: &str =
@@ -160,7 +164,11 @@ impl Keys {
     /// The owner's signing keys: db and PCR key from `store`, certificates
     /// and enrollment files from `public`. Fails unless they belong together.
     pub fn production(store: &Store, public: &Path) -> Result<Self> {
-        for file in [DB_CERT, PCR_PUBLIC].iter().chain(&ENROLL_FILES) {
+        for file in [DB_CERT, PCR_PUBLIC]
+            .iter()
+            .chain(&ENROLL_FILES)
+            .chain(&PROFILE_FILES)
+        {
             ensure!(
                 public.join(file).exists(),
                 "{} is missing; create the production keys with `bz secureboot new-keys`",
@@ -330,7 +338,7 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
         fs::copy(memory.0.join(file), public.join(file))?;
         written.push(public.join(file));
     }
-    for file in ENROLL_FILES {
+    for file in ENROLL_FILES.iter().chain(&PROFILE_FILES) {
         fs::copy(enroll.join(file), public.join(file))?;
         written.push(public.join(file));
     }
@@ -348,8 +356,8 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
 
 /// Writes the signed variable updates systemd-boot enrolls into `out`: PK
 /// (signed by itself), KEK (signed by PK), db (signed by KEK) and
-/// Microsoft's dbx. `keys` holds PK and KEK with private keys and db's
-/// certificate.
+/// Microsoft's dbx; plus the unsigned lists as the profile ([`PROFILE_FILES`]).
+/// `keys` holds PK and KEK with private keys and db's certificate.
 fn enrollment_files(keys: &Path, out: &Path, microsoft: &Path, profile: Profile) -> Result<()> {
     if out.exists() {
         fs::remove_dir_all(out)?;
@@ -376,6 +384,11 @@ fn enrollment_files(keys: &Path, out: &Path, microsoft: &Path, profile: Profile)
                 .arg(&der),
         )?;
         let mut list = signature_list(&der, OWNER_GUID, &scratch)?;
+        if var == "db" {
+            // Beize's own db certificate: beize-tpm requires it to have
+            // authorised the boot chain.
+            fs::write(out.join("beize-db.esl"), &list)?;
+        }
         for (file, sha256) in extra {
             list.extend(signature_list(
                 &microsoft_file(microsoft, file, sha256)?,
@@ -383,7 +396,8 @@ fn enrollment_files(keys: &Path, out: &Path, microsoft: &Path, profile: Profile)
                 &scratch,
             )?);
         }
-        let path = scratch.join(format!("{var}.esl"));
+        // Also kept as the profile beize-tpm checks the firmware against.
+        let path = out.join(format!("{var}.esl"));
         fs::write(&path, list)?;
         lists.push((var, path));
     }
@@ -611,6 +625,7 @@ mod tests {
         let second_run_refused =
             new_keys(&store, &public, &microsoft, Profile::WithWindows).is_err();
         let enroll_files = ENROLL_FILES.map(|file| public.join(file).exists());
+        let profile_files = PROFILE_FILES.map(|file| public.join(file).exists());
         let private_halves_public = [PK_KEY, KEK_KEY, DB_KEY, PCR_KEY]
             .iter()
             .any(|file| public.join(file).exists());
@@ -628,6 +643,7 @@ mod tests {
         assert!(fresh_keys_load);
         assert!(second_run_refused);
         assert_eq!(enroll_files, [true; 4]);
+        assert_eq!(profile_files, [true; 4]);
         assert!(
             !private_halves_public,
             "a private key ended up in the public files"

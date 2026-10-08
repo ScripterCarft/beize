@@ -79,12 +79,13 @@ Versionen und die repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`
 
 | Pfad | Inhalt |
 | --- | --- |
-| `tools/bz/src/` | Build-Werkzeug (Rust, ~3300 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Schlüssel (Test/Produktion, 1Password), Einschreib-Dateien, Signieren · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
+| `os/` | **Beizes eigener Code im Image** (Rust, Workspace-Mitglieder). Bisher `beize-tpm` (initrd: TPM-Neubindung nach Recovery, ADR 0010) |
+| `tools/bz/src/` | Build-Werkzeug (Rust, ~3800 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Schlüssel (Test/Produktion, 1Password), Einschreib-Dateien, Signieren · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
 | `recipes/*.toml` | ein Rezept pro Paket (20): Quelle (gepinnt + signiert), `deps`, `stage` (toolchain/target), `[build] script` |
 | `keys/` | öffentliche Maintainer-Schlüssel + `README.md` (Herkunft, Fingerprints, Ausnahmen); `keys/microsoft/` Microsofts Secure-Boot-Zertifikate + dbx (gepinnt); `keys/secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
 | `system/usr/` | eigene Dateien in `/usr` (Units, Boot-Report, Werkseinstellungen) |
-| `system/initrd/` | eigene Dateien der initrd (repart-Drop-in, Recovery-Key); dort gibt es bash, aber **keine coreutils** |
+| `system/initrd/` | eigene Dateien der initrd (repart-Drop-in, Recovery-Key, `beize-tpm.service`); dort gibt es bash, aber **keine coreutils** |
 | `kernel/config/beize-base.config` | Kernel-Fragment, nach dem Merge verifiziert |
 | `ci/packages.txt`, `ci/system.sh` | einzige Liste der Build-Abhängigkeiten; kompletter CI-Ablauf |
 | `docs/adr/`, `docs/VISION.md` | Entscheidungen, Vision |
@@ -150,9 +151,11 @@ einmal alles neu, ~1 h).
   `systemunlock=refused`, Header-Prüfung in `bz smoke`); kein Passwort-Slot.
   Recovery-Key wird beim 1. Start in der initrd erzeugt und einmal angezeigt
   (Konsole + `/run/beize/recovery-key`), nie auf Platte/Journal (ADR 0009 + Nachtrag).
-  Weigert sich der TPM (dbx/BIOS-Update, neuer TPM), öffnet der Recovery-Key einmal,
-  und `beize-tpm-reseal` (initrd) bindet sofort neu – nie bei Secure Boot aus (ADR 0010).
-  `bz smoke` prüft: dbx-Update, anderer TPM, Secure Boot aus + Recovery-Key.
+  Weigert sich der TPM, öffnet der Recovery-Key; `beize-tpm` bindet nur neu, wenn der
+  gemessene Zustand zum signierten Profil passt (Secure Boot an, PK/KEK/db, Autoritäten)
+  und ein neuer TPM ausdrücklich bestätigt wurde (ADR 0010). `bz smoke` prüft: dbx-Update
+  (neu gebunden), fremdes db-Zertifikat (abgelehnt), neuer TPM (no → abgelehnt, yes →
+  gebunden), Secure Boot aus + Recovery-Key (abgelehnt).
 - **Schlüssel (ADR 0010):** Beize ist Plattform-Eigentümer (eigener PK/KEK);
   Profil „Beize + Windows“ schreibt zusätzlich Microsofts KEK/db und dbx ein.
   Tests/CI: Wegwerf-Schlüssel `CN=Beize TEST ONLY …` (PK, KEK, db) + PCR-Schlüssel unter
@@ -182,6 +185,16 @@ Architekturentscheidung = neues ADR.
   `bz` bricht ab, wenn etwas unter `home/…/build/` installiert würde.
 - `meson -Dauto_features=disabled`: jedes benötigte Feature ausdrücklich einschalten.
 - Abhängigkeitsschleifen vermeiden (libdevmapper ohne udev-Sync, weil systemd → cryptsetup → lvm2).
+- **Eigener Rust-Code im Image:** Crate unter `os/<name>` (Workspace-Mitglied, läuft also
+  in `cargo clippy/test --workspace` mit), Rezept mit `repo = ["os/<name>", "Cargo.toml",
+  "Cargo.lock"]` (Inhalt geht in den Fingerprint) und Skript `"$CARGO" fetch --locked` +
+  `"$CARGO" build --offline --locked --release --target x86_64-unknown-linux-gnu` (Vorbild
+  `recipes/beize-tpm.toml`). `bz` setzt `CARGO`/`RUSTC` (Toolchain aus
+  rust-toolchain.toml), `CARGO_HOME=build/cache/cargo`, `RUSTFLAGS=-C linker=…-gcc`
+  (nur Zielartefakte; Build-Skripte bleiben beim Host-cc – Crates mit Build-Skript
+  meiden, solange es geht). Krypto nie selbst schreiben (RustCrypto `sha2`).
+- Rezepte **ohne** `repo` behalten ihren Fingerprint (Test
+  `recipes_without_repo_sources_keep_their_fingerprint`) – sonst baut alles neu.
 - **Ein Paket sieht beim Bauen nur seine (transitiven) `deps` im Sysroot** – `bz`
   verschiebt alle anderen installierten Dateien währenddessen nach
   `build/sysroot-hidden/` und holt sie danach (oder beim nächsten Lauf) zurück.
@@ -256,7 +269,10 @@ Architekturentscheidung = neues ADR.
 
 ## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
 
-Zuletzt erledigt (2026-10-08): **TPM-Richtlinie fertig** – PCR 7 + signierte PCR-11-Richtlinie
+Zuletzt erledigt (2026-10-08): **`beize-tpm`** – erster eigener Rust-Code im Image
+(`os/`, `bz` baut Rust für das Ziel), prüft vor dem Neubinden Firmware-Protokoll gegen
+Profil und fragt bei neuem TPM nach (Kritik eines Reviewers umgesetzt).
+Davor: **TPM-Richtlinie fertig** – PCR 7 + signierte PCR-11-Richtlinie
 nur für die initrd, Recovery-Key in der initrd, Neu-Binden nach Wiederherstellung
 (dbx-/BIOS-Update, neuer TPM; nie ohne Secure Boot), pcrlock verworfen (ADR 0010).
 Davor: **Secure Boot für echte Hardware (ADR 0010)** – Beize

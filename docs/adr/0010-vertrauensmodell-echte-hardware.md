@@ -79,17 +79,30 @@ Datenschlüssel). PCR 7 enthält auch,
 *welches* db-Zertifikat den Start freigegeben hat: Ein anderes, von Microsoft
 signiertes System startet, bekommt den Schlüssel aber nicht.
 
-**Nach einer Änderung neu binden (BitLocker-Prinzip):** Weigert sich der TPM
-(Windows spielt ein Secure-Boot-Update ein, BIOS-Update, neue Schlüssel, neues
-Mainboard/TPM), fragt systemd-cryptsetup nach dem Recovery-Key. Direkt danach bindet
-`beize-tpm-reseal.service` (initrd) den TPM-Slot an den aktuellen Zustand – wer den
-Recovery-Key kennt, darf ihn absegnen. Ab dem nächsten Start geht es wieder ohne
-Eingabe. **Nie bei abgeschaltetem Secure Boot.** Den eingegebenen Schlüssel liest der
-Dienst aus dem Zwischenspeicher von systemd-cryptsetup (Kernel-Schlüsselbund, 2,5 min)
-über die AskPassword-Varlink-Schnittstelle, nur Cache, nie interaktiv (dafür
-`KeyringMode=shared` für `systemd-ask-password@.service` in der initrd; aufrufen darf
-nur root). Erst den alten TPM-Slot löschen, dann neu einschreiben – sonst hält
-`systemd-cryptenroll` den Slot eines anderen TPM mit gleichen PCR-Werten für aktuell.
+**Nach einer Änderung neu binden – aber nur einen erlaubten Zustand:** Weigert sich
+der TPM (Windows-Secure-Boot-Update, BIOS-Update, neue Schlüssel, neues Mainboard),
+fragt systemd-cryptsetup nach dem Recovery-Key. Danach entscheidet `beize-tpm`
+(eigener Rust-Code, `os/beize-tpm`, `beize-tpm.service` in der initrd), ob der neue
+Zustand abgesegnet werden darf – der Recovery-Key allein genügt nicht:
+- **Secure Boot an** (EFI-Variable und Messung).
+- **Gemessener Zustand passt zum Profil:** Das Firmware-Ereignisprotokoll muss,
+  nachgerechnet, exakt PCR 7 des TPM ergeben (plus genau einmal systemd's
+  `os-separator`). PK ist exakt Beizes; KEK und db enthalten nur Einträge aus dem
+  Profil (weniger ist erlaubt); jedes freigebende Zertifikat stammt aus db, eines davon
+  Beizes eigenes; sonst nichts in PCR 7 (z. B. kein Firmware-Debug-Modus). dbx darf
+  sich frei ändern. Das Profil (`PK.esl`, `KEK.esl`, `db.esl`, `beize-db.esl`) erzeugt
+  `bz` beim Einschreiben und legt es als zweites initrd-Archiv **signiert ins UKI**.
+- **Neuer TPM** (SRK anders als in `/var/lib/beize/tpm-srk.pem`; systemd's eigene
+  Kopie wird bei TPM-Wechsel überschrieben): nur nach ausdrücklicher Bestätigung
+  („yes“) auf der Konsole – ein getauschter Chip wird nie stillschweigend übernommen.
+Erst dann löscht `beize-tpm` den alten TPM-Slot (sonst hält `systemd-cryptenroll`
+den Slot eines anderen TPM mit gleichen PCR-Werten für aktuell) und schreibt neu ein:
+PCR 7 + signierte PCR-11-Richtlinie „initrd“. Den eingegebenen Schlüssel liest es aus
+dem Zwischenspeicher von systemd-cryptsetup im Kernel-Schlüsselbund
+(`KeyringMode=shared`) und gibt ihn nur über stdin an `systemd-cryptenroll` weiter.
+Sonst: Ablehnung mit Grund auf der Konsole, der Recovery-Key bleibt nötig.
+Grenzen: Ein neuer TPM wird nicht über sein Endorsement-Zertifikat geprüft
+(Attestierung), sondern durch die bewusste Bestätigung des Besitzers.
 
 **Verworfen: `systemd-pcrlock`.** Es schützt seine NV-Richtlinie mit einer eigenen
 PIN, die an dieselbe Richtlinie gebunden ist; ändert sich PCR 7 *unvorhergesehen*

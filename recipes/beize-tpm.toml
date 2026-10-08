@@ -1,0 +1,20 @@
+# Beize's own TPM helper for the initrd (os/beize-tpm, ADR 0010): checks the
+# measured Secure Boot state and re-binds the root partition after a
+# recovery-key unlock. The first of Beize's own Rust programs in the image.
+name = "beize-tpm"
+version = "0.1.0"
+stage = "target"
+# libgcc_s for Rust's unwinding.
+deps = ["gcc", "glibc", "gcc-runtime"]
+repo = ["os/beize-tpm", "Cargo.toml", "Cargo.lock"]
+
+[build]
+script = '''
+# Crates come from crates.io, checked against the checksums in Cargo.lock;
+# the build itself runs offline.
+"$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
+"$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
+  -p beize-tpm --target x86_64-unknown-linux-gnu
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-tpm" \
+  "$PKG/usr/lib/beize/beize-tpm"
+'''

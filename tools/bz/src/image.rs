@@ -15,7 +15,7 @@ use crate::layout::{
     USR_VERITY_TYPE,
 };
 use crate::paths::Paths;
-use crate::{secureboot, util};
+use crate::{initrd, secureboot, util};
 
 const SECTOR: u64 = 512;
 /// The ESP starts at 1 MiB; 1 MiB at the end holds the backup GPT.
@@ -143,6 +143,7 @@ pub fn assemble(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<Pa
     fs::write(&os_release, layout::os_release())?;
     let unsigned_uki = out.join(UNSIGNED_UKI);
     let (pcr_private, pcr_public) = keys.pcr_key();
+    let profile = profile_initrd(keys, out)?;
     util::run(
         ukify(paths)?
             .arg("build")
@@ -150,6 +151,9 @@ pub fn assemble(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<Pa
             .arg(&kernel)
             .arg("--initrd")
             .arg(&initrd)
+            // The Secure Boot profile of these keys, signed with the UKI.
+            .arg("--initrd")
+            .arg(&profile)
             .arg("--stub")
             .arg(efi_dir.join("linuxx64.efi.stub"))
             .arg(format!("--cmdline={}", kernel_cmdline(root_hash)))
@@ -232,6 +236,26 @@ pub fn assemble(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<Pa
         disk_size / MIB
     );
     Ok(disk)
+}
+
+/// A second initrd archive with the Secure Boot profile of `keys` under
+/// `/usr/lib/beize/secureboot/`: what beize-tpm checks the firmware against.
+/// It differs between test and production keys, so it is not part of the
+/// shared initrd; inside the UKI it is signed like everything else.
+fn profile_initrd(keys: &secureboot::Keys, out: &Path) -> Result<PathBuf> {
+    let root = out.join("profile-initrd");
+    if root.exists() {
+        fs::remove_dir_all(&root)?;
+    }
+    let dir = root.join("usr/lib/beize/secureboot");
+    fs::create_dir_all(&dir)?;
+    for file in secureboot::PROFILE_FILES {
+        fs::copy(keys.enroll_dir().join(file), dir.join(file))?;
+    }
+    let archive = out.join("profile.cpio.zst");
+    initrd::pack(&root, &archive)?;
+    fs::remove_dir_all(&root)?;
+    Ok(archive)
 }
 
 fn partition(disk: &Path, root_hash: &str) -> Result<()> {

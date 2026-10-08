@@ -77,7 +77,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
 }
 
 /// Writes a reproducible, zstd-compressed newc cpio archive of `root`.
-fn pack(root: &Path, image: &Path) -> Result<()> {
+pub fn pack(root: &Path, image: &Path) -> Result<()> {
     let pipeline = format!(
         "set -euo pipefail; find . -print0 | LC_ALL=C sort -z \
          | cpio --null --create --format=newc --owner=0:0 --reproducible --quiet \

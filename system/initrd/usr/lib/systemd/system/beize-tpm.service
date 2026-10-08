@@ -1,0 +1,24 @@
+[Unit]
+Description=Check the TPM binding of the encrypted root partition
+Documentation=file:/usr/lib/beize/beize-tpm
+# After an unlock with the recovery key (the TPM refused) this re-binds the
+# root partition to the current state, if it may be approved (ADR 0010);
+# otherwise it only keeps the record of the TPM the data is bound to.
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+Requires=systemd-cryptsetup@root.service sysroot.mount
+After=systemd-cryptsetup@root.service sysroot.mount systemd-tpm2-setup-early.service
+# Not ordered against beize-recovery-key: that one only works on first boot,
+# this one only changes the header after a recovery-key unlock.
+Before=initrd-root-fs.target initrd-switch-root.target
+Conflicts=initrd-switch-root.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/beize-tpm reseal
+# The passphrase cache of systemd-cryptsetup is in root's user keyring.
+KeyringMode=shared
+StandardOutput=tty
+TTYPath=/dev/console
+StandardError=journal+console

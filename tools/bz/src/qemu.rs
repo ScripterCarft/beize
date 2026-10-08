@@ -152,7 +152,7 @@ const ENROLLED: [(&str, &str); 6] = [
 /// enroll the keys from the ESP and reboot, leaving PK, KEK, db and dbx set.
 fn enroll_keys(machine: &Machine) -> Result<()> {
     eprintln!("  first power-on: enrolling the Secure Boot keys");
-    let run = watch_boot(machine, TAMPER_TIMEOUT, None, |line| {
+    let run = watch_boot(machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
         line.contains("Enrolling secure boot keys").then_some(())
     })?;
     ensure!(
@@ -300,7 +300,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     let machine = Machine::install(paths, "smoke")?;
 
     util::step("First boot");
-    let first = boot_healthy(&machine, 1, None)?;
+    let first = boot_healthy(&machine, 1, &Answers::none())?;
     check_partitions(&machine.disk)?;
     check_blessed(&machine.disk)?;
     check_root_binding(&machine.disk, &paths.work)?;
@@ -309,7 +309,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     eprintln!("  ok: first boot created and showed a recovery key");
 
     util::step("Second boot");
-    let second = boot_healthy(&machine, 2, None)?;
+    let second = boot_healthy(&machine, 2, &Answers::none())?;
     ensure!(
         second.report.machine_id == first.report.machine_id,
         "machine ID changed between boots ({} -> {}): the root partition did not persist",
@@ -328,25 +328,55 @@ pub fn smoke(paths: &Paths) -> Result<()> {
 
     util::step("A Secure Boot update needs the recovery key once, then the TPM unlocks again");
     // Like Windows installing a revocation: a new dbx entry changes PCR 7.
-    let updated = paths.work.join("smoke-vars-updated.fd");
-    util::output(
-        Command::new("virt-fw-vars")
-            .arg("--input")
-            .arg(&machine.vars)
-            .arg("--output")
-            .arg(&updated)
-            .args(["--add-dbx-hash", secureboot::OWNER_GUID, SMOKE_REVOKED_HASH]),
+    edit_firmware(
+        &machine,
+        &["--add-dbx-hash", secureboot::OWNER_GUID, SMOKE_REVOKED_HASH],
     )?;
-    fs::rename(&updated, &machine.vars)?;
-    expect_rebound(&machine, 3, &recovery_key, "the Secure Boot update")?;
+    let with_key = Answers::recovery_key(&recovery_key);
+    expect_rebound(&machine, 3, &with_key, "the Secure Boot update")?;
 
-    util::step("Another TPM (new mainboard) needs the recovery key once, then unlocks by itself");
+    util::step("A foreign certificate in db must not be approved, even with the recovery key");
+    // Like someone appending their own certificate in the firmware setup.
+    let approved = paths.work.join("smoke-vars-approved.fd");
+    fs::copy(&machine.vars, &approved)?;
+    let foreign = foreign_certificate(paths)?;
+    edit_firmware(
+        &machine,
+        &[
+            "--add-db",
+            secureboot::OWNER_GUID,
+            foreign.to_str().context("certificate path")?,
+        ],
+    )?;
+    expect_refused(
+        &machine,
+        5,
+        &with_key,
+        "the signature database (db) holds a certificate outside the profile",
+    )?;
+    // Back to the approved state: the TPM unlocks by itself again.
+    fs::rename(&approved, &machine.vars)?;
+    boot_healthy(&machine, 7, &Answers::none())?;
+    eprintln!("  ok: back in the approved state the TPM unlocked by itself");
+
+    util::step("Another TPM (new mainboard) is adopted only when the owner confirms it");
     let other_tpm = Machine {
         tpm: paths.work.join("smoke-other-tpm"),
         ..machine.clone()
     };
     new_tpm(&other_tpm.tpm)?;
-    expect_rebound(&other_tpm, 5, &recovery_key, "a different TPM")?;
+    expect_refused(
+        &other_tpm,
+        8,
+        &with_key.clone().adopt_tpm("no"),
+        "The new security chip was not adopted",
+    )?;
+    expect_rebound(
+        &other_tpm,
+        10,
+        &with_key.clone().adopt_tpm("yes"),
+        "a confirmed new TPM",
+    )?;
     fs::remove_dir_all(&other_tpm.tpm)?;
     // From here on the volume is bound to the other TPM: the machine's own
     // TPM must not unlock it any more (checked below, with Secure Boot off).
@@ -357,22 +387,11 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         ..machine.clone()
     };
     // Keys stay enrolled, Secure Boot is switched off – as in the firmware setup.
-    util::output(
-        Command::new("virt-fw-vars")
-            .arg("--input")
-            .arg(&machine.vars)
-            .arg("--output")
-            .arg(&insecure.vars)
-            .args(["--set-false", "SecureBootEnable"]),
-    )?;
+    fs::copy(&machine.vars, &insecure.vars)?;
+    edit_firmware(&insecure, &["--set-false", "SecureBootEnable"])?;
     expect_root_locked(&insecure, "Secure Boot disabled")?;
     // The recovery key opens the data, but must not approve this state.
-    let run = watch_boot(
-        &insecure,
-        SMOKE_TIMEOUT,
-        Some(recovery_key.clone()),
-        BootReport::parse,
-    )?;
+    let run = watch_boot(&insecure, SMOKE_TIMEOUT, &with_key, BootReport::parse)?;
     ensure!(
         run.prompted && run.answer.is_some(),
         "with Secure Boot disabled the recovery key did not open the root partition"
@@ -400,7 +419,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
             .arg(image::unsigned_uki(paths))
             .arg(image::uki_path_on_esp()),
     )?;
-    let run = watch_boot(&machine, TAMPER_TIMEOUT, None, |line| {
+    let run = watch_boot(&machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
         if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
             Some(false)
         } else if line.contains("Access Denied") || line.contains("Access denied") {
@@ -434,7 +453,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         disk.seek(SeekFrom::Start(offset))?;
         disk.write_all(&[byte[0] ^ 0xff])?;
     }
-    let run = watch_boot(&machine, TAMPER_TIMEOUT, None, |line| {
+    let run = watch_boot(&machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
         if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
             Some(false)
         } else if line.contains("verity") && line.contains("is corrupted") {
@@ -482,7 +501,7 @@ fn owner_workflow(paths: &Paths) -> Result<()> {
     drop(keys);
 
     let machine = Machine::install_from(paths, "owner", &disk)?;
-    boot_healthy(&machine, 1, None)?;
+    boot_healthy(&machine, 1, &Answers::none())?;
     machine.remove()?;
     fs::remove_dir_all(&dir)?;
     eprintln!("  ok: keys from the key store signed an image that boots under Secure Boot");
@@ -499,13 +518,9 @@ struct HealthyBoot {
 
 /// Boots once and requires a fully healthy system: Secure Boot on, state
 /// `running`, no failed units, clean power-off, and the expected boot count.
-/// `passphrase` is typed in if the boot asks for one.
-fn boot_healthy(
-    machine: &Machine,
-    expected_boot: u32,
-    passphrase: Option<String>,
-) -> Result<HealthyBoot> {
-    let run = watch_boot(machine, SMOKE_TIMEOUT, passphrase, BootReport::parse)?;
+/// `answers` are typed at the console's questions (see [`Answers`]).
+fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Result<HealthyBoot> {
+    let run = watch_boot(machine, SMOKE_TIMEOUT, answers, BootReport::parse)?;
     ensure!(
         run.answer.is_some() || !run.prompted,
         "the boot asked for a passphrase: the TPM did not unlock the root partition"
@@ -574,11 +589,68 @@ fn boot_healthy(
 /// A dbx entry no binary has: added to simulate a Secure Boot update.
 const SMOKE_REVOKED_HASH: &str = "62656967652d736d6f6b652d7265766f6b656462656967652d736d6f6b652d31";
 
+/// Applies `virt-fw-vars` options to a machine's firmware variables in place.
+fn edit_firmware(machine: &Machine, options: &[&str]) -> Result<()> {
+    let edited = machine.vars.with_extension("edited");
+    util::output(
+        Command::new("virt-fw-vars")
+            .arg("--input")
+            .arg(&machine.vars)
+            .arg("--output")
+            .arg(&edited)
+            .args(options),
+    )?;
+    fs::rename(&edited, &machine.vars)?;
+    Ok(())
+}
+
+/// A self-signed certificate that is in no profile.
+fn foreign_certificate(paths: &Paths) -> Result<PathBuf> {
+    let dir = paths.work.join("smoke-foreign");
+    fs::create_dir_all(&dir)?;
+    let cert = dir.join("foreign.crt");
+    util::output(
+        Command::new("openssl")
+            .args(["req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes"])
+            .args(["-days", "1", "-subj", "/CN=Not Beize/", "-keyout"])
+            .arg(dir.join("foreign.key"))
+            .arg("-out")
+            .arg(&cert),
+    )?;
+    Ok(cert)
+}
+
+/// After a change that must not be approved, boot `boot` opens with the
+/// recovery key but keeps the TPM binding (beize-tpm says `reason`); boot
+/// `boot + 1` must still need the recovery key.
+fn expect_refused(machine: &Machine, boot: u32, answers: &Answers, reason: &str) -> Result<()> {
+    let first = boot_healthy(machine, boot, answers)?;
+    ensure!(first.prompted, "the TPM unlocked although it should refuse");
+    ensure!(
+        first.console.iter().any(|line| line.contains(reason)),
+        "the recovery-key boot did not refuse with \"{reason}\""
+    );
+    ensure!(
+        !first
+            .console
+            .iter()
+            .any(|line| line.contains("binding the data to the current state")),
+        "the TPM was re-bound although \"{reason}\""
+    );
+    let second = boot_healthy(machine, boot + 1, answers)?;
+    ensure!(
+        second.prompted,
+        "the TPM unlocked after a refused re-binding"
+    );
+    eprintln!("  ok: refused to re-bind ({reason}); the recovery key is still needed");
+    Ok(())
+}
+
 /// After a change the TPM refuses (PCR 7 or the TPM itself), boot `boot`
 /// must ask for the recovery key and re-bind the TPM slot; boot `boot + 1`
 /// must unlock by itself again (ADR 0010).
-fn expect_rebound(machine: &Machine, boot: u32, recovery_key: &str, change: &str) -> Result<()> {
-    let first = boot_healthy(machine, boot, Some(recovery_key.to_owned()))?;
+fn expect_rebound(machine: &Machine, boot: u32, answers: &Answers, change: &str) -> Result<()> {
+    let first = boot_healthy(machine, boot, answers)?;
     ensure!(
         first.prompted,
         "after {change} the TPM still unlocked the root partition"
@@ -590,7 +662,7 @@ fn expect_rebound(machine: &Machine, boot: u32, recovery_key: &str, change: &str
             .any(|line| line.contains("binding the data to the current state")),
         "after {change} the recovery-key boot did not re-bind the TPM"
     );
-    let second = boot_healthy(machine, boot + 1, None)?;
+    let second = boot_healthy(machine, boot + 1, &Answers::none())?;
     ensure!(
         !second.prompted,
         "after re-binding the TPM still did not unlock"
@@ -604,7 +676,7 @@ fn expect_rebound(machine: &Machine, boot: u32, recovery_key: &str, change: &str
 /// partition: the boot asks for the recovery key (or, without one, fails to
 /// set up the volume) and nothing boots.
 fn expect_root_locked(machine: &Machine, condition: &str) -> Result<()> {
-    let run = watch_boot(machine, TAMPER_TIMEOUT, None, |line| {
+    let run = watch_boot(machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
         let line = strip_ansi(line);
         if line.contains(REPORT_MARKER) {
             Some(false)
@@ -776,21 +848,55 @@ fn is_passphrase_prompt(text: &str) -> bool {
     text.contains("Please enter") && text.contains(" for disk ")
 }
 
+/// beize-tpm's question whether to adopt a different TPM (beize-tpm/src/main.rs).
+const ADOPT_TPM_PROMPT: &str = "Type yes to bind the data to it";
+
+/// What to type at the console during a boot, as the owner would.
+#[derive(Clone, Default)]
+struct Answers {
+    /// Typed when the boot asks for the recovery key; without one, that
+    /// question ends the boot.
+    recovery_key: Option<String>,
+    /// Typed when beize-tpm asks whether to adopt a new TPM ("no" if unset).
+    adopt_tpm: Option<&'static str>,
+}
+
+impl Answers {
+    fn none() -> Self {
+        Self::default()
+    }
+
+    fn recovery_key(key: &str) -> Self {
+        Self {
+            recovery_key: Some(key.to_owned()),
+            ..Self::default()
+        }
+    }
+
+    fn adopt_tpm(self, answer: &'static str) -> Self {
+        Self {
+            adopt_tpm: Some(answer),
+            ..self
+        }
+    }
+}
+
 enum ConsoleEvent<T> {
     Verdict(T),
     Prompted,
 }
 
 /// Boots headless and feeds every console line to `verdict` until it
-/// answers or `timeout` passes. If the boot asks for a passphrase, `passphrase`
-/// is typed in; without one, the prompt ends the boot. QEMU is always stopped
-/// before returning.
+/// answers or `timeout` passes, typing `answers` at the console's questions.
+/// Without a recovery key, being asked for one ends the boot. QEMU is always
+/// stopped before returning.
 fn watch_boot<T: Send + 'static>(
     machine: &Machine,
     timeout: Duration,
-    passphrase: Option<String>,
+    answers: &Answers,
     verdict: impl Fn(&str) -> Option<T> + Send + 'static,
 ) -> Result<BootRun<T>> {
+    let answers = answers.clone();
     let tpm = Swtpm::start(&machine.tpm)?;
     let started = Instant::now();
     let mut child = qemu(machine, &tpm)?
@@ -803,13 +909,14 @@ fn watch_boot<T: Send + 'static>(
 
     let mut stdout = child.stdout.take().context("qemu stdout")?;
     let mut stdin = child.stdin.take().context("qemu stdin")?;
-    let stop_at_prompt = passphrase.is_none();
+    let stop_at_prompt = answers.recovery_key.is_none();
     let (tx, rx) = mpsc::channel();
     let reader = thread::spawn(move || {
         let mut failures = Vec::new();
         let mut console = Vec::new();
         let mut answered = false;
         let mut prompted = false;
+        let mut asked_adopt = false;
         let mut pending = Vec::new();
         let mut chunk = [0u8; 4096];
         while let Ok(n @ 1..) = stdout.read(&mut chunk) {
@@ -828,14 +935,22 @@ fn watch_boot<T: Send + 'static>(
                 }
                 console.push(strip_ansi(line));
             }
-            if !prompted && is_passphrase_prompt(&strip_ansi(&String::from_utf8_lossy(&pending))) {
+            let shown = strip_ansi(&String::from_utf8_lossy(&pending));
+            if !prompted && is_passphrase_prompt(&shown) {
                 prompted = true;
-                if let Some(passphrase) = &passphrase {
+                if let Some(key) = &answers.recovery_key {
                     eprintln!("  | (typing the recovery key)");
-                    let _ = write!(stdin, "{passphrase}\r");
+                    let _ = write!(stdin, "{key}\r");
                     let _ = stdin.flush();
                 }
                 let _ = tx.send(ConsoleEvent::Prompted);
+            }
+            if !asked_adopt && shown.contains(ADOPT_TPM_PROMPT) {
+                asked_adopt = true;
+                let answer = answers.adopt_tpm.unwrap_or("no");
+                eprintln!("  | (answering {answer})");
+                let _ = write!(stdin, "{answer}\r");
+                let _ = stdin.flush();
             }
         }
         (failures, console, prompted)
