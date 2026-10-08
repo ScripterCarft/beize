@@ -118,8 +118,11 @@ mit KVM (verify, build, smoke). Ein neuer Push bricht ältere Läufe ab
 liegen im Actions-Cache (nach jedem Lauf gespeichert, auch nach Fehlschlag/Abbruch);
 die Fingerprints von `bz` entscheiden, was neu gebaut wird. Der erste volle Bau auf
 einem 4-Kern-Runner dauert Stunden (gcc-pass1 allein ~23 min) – `bz` meldet bei
-langen Paketen jede Minute „still building …“. Ob der GitHub-Lauf grün ist, wurde
-noch nicht bestätigt.
+langen Paketen jede Minute „still building …“. Bis 2026-10-08 griff der Cache nie
+(zstd/gzip, siehe §10), und der erste vollständige Lauf scheiterte am Boot-Test
+(lvm2-Regel, siehe §9). Beides behoben und per sauberem Container-Bau lokal
+bestätigt; der erste grüne GitHub-Lauf steht noch aus (baut wegen `ENV_REVISION`
+einmal alles neu, ~1 h).
 
 ## 7. Sicherheitsmodell
 
@@ -160,6 +163,13 @@ Architekturentscheidung = neues ADR.
   `bz` bricht ab, wenn etwas unter `home/…/build/` installiert würde.
 - `meson -Dauto_features=disabled`: jedes benötigte Feature ausdrücklich einschalten.
 - Abhängigkeitsschleifen vermeiden (libdevmapper ohne udev-Sync, weil systemd → cryptsetup → lvm2).
+- **Ein Paket sieht beim Bauen nur seine (transitiven) `deps` im Sysroot** – `bz`
+  verschiebt alle anderen installierten Dateien währenddessen nach
+  `build/sysroot-hidden/` und holt sie danach (oder beim nächsten Lauf) zurück.
+  Fehlt einem Rezept dadurch etwas, gehört es in `deps` – nicht die Sperre
+  umgehen. Hintergrund: lvm2 fand lokal (nach systemd neu gebaut) libudev und
+  schrieb eine andere udev-Regel als im sauberen CI-Bau → `/dev/mapper/usr`
+  wurde nie „ready“, CI-Boot rot.
 - Build-Jobs werden nach RAM begrenzt (1,5 GiB/Job) – nicht zurückdrehen.
 - **Werkzeuge, die zur systemd-Version im Image passen müssen** (ukify,
   systemd-measure), kommen aus unserem systemd-Build, nicht vom Host: ukify nach
@@ -182,6 +192,14 @@ Architekturentscheidung = neues ADR.
 - WSL beendet die Distro ohne angehängte `wsl.exe`-Sitzung → lange Jobs als
   Hintergrund-Befehl laufen lassen, der die Sitzung hält; Logs nach `~`, nicht `/tmp`.
 - `qemu -serial stdio` liest stdin – in Skripten `< /dev/null`.
+- **CI rot, lokal grün?** Den CI-Lauf lokal 1:1 nachstellen (sauberer Bau, ~20 min):
+  Arbeitsstand ohne `build/` nach `~/ci-x` kopieren (`rsync -a --exclude /build
+  --exclude /target ~/beize/ ~/ci-x/`), dann `sudo podman run --rm --privileged
+  --device /dev/kvm -v ~/ci-x:/w -w /w docker.io/library/ubuntu:26.04 ci/system.sh`
+  (lange Läufe per `sudo systemd-run --unit=… -p StandardOutput=file:…`).
+  Danach `build/work/initrd-tree` bzw. `usr-tree` mit `diff -rq` vergleichen.
+- `actions/cache` im Container: Kompression (zstd/gzip) ist Teil des Cache-Schlüssels –
+  `zstd` wird deshalb **vor** dem Wiederherstellen installiert (sonst nie ein Treffer).
 - FAT32 braucht ≥ 65 525 Cluster (Compile-Time-Check in `layout.rs`); beim
   Installieren auf größere Disks Backup-GPT verschieben (`sfdisk --relocate gpt-bak-std`).
 - systemd-repart lässt Partitionen ohne `SizeMaxBytes=` wachsen – auch bestehende
@@ -216,9 +234,16 @@ Architekturentscheidung = neues ADR.
 
 ## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
 
-Zuletzt erledigt (2026-10-07): Root-Partition mit LUKS2 + TPM2 (ADR 0009) und
-Recovery-Key beim ersten Start (Nachtrag ADR 0009); CI mit Abbruch älterer Läufe,
-Build-Cache und Lebenszeichen.
+Zuletzt erledigt (2026-10-08): CI repariert – Cache griff nie (zstd fehlte beim
+Wiederherstellen), Boot-Test im sauberen Bau rot (lvm2 schrieb ohne libudev eine
+udev-Regel mit `/usr/bin/blkid`). Wurzel behoben: jedes Paket sieht beim Bauen nur
+noch seine Abhängigkeiten (§9); dabei aufgefallen und festgelegt: coreutils mit libcap.
+Davor (2026-10-07): Root-Partition mit LUKS2 + TPM2 (ADR 0009) und Recovery-Key.
+
+Noch offen aus dieser Runde: Builds sind nicht bit-genau reproduzierbar (Binaries
+unterscheiden sich zwischen Container-Bau und lokalem Bau; vermutlich der Build-Pfad
+`/w` vs. `~/beize`, nicht untersucht) – §7 „reproduzierbar“ gilt bisher nur für
+Zeitstempel/UUIDs.
 
 **Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
 1. **Produktionsschlüssel-Workflow** (`bz secureboot new-keys`, `bz sign`, PCR-Schlüssel,

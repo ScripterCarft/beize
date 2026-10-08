@@ -2,7 +2,9 @@
 name = "coreutils"
 version = "9.12"
 stage = "target"
-deps = ["gcc", "glibc"]
+# libcap: ls --color marks files that carry capabilities. Requested
+# explicitly, so configure fails instead of silently building without it.
+deps = ["gcc", "glibc", "libcap"]
 
 [source]
 url = "https://mirrors.kernel.org/gnu/coreutils/coreutils-{version}.tar.xz"
@@ -14,7 +16,7 @@ keyring = "coreutils"
 script = '''
 "$SRC/configure" \
   --host="$TARGET" --build="$("$SRC/build-aux/config.guess")" --prefix=/usr \
-  --disable-nls --without-selinux --without-openssl \
+  --disable-nls --without-selinux --without-openssl --enable-libcap \
   --enable-install-program=hostname --enable-no-install-program=kill,uptime \
   gl_cv_macro_MB_CUR_MAX_good=y
 make -j"$JOBS"

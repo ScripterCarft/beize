@@ -18,6 +18,9 @@ pub struct Paths {
     pub sysroot: PathBuf,
     /// One file list per installed package, recording who owns what.
     pub manifests: PathBuf,
+    /// Files of installed packages hidden from the sysroot while a package
+    /// that does not depend on them is built. Empty between builds.
+    pub hidden: PathBuf,
     /// Artifacts other steps consume: kernel, root filesystem, disk image.
     pub out: PathBuf,
 }
@@ -35,6 +38,7 @@ impl Paths {
             tools: build.join("tools"),
             sysroot: build.join("sysroot"),
             manifests: build.join("manifests"),
+            hidden: build.join("sysroot-hidden"),
             out: build.join("out"),
             root,
         };
@@ -44,6 +48,7 @@ impl Paths {
             &paths.tools,
             &paths.sysroot,
             &paths.manifests,
+            &paths.hidden,
             &paths.out,
         ] {
             fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;

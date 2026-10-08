@@ -1,6 +1,6 @@
 //! Builds recipes in dependency order, skipping those whose inputs are unchanged.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -23,29 +23,42 @@ const TARGET_CFLAGS: &str = "-O2 -pipe";
 /// Fixed timestamp handed to builds via SOURCE_DATE_EPOCH (2026-10-06 00:00 UTC).
 pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// Bump to force a full rebuild after changing the build environment below.
-const ENV_REVISION: u32 = 1;
+/// 2: each package sees only its dependencies in the sysroot.
+const ENV_REVISION: u32 = 2;
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
 
 /// Builds the given recipes and everything they depend on.
 pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     let order = resolve(paths, names)?;
+    install::unhide_all(paths)?;
     install::prepare_layout(&paths.sysroot)?;
     write_meson_cross_file(paths)?;
 
     let stamps = paths.work.join("stamps");
     fs::create_dir_all(&stamps)?;
     let mut fingerprints = BTreeMap::new();
+    let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for recipe in &order {
+        // The package itself and everything it depends on, directly or not.
+        let mut visible = BTreeSet::from([recipe.name.clone()]);
+        for dep in &recipe.deps {
+            visible.extend(closures[dep].iter().cloned());
+        }
+
         let fingerprint = fingerprint(recipe, &fingerprints);
         let stamp = stamps.join(&recipe.name);
         if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
             eprintln!("  {} {} is up to date", recipe.name, recipe.version);
         } else {
             let _ = fs::remove_file(&stamp);
-            build_one(paths, recipe)?;
+            install::hide_others(paths, &visible)?;
+            let built = build_one(paths, recipe);
+            install::unhide_all(paths)?;
+            built?;
             fs::write(&stamp, &fingerprint)?;
         }
         fingerprints.insert(recipe.name.clone(), fingerprint);
+        closures.insert(recipe.name.clone(), visible);
     }
     Ok(order)
 }

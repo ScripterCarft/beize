@@ -4,7 +4,7 @@
 //! symlinks into `/usr`. Staged files are normalised to their `/usr` path, so
 //! every file has exactly one canonical location and exactly one owner.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
@@ -159,23 +159,76 @@ pub fn copy_entry(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Moves the files of every installed package outside `visible` out of the
+/// sysroot, so a build sees exactly its dependencies. Without this, configure
+/// scripts pick up whatever earlier builds left behind, and the result depends
+/// on build order and history: lvm2 rebuilt after systemd found libudev and
+/// wrote a different udev rule than in a clean build, where it comes first.
+pub fn hide_others(paths: &Paths, visible: &BTreeSet<String>) -> Result<()> {
+    for package in installed(paths)? {
+        if visible.contains(&package) {
+            continue;
+        }
+        for file in manifest(paths, &package)? {
+            let path = paths.sysroot.join(&file);
+            if path.symlink_metadata().is_ok() {
+                move_entry(&path, &paths.hidden.join(&file))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Moves everything `hide_others` hid back into the sysroot. Also repairs the
+/// sysroot after an interrupted build, so call it before relying on it.
+pub fn unhide_all(paths: &Paths) -> Result<()> {
+    for rel in walk(&paths.hidden)? {
+        let dest = paths.sysroot.join(&rel);
+        if dest.symlink_metadata().is_ok() {
+            bail!(
+                "cannot restore {}: the sysroot has a file there already",
+                dest.display()
+            );
+        }
+        move_entry(&paths.hidden.join(&rel), &dest)?;
+    }
+    fs::remove_dir_all(&paths.hidden)?;
+    fs::create_dir_all(&paths.hidden)?;
+    Ok(())
+}
+
+fn move_entry(src: &Path, dest: &Path) -> Result<()> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(src, dest).with_context(|| format!("moving {} to {}", src.display(), dest.display()))
+}
+
+fn installed(paths: &Paths) -> Result<Vec<String>> {
+    let mut packages = Vec::new();
+    for entry in fs::read_dir(&paths.manifests)? {
+        let path = entry?.path();
+        if let Some(package) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".list"))
+        {
+            packages.push(package.to_owned());
+        }
+    }
+    packages.sort();
+    Ok(packages)
+}
+
 fn manifest_path(paths: &Paths, package: &str) -> PathBuf {
     paths.manifests.join(format!("{package}.list"))
 }
 
 fn owners(paths: &Paths) -> Result<BTreeMap<PathBuf, String>> {
     let mut owners = BTreeMap::new();
-    for entry in fs::read_dir(&paths.manifests)? {
-        let path = entry?.path();
-        let Some(package) = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|n| n.strip_suffix(".list"))
-        else {
-            continue;
-        };
-        for file in manifest(paths, package)? {
-            owners.insert(file, package.to_owned());
+    for package in installed(paths)? {
+        for file in manifest(paths, &package)? {
+            owners.insert(file, package.clone());
         }
     }
     Ok(owners)
@@ -258,6 +311,55 @@ mod tests {
             root
         ));
         assert!(!leaks_build_path(Path::new("home/joe/notes"), root));
+    }
+
+    #[test]
+    fn hides_packages_outside_the_dependencies_and_restores_them() {
+        let dir = std::env::temp_dir().join(format!("bz-hide-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let paths = Paths {
+            root: dir.clone(),
+            cache: dir.join("cache"),
+            work: dir.join("work"),
+            tools: dir.join("tools"),
+            sysroot: dir.join("sysroot"),
+            manifests: dir.join("manifests"),
+            hidden: dir.join("hidden"),
+            out: dir.join("out"),
+        };
+        fs::create_dir_all(paths.sysroot.join("usr/lib/pkgconfig")).unwrap();
+        fs::create_dir_all(&paths.manifests).unwrap();
+        fs::create_dir_all(&paths.hidden).unwrap();
+        fs::write(paths.sysroot.join("usr/lib/libc.so.6"), "").unwrap();
+        fs::write(paths.sysroot.join("usr/lib/pkgconfig/libudev.pc"), "").unwrap();
+        symlink("libudev.so.1", paths.sysroot.join("usr/lib/libudev.so")).unwrap();
+        fs::write(paths.manifests.join("glibc.list"), "usr/lib/libc.so.6\n").unwrap();
+        fs::write(
+            paths.manifests.join("systemd.list"),
+            "usr/lib/libudev.so\nusr/lib/pkgconfig/libudev.pc\n",
+        )
+        .unwrap();
+
+        let visible = BTreeSet::from(["glibc".to_owned(), "lvm2".to_owned()]);
+        hide_others(&paths, &visible).unwrap();
+        let seen = walk(&paths.sysroot).unwrap();
+        unhide_all(&paths).unwrap();
+        let restored = walk(&paths.sysroot).unwrap();
+        let hidden_left = walk(&paths.hidden).unwrap();
+        let link = fs::read_link(paths.sysroot.join("usr/lib/libudev.so")).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(seen, [PathBuf::from("usr/lib/libc.so.6")]);
+        assert_eq!(
+            restored,
+            [
+                PathBuf::from("usr/lib/libc.so.6"),
+                PathBuf::from("usr/lib/libudev.so"),
+                PathBuf::from("usr/lib/pkgconfig/libudev.pc"),
+            ]
+        );
+        assert!(hidden_left.is_empty());
+        assert_eq!(link, Path::new("libudev.so.1"));
     }
 
     #[test]
