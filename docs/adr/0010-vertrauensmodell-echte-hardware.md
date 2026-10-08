@@ -86,9 +86,10 @@ Wegwerf-Schlüsselspeicher statt 1Password und bootet das Ergebnis.
 
 ## Konsequenzen
 
-- Einmaliger Schritt im BIOS: Secure-Boot-Schlüssel löschen (Setup-Modus). Das
-  BIOS sollte ein Administrator-Passwort haben – sonst kann jeder mit Zugang zum
-  Rechner dasselbe tun.
+- Einmaliger Schritt im BIOS: Secure-Boot-Schlüssel löschen (Setup-Modus). Ein
+  BIOS-Passwort ist optional (wie bei Windows): Wer ohne es Secure Boot abschaltet
+  oder Schlüssel ändert, verändert PCR 7, und die Daten bleiben zu. Es schützt
+  zusätzlich gegen Manipulation, wenn Fremde Zugang zum Rechner haben.
 - **ASUS setzt bei BIOS-Updates die Schlüssel oft auf Werkszustand zurück.** Dann
   startet Beize nicht unter Secure Boot (Daten bleiben zu) – Schlüssel erneut
   löschen, systemd-boot schreibt beim nächsten Start wieder ein.

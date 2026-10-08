@@ -54,8 +54,10 @@ Beize schreibt die Schlüssel **selbst** ein – im BIOS werden sie nur gelösch
    bereithalten (Stand 2026-10-08: BitLocker aus).
 2. BIOS (`Entf`) → `F7` Advanced Mode → **Boot → Secure Boot → Key Management →
    „Clear Secure Boot Keys“** (Name kann je BIOS-Version leicht abweichen). Die
-   Firmware ist danach im Setup-Modus. **Ein BIOS-Administrator-Passwort setzen**,
-   falls noch keins da ist – sonst kann jeder mit Zugang zum Rechner das auch.
+   Firmware ist danach im Setup-Modus. (Ein BIOS-Passwort ist optional: Wer im
+   BIOS Secure Boot abschaltet oder Schlüssel ändert, verändert PCR 7 – der TPM
+   gibt die Beize-Daten dann nicht frei, wie bei BitLocker. Es schützt zusätzlich
+   gegen Manipulation, wenn Fremde Zugang zum Rechner haben.)
 3. Von der Beize-SSD starten: systemd-boot zeigt „Enrolling secure boot keys …“
    und 15 Sekunden Zeit zum Abbrechen (beliebige Taste), schreibt dann PK, KEK,
    db und dbx ein und startet neu.
