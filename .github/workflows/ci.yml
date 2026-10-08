@@ -41,6 +41,14 @@ jobs:
       options: --privileged --device /dev/kvm
     steps:
       - uses: actions/checkout@v4
+      # actions/cache picks zstd or gzip depending on what is installed, and a
+      # cache saved with one is invisible to a restore with the other. ci/system.sh
+      # installs zstd, so without this step every restore (gzip) missed every
+      # save (zstd) and each run rebuilt the whole system from scratch.
+      - name: Install cache compression
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends zstd >/dev/null
       - uses: actions/cache@v4
         with:
           path: build/cache
@@ -50,13 +58,15 @@ jobs:
       # and the kernel object tree. bz's fingerprints decide what is still up
       # to date, so restoring an older state is safe: only what changed is
       # rebuilt. Saved after every run, also a failed or cancelled one, so a
-      # long first build is never lost.
+      # long first build is never lost. sysroot-hidden holds what a build that
+      # was cut off had hidden from the sysroot; bz puts it back on the next run.
       - name: Restore build state
         uses: actions/cache/restore@v4
         with:
           path: |
             build/tools
             build/sysroot
+            build/sysroot-hidden
             build/manifests
             build/work/stamps
             build/work/linux-obj
@@ -72,6 +82,7 @@ jobs:
           path: |
             build/tools
             build/sysroot
+            build/sysroot-hidden
             build/manifests
             build/work/stamps
             build/work/linux-obj
