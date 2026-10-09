@@ -1,0 +1,3 @@
+# ntpd-rs release commits: David Venhoek (Tweede golf), hardware key
+# ("david+yubikey" on GitHub since 2023-06-15). ssh-keygen allowed-signers format.
+david@tweedegolf.com namespaces="git" ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDYNalAkHvZyKhdspv0aZN/HOjr6+yJPuOsoiPYaigoXGrImr2OPXmm2+Mz4vYeSHj5xHX00CiqFhfn3osWSKxuuJaZ6RXLXhj7sBG2BGpPqdprfZ9Mz1ilBdd1paeiTxKzznWttdOPAlJQY8xE9q3UwWwAxZgy34X2O21tQPK7mjvMvJ0WJRePsF2D7nux3j+KMYmbfyoId01KRvKGoIoOGzmT+rWWZfRfw1Qa2EC6o0PbuVW8cPxyzMP7LZnyJhhVoiPQLjE5342Tv3Vhh8fbSH/f59CqBmBmgSy9JJRblLOw9382q+MnBiql7HXH83r7ymIjdVf9BNcs5R6dDqbR

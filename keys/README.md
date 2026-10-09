@@ -1,9 +1,11 @@
 # Signaturschlüssel
 
 Jede Quelle in `recipes/` muss von ihren Upstream-Maintainern signiert sein.
-`bz` prüft die Signatur mit `gpgv` gegen genau einen Schlüsselbund aus diesem
-Verzeichnis. Jeder Bund enthält nur die Schlüssel, die das Projekt tatsächlich
-signieren (`gpg --export --export-options export-minimal`).
+`bz` prüft die Signatur gegen genau einen Schlüsselbund aus diesem Verzeichnis:
+OpenPGP (`<name>.gpg`, mit `gpgv`) oder – für Projekte, die mit Gits SSH-Signaturen
+signieren – SSH (`<name>.allowed_signers`, mit `ssh-keygen -Y verify`). Jeder Bund
+enthält nur die Schlüssel, die das Projekt tatsächlich signieren
+(`gpg --export --export-options export-minimal`).
 
 Prüfen aller Quellen: `./bz verify`
 
@@ -11,6 +13,7 @@ Prüfen aller Quellen: `./bz verify`
 | --- | --- | --- | --- |
 | `bash` | Chet Ramey | `7C01 35FB 088A AF6C 66C6 50B9 BB58 69F0 64EA 74AB` | GNU-Keyring |
 | `binutils` | Nick Clifton | `3A24 BC1E 8FB4 09FA 9F14 3718 13FC EF89 DD9E 3C4F` | GNU-Keyring |
+| `ca-certificates` | Weder Mozillas `certdata.txt` noch curls PEM-Auszug daraus sind signiert (geprüft 2026-10-09) | Datei per SHA-256 gepinnt, über HTTPS von curl.se, Prüfsumme deckungsgleich mit der veröffentlichten `.sha256` |
 | `coreutils` | Pádraig Brady | `6C37 DC12 121A 5006 BC1D B804 DF6F D971 3060 37D9` | GNU-Keyring |
 | `cryptsetup` | Milan Broz | `2A29 1824 3FDE 4664 8D06 86F9 D9B0 577B D93E 98FC` | kernel.org pgpkeys-Repository |
 | `dbus` | Simon McVittie | `7A07 3AD1 AE69 4FA2 5BFF 62E5 235C 099D 3EB3 3076` | keyserver.ubuntu.com |
@@ -27,8 +30,10 @@ Prüfen aller Quellen: `./bz verify`
 | `lvm2` | Marian Csontos | `D501 A478 440A E2FD 130A 1BE8 B911 2431 E509 039F` | keys.openpgp.org |
 | `mpc` | Andreas Enge | `AD17 A21E F8AE D8F1 CC02 DBD9 F7D5 C9BF 765C 61E3` | GNU-Keyring |
 | `mpfr` | Vincent Lefèvre | `A534 BE3F 83E2 41D9 1828 0AEB 5831 D11A 0D4D B02A` | GNU-Keyring |
+| `ntpd-rs` | David Venhoek (Tweede golf), SSH | `SHA256:xQQw30dT1YTuj8KC9IC7tJ9pGtcKOReK54ClMRIEABc` (RSA) | GitHub-Signaturschlüssel des Maintainers (seit 2023, Hardware-Token); signiert die Release-Commits, die Tags sind leichtgewichtig |
 | `openssl` | OpenSSL | `C46E D3F2 CBEF DA1F DAAD A442 64ED 7B1D CCE7 1CB2` | openssl-library.org/source/pubkeys.asc |
 | `systemd` | Luca Boccassi | `AC24 AAC7 DDC4 20F1 8ECA 6B91 286B F7EF CD77 241E` | keyserver.ubuntu.com, signierter Git-Tag |
+| `tzdata` | Paul Eggert | `7E37 92A9 D8AC F7D6 33BC 1588 ED97 E90E 62AA 7E34` | keys.openpgp.org; derselbe Schlüssel steht (abgelaufen) im GNU-Keyring |
 | `tpm2-tss` | Andreas Fuchs (Infineon) | `D533 275B 0123 D0A6 79F5  1FF4 8F4F 9A45 D7FF EE74` | keys.openpgp.org; deckungsgleich mit `MAINTAINERS.md` im Release und dem GitHub-Konto des Maintainers |
 | `util-linux` | Karel Zak | `B0C6 4D14 301C C6EF AEDF 60E4 E4B7 1D5E EC39 C284` | keyserver.ubuntu.com |
 
