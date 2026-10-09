@@ -316,3 +316,12 @@ Zeitstempel/UUIDs.
 
 Erst den Besitzer fragen, womit es weitergeht; dann diesen Abschnitt durch die
 neue Aufgabe ersetzen.
+
+**Stand 2026-10-09 abends (Kontingent erschöpft):** Anmelden gebaut – libxcrypt 4.5.2 +
+Linux-PAM 1.7.3 (Rezepte, signiert), util-linux mit login/sulogin, systemd mit PAM,
+PAM-Konfiguration in `system/usr/lib/pam.d`, eigenes `os/beize-setup` (legt beim ersten
+Start das Konto an, yescrypt; root bekommt denselben Hash für die Notfall-Konsole),
+Kernel mit Terminus 16×32. `bz smoke` legt Konto „smoke“ an. Letzter Smoke-Lauf
+(`~/smoke21.log`) war bis „Secure Boot aus“ grün; unsignierter Kernel, dm-verity und
+Besitzer-Ablauf standen noch aus – **zuerst prüfen**. Danach: Besitzer baut neu,
+`bz sign`, `bz install --reinstall`, legt beim ersten Start sein Konto an. Dann LAN.

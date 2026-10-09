@@ -2,7 +2,7 @@
 # automatically; build-only files are filtered out.
 
 # The /usr image.
-packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils"]
+packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils", "beize-setup"]
 
 # The initrd in the UKI: finds /usr, creates the root partition on first boot
 # (systemd-repart, mkfs.ext4) and mounts it. bash runs Beize's own initrd

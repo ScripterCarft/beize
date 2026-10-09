@@ -325,6 +325,12 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         "first boot did not wait for the recovery key to be confirmed as saved"
     );
     eprintln!("  ok: first boot showed a recovery key and waited until it was saved");
+    let created = format!("Account \"{SMOKE_USER}\" created");
+    ensure!(
+        first.console.iter().any(|line| line.contains(&created)),
+        "first boot did not create the owner's account"
+    );
+    eprintln!("  ok: first boot created the owner's account \"{SMOKE_USER}\"");
 
     util::step("Second boot");
     let second = boot_healthy(&machine, 2, &Answers::none())?;
@@ -343,6 +349,14 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         "the recovery key was shown again on the second boot"
     );
     eprintln!("  ok: the recovery key was shown only once");
+    ensure!(
+        !second
+            .console
+            .iter()
+            .any(|line| line.contains(SETUP_ANSWERS[0].0)),
+        "the second boot asked for the owner's account again"
+    );
+    eprintln!("  ok: the owner's account was set up only once");
 
     util::step("A boot with something added must stop before asking for the recovery key");
     // Like a firmware whose SMBIOS OEM strings were rewritten from another OS:
@@ -898,6 +912,17 @@ const ADOPT_TPM_PROMPT: &str = "Type yes to bind the data to it";
 /// The first boot waits for the owner to confirm the recovery key is saved
 /// (system/initrd/usr/lib/beize/recovery-key); the tests answer "saved".
 const RECOVERY_KEY_SAVED_PROMPT: &str = "Type saved once the recovery key is written down";
+/// The owner's account the tests create on first boot (beize-setup).
+const SMOKE_USER: &str = "smoke";
+/// beize-setup's questions and the tests' answers. "Password again:" comes
+/// first: "Password:" alone does not match it, but the order of the check
+/// must not depend on that.
+const SETUP_ANSWERS: [(&str, &str); 4] = [
+    ("Your login name", SMOKE_USER),
+    ("Your full name", "Smoke Test"),
+    ("Password again:", "smoke-test-password"),
+    ("Password:", "smoke-test-password"),
+];
 
 /// What to type at the console during a boot, as the owner would.
 #[derive(Clone, Default)]
@@ -966,6 +991,7 @@ fn watch_boot<T: Send + 'static>(
         let mut prompted = false;
         let mut asked_adopt = false;
         let mut asked_saved = false;
+        let mut asked_setup = [false; SETUP_ANSWERS.len()];
         let mut pending = Vec::new();
         let mut chunk = [0u8; 4096];
         while let Ok(n @ 1..) = stdout.read(&mut chunk) {
@@ -1005,6 +1031,18 @@ fn watch_boot<T: Send + 'static>(
                 asked_saved = true;
                 eprintln!("  | (confirming the recovery key is saved)");
                 let _ = write!(stdin, "saved\r");
+                let _ = stdin.flush();
+            }
+            // beize-setup's questions on first boot, each answered once.
+            if let Some(i) = SETUP_ANSWERS
+                .iter()
+                .position(|(prompt, _)| shown.contains(prompt))
+                && !asked_setup[i]
+            {
+                asked_setup[i] = true;
+                let (prompt, answer) = SETUP_ANSWERS[i];
+                eprintln!("  | (answering \"{prompt}\")");
+                let _ = write!(stdin, "{answer}\r");
                 let _ = stdin.flush();
             }
         }

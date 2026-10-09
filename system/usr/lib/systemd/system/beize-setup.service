@@ -1,0 +1,21 @@
+[Unit]
+Description=Create the owner's account
+Documentation=file:/usr/lib/beize/beize-setup
+# Once per installation, before anyone can log in. Replaced by the graphical
+# onboarding later.
+ConditionPathExists=!/var/lib/beize/owner
+After=systemd-sysusers.service local-fs.target
+Before=systemd-user-sessions.service getty@tty1.service serial-getty@ttyS0.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/beize-setup owner
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal+console
+TTYPath=/dev/console
+TTYReset=yes
+
+[Install]
+WantedBy=multi-user.target

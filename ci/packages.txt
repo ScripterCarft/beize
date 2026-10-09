@@ -46,6 +46,8 @@ sbsigntool
 
 # Images
 cryptsetup-bin
+# libcrypt to link beize-setup on the build host (cargo test)
+libcrypt-dev
 dosfstools
 erofs-utils
 fdisk

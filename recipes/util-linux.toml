@@ -1,8 +1,10 @@
-# Core system libraries (libblkid, libmount for systemd) and a few tools.
+# Core system libraries (libblkid, libmount for systemd) and a few tools,
+# among them login (through PAM) and sulogin (the emergency shell; checks
+# root's password with libxcrypt).
 name = "util-linux"
 version = "2.42.4"
 stage = "target"
-deps = ["gcc", "glibc"]
+deps = ["gcc", "glibc", "libxcrypt", "linux-pam"]
 
 [source]
 url = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-{version}.tar.xz"
@@ -20,6 +22,7 @@ script = '''
   --enable-libuuid --enable-libblkid --enable-libmount --enable-libsmartcols \
   --enable-libfdisk \
   --enable-agetty --enable-mount --enable-lsblk --enable-dmesg \
+  --enable-login --enable-sulogin --enable-nologin \
   --disable-nls --disable-static --disable-liblastlog2 --disable-pylibmount \
   --disable-makeinstall-chown --disable-makeinstall-setuid \
   --without-python --without-systemd --without-udev --without-econf \

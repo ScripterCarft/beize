@@ -1,0 +1,31 @@
+# Pluggable authentication: login and systemd (user sessions) authenticate
+# through it.
+name = "linux-pam"
+version = "1.7.3"
+stage = "target"
+deps = ["gcc", "glibc", "libxcrypt"]
+
+[source]
+url = "https://github.com/linux-pam/linux-pam/releases/download/v{version}/Linux-PAM-{version}.tar.xz"
+sha256 = "2ce4765fd49df6693771ef2941f81e33d8ee14b94a81a5c7b369aa3b137b85a5"
+signature = "https://github.com/linux-pam/linux-pam/releases/download/v{version}/Linux-PAM-{version}.tar.xz.asc"
+keyring = "linux-pam"
+
+[build]
+script = '''
+# vendordir: the configuration ships in /usr/lib/pam.d, read when /etc/pam.d
+# has no file for a service – Beize ships only /usr (ADR 0007).
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
+  -Dauto_features=disabled \
+  -Dpam_unix=enabled \
+  -Dvendordir=/usr/lib \
+  -Dsecuredir=/usr/lib/security \
+  -Dsystemdunitdir=/usr/lib/systemd/system \
+  -Dexamples=false -Dxtests=false
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+# The samples in /etc are not used: Beize's own configuration lives in
+# /usr/lib/pam.d (system/usr).
+rm -rf "$PKG/etc"
+'''

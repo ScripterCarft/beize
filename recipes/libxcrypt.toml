@@ -1,0 +1,26 @@
+# Password hashing (crypt): PAM's pam_unix checks passwords with it, sulogin
+# the root password of the emergency shell.
+name = "libxcrypt"
+version = "4.5.2"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+url = "https://github.com/besser82/libxcrypt/releases/download/v{version}/libxcrypt-{version}.tar.xz"
+sha256 = "71513a31c01a428bccd5367a32fd95f115d6dac50fb5b60c779d5c7942aec071"
+signature = "https://github.com/besser82/libxcrypt/releases/download/v{version}/libxcrypt-{version}.tar.xz.asc"
+keyring = "libxcrypt"
+
+[build]
+script = '''
+# Only strong hashes (yescrypt, the default, plus sha512crypt, bcrypt, ...);
+# no compatibility API for binaries linked against glibc's old libcrypt.
+# --disable-werror: glibc 2.44 makes strchr() const-preserving (C23), which
+# warns in 4.5.2's crypt-{sm3,gost}-yescrypt.c; the code itself is correct.
+"$SRC/configure" \
+  --host="$TARGET" --build=x86_64-pc-linux-gnu \
+  --prefix=/usr --libdir=/usr/lib --disable-static --disable-werror \
+  --enable-hashes=strong,glibc --enable-obsolete-api=no
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

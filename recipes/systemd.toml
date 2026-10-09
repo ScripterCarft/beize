@@ -6,7 +6,8 @@
 name = "systemd"
 version = "262"
 stage = "target"
-deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss"]
+# linux-pam: user sessions (pam_systemd, user@.service).
+deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -23,6 +24,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \
   -Dlibcryptsetup=enabled \
   -Dopenssl=enabled -Dtpm2=enabled \
+  -Dpam=enabled -Dpamconfdir=/usr/lib/pam.d -Dpamlibdir=/usr/lib/security \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \
   -Dinstall-sysconfdir=false -Dfallback-hostname=beize \
