@@ -296,6 +296,15 @@ Zeitstempel/UUIDs.
    `beize-boot-check`, `image::Target` Vm/Hardware, Testhelfer nur mit Credential,
    Kernel-Fragment `beize-hardware.config`) und Installer `bz install`. **Der Besitzer
    kann jetzt auf der Samsung-SSD testen** (keys/secureboot/README.md, Schritte 1–3).
+   **Erster echter Start am 2026-10-09 erfolgreich** (Produktionsschlüssel erzeugt,
+   `bz install` auf `/dev/sde` per `wsl --mount`). Danach behoben: Recovery-Key wurde
+   vom tty1-Login sofort überschrieben → erster Start wartet jetzt auf `saved`;
+   Konsolenschrift Terminus 16×32 im Kernel (wird bei 1440p automatisch gewählt);
+   `bz install --reinstall`. Der Besitzer muss neu installieren, um einen
+   Recovery-Key zu bekommen (nachträglich geht es absichtlich nicht).
+   Zurückgestellt: Anmelden (PAM 1.7.3 + libxcrypt 4.5.2, Signaturschlüssel geprüft:
+   libxcrypt `678C E3FE E430 3115 96DB 8C16 F52E 9800 7594 C21D`,
+   Linux-PAM `7BEC FE3A F7B2 80BB 52FF 77F1 04BA 4521 C996 DDE1`).
    Noch nicht auf echter Hardware geprüft: Hardware-Kommandozeile (Bildschirm-Konsole),
    `bz install` über `wsl --mount` (Schreibweg = derselbe wie in `Machine::install`).
 1. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).

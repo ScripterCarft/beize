@@ -28,7 +28,7 @@ const USR_VERITY_START: u64 = USR_START + USR_SLOT_SIZE / SECTOR;
 pub const ESP_OFFSET: u64 = ESP_START * SECTOR;
 
 /// Fixed identifiers keep the image reproducible.
-const DISK_GUID: &str = "6265697A-6500-4000-8000-000000000001";
+pub const DISK_GUID: &str = "6265697A-6500-4000-8000-000000000001";
 const ESP_GUID: &str = "6265697A-6500-4000-8000-000000000002";
 const ESP_VOLUME_ID: &str = "42454953";
 

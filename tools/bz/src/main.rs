@@ -72,6 +72,9 @@ enum Command {
         /// The disk's GPT GUID, as Windows shows it (Get-Disk)
         #[arg(long)]
         guid: String,
+        /// Replace the Beize installed on this disk (erases its data)
+        #[arg(long)]
+        reinstall: bool,
     },
 }
 
@@ -108,7 +111,11 @@ fn main() -> Result<()> {
             &secureboot::microsoft_dir(&paths),
             secureboot::Profile::WithWindows,
         ),
-        Command::Install { disk, guid } => installer::install(&paths, &disk, &guid),
+        Command::Install {
+            disk,
+            guid,
+            reinstall,
+        } => installer::install(&paths, &disk, &guid, reinstall),
         Command::Sign => {
             let store = secureboot::Store::one_password()?;
             let disk = image::sign(&paths, &store)?;

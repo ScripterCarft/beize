@@ -315,7 +315,16 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     check_root_binding(&machine.disk, &paths.work)?;
     let recovery_key = find_recovery_key(&first.console)
         .context("first boot did not show a recovery key for the root partition")?;
-    eprintln!("  ok: first boot created and showed a recovery key");
+    // On real hardware the login prompt clears the screen: the boot must wait
+    // until the owner confirms the key is saved.
+    ensure!(
+        first
+            .console
+            .iter()
+            .any(|line| line.contains(RECOVERY_KEY_SAVED_PROMPT)),
+        "first boot did not wait for the recovery key to be confirmed as saved"
+    );
+    eprintln!("  ok: first boot showed a recovery key and waited until it was saved");
 
     util::step("Second boot");
     let second = boot_healthy(&machine, 2, &Answers::none())?;
@@ -886,6 +895,9 @@ fn is_passphrase_prompt(text: &str) -> bool {
 
 /// beize-tpm's question whether to adopt a different TPM (beize-tpm/src/main.rs).
 const ADOPT_TPM_PROMPT: &str = "Type yes to bind the data to it";
+/// The first boot waits for the owner to confirm the recovery key is saved
+/// (system/initrd/usr/lib/beize/recovery-key); the tests answer "saved".
+const RECOVERY_KEY_SAVED_PROMPT: &str = "Type saved once the recovery key is written down";
 
 /// What to type at the console during a boot, as the owner would.
 #[derive(Clone, Default)]
@@ -953,6 +965,7 @@ fn watch_boot<T: Send + 'static>(
         let mut answered = false;
         let mut prompted = false;
         let mut asked_adopt = false;
+        let mut asked_saved = false;
         let mut pending = Vec::new();
         let mut chunk = [0u8; 4096];
         while let Ok(n @ 1..) = stdout.read(&mut chunk) {
@@ -986,6 +999,12 @@ fn watch_boot<T: Send + 'static>(
                 let answer = answers.adopt_tpm.unwrap_or("no");
                 eprintln!("  | (answering {answer})");
                 let _ = write!(stdin, "{answer}\r");
+                let _ = stdin.flush();
+            }
+            if !asked_saved && shown.contains(RECOVERY_KEY_SAVED_PROMPT) {
+                asked_saved = true;
+                eprintln!("  | (confirming the recovery key is saved)");
+                let _ = write!(stdin, "saved\r");
                 let _ = stdin.flush();
             }
         }

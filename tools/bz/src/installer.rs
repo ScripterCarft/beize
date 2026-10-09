@@ -62,8 +62,9 @@ fn parse_table(sfdisk_json: &str) -> Result<Option<Table>> {
 }
 
 /// Decides whether a disk may be overwritten: its GPT disk GUID must be the
-/// owner's and it must hold nothing but an empty Microsoft reserved partition.
-fn check_target(table: Option<&Table>, expected_guid: &str) -> Result<()> {
+/// owner's and it must hold nothing but an empty Microsoft reserved partition
+/// – or, with `reinstall`, Beize (its disk GUID is Beize's own) and nothing else.
+fn check_target(table: Option<&Table>, expected_guid: &str, reinstall: bool) -> Result<()> {
     let expected = expected_guid.trim_matches(['{', '}']).to_uppercase();
     let table = table.context(
         "the disk has no partition table, so its GUID cannot be checked; \
@@ -73,6 +74,19 @@ fn check_target(table: Option<&Table>, expected_guid: &str) -> Result<()> {
         table.guid == expected,
         "the disk's GUID is {}, not {expected}: this is a different disk",
         table.guid
+    );
+    let beize = table.guid == image::DISK_GUID;
+    if reinstall {
+        ensure!(
+            beize,
+            "--reinstall only replaces Beize, and this disk does not hold Beize"
+        );
+        return Ok(());
+    }
+    ensure!(
+        !beize,
+        "Beize is already installed on this disk; --reinstall replaces it \
+         (and erases everything Beize stored there)"
     );
     let foreign: Vec<_> = table
         .partition_types
@@ -92,7 +106,7 @@ fn check_target(table: Option<&Table>, expected_guid: &str) -> Result<()> {
 }
 
 /// Writes `build/out/production/disk.img` onto `disk` after all checks.
-pub fn install(paths: &Paths, disk: &Path, expected_guid: &str) -> Result<()> {
+pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool) -> Result<()> {
     ensure!(
         io::stdin().is_terminal(),
         "bz install overwrites a disk and only runs in an interactive terminal"
@@ -133,7 +147,7 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str) -> Result<()> {
         .output()
         .context("reading the partition table (sudo sfdisk)")?;
     let table = parse_table(&String::from_utf8_lossy(&dump.stdout))?;
-    check_target(table.as_ref(), expected_guid)?;
+    check_target(table.as_ref(), expected_guid, reinstall)?;
 
     let disk_size: u64 = fs::read_to_string(sys.join("size"))?
         .trim()
@@ -148,13 +162,17 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str) -> Result<()> {
     let model = fs::read_to_string(sys.join("device/model")).unwrap_or_default();
 
     eprintln!(
-        "\n  Disk:   {} – {} – {} GB\n  GUID:   {}\n  Image:  {}\n\n  \
-         Everything on this disk will be erased.",
+        "\n  Disk:   {} – {} – {} GB\n  GUID:   {}\n  Image:  {}\n\n  {}",
         disk.display(),
         model.trim(),
         disk_size / 1_000_000_000,
         expected_guid,
-        image.display()
+        image.display(),
+        if reinstall {
+            "The Beize installed here and everything it stored will be erased."
+        } else {
+            "Everything on this disk will be erased."
+        }
     );
     eprint!("  Type yes to install Beize onto it: ");
     io::stderr().flush()?;
@@ -218,7 +236,7 @@ mod tests {
     }
 
     fn verdict(json: &str, guid: &str) -> Result<()> {
-        check_target(parse_table(json).unwrap().as_ref(), guid)
+        check_target(parse_table(json).unwrap().as_ref(), guid, false)
     }
 
     #[test]
@@ -267,8 +285,29 @@ mod tests {
     }
 
     #[test]
+    fn reinstalls_only_over_beize() {
+        let beize = table(image::DISK_GUID, &["C12A7328-F81F-11D2-BA4B-00A0C93EC93B"]);
+        let reinstall =
+            |json: &str, guid: &str| check_target(parse_table(json).unwrap().as_ref(), guid, true);
+        assert!(reinstall(&beize, "{6265697a-6500-4000-8000-000000000001}").is_ok());
+        assert!(
+            verdict(&beize, image::DISK_GUID)
+                .unwrap_err()
+                .to_string()
+                .contains("--reinstall")
+        );
+        let empty = table(SAMSUNG, &[MICROSOFT_RESERVED]);
+        assert!(
+            reinstall(&empty, SAMSUNG)
+                .unwrap_err()
+                .to_string()
+                .contains("does not hold Beize")
+        );
+    }
+
+    #[test]
     fn refuses_a_disk_without_gpt() {
-        assert!(check_target(None, SAMSUNG).is_err());
+        assert!(check_target(None, SAMSUNG, false).is_err());
         let mbr = r#"{"partitiontable": {"label": "dos", "id": "0x1234", "partitions": []}}"#;
         assert!(parse_table(mbr).is_err());
     }

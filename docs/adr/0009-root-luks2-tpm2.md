@@ -106,6 +106,11 @@ mit intaktem Secure Boot.
   Die initrd enthält dafür bash (keine coreutils; das Skript nutzt nur Builtins).
   stderr von `systemd-cryptenroll` (im interaktiven Modus mit QR-Code des Schlüssels)
   erscheint nur im Fehlerfall und nie im Journal.
+- **Der erste Start wartet, bis der Besitzer `saved` eintippt** (2026-10-09): Auf echter
+  Hardware leerte die Anmeldung auf tty1 den Bildschirm Sekundenbruchteile nach der
+  Anzeige – beim ersten Start auf dem Rechner des Besitzers war der Schlüssel weg,
+  bevor er ihn sehen konnte (in der VM liest der Test die serielle Konsole, die nicht
+  geleert wird). Ein bloßes Enter genügt nicht. `bz smoke` prüft, dass gewartet wurde.
 - Verbleibende Schwäche: Jedes ältere, mit demselben PCR-Schlüssel signierte UKI
   erfüllt die Richtlinie ebenfalls (Rollback). PCR 7 bleibt direkt gebunden; ändert es
   sich (dbx-Update, BIOS-Update), bindet `beize-tpm-reseal` nach einmaliger Eingabe

@@ -73,6 +73,12 @@ richtige Platte nur an der GUID, und genau die prüft `bz install`.
 Windows zeigt die SSD danach mit unbekannten Partitionen an – **nicht formatieren
 lassen**, falls es fragt.
 
+**Neu installieren** (ersetzt Beize und alles, was es auf der Platte gespeichert
+hat): wie oben, aber mit der GUID, die Windows jetzt für die Platte anzeigt – Beizes
+eigene `{6265697a-6500-4000-8000-000000000001}` – und `--reinstall`:
+`./bz install /dev/sde --guid "{6265697a-6500-4000-8000-000000000001}" --reinstall`.
+Ohne `--reinstall` lehnt `bz` eine Platte mit Beize ab, mit `--reinstall` jede ohne.
+
 ## 3. Schlüssel in die Firmware (einmalig, und nach BIOS-Updates)
 
 Beize schreibt die Schlüssel **selbst** ein – im BIOS werden sie nur gelöscht:
@@ -92,7 +98,7 @@ Beize schreibt die Schlüssel **selbst** ein – im BIOS werden sie nur gelösch
 4. Wieder `F8` → Samsung-SSD. Erster Start von Beize: Es legt die Partitionen an,
    verschlüsselt sie und zeigt den **Wiederherstellungsschlüssel** auf dem
    Bildschirm – abschreiben bzw. in 1Password ablegen. Er wird nur dieses eine Mal
-   angezeigt.
+   angezeigt; der Start wartet, bis `saved` eingetippt ist.
 5. Prüfen: Beize startet ein zweites Mal ohne Eingabe; Windows startet (ohne `F8`)
    weiterhin mit Secure Boot.
 

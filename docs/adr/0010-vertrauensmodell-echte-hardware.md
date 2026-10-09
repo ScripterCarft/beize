@@ -160,6 +160,15 @@ Vor dem ersten Start auf dem Rechner des Besitzers gefunden und geschlossen:
   auf ttyS0 (`beize.debug-console`, für `bz run`). Auf echter Hardware starten beide nie.
 - **Kernel für echte Hardware** (`kernel/config/beize-hardware.config`): Bildschirm-
   Konsole über das Firmware-Framebuffer (simpledrm), NVMe, Intel I225/I226-LAN, C-States.
+  **Konsolenschrift:** zusätzlich Terminus 16×32 (`CONFIG_FONT_TER16x32`); der Kernel
+  wählt sie bei hoher Auflösung selbst (2560×1440: 160×45 statt 320×90 Zeichen, die
+  8×16-Schrift war beim ersten Start auf echter Hardware zu klein), in VMs bleibt 8×16.
 - **Installer** `bz install <Platte> --guid <GPT-GUID>`: schreibt nur das Hardware-Image
   und nur auf eine leere Platte mit genau dieser GUID (auf dem Rechner des Besitzers sind
-  Windows- und Ziel-SSD byte-genau gleich groß).
+  Windows- und Ziel-SSD byte-genau gleich groß). `--reinstall` ersetzt nur eine Platte,
+  deren GUID Beizes eigene ist.
+- **Erster Start auf echter Hardware: 2026-10-09** auf dem Rechner des Besitzers
+  (Samsung SSD 860 EVO): Einschreiben der Schlüssel, Start unter Secure Boot,
+  Verschlüsselung, TPM-Entsperren, zweiter Start ohne Eingabe, Windows unverändert –
+  alles wie im Test. Gefunden: Recovery-Key vom Login-Bildschirm überschrieben (ADR 0009
+  Nachtrag), Konsolenschrift zu klein.
