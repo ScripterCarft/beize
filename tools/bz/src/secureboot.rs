@@ -240,8 +240,9 @@ impl Keys {
 
 /// Where the owner's private keys are kept.
 pub enum Store {
-    /// The owner's 1Password vault, through the 1Password CLI.
-    OnePassword { op: String },
+    /// The owner's 1Password vault, through the 1Password CLI; `account`
+    /// selects one of several signed-in accounts (`BZ_OP_ACCOUNT`).
+    OnePassword { op: String, account: Option<String> },
     /// A plain directory; only for testing the owner's workflow.
     Directory(PathBuf),
 }
@@ -268,14 +269,27 @@ impl Store {
                 )?
                 .to_owned(),
         };
-        Ok(Self::OnePassword { op })
+        // With several accounts signed in, op needs to be told which one. Passed
+        // as --account: environment variables do not reach Windows programs
+        // started from WSL unless listed in WSLENV.
+        let account = env::var("BZ_OP_ACCOUNT").ok().filter(|a| !a.is_empty());
+        Ok(Self::OnePassword { op, account })
+    }
+
+    /// The 1Password CLI, with the account if one is set.
+    fn op(op: &str, account: &Option<String>) -> Command {
+        let mut cmd = Command::new(op);
+        if let Some(account) = account {
+            cmd.args(["--account", account]);
+        }
+        cmd
     }
 
     fn put(&self, title: &str, file_name: &str, secret: &[u8]) -> Result<()> {
         match self {
-            Self::OnePassword { op } => {
+            Self::OnePassword { op, account } => {
                 eprintln!("  storing \"{title}\" in the 1Password vault \"{VAULT}\"");
-                let mut cmd = Command::new(op);
+                let mut cmd = Self::op(op, account);
                 cmd.args(["document", "create", "-", "--vault", VAULT])
                     .args(["--title", title, "--file-name", file_name]);
                 secret_command(&mut cmd, Some(secret)).map(drop)
@@ -289,9 +303,9 @@ impl Store {
 
     fn get(&self, title: &str) -> Result<Vec<u8>> {
         match self {
-            Self::OnePassword { op } => {
+            Self::OnePassword { op, account } => {
                 eprintln!("  reading \"{title}\" from the 1Password vault \"{VAULT}\"");
-                let mut cmd = Command::new(op);
+                let mut cmd = Self::op(op, account);
                 cmd.args(["document", "get", title, "--vault", VAULT]);
                 secret_command(&mut cmd, None)
             }

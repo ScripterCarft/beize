@@ -21,6 +21,9 @@ Unter WSL spricht nur die **Windows**-CLI mit der 1Password-App:
 1. 1Password-CLI für Windows installieren (`winget install AgileBits.1Password.CLI`).
 2. In der 1Password-App: Einstellungen → Entwickler → „Mit 1Password CLI integrieren“.
 3. In WSL prüfen: `op.exe vault list` zeigt den Tresor „Beize“ (Windows Hello fragt).
+4. Bei mehreren 1Password-Konten: `op.exe account list` zeigt sie; das richtige
+   (Kurzname, E-Mail oder User-ID aus der Liste) für `bz` festlegen:
+   `echo 'export BZ_OP_ACCOUNT=<Konto>' >> ~/.bashrc && source ~/.bashrc`.
 
 ## 1. Schlüssel erzeugen (einmalig)
 
