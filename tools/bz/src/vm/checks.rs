@@ -58,8 +58,11 @@ pub(super) fn boot_healthy(
         "the system booted without Secure Boot (secureboot={})",
         report.secure_boot
     );
+    // "notbound" (this TPM holds no key for the volume) says nothing about
+    // the initrd-only policy; it is expected only where the TPM did not
+    // unlock in the initrd either, i.e. the boot needed the recovery key.
     ensure!(
-        report.system_unlock == "refused",
+        report.system_unlock == "refused" || (run.prompted && report.system_unlock == "notbound"),
         "the TPM must unlock the root partition only in the initrd, but for the \
          running system it reported systemunlock={}",
         report.system_unlock
@@ -74,6 +77,12 @@ pub(super) fn boot_healthy(
         run.failures.is_empty(),
         "units failed during boot (initrd or system):\n  {}",
         run.failures.join("\n  ")
+    );
+    // The console misses what fails while it is muted (recovery key, setup).
+    ensure!(
+        report.boot_failed.is_empty(),
+        "units failed during boot according to the journal: {}",
+        report.boot_failed.join(", ")
     );
     ensure!(
         report.network == "routable",

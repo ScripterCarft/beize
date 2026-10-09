@@ -91,7 +91,10 @@ pub fn debug(
         }
     }
 
-    shell.session.type_line("systemctl poweroff");
+    // `exec`: no interactive shell is left on the console while systemd
+    // stops its getty (it ignores SIGTERM). Once a power-off hung there for
+    // over a minute; not reproduced, the cause is unproven.
+    shell.session.type_line("exec systemctl poweroff");
     if !shell.session.power_off_within(POWER_OFF_TIMEOUT)? {
         say!("  warning: the machine did not power off, it was stopped");
     }

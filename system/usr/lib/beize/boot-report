@@ -29,8 +29,10 @@ while read -r _ _ devnum _ mountpoint _; do
 done < /proc/self/mountinfo
 
 # The TPM must not unlock the root partition from the running system: its
-# slot is bound to the initrd phase only (ADR 0010). "refused" only if the
-# attempt failed at the TPM; anything else is reported as "unknown".
+# slot is bound to the initrd phase only (ADR 0010). "refused" only if
+# systemd-cryptsetup found no signed PCR 11 policy for this phase;
+# "notbound" if this TPM cannot even load the volume's key (another TPM);
+# any other failure (no TPM, missing library, ...) proves nothing: "unknown".
 systemunlock=none
 mapper=$(readlink -f /dev/mapper/root 2>/dev/null)
 if [[ $root == encrypted && -n $mapper ]]; then
@@ -41,8 +43,10 @@ if [[ $root == encrypted && -n $mapper ]]; then
             tpm2-device=auto,headless=true,readonly 2>&1); then
         systemunlock=possible
         systemd-cryptsetup detach beize-probe
-    elif [[ $probe == *TPM2* ]]; then
+    elif [[ $probe == *"No signature for current PCR policy"*"token does not apply to current boot state"* ]]; then
         systemunlock=refused
+    elif [[ $probe == *"Esys_Load"*"TPM Error"* ]]; then
+        systemunlock=notbound
     else
         systemunlock=unknown
         echo "BEIZE-UNLOCK-PROBE ${probe//$'\n'/ | }"
@@ -102,6 +106,19 @@ while read -r unit _; do
 done < <(systemctl list-units --failed --plain --no-legend)
 failed_list=$(IFS=,; echo "${failed[*]}")
 
+# Units whose start failed at any time in this boot, the initrd included:
+# the job results the console shows as [FAILED] and [DEPEND] – but also
+# while the console was muted (recovery key, setup), and after the initrd,
+# whose units the list above no longer knows.
+boot_failed=()
+while IFS= read -r line; do
+    [[ $line == UNIT=* ]] || continue
+    unit=${line#UNIT=}
+    [[ " ${boot_failed[*]} " == *" $unit "* ]] || boot_failed+=("$unit")
+done < <(journalctl --boot JOB_RESULT=failed JOB_RESULT=dependency \
+    --output=export --output-fields=UNIT --no-pager)
+boot_failed_list=$(IFS=,; echo "${boot_failed[*]}")
+
 # Boots of this installation, counted on the root partition: proves that the
 # root partition (/etc, /var) survives a reboot.
 counter=/var/lib/beize/boot-count
@@ -115,10 +132,10 @@ echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
      "tz=${tz:-none} nts=${nts} clock=${clock}" \
-     "failed=${failed_list:-none}"
+     "failed=${failed_list:-none} bootfailed=${boot_failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.
-for unit in "${failed[@]}"; do
+for unit in "${failed[@]}" "${boot_failed[@]}"; do
     while IFS= read -r line; do
         echo "BEIZE-FAILED-LOG ${unit}: ${line}"
     done < <(journalctl --boot --unit="$unit" --output=cat --no-pager --lines=30)

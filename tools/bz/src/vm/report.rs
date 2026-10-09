@@ -33,11 +33,15 @@ pub(super) struct BootReport {
     pub(super) nts: String,
     /// The system clock when reporting, in seconds since 1970.
     pub(super) clock: u64,
+    /// Units that are failed now, in the running system.
     pub(super) failed: Vec<String>,
+    /// Units whose start failed at any time in this boot, the initrd and
+    /// muted console phases included (from the journal).
+    pub(super) boot_failed: Vec<String>,
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 clock=1791500000 failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 clock=1791500000 failed=none bootfailed=none`.
     pub(super) fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -68,6 +72,7 @@ impl BootReport {
             nts: field("nts")?,
             clock: field("clock")?.parse().ok()?,
             failed: list("failed")?,
+            boot_failed: list("bootfailed")?,
         })
     }
 }
@@ -79,7 +84,7 @@ mod tests {
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
                          network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo nts=4 \
-                         clock=1791500000 failed=none";
+                         clock=1791500000 failed=none bootfailed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -99,6 +104,7 @@ mod tests {
         assert_eq!(report.nts, "4");
         assert_eq!(report.clock, 1_791_500_000);
         assert!(report.failed.is_empty());
+        assert!(report.boot_failed.is_empty());
     }
 
     #[test]
@@ -106,7 +112,8 @@ mod tests {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
                     network=timeout dns=none lookup=none tz=none nts=0 \
-                    clock=946684800 failed=systemd-logind.service,systemd-logind-varlink.socket";
+                    clock=946684800 failed=systemd-logind.service,systemd-logind-varlink.socket \
+                    bootfailed=systemd-logind.service,beize-tpm.service";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
         assert_eq!(report.network, "timeout");
@@ -118,6 +125,11 @@ mod tests {
         assert_eq!(
             report.failed,
             ["systemd-logind.service", "systemd-logind-varlink.socket"]
+        );
+        // "bootfailed=" is a field of its own, not a second "failed=".
+        assert_eq!(
+            report.boot_failed,
+            ["systemd-logind.service", "beize-tpm.service"]
         );
     }
 
