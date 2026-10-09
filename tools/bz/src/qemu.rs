@@ -60,11 +60,16 @@ struct BootReport {
     dns: Vec<String>,
     /// The address `_gateway` resolved to through NSS, or `failed`.
     lookup: String,
+    /// The zone /etc/localtime points at, or `none`.
+    time_zone: String,
+    /// How many time servers completed the NTS key exchange. Needs the
+    /// internet, so reported, not required.
+    nts: String,
     failed: Vec<String>,
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 failed=none`.
     fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -91,6 +96,8 @@ impl BootReport {
             network: field("network")?,
             dns: list("dns")?,
             lookup: field("lookup")?,
+            time_zone: field("tz")?,
+            nts: field("nts")?,
             failed: list("failed")?,
         })
     }
@@ -173,8 +180,12 @@ const ENROLLED: [(&str, &str); 6] = [
 /// enroll the keys from the ESP and reboot, leaving PK, KEK, db and dbx set.
 fn enroll_keys(machine: &Machine) -> Result<()> {
     eprintln!("  first power-on: enrolling the Secure Boot keys");
+    // Wait for the end of the enrollment, not its start: writing the
+    // variables takes seconds on a slow CI runner, and only the reboot
+    // after it gets the short grace period of `watch_boot`.
     let run = watch_boot(machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
-        line.contains("Enrolling secure boot keys").then_some(())
+        line.contains("Secure Boot keys successfully enrolled")
+            .then_some(())
     })?;
     ensure!(
         run.answer.is_some(),
@@ -676,6 +687,11 @@ fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Res
         report.lookup
     );
     ensure!(
+        report.time_zone == SMOKE_TIME_ZONE,
+        "the time zone chosen in the setup is not set: expected {SMOKE_TIME_ZONE}, got {}",
+        report.time_zone
+    );
+    ensure!(
         run.powered_off,
         "the system did not power off cleanly after reporting"
     );
@@ -686,10 +702,12 @@ fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Res
     );
     eprintln!(
         "\n  ok: boot #{} running under Secure Boot after {} guest uptime \
-         ({:.1}s including firmware), network via DHCP, no failed units, clean power-off",
+         ({:.1}s including firmware), network via DHCP, no failed units, clean power-off \
+         (NTS key exchange with {} time servers)",
         report.boot,
         report.uptime,
-        elapsed.as_secs_f64()
+        elapsed.as_secs_f64(),
+        report.nts
     );
     Ok(HealthyBoot {
         report,
@@ -972,12 +990,17 @@ const SMOKE_USER: &str = "smoke";
 /// beize-setup's questions and the tests' answers. "Password again:" comes
 /// first: "Password:" alone does not match it, but the order of the check
 /// must not depend on that.
-const SETUP_ANSWERS: [(&str, &str); 4] = [
+/// The time zone: a country with several zones, so the setup asks back.
+const SETUP_ANSWERS: [(&str, &str); 6] = [
     ("Your login name", SMOKE_USER),
     ("Your full name", "Smoke Test"),
     ("Password again:", "smoke-test-password"),
     ("Password:", "smoke-test-password"),
+    ("Your time zone", "Brazil"),
+    ("Which one?", "Sao Paulo"),
 ];
+/// The zone the answers above must lead to.
+const SMOKE_TIME_ZONE: &str = "America/Sao_Paulo";
 
 /// What to type at the console during a boot, as the owner would.
 #[derive(Clone, Default)]
@@ -1230,7 +1253,8 @@ mod tests {
 
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
-                         network=routable dns=10.0.2.3 lookup=10.0.2.2 failed=none";
+                         network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=America/Sao_Paulo nts=4 \
+                         failed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -1246,6 +1270,8 @@ mod tests {
         assert_eq!(report.network, "routable");
         assert_eq!(report.dns, [SLIRP_DNS]);
         assert_eq!(report.lookup, SLIRP_GATEWAY);
+        assert_eq!(report.time_zone, SMOKE_TIME_ZONE);
+        assert_eq!(report.nts, "4");
         assert!(report.failed.is_empty());
     }
 
@@ -1253,7 +1279,7 @@ mod tests {
     fn parses_degraded_report_behind_console_noise() {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
-                    network=timeout dns=none lookup=failed \
+                    network=timeout dns=none lookup=failed tz=none nts=0 \
                     failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");

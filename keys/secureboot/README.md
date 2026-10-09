@@ -114,3 +114,14 @@ Wiederherstellungsschlüssel nicht eingeben**, sondern die Ursache klären.
 **ASUS setzt bei BIOS-Updates die Schlüssel oft auf Werkszustand zurück.** Dann
 startet Beize nicht unter Secure Boot (die Daten bleiben verschlossen) – Schritt 3
 wiederholen.
+
+## 4. Uhr im Dual-Boot (einmalig, unter Windows)
+
+Beize hält die Hardware-Uhr in UTC, Windows in Ortszeit – sonst geht eine der beiden
+Uhren 1–2 Stunden falsch (ADR 0012). Windows auf UTC umstellen, in einer
+Administrator-PowerShell:
+
+    reg add "HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /t REG_DWORD /d 1 /f
+
+Dann Windows neu starten und unter Einstellungen → Zeit und Sprache → Datum und
+Uhrzeit „Jetzt synchronisieren“. Rückgängig: derselbe Befehl mit `/d 0`.

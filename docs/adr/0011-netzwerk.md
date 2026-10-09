@@ -1,6 +1,6 @@
 # 0011 – Netzwerk: systemd-networkd und systemd-resolved
 
-Status: angenommen · 2026-10-09 (Zeitsynchronisation noch offen, siehe unten)
+Status: angenommen · 2026-10-09 (Zeitsynchronisation: ADR 0012)
 
 ## Kontext
 
@@ -37,12 +37,6 @@ sich aus kontaktiert: systemd bringt fest eingebaute Ausweich-Server mit
   `networkd.conf.d/beize.conf`). networkd würde sonst EUI-64 (MAC-basiert) nutzen.
 - Nichts im Start wartet auf das Netzwerk (`network-online.target` zieht niemand
   herein) – der Start bleibt unabhängig von DHCP.
-
-## Zeitsynchronisation (offen)
-
-Übergangsweise fragt timesyncd nur Zeitserver, die das Netzwerk per DHCP nennt,
-sonst gilt die Hardware-Uhr. Ziel ist authentifizierte Zeit (NTS, RFC 8915), die
-timesyncd nicht kann – eigenes ADR mit Programm (chrony oder ntpd-rs) und Servern.
 
 ## Konsequenzen
 

@@ -1,0 +1,17 @@
+# Trusted root certificates for TLS (NTS now, HTTPS later): Mozilla's root
+# store for server authentication, as curl extracts it (ADR 0012). One PEM
+# bundle in /usr; /etc/ssl/cert.pem points at it (OpenSSL's default with
+# openssldir /etc/ssl, and found by Rust's rustls-native-certs).
+name = "ca-certificates"
+version = "2026-09-25"
+stage = "target"
+
+[source]
+url = "https://curl.se/ca/cacert-{version}.pem"
+sha256 = "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
+unsigned = "neither Mozilla's certdata.txt nor curl's PEM extract of it is signed; pinned by SHA-256, fetched over HTTPS"
+
+[build]
+script = '''
+install -D -m 644 "$SRC/cacert-$VERSION.pem" "$PKG/usr/share/ca-certificates/ca-bundle.pem"
+'''

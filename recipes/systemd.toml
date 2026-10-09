@@ -6,6 +6,7 @@
 # Network (networkd + resolved, ADR 0011): nss-resolve for name lookups; no
 # compiled-in fallback DNS or NTP servers – Beize contacts no third party the
 # network did not name. LLMNR is off (spoofable, superseded by mDNS).
+# No timesyncd: time comes from ntpd-rs with NTS (ADR 0012).
 name = "systemd"
 version = "262"
 stage = "target"
@@ -31,7 +32,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \
   -Dnss-resolve=enabled \
-  -Ddns-servers= -Dntp-servers= \
+  -Ddns-servers= -Dntp-servers= -Dtimesyncd=false \
   -Ddefault-llmnr=no \
   -Dinstall-sysconfdir=false -Dfallback-hostname=beize \
   -Dfirstboot=false \

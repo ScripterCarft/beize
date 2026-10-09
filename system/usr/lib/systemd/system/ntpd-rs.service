@@ -1,0 +1,41 @@
+[Unit]
+Description=Network time with NTS (ntpd-rs)
+Documentation=man:ntp-daemon(8) file:/usr/lib/ntpd-rs/ntp.toml
+# Nothing waits for the network during boot (ADR 0011); ntpd-rs retries its
+# sources until the network is there.
+After=network.target nss-lookup.target
+Before=time-set.target time-sync.target
+Wants=time-sync.target
+
+[Service]
+Type=notify
+# Configuration: /etc/ntpd-rs/ntp.toml, a link to /usr/lib/ntpd-rs/ntp.toml
+# unless the owner replaced it (tmpfiles.d/beize.conf).
+ExecStart=/usr/bin/ntp-daemon
+Restart=on-failure
+RestartSec=10s
+# An unprivileged user of its own; the only privilege: setting the clock.
+DynamicUser=yes
+RuntimeDirectory=ntpd-rs
+AmbientCapabilities=CAP_SYS_TIME
+CapabilityBoundingSet=CAP_SYS_TIME
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

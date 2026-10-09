@@ -4,3 +4,5 @@ enable beize-boot-report.service
 # recovery-key unlock (ADR 0010); systemd-pcrlock is not used.
 disable systemd-pcrlock-*.service
 enable beize-setup.service
+# Time with NTS (ADR 0012).
+enable ntpd-rs.service

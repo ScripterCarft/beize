@@ -35,7 +35,7 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] Wiederherstellungsschlüssel: beim ersten Start erzeugt und einmal angezeigt
 - [x] Netzwerk über LAN (systemd-networkd + resolved, DHCP, keine eingebauten
       Fremd-Server, IPv6-Privatsphäre); der Boot-Test prüft DHCP, DNS und Namensauflösung
-- [ ] Zeitsynchronisation mit authentifizierter Zeit (NTS)
+- [x] Uhrzeit: authentifiziert per NTS (ntpd-rs), Zeitzonen, Zertifikatsspeicher
 - [ ] Updater (systemd-sysupdate)
 - [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
 - [ ] Start von der zweiten SSD

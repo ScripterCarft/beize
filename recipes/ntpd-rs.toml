@@ -1,0 +1,29 @@
+# ntpd-rs: time synchronization with NTS (authenticated time, RFC 8915),
+# written in Rust (ADR 0012). Built without its defaults: TLS and NTS
+# cryptography come from the system's OpenSSL instead of aws-lc (a second,
+# large C crypto library); no DNSSEC SRV lookups (hickory) and no PPS.
+name = "ntpd-rs"
+version = "1.9.0"
+stage = "target"
+deps = ["gcc", "glibc", "gcc-runtime", "openssl"]
+
+# The release tags are lightweight; the release commit is SSH-signed.
+[source]
+git = "https://github.com/pendulum-project/ntpd-rs.git"
+tag = "v{version}"
+commit = "46ec9bb4d5b6cb24f814f5543d85b9138afb4cba"
+keyring = "ntpd-rs"
+
+[build]
+script = '''
+# openssl-sys: link against the sysroot's OpenSSL; its build script reads
+# the headers with $CC (the cross compiler).
+export OPENSSL_LIB_DIR="$SYSROOT/usr/lib" OPENSSL_INCLUDE_DIR="$SYSROOT/usr/include"
+"$CARGO" fetch --locked --manifest-path "$SRC/Cargo.toml"
+"$CARGO" build --offline --locked --release --manifest-path "$SRC/Cargo.toml" \
+  -p ntpd --no-default-features --features openssl \
+  --target x86_64-unknown-linux-gnu
+for bin in ntp-daemon ntp-ctl; do
+  install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/$bin" "$PKG/usr/bin/$bin"
+done
+'''

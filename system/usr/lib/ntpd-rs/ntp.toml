@@ -1,0 +1,35 @@
+# Beize's time sources (ADR 0012): authenticated time (NTS) from four
+# independent operators; the clock is only set when at least three agree.
+# Replacing the operators (e.g. with Beize's own servers) changes this file
+# only.
+
+[observability]
+log-level = "info"
+observation-path = "/run/ntpd-rs/observe"
+
+# Physikalisch-Technische Bundesanstalt (Germany's official time).
+[[source]]
+mode = "nts"
+address = "ptbtime1.ptb.de"
+
+# Netnod (Sweden, non-profit internet infrastructure).
+[[source]]
+mode = "nts"
+address = "nts.netnod.se"
+
+# SIDN Labs (the Netherlands, non-profit .nl registry).
+[[source]]
+mode = "nts"
+address = "ntppool1.time.nl"
+
+# Cloudflare (worldwide anycast).
+[[source]]
+mode = "nts"
+address = "time.cloudflare.com"
+
+[synchronization]
+minimum-agreeing-sources = 3
+# At startup any correction is accepted – e.g. a hardware clock kept in
+# local time by Windows. Afterwards jumps over 30 minutes are refused.
+single-step-panic-threshold = 1800
+startup-step-panic-threshold = { forward = "inf", backward = "inf" }

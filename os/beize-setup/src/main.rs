@@ -5,15 +5,16 @@
 //! and a password (twice), adds the user to /etc/passwd, /etc/group (own
 //! group, and wheel: administrator) and /etc/shadow (yescrypt), gives root
 //! the same password hash – the emergency shell asks for root's password –
-//! and creates the home directory. Runs once; afterwards
-//! /var/lib/beize/owner exists.
+//! and creates the home directory. It also asks for the time zone
+//! (/etc/localtime). Runs once; afterwards /var/lib/beize/owner exists.
 
 mod accounts;
 mod crypt;
 mod mute;
+mod timezone;
 
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, chown};
+use std::os::unix::fs::{PermissionsExt, chown, symlink};
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -77,6 +78,7 @@ fn owner() -> Result<(), String> {
     };
     let hash = crypt::hash(&password)?;
     drop(password);
+    let zone = ask_time_zone()?;
 
     let id = accounts::free_id(&passwd, &group).ok_or("no free user ID")?;
     let days = SystemTime::now()
@@ -103,6 +105,7 @@ fn owner() -> Result<(), String> {
     chown(&home, Some(id), Some(id)).map_err(|e| format!("owning {}: {e}", home.display()))?;
     fs::set_permissions(&home, fs::Permissions::from_mode(0o700))
         .map_err(|e| format!("protecting {}: {e}", home.display()))?;
+    set_time_zone(&zone)?;
 
     write(DONE, &format!("{name}\n"), 0o644)?;
     println!();
@@ -131,6 +134,39 @@ fn ask(question: &str, echo: bool) -> Result<String, String> {
         answer.pop();
     }
     Ok(answer)
+}
+
+/// Asks until the answer names exactly one time zone.
+fn ask_time_zone() -> Result<String, String> {
+    let zones = read(&format!("{}/zone1970.tab", timezone::ZONEINFO))?;
+    let countries = read(&format!("{}/iso3166.tab", timezone::ZONEINFO))?;
+    let mut question = "Your time zone – a city or country (e.g. Berlin):";
+    loop {
+        match timezone::find(&ask(question, true)?, &zones, &countries) {
+            timezone::Found::Zone(zone) => return Ok(zone),
+            timezone::Found::Several(zones) => {
+                println!("  Several time zones fit:");
+                for zone in zones {
+                    println!("    {zone}");
+                }
+                question = "Which one?";
+            }
+            timezone::Found::None => {
+                println!("  Not found. A larger city nearby or the country, please.");
+            }
+        }
+    }
+}
+
+/// Points /etc/localtime at the zone, as systemd expects (a relative link
+/// into /usr/share/zoneinfo); replaced atomically.
+fn set_time_zone(zone: &str) -> Result<(), String> {
+    const LOCALTIME: &str = "/etc/localtime";
+    let target = format!("..{}/{zone}", timezone::ZONEINFO);
+    let temporary = format!("{LOCALTIME}.beize-setup");
+    let _ = fs::remove_file(&temporary);
+    symlink(&target, &temporary).map_err(|e| format!("linking {temporary}: {e}"))?;
+    fs::rename(&temporary, LOCALTIME).map_err(|e| format!("replacing {LOCALTIME}: {e}"))
 }
 
 fn read(path: &str) -> Result<String, String> {

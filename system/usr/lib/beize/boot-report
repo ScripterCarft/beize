@@ -72,6 +72,24 @@ if read -r address _ < <(getent hosts _gateway); then
     lookup=$address
 fi
 
+# Time (ADR 0012): the zone chosen in the setup, and how many time servers
+# completed the NTS key exchange (DNS, TLS with the root certificates, NTS
+# cookies). Setting the clock takes ntpd-rs ~2 minutes (8 samples per
+# source), too long to wait for here. Needs the internet: waits a little.
+tz=$(readlink /etc/localtime)
+tz=${tz#*/zoneinfo/}
+nts=0
+if [[ $network == routable ]]; then
+    for _ in {1..20}; do
+        nts=0
+        while IFS= read -r line; do
+            [[ $line == *"NTS cookies:"* && $line != *"	0/"* ]] && nts=$((nts + 1))
+        done < <(ntp-ctl status 2>/dev/null)
+        ((nts >= 3)) && break
+        sleep 0.5
+    done
+fi
+
 failed=()
 while read -r unit _; do
     failed+=("$unit")
@@ -90,6 +108,7 @@ read -r machineid < /etc/machine-id
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup}" \
+     "tz=${tz:-none} nts=${nts}" \
      "failed=${failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.

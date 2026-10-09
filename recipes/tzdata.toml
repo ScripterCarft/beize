@@ -1,0 +1,37 @@
+# Time zone database (IANA tz): /usr/share/zoneinfo, so the clock can show
+# local time (ADR 0012). Compiled with zic from the same release; zic is
+# built for the build host and never shipped.
+name = "tzdata"
+version = "2026e"
+stage = "target"
+
+# The tz releases are tarballs without a top-level directory; data and code
+# unpack into the same tree, as upstream's instructions do.
+[source]
+url = "https://data.iana.org/time-zones/releases/tzdata{version}.tar.gz"
+sha256 = "b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652"
+signature = "https://data.iana.org/time-zones/releases/tzdata{version}.tar.gz.asc"
+keyring = "tzdata"
+flat = true
+
+[[extra]]
+url = "https://data.iana.org/time-zones/releases/tzcode{version}.tar.gz"
+sha256 = "cc3d27ca2a0d8399504551b920970d80af83bfb9c216e8082a15491921935d54"
+signature = "https://data.iana.org/time-zones/releases/tzcode{version}.tar.gz.asc"
+keyring = "tzdata"
+flat = true
+dest = "code"
+
+[build]
+script = '''
+# Upstream's layout: code and data in one directory.
+cp -a "$SRC"/. . && cp -a code/. .
+make CC=gcc CFLAGS=-O2 zic
+# The same zone files `make install` creates: the primary data, Etc/*, the
+# "Factory" zone and the backward-compatible links; "slim" TZif output.
+./zic -b slim -d "$PKG/usr/share/zoneinfo" \
+  africa antarctica asia australasia europe northamerica southamerica \
+  etcetera factory backward
+# Tables for choosing a zone (beize-setup): zones by country, country names.
+install -m 644 zone1970.tab iso3166.tab "$PKG/usr/share/zoneinfo/"
+'''

@@ -1,7 +1,7 @@
 # Beize – Übergabe für Claude Code
 
 Diese Datei ist der Einstieg für jede neue Session. Sie ersetzt den bisherigen
-Chatverlauf. Stand: 2026-10-09, nach „Netzwerk über LAN“ (ADR 0011).
+Chatverlauf. Stand: 2026-10-09, nach „Zeit mit NTS“ (ADR 0012).
 
 ## 1. Was Beize ist
 
@@ -176,7 +176,8 @@ Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
 0008 dm-verity für `/usr` · 0009 Root mit LUKS2 + TPM2 (PCR 7), signierte
 PCR-11-Richtlinie im UKI, UKI-Werkzeuge aus eigenem systemd · 0010 Beize als
 Plattform-Eigentümer, Vertrauensprofile, Produktionsschlüssel/1Password · 0011
-Netzwerk (networkd + resolved, keine eingebauten Fremd-Server). Neue
+Netzwerk (networkd + resolved, keine eingebauten Fremd-Server) · 0012 Zeit (ntpd-rs + NTS,
+tzdata, Zertifikatsspeicher, RTC in UTC). Neue
 Architekturentscheidung = neues ADR.
 
 ## 9. Regeln für Rezepte und Code
@@ -290,22 +291,24 @@ Recovery nur bei erlaubtem Zustand, Start-Prüfung PCR 12), Härtung für echte 
 Konsole während Recovery-Key und Einrichtung stumm (`systemd-mute-console`), Terminus-
 Schrift, **LAN** (ADR 0011: networkd + resolved, DHCP, nss-resolve, kein Fallback-DNS/NTP,
 LLMNR aus, IPv6-Privatsphäre; beize-setup wartet per `tcdrain`, bis seine Ausgabe gesendet
-ist – sonst verwarf `TTYReset` die letzte Zeile). `bz smoke` grün, Start 5,26 s.
+ist – sonst verwarf `TTYReset` die letzte Zeile), **Zeit** (ADR 0012: ntpd-rs mit NTS gegen
+PTB/Netnod/time.nl/Cloudflare, Mozilla-Zertifikate unter `/etc/ssl/cert.pem`, tzdata +
+Zeitzonen-Frage in beize-setup; `bz` prüft dafür SSH-signierte Commits). In der VM
+gemessen: synchronisiert nach ~2 min (8 Messungen à 16 s, bewusst nicht verkürzt).
+`bz smoke` grün, Start 5,28 s.
 
 **Der Besitzer soll als Nächstes** neu bauen/signieren/installieren, beim ersten Start
-sein Konto anlegen und LAN prüfen (`networkctl`, `resolvectl`) – beides auf echter
-Hardware ungeprüft.
+sein Konto anlegen, LAN und Zeit prüfen (`networkctl`, `timedatectl`, `ntp-ctl status`) –
+auf echter Hardware ungeprüft – und Windows einmalig auf UTC stellen
+(`keys/secureboot/README.md` Schritt 4).
 
 **Nächste Aufgaben für M2, in dieser Reihenfolge:**
-1. **Zeitsynchronisation mit NTS** (ADR 0011, Abschnitt „offen“): chrony vs. ntpd-rs
-   prüfen (Größe, Abhängigkeiten, signierte Releases, Cross-Build), Server: mehrere
-   unabhängige NTS-Betreiber (PTB, Netnod, …), später eigene; Serverliste als eigene
-   Datei unter `/usr` (austauschbar). Bootstrap bei falscher Hardware-Uhr lösen;
-   Dual-Boot: Windows hält die RTC in Ortszeit. Entscheidung mit dem Besitzer → ADR.
-2. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
+1. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
    optimieren: initrd verschlanken (17 MB, ganzes systemd), Kernel zuschneiden.
-3. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig.
-4. Danach eine Aufräumrunde vor M3: `qemu.rs` (>1000 Zeilen) aufteilen, `~/probe/probe.py`
+2. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig. Wichtig auch,
+   weil Zertifikatsliste und tzdata sonst auf dem Stand der Installation veralten.
+3. Danach eine Aufräumrunde vor M3: `qemu.rs` (>1300 Zeilen) aufteilen, `~/probe/probe.py`
+   und `~/probe/drive-run.py` (steuert `bz run`: Einrichtung beantworten, Befehle im Gast)
    als `bz debug` ins Repo, §12/ADR-Nachträge zu Endfassungen zusammenführen.
 
 Offen und bewusst zurückgestellt: bit-genaue Builds (Binaries unterscheiden sich
