@@ -269,10 +269,7 @@ impl Store {
                 )?
                 .to_owned(),
         };
-        // With several accounts signed in, op needs to be told which one. Passed
-        // as --account: environment variables do not reach Windows programs
-        // started from WSL unless listed in WSLENV.
-        let account = env::var("BZ_OP_ACCOUNT").ok().filter(|a| !a.is_empty());
+        let account = choose_account(&op)?;
         Ok(Self::OnePassword { op, account })
     }
 
@@ -313,6 +310,117 @@ impl Store {
                 .with_context(|| format!("reading {}", dir.join(title).display())),
         }
     }
+}
+
+/// Where the owner's choice of 1Password account is remembered (outside the
+/// repository: it is about this computer's 1Password, not about Beize).
+fn account_file() -> Option<PathBuf> {
+    let config = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| Path::new(&home).join(".config")))?;
+    Some(config.join("beize/1password-account"))
+}
+
+/// A 1Password account as `op account list --format json` describes it.
+#[derive(Debug, PartialEq)]
+struct Account {
+    id: String,
+    email: String,
+    url: String,
+}
+
+fn parse_accounts(json: &str) -> Result<Vec<Account>> {
+    let list: serde_json::Value = serde_json::from_str(json)?;
+    let field = |a: &serde_json::Value, key: &str| a[key].as_str().unwrap_or_default().to_owned();
+    Ok(list
+        .as_array()
+        .context("op account list did not return a list")?
+        .iter()
+        .map(|a| Account {
+            id: field(a, "account_uuid"),
+            email: field(a, "email"),
+            url: field(a, "url"),
+        })
+        .filter(|a| !a.id.is_empty())
+        .collect())
+}
+
+/// The account whose vault "Beize" holds the keys. With several accounts
+/// signed in op refuses to guess, so: `BZ_OP_ACCOUNT` if set (passed as
+/// --account – environment variables do not reach Windows programs started
+/// from WSL), else the remembered choice, else ask the owner.
+fn choose_account(op: &str) -> Result<Option<String>> {
+    if let Some(account) = env::var("BZ_OP_ACCOUNT").ok().filter(|a| !a.is_empty()) {
+        return Ok(Some(account));
+    }
+    if let Some(saved) = account_file().and_then(|f| fs::read_to_string(f).ok()) {
+        let saved = saved.trim();
+        if !saved.is_empty() {
+            return Ok(Some(saved.to_owned()));
+        }
+    }
+    // Listing accounts unlocks nothing.
+    let accounts = parse_accounts(&util::output(
+        Command::new(op).args(["account", "list", "--format", "json"]),
+    )?)?;
+    if accounts.len() <= 1 {
+        return Ok(None);
+    }
+
+    eprintln!("\n  1Password: several accounts found");
+    for (i, account) in accounts.iter().enumerate() {
+        // whoami only reports; it does not ask to unlock.
+        let unlocked = Command::new(op)
+            .args(["whoami", "--account", &account.id])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        eprintln!(
+            "    {}) {:<32} {:<32} {}",
+            i + 1,
+            account.email,
+            account.url,
+            if unlocked { "unlocked" } else { "locked" }
+        );
+    }
+    let choice = loop {
+        let answer = prompt(&format!(
+            "  Which account holds the vault \"{VAULT}\"? [1-{}]: ",
+            accounts.len()
+        ))?;
+        if let Some(account) = answer
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| n.checked_sub(1))
+            .and_then(|i| accounts.get(i))
+        {
+            break account;
+        }
+    };
+    let remember = prompt("  Remember this for next time? [Y/n]: ")?;
+    if !remember.eq_ignore_ascii_case("n")
+        && let Some(file) = account_file()
+    {
+        if let Some(dir) = file.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        fs::write(&file, format!("{}\n", choice.id))?;
+        eprintln!(
+            "  remembered in {} (delete it to choose again)",
+            file.display()
+        );
+    }
+    Ok(Some(choice.id.clone()))
+}
+
+fn prompt(question: &str) -> Result<String> {
+    eprint!("{question}");
+    std::io::stderr().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    Ok(answer.trim().to_owned())
 }
 
 /// Creates the production keys: generated in memory, private halves put into
@@ -612,6 +720,26 @@ mod tests {
 
     fn repo_microsoft_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../keys/microsoft")
+    }
+
+    #[test]
+    fn parses_the_1password_account_list() {
+        let json = r#"[
+            {"url": "my.1password.eu", "email": "joe@example.org",
+             "user_uuid": "U1", "account_uuid": "A1"},
+            {"url": "marfisoft.1password.eu", "email": "joe@marfisoft.example",
+             "user_uuid": "U2", "account_uuid": "A2"},
+            {"url": "broken.example"}
+        ]"#;
+        let accounts = parse_accounts(json).unwrap();
+        assert_eq!(
+            accounts.len(),
+            2,
+            "entries without an account ID are skipped"
+        );
+        assert_eq!(accounts[1].id, "A2");
+        assert_eq!(accounts[1].url, "marfisoft.1password.eu");
+        assert!(parse_accounts("{}").is_err());
     }
 
     #[test]
