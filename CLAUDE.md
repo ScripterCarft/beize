@@ -79,9 +79,9 @@ Versionen und die repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | **Beizes eigener Code im Image** (Rust, Workspace-Mitglieder). Bisher `beize-tpm` (initrd: TPM-Neubindung nach Recovery, ADR 0010) |
-| `tools/bz/src/` | Build-Werkzeug (Rust, ~3800 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Schlüssel (Test/Produktion, 1Password), Einschreib-Dateien, Signieren · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
-| `recipes/*.toml` | ein Rezept pro Paket (20): Quelle (gepinnt + signiert), `deps`, `stage` (toolchain/target), `[build] script` |
+| `os/` | **Beizes eigener Code im Image** (Rust, Workspace-Mitglieder). `beize-tpm` (initrd: TPM-Neubindung nach Recovery, ADR 0010), `beize-setup` (erster Start: Konto, Zeitzone) |
+| `tools/bz/src/` | Build-Werkzeug (Rust, ~5800 Zeilen): `main` CLI · `source` Download/Pin/Signatur · `recipe` Rezepte · `packages` Abhängigkeiten, Fingerprints, Build-Umgebung · `install` Sysroot, merged-/usr, Besitz-Manifeste · `kernel` · `layout` Disk-Layout · `tree` Dateibäume, strip · `usr` /usr-Image + dm-verity · `initrd` · `secureboot` Schlüssel (Test/Produktion, 1Password), Einschreib-Dateien, Signieren · `image` UKI + Disk · `qemu` `run`/`smoke` · `util` |
+| `recipes/*.toml` | ein Rezept pro Paket (27): Quelle (gepinnt + signiert), `deps`, `stage` (toolchain/target), `[build] script` |
 | `keys/` | öffentliche Maintainer-Schlüssel + `README.md` (Herkunft, Fingerprints, Ausnahmen); `keys/microsoft/` Microsofts Secure-Boot-Zertifikate + dbx (gepinnt); `keys/secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
 | `system/usr/` | eigene Dateien in `/usr` (Units, Boot-Report, Werkseinstellungen) |
@@ -116,31 +116,32 @@ Recovery-Key beim 1. Start angezeigt, beim 2. nicht mehr; Gegentests: dieselbe D
 mit anderem TPM → Abfrage „Please enter recovery key for disk root“, der Test tippt
 den Key ein, System startet; mit Secure Boot aus (Schlüssel bleiben) → Root bleibt zu; unsigniertes UKI → „Access denied“,
 ein verändertes Byte in `/usr` → „data block … is corrupted“. Bei fehlgeschlagenen
-Units gibt der Boot-Report deren Journal aus; jeder Start muss per DHCP (virtio-net,
-QEMU-NAT) `routable` werden, DNS 10.0.2.3 lernen und `_gateway` über NSS auflösen (`BEIZE-FAILED-LOG …`). Zum Schluss der
-Ablauf des Besitzers (`new-keys` → `sign`) mit Wegwerf-Schlüsselspeicher statt 1Password,
-Ergebnis wird eingeschrieben und gebootet.
-Aktuell: Start 5,23 s Gast-Uptime (Kernel 0,56 + initrd 2,42 + System 2,25 s),
-erster Start ~7 s (Verschlüsseln + Formatieren). Ganzer Smoke-Test ~3 min.
+Units gibt der Boot-Report deren Journal aus (`BEIZE-FAILED-LOG …`). Jeder Start muss
+per DHCP (virtio-net, QEMU-NAT) `routable` werden, DNS 10.0.2.3 lernen, `_gateway` über
+NSS auflösen (10.0.2.2 unter den Adressen) und die Zeitzone aus der Einrichtung haben;
+die Zahl der NTS-Server wird nur berichtet (Internet). Zum Schluss der Ablauf des
+Besitzers (`new-keys` → `sign`) mit Wegwerf-Schlüsselspeicher statt 1Password, Ergebnis
+wird eingeschrieben und gebootet, danach einmal mit Hardware-Uhr im Jahr 2000.
+Aktuell: Start 5,28 s Gast-Uptime, erster Start ~8 s (Verschlüsseln, Formatieren,
+Einrichtung). Ganzer Smoke-Test ~5 min, mit Neubau von systemd ~10 min.
 
 CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`,
 manuell und wöchentlich `ci/system.sh` in privilegiertem `ubuntu:26.04`-Container
+(von `public.ecr.aws/docker/library`, Docker Hub drosselt anonyme Pulls)
 mit KVM (verify, build, smoke). Ein neuer Push bricht ältere Läufe ab
 (`concurrency`). Gebaute Pakete, Toolchain, Sysroot, Stamps und der Kernel-Objektbaum
 liegen im Actions-Cache (nach jedem Lauf gespeichert, auch nach Fehlschlag/Abbruch);
 die Fingerprints von `bz` entscheiden, was neu gebaut wird. Der erste volle Bau auf
 einem 4-Kern-Runner dauert Stunden (gcc-pass1 allein ~23 min) – `bz` meldet bei
-langen Paketen jede Minute „still building …“. Bis 2026-10-08 griff der Cache nie
-(zstd/gzip, siehe §10), und der erste vollständige Lauf scheiterte am Boot-Test
-(lvm2-Regel, siehe §9). Beides behoben und per sauberem Container-Bau lokal
-bestätigt; der erste grüne GitHub-Lauf steht noch aus (baut wegen `ENV_REVISION`
-einmal alles neu, ~1 h).
+langen Paketen jede Minute „still building …“. Mit Cache dauert ein Lauf ~12–17 min;
+grüne Läufe gibt es seit 2026-10-09. Der Besitzer beobachtet die CI selbst.
 
 ## 7. Sicherheitsmodell
 
 - **Quellen:** jede gepinnt (SHA-256 bzw. Commit) **und** von Upstream signiert,
-  geprüft mit `gpgv` gegen `keys/<name>.gpg`. Ohne Signatur nur mit expliziter
-  Begründung `unsigned = "…"` (einzige Ausnahme: json-c). systemd kommt aus dem
+  geprüft gegen `keys/<name>.gpg` (gpgv) oder `keys/<name>.allowed_signers` (SSH, ssh-keygen;
+  auch signierte Release-Commits bei leichtgewichtigen Tags). Ohne Signatur nur mit
+  expliziter Begründung `unsigned = "…"` (Ausnahmen: json-c, ca-certificates). systemd kommt aus dem
   signierten Git-Tag.
 - **Build:** eigene Cross-Toolchain (`x86_64-beize-linux-gnu`), kein Host-Header im
   System; reproduzierbar (fester Zeitstempel `BUILD_EPOCH`, feste UUIDs, Salt aus Inhalt).
@@ -164,8 +165,8 @@ einmal alles neu, ~1 h).
   `build/work/secureboot-test/`. Produktion: private Teile nur im 1Password-Tresor
   „Beize“, öffentliche Teile + signierte `.auth`-Dateien in `keys/secureboot/`;
   `bz secureboot new-keys` (einmalig, PK/KEK/db/PCR) und `bz sign` (db + PCR) laufen nur
-  im Terminal des Besitzers, Schlüssel nur in `/dev/shm`. **Der Besitzer hat die
-  Produktionsschlüssel noch nicht erzeugt** (Stand 2026-10-08).
+  im Terminal des Besitzers, Schlüssel nur in `/dev/shm`. Die Produktionsschlüssel
+  existieren seit 2026-10-09 und sind auf dem Rechner des Besitzers eingeschrieben.
 
 ## 8. ADRs (`docs/adr/`)
 
@@ -249,8 +250,7 @@ Architekturentscheidung = neues ADR.
 
 ## 11. Offene Punkte (außer der aktuellen Aufgabe)
 
-- Notfall-Shell geht nicht (`sulogin` fehlt; braucht libxcrypt → mit Benutzerpasswörtern).
-- initrd 15,9 MiB / 2,3 s – enthält noch ganz systemd; verschlanken. hwdb nicht generiert.
+- initrd 17,9 MiB / ~2,4 s – enthält noch ganz systemd; verschlanken. hwdb nicht generiert.
 - Compiler-Flags generisch (`-O2 -pipe`); Ziel x86-64-v3 + Raptor-Lake-Tuning, Kernel auf Hardware zuschneiden.
 - Updater (systemd-sysupdate), Verhalten bei
   verity-Fehlern zur Laufzeit (Neustart → Rückfall?), WLAN, NVIDIA, Bluetooth,
