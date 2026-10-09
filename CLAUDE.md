@@ -320,9 +320,13 @@ auf echter Hardware ungeprüft – und Windows einmalig auf UTC stellen
    **Kernel 11 s + initrd 24 s + System 17 s** (VM: 0,6 + 2,4 + 2,3 s) – vermutlich der
    **erste** Start, d. h. initrd und System enthalten die Tippzeit (Recovery-Key bestätigen,
    Konto/Zeitzone). Ein späterer Start zeigt `graphical.target @1.634s` in `critical-chain`;
-   `blame` nur Geräte-Units (~4,4 s, blockieren nicht). Offen: Werte eines normalen Starts
-   (`systemd-analyze`), dann v. a. die Kernel-Zeit (Verdacht, unbelegt: serielle Konsole
-   `console=ttyS0` auf echter Hardware). Danach verschlanken (initrd 17,9 MB, Kernel).
+   `blame` nur Geräte-Units (~4,4 s, blockieren nicht). **Normaler Start (gemessen):**
+   Firmware 24 s + Loader 1 s + **Kernel 11,7 s** + initrd 4 s + System 1,6 s = 43 s.
+   Hauptbaustelle ist der Kernel (VM 0,6 s; Verdacht, unbelegt: serielle Konsole
+   `console=ttyS0` auf echter Hardware, oder Treiber, die auf Hardware warten – Kernel-Log
+   mit Zeitstempeln ansehen, geht erst mit Root-Rechten bzw. per Foto von `dmesg`).
+   initrd 4 s (VM 2,4 s; enthält TPM-Entsperren über Intel PTT). Firmware: BIOS-Sache
+   (Fast Boot o. Ä.), nicht Beize. Danach verschlanken (initrd 17,9 MB, Kernel).
    **Keine Administratorrechte:** der Besitzer ist in `wheel`, aber es gibt weder sudo
    noch su – root nur über die Notfall-Konsole (z. B. kein `mount`). Entscheidung + ADR:
    sudo-rs (Rust, Ubuntu-Standard seit 25.10) oder run0 (systemd, braucht polkit).
