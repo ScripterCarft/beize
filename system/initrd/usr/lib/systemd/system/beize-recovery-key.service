@@ -7,7 +7,7 @@ Description=Create the recovery key for the encrypted root partition
 DefaultDependencies=no
 ConditionPathExists=/etc/initrd-release
 Requires=systemd-cryptsetup@root.service
-After=systemd-cryptsetup@root.service
+After=systemd-cryptsetup@root.service systemd-mute-console.socket
 Before=initrd-root-fs.target initrd-switch-root.target
 Conflicts=initrd-switch-root.target
 

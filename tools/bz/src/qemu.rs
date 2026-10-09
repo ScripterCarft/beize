@@ -331,6 +331,30 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         "first boot did not create the owner's account"
     );
     eprintln!("  ok: first boot created the owner's account \"{SMOKE_USER}\"");
+    // The setup mutes the console: no boot messages in the middle of its
+    // questions (found on the owner's PC, where they garbled the prompts).
+    let setup: Vec<&String> = first
+        .console
+        .iter()
+        .skip_while(|line| !line.contains("Welcome to Beize. Create your account"))
+        .take_while(|line| !line.contains(&created))
+        .collect();
+    let noise: Vec<&&String> = setup
+        .iter()
+        .filter(|line| {
+            line.contains("[  OK  ]") || line.contains("Starting ") || line.contains("Finished ")
+        })
+        .collect();
+    ensure!(
+        !setup.is_empty() && noise.is_empty(),
+        "boot messages appeared in the middle of the account setup:\n  {}",
+        noise
+            .iter()
+            .map(|l| l.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+    eprintln!("  ok: the account setup had the console to itself");
 
     util::step("Second boot");
     let second = boot_healthy(&machine, 2, &Answers::none())?;

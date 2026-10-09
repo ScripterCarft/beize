@@ -10,6 +10,7 @@
 
 mod accounts;
 mod crypt;
+mod mute;
 
 use std::fs;
 use std::os::unix::fs::{PermissionsExt, chown};
@@ -44,6 +45,10 @@ fn owner() -> Result<(), String> {
     let group = read(GROUP)?;
     let shadow = read(SHADOW)?;
 
+    // First mute, then clear: nothing the boot prints afterwards lands in
+    // the middle of the questions. Unmuted when `_muted` goes out of scope.
+    let _muted = mute::console();
+    print!("\x1b[H\x1b[2J");
     println!();
     println!("  Welcome to Beize. Create your account – you sign in with it, and its");
     println!("  password also opens the emergency console.");

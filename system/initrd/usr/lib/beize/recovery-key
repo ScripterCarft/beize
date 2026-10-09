@@ -32,6 +32,15 @@ if ! errors=$(systemd-cryptenroll --unlock-tpm2-device=auto --recovery-key "$dev
 fi
 read -r key < "$key_file"
 
+# Mute kernel and service manager output on the console while the key is on
+# screen (systemd-mute-console, as systemd-firstboot does): the call stays open
+# as long as varlinkctl runs, and its first reply means "muted". Then clear.
+coproc MUTE { exec varlinkctl call --more /run/systemd/io.systemd.MuteConsole \
+    io.systemd.MuteConsole.Mute '{}' 2>/dev/null; }
+read -r -t 5 _ <&"${MUTE[0]}" || true
+trap 'kill "$MUTE_PID" 2>/dev/null' EXIT
+printf '\e[H\e[2J'
+
 while IFS= read -r line; do
     echo "$line"
 done <<MESSAGE

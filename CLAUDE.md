@@ -268,60 +268,38 @@ Architekturentscheidung = neues ADR.
   Commit-SHAs pinnen), rustup-Warnung „$HOME differs“ im Container. Repo ist privat
   → Actions-Minuten sind begrenzt, volle Läufe sparsam.
 
-## 12. NÄCHSTE AUFGABE: mit dem Besitzer abstimmen
+## 12. STAND UND NÄCHSTE AUFGABE (2026-10-09)
 
-Zuletzt erledigt (2026-10-08): **`beize-tpm`** – erster eigener Rust-Code im Image
-(`os/`, `bz` baut Rust für das Ziel), prüft vor dem Neubinden Firmware-Protokoll gegen
-Profil und fragt bei neuem TPM nach (Kritik eines Reviewers umgesetzt).
-Davor: **TPM-Richtlinie fertig** – PCR 7 + signierte PCR-11-Richtlinie
-nur für die initrd, Recovery-Key in der initrd, Neu-Binden nach Wiederherstellung
-(dbx-/BIOS-Update, neuer TPM; nie ohne Secure Boot), pcrlock verworfen (ADR 0010).
-Davor: **Secure Boot für echte Hardware (ADR 0010)** – Beize
-als Plattform-Eigentümer mit Profil „Beize + Windows“, Einschreiben durch systemd-boot
-aus dem Setup-Modus (in jedem Smoke-Test), `bz secureboot new-keys` / `bz sign` mit
-1Password (nur im Terminal des Besitzers), Microsoft-Objekte gepinnt in `keys/microsoft/`.
-Vorher am selben Tag: CI repariert – Cache griff nie (zstd fehlte beim
-Wiederherstellen), Boot-Test im sauberen Bau rot (lvm2 schrieb ohne libudev eine
-udev-Regel mit `/usr/bin/blkid`). Wurzel behoben: jedes Paket sieht beim Bauen nur
-noch seine Abhängigkeiten (§9); dabei aufgefallen und festgelegt: coreutils mit libcap.
-Davor (2026-10-07): Root-Partition mit LUKS2 + TPM2 (ADR 0009) und Recovery-Key.
+**Beize läuft auf dem Rechner des Besitzers** (Samsung SSD 860 EVO, `/dev/sde` unter WSL):
+Produktionsschlüssel (1Password, öffentliche Teile in `keys/secureboot/`), Einschreiben
+durch systemd-boot, Secure Boot, LUKS2 + TPM, Recovery-Key, zweiter Start ohne Eingabe,
+Windows unverändert. Neu installieren: `keys/secureboot/README.md` (`bz build`, `bz sign`,
+`wsl --mount`, `bz install /dev/sde --guid "{6265697a-6500-4000-8000-000000000001}"
+--reinstall`). Ziel-SSD: Samsung, Disk 0 in Windows; die SanDisk 480 GB (E:, Daten) und
+die Corsair (Windows) nie anfassen. Hardware: ASUS ROG STRIX Z790-F GAMING WIFI, BIOS 3201,
+BitLocker aus.
 
-Noch offen aus dieser Runde: Builds sind nicht bit-genau reproduzierbar (Binaries
-unterscheiden sich zwischen Container-Bau und lokalem Bau; vermutlich der Build-Pfad
-`/w` vs. `~/beize`, nicht untersucht) – §7 „reproduzierbar“ gilt bisher nur für
-Zeitstempel/UUIDs.
+Erledigt in M2 (Details: ADR 0006–0010, Git-Log): signierte Quellen, CI mit Cache,
+Secure Boot mit eigenem PK (Profil „Beize + Windows“), `/usr` mit dm-verity, A/B-Slots,
+LUKS2 an PCR 7+12 + signierte PCR-11-Richtlinie „initrd“, `beize-tpm` (Neubinden nach
+Recovery nur bei erlaubtem Zustand, Start-Prüfung PCR 12), Härtung für echte Hardware,
+`bz install`, **Anmelden**: libxcrypt + Linux-PAM, login/sulogin, `os/beize-setup`
+(Konto beim ersten Start; root bekommt denselben Hash für die Notfall-Konsole),
+Konsole während Recovery-Key und Einrichtung stumm (`systemd-mute-console`), Terminus-
+Schrift. `bz smoke`: 33 Prüfungen grün, Start 5,26 s.
 
-**Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
-0. Erledigt (2026-10-09): Härtung für echte Hardware (ADR 0010 Nachtrag: PCR 12,
-   `beize-boot-check`, `image::Target` Vm/Hardware, Testhelfer nur mit Credential,
-   Kernel-Fragment `beize-hardware.config`) und Installer `bz install`. **Der Besitzer
-   kann jetzt auf der Samsung-SSD testen** (keys/secureboot/README.md, Schritte 1–3).
-   **Erster echter Start am 2026-10-09 erfolgreich** (Produktionsschlüssel erzeugt,
-   `bz install` auf `/dev/sde` per `wsl --mount`). Danach behoben: Recovery-Key wurde
-   vom tty1-Login sofort überschrieben → erster Start wartet jetzt auf `saved`;
-   Konsolenschrift Terminus 16×32 im Kernel (wird bei 1440p automatisch gewählt);
-   `bz install --reinstall`. Der Besitzer muss neu installieren, um einen
-   Recovery-Key zu bekommen (nachträglich geht es absichtlich nicht).
-   Zurückgestellt: Anmelden (PAM 1.7.3 + libxcrypt 4.5.2, Signaturschlüssel geprüft:
-   libxcrypt `678C E3FE E430 3115 96DB 8C16 F52E 9800 7594 C21D`,
-   Linux-PAM `7BEC FE3A F7B2 80BB 52FF 77F1 04BA 4521 C996 DDE1`).
-   Noch nicht auf echter Hardware geprüft: Hardware-Kommandozeile (Bildschirm-Konsole),
-   `bz install` über `wsl --mount` (Schreibweg = derselbe wie in `Machine::install`).
-1. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
-   Ziel-SSD laut Windows: **Samsung SSD 860 EVO 1 TB** (Disk 0, nur eine leere
-   MSR-Partition); die SanDisk 480 GB hat Daten (E:, 36 GB) – nicht anfassen. Vor dem
-   Löschen den Besitzer ausdrücklich bestätigen lassen. Mainboard bestätigt: ASUS ROG
-   STRIX Z790-F GAMING WIFI, BIOS 3201; Secure Boot unter Windows an, BitLocker aus.
-2. Der Besitzer erzeugt dazwischen seine Produktionsschlüssel (`keys/secureboot/README.md`).
+**Der Besitzer soll als Nächstes** neu bauen/signieren/installieren und beim ersten Start
+sein Konto anlegen (Anmelden auf echter Hardware ist noch ungeprüft).
 
-Erst den Besitzer fragen, womit es weitergeht; dann diesen Abschnitt durch die
-neue Aufgabe ersetzen.
+**Nächste Aufgaben für M2, in dieser Reihenfolge:**
+1. **Netzwerk über LAN** (Intel I225/I226, Treiber `igc` ist im Kernel):
+   systemd-networkd + resolved, DHCP; Smoke-Test mit virtio-net.
+2. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
+   optimieren: initrd verschlanken (17 MB, ganzes systemd), Kernel zuschneiden.
+3. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig.
+4. Danach eine Aufräumrunde vor M3: `qemu.rs` (>1000 Zeilen) aufteilen, `~/probe/probe.py`
+   als `bz debug` ins Repo, §12/ADR-Nachträge zu Endfassungen zusammenführen.
 
-**Stand 2026-10-09 abends (Kontingent erschöpft):** Anmelden gebaut – libxcrypt 4.5.2 +
-Linux-PAM 1.7.3 (Rezepte, signiert), util-linux mit login/sulogin, systemd mit PAM,
-PAM-Konfiguration in `system/usr/lib/pam.d`, eigenes `os/beize-setup` (legt beim ersten
-Start das Konto an, yescrypt; root bekommt denselben Hash für die Notfall-Konsole),
-Kernel mit Terminus 16×32. `bz smoke` legt Konto „smoke“ an. Letzter Smoke-Lauf
-(`~/smoke21.log`) war bis „Secure Boot aus“ grün; unsignierter Kernel, dm-verity und
-Besitzer-Ablauf standen noch aus – **zuerst prüfen**. Danach: Besitzer baut neu,
-`bz sign`, `bz install --reinstall`, legt beim ersten Start sein Konto an. Dann LAN.
+Offen und bewusst zurückgestellt: bit-genaue Builds (Binaries unterscheiden sich
+zwischen Container- und lokalem Bau, vermutlich Build-Pfad), WLAN, NVIDIA (M3),
+Rollback-Schutz für ältere signierte UKIs, TPM-Attestierung bei neuem TPM.

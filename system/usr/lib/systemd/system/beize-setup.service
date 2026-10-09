@@ -4,7 +4,7 @@ Documentation=file:/usr/lib/beize/beize-setup
 # Once per installation, before anyone can log in. Replaced by the graphical
 # onboarding later.
 ConditionPathExists=!/var/lib/beize/owner
-After=systemd-sysusers.service local-fs.target
+After=systemd-sysusers.service local-fs.target systemd-mute-console.socket
 Before=systemd-user-sessions.service getty@tty1.service serial-getty@ttyS0.service
 
 [Service]
