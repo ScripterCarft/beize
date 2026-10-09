@@ -126,6 +126,11 @@ pub fn microsoft_dir(paths: &Paths) -> PathBuf {
     paths.root.join("keys/microsoft")
 }
 
+/// The throwaway test keys (see [`Keys::test`]).
+pub fn test_keys_dir(paths: &Paths) -> PathBuf {
+    paths.work.join("secureboot-test")
+}
+
 /// What signs a build: the db key for boot binaries, the PCR key for the
 /// expected PCR 11 values of a UKI, and the enrollment files that make the
 /// firmware trust them.
@@ -139,7 +144,7 @@ pub struct Keys {
 impl Keys {
     /// Throwaway keys for development builds and QEMU tests; created on demand.
     pub fn test(paths: &Paths, profile: Profile) -> Result<Self> {
-        let dir = paths.work.join("secureboot-test");
+        let dir = test_keys_dir(paths);
         fs::create_dir_all(&dir)?;
         for (name, purpose) in [
             ("PK", "platform key"),

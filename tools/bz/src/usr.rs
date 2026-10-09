@@ -14,6 +14,7 @@ use crate::layout;
 use crate::packages::{self, BUILD_EPOCH};
 use crate::paths::Paths;
 use crate::say;
+use crate::stamp::Stamp;
 use crate::tree;
 use crate::util;
 
@@ -26,6 +27,23 @@ const USR_VERITY_UUID: &str = "6265697a-6500-4000-8000-000000000011";
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let definition = tree::image_definition(paths)?;
     let recipes = packages::build(paths, &definition.packages)?;
+
+    let image = paths.out.join("usr.erofs");
+    let stamp = Stamp::new(
+        paths,
+        "usr",
+        tree::assembly_inputs(paths, &recipes, "usr")?,
+        &[
+            &image,
+            &paths.out.join("usr.verity"),
+            &paths.out.join("usr.roothash"),
+        ],
+    );
+    if stamp.is_current() {
+        say!("  /usr image is up to date");
+        return Ok(image);
+    }
+    stamp.clear()?;
 
     util::step("Assembling /usr");
     for recipe in tree::target_packages(&recipes) {
@@ -59,7 +77,6 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     write_repart_definitions(&usr)?;
 
     util::step("Writing /usr image");
-    let image = paths.out.join("usr.erofs");
     let _ = fs::remove_file(&image);
     util::run(
         Command::new("mkfs.erofs")
@@ -87,6 +104,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
 
     let root_hash = build_verity(paths, &image)?;
     say!("  dm-verity root hash {root_hash}");
+    stamp.write()?;
     Ok(image)
 }
 

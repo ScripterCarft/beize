@@ -13,7 +13,7 @@ use crate::install;
 use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
-use crate::util;
+use crate::{stamp, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
@@ -67,6 +67,13 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         say!("  {up_to_date} of {} packages up to date", order.len());
     }
     Ok(order)
+}
+
+/// The fingerprint a package was last built with: what a step that uses
+/// the package puts into its own fingerprint.
+pub fn built_fingerprint(paths: &Paths, name: &str) -> Result<String> {
+    fs::read_to_string(paths.work.join("stamps").join(name))
+        .with_context(|| format!("{name} has not been built"))
 }
 
 /// Loads the given recipes and their dependencies, dependencies first.
@@ -145,25 +152,8 @@ fn repo_digest(paths: &Paths, recipe: &Recipe) -> Result<String> {
     }
     let mut hasher = Sha256::new();
     for entry in &recipe.repo {
-        let mut pending = vec![paths.root.join(entry)];
-        let mut files = Vec::new();
-        while let Some(path) = pending.pop() {
-            let meta = fs::symlink_metadata(&path)
-                .with_context(|| format!("{}: repo path {}", recipe.name, path.display()))?;
-            if meta.is_dir() {
-                for child in fs::read_dir(&path)? {
-                    pending.push(child?.path());
-                }
-            } else {
-                files.push(path);
-            }
-        }
-        files.sort();
-        for file in files {
-            let rel = file.strip_prefix(&paths.root).unwrap_or(&file);
-            hasher.update(format!("{}\n", rel.display()));
-            hasher.update(util::sha256_file(&file)?);
-        }
+        stamp::hash_tree(&mut hasher, &paths.root, &paths.root.join(entry))
+            .with_context(|| format!("{}: repo path {entry}", recipe.name))?;
     }
     Ok(hasher
         .finalize()

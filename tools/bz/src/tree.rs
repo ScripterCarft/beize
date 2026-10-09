@@ -10,10 +10,11 @@ use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 
 use crate::install;
-use crate::packages::{BUILD_EPOCH, TARGET};
+use crate::packages::{self, BUILD_EPOCH, TARGET};
 use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
+use crate::stamp::Fingerprint;
 use crate::util;
 
 /// `images/base.toml`: which packages go into the image and the initrd.
@@ -29,6 +30,21 @@ pub fn image_definition(paths: &Paths) -> Result<ImageDefinition> {
     let path = paths.root.join("images/base.toml");
     let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+}
+
+/// What a tree assembled from `recipes` and the repository's `system/<own>`
+/// files depends on: the image definition, the build of every package
+/// (including the toolchain that strips them) and those files.
+pub fn assembly_inputs(paths: &Paths, recipes: &[Recipe], own: &str) -> Result<Fingerprint> {
+    let mut inputs = Fingerprint::new()?.file(&paths.root.join("images/base.toml"))?;
+    for recipe in recipes {
+        inputs = inputs.text(&format!(
+            "{} {}",
+            recipe.name,
+            packages::built_fingerprint(paths, &recipe.name)?
+        ));
+    }
+    inputs.tree(&paths.root.join("system").join(own))
 }
 
 /// Build-time files that are never part of a running system.

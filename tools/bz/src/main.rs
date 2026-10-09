@@ -14,6 +14,7 @@ mod paths;
 mod recipe;
 mod secureboot;
 mod source;
+mod stamp;
 mod tree;
 mod usr;
 mod util;

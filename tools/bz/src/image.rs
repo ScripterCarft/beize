@@ -16,6 +16,7 @@ use crate::layout::{
 };
 use crate::paths::Paths;
 use crate::say;
+use crate::stamp::{Fingerprint, Stamp};
 use crate::{initrd, secureboot, util};
 
 const SECTOR: u64 = 512;
@@ -125,8 +126,48 @@ fn ukify(paths: &Paths) -> Result<Command> {
 
 /// Builds the boot chain, signs it with the test keys and writes `out/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
+    let disk = paths.out.join("disk.img");
+    let mut inputs = Fingerprint::new()?;
+    for built in [
+        "vmlinuz",
+        "kernel.release",
+        "initrd.cpio.zst",
+        "usr.erofs",
+        "usr.verity",
+        "usr.roothash",
+    ] {
+        inputs = inputs.file(&paths.out.join(built))?;
+    }
+    inputs = inputs
+        .tree(&paths.sysroot.join("usr/lib/systemd/boot/efi"))?
+        .file(&paths.sysroot.join("usr/lib/beize-build/ukify"))?
+        .tree(&secureboot::microsoft_dir(paths))?;
+    // The test keys, not the enrollment files made from them: those carry
+    // the time of signing and differ on every build.
+    let test_keys = secureboot::test_keys_dir(paths);
+    if test_keys.is_dir() {
+        for entry in fs::read_dir(&test_keys)? {
+            let path = entry?.path();
+            if path.is_file() {
+                inputs = inputs.file(&path)?;
+            }
+        }
+    }
+    let stamp = Stamp::new(
+        paths,
+        "image",
+        inputs,
+        &[&disk, &unsigned_uki(paths), &paths.out.join("beize.efi")],
+    );
+    if stamp.is_current() {
+        say!("  disk image is up to date");
+        return Ok(disk);
+    }
+    stamp.clear()?;
     let keys = secureboot::Keys::test(paths, PROFILE)?;
-    assemble(paths, &keys, &paths.out, Target::Vm)
+    let disk = assemble(paths, &keys, &paths.out, Target::Vm)?;
+    stamp.write()?;
+    Ok(disk)
 }
 
 /// Builds the boot chain and disk image for real hardware into

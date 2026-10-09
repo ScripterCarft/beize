@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use crate::paths::Paths;
 use crate::recipe::Recipe;
 use crate::say;
+use crate::stamp::{Fingerprint, Stamp};
 use crate::util;
 
 /// Fixed build metadata so the same sources produce the same kernel.
@@ -18,9 +19,6 @@ const BUILD_TIMESTAMP: &str = "Thu Jan  1 00:00:00 UTC 1970";
 /// Configures and builds the kernel. Returns the path of the bzImage in `out/`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let recipe = Recipe::load(paths, "linux")?;
-    let src = recipe.unpack(paths)?;
-    let obj = paths.work.join("linux-obj");
-    fs::create_dir_all(&obj)?;
     // Every fragment in kernel/config, in name order: one image for the VM
     // tests and for real hardware.
     let mut fragments: Vec<PathBuf> = fs::read_dir(paths.root.join("kernel/config"))?
@@ -29,6 +27,23 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     fragments.retain(|path| path.extension().is_some_and(|ext| ext == "config"));
     fragments.sort();
 
+    let image = paths.out.join("vmlinuz");
+    let release_file = paths.out.join("kernel.release");
+    // The recipe pins the source; the fragments are the configuration.
+    let mut inputs = Fingerprint::new()?.text(&recipe.text);
+    for fragment in &fragments {
+        inputs = inputs.file(fragment)?;
+    }
+    let stamp = Stamp::new(paths, "kernel", inputs, &[&image, &release_file]);
+    if stamp.is_current() {
+        say!("  linux {} is up to date", recipe.version);
+        return Ok(image);
+    }
+    stamp.clear()?;
+
+    let src = recipe.unpack(paths)?;
+    let obj = paths.work.join("linux-obj");
+    fs::create_dir_all(&obj)?;
     util::step(&format!("Configuring linux {}", recipe.version));
     util::run(make(&src, &obj).args(["defconfig", "kvm_guest.config"]))?;
     util::run(
@@ -54,9 +69,9 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     )?;
 
     let release = util::output(make(&src, &obj).args(["-s", "kernelrelease"]))?;
-    let image = paths.out.join("vmlinuz");
     fs::copy(obj.join("arch/x86/boot/bzImage"), &image)?;
-    fs::write(paths.out.join("kernel.release"), &release)?;
+    fs::write(&release_file, &release)?;
+    stamp.write()?;
     say!("  kernel {release} -> {}", image.display());
     Ok(image)
 }

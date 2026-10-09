@@ -16,6 +16,7 @@ use crate::layout;
 use crate::packages;
 use crate::paths::Paths;
 use crate::say;
+use crate::stamp::Stamp;
 use crate::tree;
 use crate::usr;
 use crate::util;
@@ -34,6 +35,19 @@ const SKIPPED: [&str; 5] = [
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let definition = tree::image_definition(paths)?;
     let recipes = packages::build(paths, &definition.initrd)?;
+
+    let image = paths.out.join("initrd.cpio.zst");
+    let stamp = Stamp::new(
+        paths,
+        "initrd",
+        tree::assembly_inputs(paths, &recipes, "initrd")?,
+        &[&image],
+    );
+    if stamp.is_current() {
+        say!("  initrd is up to date");
+        return Ok(image);
+    }
+    stamp.clear()?;
 
     util::step("Assembling initrd");
     let root = tree::recreate(&paths.work.join("initrd-tree"))?;
@@ -67,8 +81,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     tree::normalize_mtimes(&root)?;
 
     util::step("Packing initrd");
-    let image = paths.out.join("initrd.cpio.zst");
     pack(&root, &image)?;
+    stamp.write()?;
     say!(
         "  initrd -> {} ({:.1} MiB)",
         image.display(),
