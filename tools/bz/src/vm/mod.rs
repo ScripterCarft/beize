@@ -3,10 +3,12 @@
 
 mod checks;
 mod console;
+mod debug;
 mod machine;
 mod report;
 mod run;
 mod smoke;
 
+pub use debug::debug;
 pub use run::run;
 pub use smoke::smoke;

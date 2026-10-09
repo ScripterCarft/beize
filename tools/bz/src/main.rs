@@ -54,6 +54,21 @@ enum Command {
     Build,
     /// Boot the image in QEMU with an interactive serial console (state is kept between runs)
     Run,
+    /// Boot a VM headless, run commands on its root shell and print their
+    /// output, e.g. `bz debug 'journalctl -b -p warning'`
+    Debug {
+        /// `run` (the VM of `bz run`) or a machine `bz smoke` left in build/work
+        #[arg(long, default_value = "run")]
+        machine: String,
+        /// Typed when the boot asks for the recovery key
+        #[arg(long)]
+        recovery_key: Option<String>,
+        /// Another TPM state directory in build/work, e.g. `smoke-other-tpm`
+        #[arg(long)]
+        tpm: Option<String>,
+        /// Commands for the root shell; `@wait N` pauses N seconds
+        commands: Vec<String>,
+    },
     /// Install the image on a fresh test disk, boot it twice and verify everything
     Smoke,
     /// Show which package installed a file (e.g. `bz owner /usr/bin/bash`)
@@ -102,6 +117,18 @@ fn main() -> Result<()> {
         Command::Image => image::build(&paths).map(drop),
         Command::Build => build_all(&paths),
         Command::Run => vm::run(&paths),
+        Command::Debug {
+            machine,
+            recovery_key,
+            tpm,
+            commands,
+        } => vm::debug(
+            &paths,
+            &machine,
+            recovery_key.as_deref(),
+            tpm.as_deref(),
+            &commands,
+        ),
         Command::Smoke => vm::smoke(&paths),
         Command::Owner { path } => {
             println!("{}", install::owner(&paths, &path)?);

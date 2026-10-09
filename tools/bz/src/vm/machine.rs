@@ -239,8 +239,18 @@ impl Drop for Swtpm {
 }
 
 /// Where boot consoles are logged, one file per boot.
-pub(super) fn boot_logs(paths: &Paths) -> PathBuf {
+fn boot_logs(paths: &Paths) -> PathBuf {
     paths.work.join("logs/boot")
+}
+
+/// Empties the boot logs: they always belong to the latest `bz smoke`,
+/// `bz debug` or `bz run`, numbered in the order of its boots.
+pub(super) fn clear_boot_logs(paths: &Paths) -> Result<()> {
+    let logs = boot_logs(paths);
+    if logs.exists() {
+        fs::remove_dir_all(&logs)?;
+    }
+    Ok(())
 }
 
 /// Applies `virt-fw-vars` options to a machine's firmware variables in place.

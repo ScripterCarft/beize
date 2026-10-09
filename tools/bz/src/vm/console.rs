@@ -5,9 +5,9 @@ use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{ChildStdin, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -127,9 +127,122 @@ fn type_line(stdin: &mut ChildStdin, text: &str) {
     let _ = stdin.flush();
 }
 
-enum ConsoleEvent<T> {
-    Verdict(T),
+/// What the reader thread passes on.
+pub(super) enum ConsoleEvent {
+    /// A complete console line (with terminal control sequences).
+    Line(String),
+    /// The boot asked for the recovery key (and got it, if one was given).
     Prompted,
+}
+
+/// What a boot's console showed, collected by the reader thread.
+#[derive(Default)]
+struct Seen {
+    failures: Vec<String>,
+    console: Vec<String>,
+    prompted: bool,
+}
+
+/// A headless boot in progress: QEMU with the serial console on a pipe. A
+/// reader thread logs every line, answers the console's questions as the
+/// owner would and passes the lines on. Dropping it stops QEMU.
+pub(super) struct Session {
+    child: Child,
+    stdin: Arc<Mutex<ChildStdin>>,
+    events: mpsc::Receiver<ConsoleEvent>,
+    reader: Option<thread::JoinHandle<Seen>>,
+    started: Instant,
+    /// Kept until QEMU is stopped.
+    _tpm: Swtpm,
+}
+
+impl Session {
+    /// Powers the machine on, passing `credential` via SMBIOS.
+    pub(super) fn start(machine: &Machine, answers: &Answers, credential: &str) -> Result<Self> {
+        let tpm = Swtpm::start(&machine.tpm)?;
+        fs::create_dir_all(&machine.logs)?;
+        let log_path = machine.logs.join(format!(
+            "{:02}-{}.log",
+            BOOTS.fetch_add(1, Ordering::Relaxed) + 1,
+            machine.name()
+        ));
+        let log = File::create(&log_path)?;
+        LAST_CONSOLE.set(Some(log_path));
+        let started = Instant::now();
+        let mut child = qemu(machine, &tpm)?
+            .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
+            .args(["-smbios", credential])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .context("starting qemu")?;
+        let stdout = child.stdout.take().context("qemu stdout")?;
+        let stdin = Arc::new(Mutex::new(child.stdin.take().context("qemu stdin")?));
+        let (tx, events) = mpsc::channel();
+        let reader = {
+            let stdin = Arc::clone(&stdin);
+            let answers = answers.clone();
+            thread::spawn(move || read_console(stdout, log, &stdin, &answers, &tx))
+        };
+        Ok(Self {
+            child,
+            stdin,
+            events,
+            reader: Some(reader),
+            started,
+            _tpm: tpm,
+        })
+    }
+
+    /// The next console event; `None` once `deadline` passed or QEMU ended.
+    pub(super) fn next(&self, deadline: Instant) -> Option<ConsoleEvent> {
+        self.events
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .ok()
+    }
+
+    /// Types a line at the console.
+    pub(super) fn type_line(&self, text: &str) {
+        if let Ok(mut stdin) = self.stdin.lock() {
+            type_line(&mut stdin, text);
+        }
+    }
+
+    /// Gives the guest `grace` to power off by itself, then stops QEMU.
+    /// Returns whether the guest powered off and what its console showed.
+    fn finish(mut self, grace: Duration) -> Result<(bool, Seen)> {
+        let deadline = Instant::now() + grace;
+        while self.child.try_wait()?.is_none() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(100));
+        }
+        let powered_off = self.child.try_wait()?.is_some();
+        self.stop();
+        let seen = self
+            .reader
+            .take()
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        Ok((powered_off, seen))
+    }
+
+    /// Gives the guest `grace` to power off, then stops QEMU; returns
+    /// whether the guest powered off by itself.
+    pub(super) fn power_off_within(self, grace: Duration) -> Result<bool> {
+        Ok(self.finish(grace)?.0)
+    }
+
+    fn stop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 /// Writes a console line to the boot's log (and, with `--verbose`, here).
@@ -140,115 +253,92 @@ fn echo(log: &mut File, line: &str) {
     }
 }
 
+/// The reader thread: logs every console line, answers the console's
+/// questions and passes the lines on until QEMU closes the console.
+fn read_console(
+    mut stdout: ChildStdout,
+    mut log: File,
+    stdin: &Mutex<ChildStdin>,
+    answers: &Answers,
+    events: &mpsc::Sender<ConsoleEvent>,
+) -> Seen {
+    let answer = |text: &str| {
+        if let Ok(mut stdin) = stdin.lock() {
+            type_line(&mut stdin, text);
+        }
+    };
+    let mut seen = Seen::default();
+    let replies = answers.replies();
+    let mut replied = vec![false; replies.len()];
+    let mut pending = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while let Ok(n @ 1..) = stdout.read(&mut chunk) {
+        pending.extend_from_slice(&chunk[..n]);
+        while let Some(end) = pending.iter().position(|&b| b == b'\n') {
+            let raw: Vec<u8> = pending.drain(..=end).collect();
+            let line = String::from_utf8_lossy(&raw);
+            let line = line.trim_end_matches(['\r', '\n']);
+            echo(&mut log, line);
+            if is_unit_failure(line) {
+                seen.failures.push(strip_ansi(line));
+            }
+            seen.console.push(strip_ansi(line));
+            let _ = events.send(ConsoleEvent::Line(line.to_owned()));
+        }
+        let shown = strip_ansi(&String::from_utf8_lossy(&pending));
+        if !seen.prompted && is_passphrase_prompt(&shown) {
+            seen.prompted = true;
+            if let Some(key) = &answers.recovery_key {
+                echo(&mut log, "(typing the recovery key)");
+                answer(key);
+            }
+            let _ = events.send(ConsoleEvent::Prompted);
+        }
+        for ((prompt, reply), replied) in replies.iter().zip(&mut replied) {
+            if !*replied && shown.contains(prompt) {
+                *replied = true;
+                echo(&mut log, &format!("(answering \"{prompt}\": {reply})"));
+                answer(reply);
+            }
+        }
+    }
+    seen
+}
+
 /// Boots headless and feeds every console line to `verdict` until it
 /// answers or `timeout` passes, typing `answers` at the console's questions.
 /// Without a recovery key, being asked for one ends the boot. QEMU is always
 /// stopped before returning.
-pub(super) fn watch_boot<T: Send + 'static>(
+pub(super) fn watch_boot<T>(
     machine: &Machine,
     timeout: Duration,
     answers: &Answers,
-    verdict: impl Fn(&str) -> Option<T> + Send + 'static,
+    verdict: impl Fn(&str) -> Option<T>,
 ) -> Result<BootRun<T>> {
-    let answers = answers.clone();
-    let tpm = Swtpm::start(&machine.tpm)?;
-    let started = Instant::now();
-    let mut child = qemu(machine, &tpm)?
-        .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
-        .args(["-smbios", SMOKE_CREDENTIAL])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("starting qemu")?;
-
-    let mut stdout = child.stdout.take().context("qemu stdout")?;
-    let mut stdin = child.stdin.take().context("qemu stdin")?;
-    fs::create_dir_all(&machine.logs)?;
-    let log_path = machine.logs.join(format!(
-        "{:02}-{}.log",
-        BOOTS.fetch_add(1, Ordering::Relaxed) + 1,
-        machine.name()
-    ));
-    let mut log = File::create(&log_path)?;
-    LAST_CONSOLE.set(Some(log_path));
-    let stop_at_prompt = answers.recovery_key.is_none();
-    let (tx, rx) = mpsc::channel();
-    let reader = thread::spawn(move || {
-        let mut failures = Vec::new();
-        let mut console = Vec::new();
-        let mut answered = false;
-        let mut prompted = false;
-        let replies = answers.replies();
-        let mut replied = vec![false; replies.len()];
-        let mut pending = Vec::new();
-        let mut chunk = [0u8; 4096];
-        while let Ok(n @ 1..) = stdout.read(&mut chunk) {
-            pending.extend_from_slice(&chunk[..n]);
-            while let Some(end) = pending.iter().position(|&b| b == b'\n') {
-                let raw: Vec<u8> = pending.drain(..=end).collect();
-                let line = String::from_utf8_lossy(&raw);
-                let line = line.trim_end_matches(['\r', '\n']);
-                echo(&mut log, line);
-                if is_unit_failure(line) {
-                    failures.push(strip_ansi(line));
-                }
-                if !answered && let Some(answer) = verdict(line) {
-                    answered = true;
-                    let _ = tx.send(ConsoleEvent::Verdict(answer));
-                }
-                console.push(strip_ansi(line));
-            }
-            let shown = strip_ansi(&String::from_utf8_lossy(&pending));
-            if !prompted && is_passphrase_prompt(&shown) {
-                prompted = true;
-                if let Some(key) = &answers.recovery_key {
-                    echo(&mut log, "(typing the recovery key)");
-                    type_line(&mut stdin, key);
-                }
-                let _ = tx.send(ConsoleEvent::Prompted);
-            }
-            for ((prompt, answer), replied) in replies.iter().zip(&mut replied) {
-                if !*replied && shown.contains(prompt) {
-                    *replied = true;
-                    echo(&mut log, &format!("(answering \"{prompt}\": {answer})"));
-                    type_line(&mut stdin, answer);
-                }
-            }
-        }
-        (failures, console, prompted)
-    });
-
-    let deadline = started + timeout;
+    let session = Session::start(machine, answers, SMOKE_CREDENTIAL)?;
+    let deadline = session.started + timeout;
     let mut answer = None;
-    loop {
-        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(ConsoleEvent::Verdict(verdict)) => {
-                answer = Some((verdict, started.elapsed()));
-                break;
+    while let Some(event) = session.next(deadline) {
+        match event {
+            ConsoleEvent::Line(line) => {
+                if let Some(found) = verdict(&line) {
+                    answer = Some((found, session.started.elapsed()));
+                    break;
+                }
             }
-            Ok(ConsoleEvent::Prompted) if stop_at_prompt => break,
-            Ok(ConsoleEvent::Prompted) => {}
-            Err(_) => break,
+            ConsoleEvent::Prompted if answers.recovery_key.is_none() => break,
+            ConsoleEvent::Prompted => {}
         }
     }
     // A healthy guest powers off right after reporting; give it a moment.
-    let grace = if answer.is_some() { 10 } else { 0 };
-    let deadline = Instant::now() + Duration::from_secs(grace);
-    while child.try_wait()?.is_none() && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(100));
-    }
-    let powered_off = child.try_wait()?.is_some();
-    if !powered_off {
-        child.kill()?;
-        child.wait()?;
-    }
-    let (failures, console, prompted) = reader.join().unwrap_or_default();
+    let grace = Duration::from_secs(if answer.is_some() { 10 } else { 0 });
+    let (powered_off, seen) = session.finish(grace)?;
     Ok(BootRun {
         answer,
         powered_off,
-        failures,
-        prompted,
-        console,
+        failures: seen.failures,
+        prompted: seen.prompted,
+        console: seen.console,
     })
 }
 

@@ -16,7 +16,7 @@ use super::console::{
     Answers, LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS, SMOKE_USER,
     TAMPER_TIMEOUT, find_recovery_key, watch_boot,
 };
-use super::machine::{Machine, boot_logs, edit_firmware, new_tpm};
+use super::machine::{Machine, clear_boot_logs, edit_firmware, new_tpm};
 use super::report::{BootReport, REPORT_MARKER};
 use crate::paths::Paths;
 use crate::{image, secureboot, util};
@@ -35,10 +35,7 @@ use crate::{image, secureboot, util};
 /// Each boot's console goes to `build/work/logs/boot/`; a failure shows the
 /// end of the last one. The summary lists every step with its duration.
 pub fn smoke(paths: &Paths) -> Result<()> {
-    let logs = boot_logs(paths);
-    if logs.exists() {
-        fs::remove_dir_all(&logs)?;
-    }
+    clear_boot_logs(paths)?;
     let mut steps = Steps::new();
     let result = smoke_steps(paths, &mut steps);
     if result.is_err()

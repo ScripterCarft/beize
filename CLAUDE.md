@@ -98,6 +98,9 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz build       # kernel → Pakete → usr (+verity) → initrd → image  (inkrementell)
 ./bz smoke       # DER Abnahmetest, muss nach jeder Änderung grün sein
 ./bz run         # interaktiv (Ctrl-A X), VM-Disk bleibt bis zum nächsten Image erhalten
+./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell der run-VM, Ausgabe auf stdout
+#   --machine smoke (liegengebliebene Test-Disk) · --tpm smoke-other-tpm · --recovery-key … · '@wait N'
+./bz -v …        # alles ausgeben; sonst nur Fehler (letzte 40 Zeilen), Konsolen in build/work/logs/boot/
 ./bz package <name> · ./bz usr · ./bz initrd · ./bz image · ./bz owner /usr/bin/bash
 # nur der Besitzer, im Terminal (TTY-Sperre), mit 1Password – nie von Claude ausführen:
 ./bz secureboot new-keys · ./bz sign · ./bz install /dev/sdX --guid "{…}"
@@ -243,10 +246,8 @@ Architekturentscheidung = neues ADR.
   (Test `only_root_grows`). Vorab prüfen: `systemd-repart --definitions=… --dry-run=yes <Kopie>`.
 - systemd-Konsolenzeilen enthalten ANSI-Farbcodes **mitten im Text** („Failed to
   start \e[0;1;39mCryptography…“) → vor dem Vergleich `strip_ansi`.
-- Im Gast nachsehen (PCRs, Journal …): VM per Skript mit stdin-Pipe starten und
-  Befehle an die Autologin-Shell auf ttyS0 schicken (QEMU-Argumente wie `qemu.rs`,
-  swtpm vorher starten). So wurde z. B. der PCR-11-Wert mit `systemd-measure
-  calculate` abgeglichen.
+- Im Gast nachsehen (PCRs, Journal …): `bz debug` (siehe §6). So wurde z. B. der
+  PCR-11-Wert mit `systemd-measure calculate` abgeglichen.
 
 ## 11. Offene Punkte (außer der aktuellen Aufgabe)
 
@@ -258,9 +259,6 @@ Architekturentscheidung = neues ADR.
 - TPM: Rollback – jedes ältere, mit demselben PCR-Schlüssel signierte UKI erfüllt die
   Richtlinie ebenfalls (Abhilfe erst mit Versions-Sperre/Schlüsselwechsel).
   `CONFIG_TCG_TPM2_HMAC` ist aus (ADR 0009). pcrlock verworfen (ADR 0010).
-- Debug-Hilfe außerhalb des Repos: `~/probe/probe.py NAME KEY|"" TPM-DIR CMD…` bootet
-  eine liegengebliebene Test-Disk aus `build/work`, tippt ggf. den Recovery-Key und
-  führt Befehle auf der Autologin-Shell aus (kein grep im Gast: Bash-`case`).
 - Profil „Nur Beize“ (ADR 0010): vorher klären, welche Option-ROMs der Rechner
   braucht (RTX 3070 Ti: GOP mit Microsoft UEFI CA 2011 signiert) – Hashes aus dem
   TPM-Ereignisprotokoll statt der ganzen CA. Profilwechsel aus dem laufenden System.
