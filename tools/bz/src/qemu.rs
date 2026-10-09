@@ -1,10 +1,12 @@
 //! Booting the disk image in QEMU: interactively (`bz run`) and as the
 //! automated end-to-end test (`bz smoke`).
 
-use std::fs;
+use std::cell::RefCell;
+use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -118,6 +120,8 @@ struct Machine {
     /// The hardware clock's time at power-on (QEMU `-rtc base=`); `None`:
     /// the host's time, like a working clock.
     rtc: Option<&'static str>,
+    /// Where the console of each boot is logged.
+    logs: PathBuf,
 }
 
 impl Machine {
@@ -128,7 +132,15 @@ impl Machine {
             tpm: paths.work.join(format!("{name}-tpm")),
             smbios: Vec::new(),
             rtc: None,
+            logs: boot_logs(paths),
         }
+    }
+
+    /// The machine's name, as in its file names.
+    fn name(&self) -> String {
+        self.disk
+            .file_stem()
+            .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned())
     }
 
     /// Installs the current image onto a fresh test disk (`name.img`); see
@@ -322,7 +334,7 @@ pub fn run(paths: &Paths) -> Result<()> {
     }
     util::step("Booting in QEMU (quit with Ctrl-A X)");
     let tpm = Swtpm::start(&machine.tpm)?;
-    util::run(
+    util::run_attached(
         qemu(&machine, &tpm)?
             .args(["-nographic", "-serial", "mon:stdio"])
             .args(["-smbios", DEBUG_CONSOLE_CREDENTIAL]),
@@ -339,10 +351,97 @@ pub fn run(paths: &Paths) -> Result<()> {
 ///
 /// The firmware is set up like a PC as shipped, with Beize's db certificate
 /// appended (ADR 0010).
+///
+/// Each boot's console goes to `build/work/logs/boot/`; a failure shows the
+/// end of the last one. The summary lists every step with its duration.
 pub fn smoke(paths: &Paths) -> Result<()> {
+    let logs = boot_logs(paths);
+    if logs.exists() {
+        fs::remove_dir_all(&logs)?;
+    }
+    let mut steps = Steps::new();
+    let result = smoke_steps(paths, &mut steps);
+    if result.is_err()
+        && let Some(log) = LAST_CONSOLE.with_borrow(Clone::clone)
+    {
+        util::print_tail(&log);
+    }
+    steps.summary(result.is_ok());
+    result
+}
+
+/// The steps of a test run with their durations, for the summary at the end.
+struct Steps {
+    started: Instant,
+    current: Option<(String, Instant)>,
+    done: Vec<(String, Duration)>,
+}
+
+impl Steps {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            current: None,
+            done: Vec::new(),
+        }
+    }
+
+    fn begin(&mut self, title: &str) {
+        self.finish();
+        util::step(title);
+        self.current = Some((title.to_owned(), Instant::now()));
+    }
+
+    fn finish(&mut self) {
+        if let Some((title, started)) = self.current.take() {
+            self.done.push((title, started.elapsed()));
+        }
+    }
+
+    /// Lists the steps that passed and, unless `passed`, the one that failed.
+    fn summary(mut self, passed: bool) {
+        let failed = if passed {
+            self.finish();
+            None
+        } else {
+            self.current.take()
+        };
+        util::step("Summary");
+        for (title, took) in &self.done {
+            eprintln!("  ok     {:>4.0}s  {title}", took.as_secs_f64());
+        }
+        if let Some((title, started)) = failed {
+            eprintln!(
+                "  FAILED {:>4.0}s  {title}",
+                started.elapsed().as_secs_f64()
+            );
+        }
+        eprintln!(
+            "  {} after {:.0}s",
+            if passed { "passed" } else { "FAILED" },
+            self.started.elapsed().as_secs_f64()
+        );
+    }
+}
+
+/// Where boot consoles are logged, one file per boot.
+fn boot_logs(paths: &Paths) -> PathBuf {
+    paths.work.join("logs/boot")
+}
+
+/// Numbers the boot logs in the order of the boots.
+static BOOTS: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    /// The console log of this thread's latest boot: shown when a check fails.
+    static LAST_CONSOLE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+fn smoke_steps(paths: &Paths, steps: &mut Steps) -> Result<()> {
+    steps.begin("Installing the image on a fresh test disk");
     let machine = Machine::install(paths, "smoke")?;
 
-    util::step("First boot");
+    steps.begin("First boot");
     let first = boot_healthy(&machine, 1, &Answers::none())?;
     check_partitions(&machine.disk)?;
     check_blessed(&machine.disk)?;
@@ -390,7 +489,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     );
     eprintln!("  ok: the account setup had the console to itself");
 
-    util::step("Second boot");
+    steps.begin("Second boot");
     let second = boot_healthy(&machine, 2, &Answers::none())?;
     ensure!(
         second.report.machine_id == first.report.machine_id,
@@ -416,7 +515,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     );
     eprintln!("  ok: the owner's account was set up only once");
 
-    util::step("A boot with something added must stop before asking for the recovery key");
+    steps.begin("A boot with something added must stop before asking for the recovery key");
     // Like a firmware whose SMBIOS OEM strings were rewritten from another OS:
     // systemd-stub appends these kernel parameters even under Secure Boot.
     let added = Machine {
@@ -438,10 +537,10 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         "a boot with added kernel parameters asked for the recovery key"
     );
     eprintln!(
-        "\n  ok: the changed boot stopped before unlocking, without asking for the recovery key"
+        "  ok: the changed boot stopped before unlocking, without asking for the recovery key"
     );
 
-    util::step("A Secure Boot update needs the recovery key once, then the TPM unlocks again");
+    steps.begin("A Secure Boot update needs the recovery key once, then the TPM unlocks again");
     // Like Windows installing a revocation: a new dbx entry changes PCR 7.
     edit_firmware(
         &machine,
@@ -450,7 +549,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     let with_key = Answers::recovery_key(&recovery_key);
     expect_rebound(&machine, 3, &with_key, "the Secure Boot update")?;
 
-    util::step("A foreign certificate in db must not be approved, even with the recovery key");
+    steps.begin("A foreign certificate in db must not be approved, even with the recovery key");
     // Like someone appending their own certificate in the firmware setup.
     let approved = paths.work.join("smoke-vars-approved.fd");
     fs::copy(&machine.vars, &approved)?;
@@ -474,7 +573,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     boot_healthy(&machine, 7, &Answers::none())?;
     eprintln!("  ok: back in the approved state the TPM unlocked by itself");
 
-    util::step("Another TPM (new mainboard) is adopted only when the owner confirms it");
+    steps.begin("Another TPM (new mainboard) is adopted only when the owner confirms it");
     let other_tpm = Machine {
         tpm: paths.work.join("smoke-other-tpm"),
         ..machine.clone()
@@ -496,7 +595,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     // From here on the volume is bound to the other TPM: the machine's own
     // TPM must not unlock it any more (checked below, with Secure Boot off).
 
-    util::step("The root partition must stay locked with Secure Boot disabled");
+    steps.begin("The root partition must stay locked with Secure Boot disabled");
     let insecure = Machine {
         vars: paths.work.join("smoke-insecure-vars.fd"),
         ..machine.clone()
@@ -524,7 +623,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     fs::remove_file(&insecure.vars)?;
     machine.remove()?;
 
-    util::step("Secure Boot must refuse an unsigned kernel image");
+    steps.begin("Secure Boot must refuse an unsigned kernel image");
     let machine = Machine::install(paths, "tampered")?;
     util::run(
         Command::new("mcopy")
@@ -545,7 +644,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     });
     machine.remove()?;
     match run?.answer {
-        Some((true, _)) => eprintln!("\n  ok: the unsigned kernel image was refused"),
+        Some((true, _)) => eprintln!("  ok: the unsigned kernel image was refused"),
         Some((false, _)) => bail!("an unsigned kernel image booted under Secure Boot"),
         None => bail!(
             "no verdict on the unsigned kernel image within {}s",
@@ -553,7 +652,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         ),
     }
 
-    util::step("dm-verity must detect a modified /usr");
+    steps.begin("dm-verity must detect a modified /usr");
     let machine = Machine::install(paths, "tampered")?;
     // Flip one byte of the EROFS superblock (at 1 KiB) in /usr slot A.
     {
@@ -579,7 +678,7 @@ pub fn smoke(paths: &Paths) -> Result<()> {
     });
     machine.remove()?;
     match run?.answer {
-        Some((true, _)) => eprintln!("\n  ok: the modified /usr was detected and not used"),
+        Some((true, _)) => eprintln!("  ok: the modified /usr was detected and not used"),
         Some((false, _)) => bail!("the system booted from a modified /usr"),
         None => bail!(
             "no verdict on the modified /usr within {}s",
@@ -587,15 +686,15 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         ),
     }
 
-    util::step("The owner's signing workflow must yield an image that boots");
-    owner_workflow(paths)?;
+    steps.begin("The owner's signing workflow must yield an image that boots");
+    owner_workflow(paths, steps)?;
     Ok(())
 }
 
 /// Runs the owner's workflow end to end – `bz secureboot new-keys`, then
 /// `bz sign` – with a throwaway directory instead of 1Password, and boots the
 /// result: enrollment from setup mode, then a healthy first boot.
-fn owner_workflow(paths: &Paths) -> Result<()> {
+fn owner_workflow(paths: &Paths, steps: &mut Steps) -> Result<()> {
     let dir = paths.work.join("owner-workflow");
     if dir.exists() {
         fs::remove_dir_all(&dir)?;
@@ -617,10 +716,10 @@ fn owner_workflow(paths: &Paths) -> Result<()> {
 
     let machine = Machine::install_from(paths, "owner", &disk)?;
     boot_healthy(&machine, 1, &Answers::none())?;
-    empty_battery(&machine)?;
+    eprintln!("  ok: keys from the key store signed an image that boots under Secure Boot");
+    empty_battery(&machine, steps)?;
     machine.remove()?;
     fs::remove_dir_all(&dir)?;
-    eprintln!("  ok: keys from the key store signed an image that boots under Secure Boot");
     Ok(())
 }
 
@@ -630,8 +729,8 @@ const EMPTY_BATTERY_RTC: &str = "2000-01-01T00:00:00";
 /// Boots with the hardware clock reset to 2000: systemd must move the clock
 /// to at least Beize's build time (or the last verified time saved by
 /// beize-save-clock), so certificates and NTS can work (ADR 0012).
-fn empty_battery(machine: &Machine) -> Result<()> {
-    util::step("A hardware clock reset to 2000 (empty BIOS battery) must not set the time back");
+fn empty_battery(machine: &Machine, steps: &mut Steps) -> Result<()> {
+    steps.begin("A hardware clock reset to 2000 (empty BIOS battery) must not set the time back");
     let reset = Machine {
         rtc: Some(EMPTY_BATTERY_RTC),
         ..machine.clone()
@@ -745,7 +844,7 @@ fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Res
         report.boot
     );
     eprintln!(
-        "\n  ok: boot #{} running under Secure Boot after {} guest uptime \
+        "  ok: boot #{} running under Secure Boot after {} guest uptime \
          ({:.1}s including firmware), network via DHCP, no failed units, clean power-off \
          (NTS key exchange with {} time servers)",
         report.boot,
@@ -869,7 +968,7 @@ fn expect_root_locked(machine: &Machine, condition: &str) -> Result<()> {
             TAMPER_TIMEOUT.as_secs()
         ),
     }
-    eprintln!("\n  ok: with {condition} the TPM did not unlock the root partition");
+    eprintln!("  ok: with {condition} the TPM did not unlock the root partition");
     Ok(())
 }
 
@@ -1081,6 +1180,14 @@ enum ConsoleEvent<T> {
     Prompted,
 }
 
+/// Writes a console line to the boot's log (and, with `--verbose`, here).
+fn echo(log: &mut File, line: &str) {
+    let _ = writeln!(log, "{line}");
+    if util::verbose() {
+        eprintln!("  | {line}");
+    }
+}
+
 /// Boots headless and feeds every console line to `verdict` until it
 /// answers or `timeout` passes, typing `answers` at the console's questions.
 /// Without a recovery key, being asked for one ends the boot. QEMU is always
@@ -1104,6 +1211,14 @@ fn watch_boot<T: Send + 'static>(
 
     let mut stdout = child.stdout.take().context("qemu stdout")?;
     let mut stdin = child.stdin.take().context("qemu stdin")?;
+    fs::create_dir_all(&machine.logs)?;
+    let log_path = machine.logs.join(format!(
+        "{:02}-{}.log",
+        BOOTS.fetch_add(1, Ordering::Relaxed) + 1,
+        machine.name()
+    ));
+    let mut log = File::create(&log_path)?;
+    LAST_CONSOLE.set(Some(log_path));
     let stop_at_prompt = answers.recovery_key.is_none();
     let (tx, rx) = mpsc::channel();
     let reader = thread::spawn(move || {
@@ -1122,7 +1237,7 @@ fn watch_boot<T: Send + 'static>(
                 let raw: Vec<u8> = pending.drain(..=end).collect();
                 let line = String::from_utf8_lossy(&raw);
                 let line = line.trim_end_matches(['\r', '\n']);
-                eprintln!("  | {line}");
+                echo(&mut log, line);
                 if is_unit_failure(line) {
                     failures.push(strip_ansi(line));
                 }
@@ -1136,7 +1251,7 @@ fn watch_boot<T: Send + 'static>(
             if !prompted && is_passphrase_prompt(&shown) {
                 prompted = true;
                 if let Some(key) = &answers.recovery_key {
-                    eprintln!("  | (typing the recovery key)");
+                    echo(&mut log, "(typing the recovery key)");
                     let _ = write!(stdin, "{key}\r");
                     let _ = stdin.flush();
                 }
@@ -1145,13 +1260,13 @@ fn watch_boot<T: Send + 'static>(
             if !asked_adopt && shown.contains(ADOPT_TPM_PROMPT) {
                 asked_adopt = true;
                 let answer = answers.adopt_tpm.unwrap_or("no");
-                eprintln!("  | (answering {answer})");
+                echo(&mut log, &format!("(answering {answer})"));
                 let _ = write!(stdin, "{answer}\r");
                 let _ = stdin.flush();
             }
             if !asked_saved && shown.contains(RECOVERY_KEY_SAVED_PROMPT) {
                 asked_saved = true;
-                eprintln!("  | (confirming the recovery key is saved)");
+                echo(&mut log, "(confirming the recovery key is saved)");
                 let _ = write!(stdin, "saved\r");
                 let _ = stdin.flush();
             }
@@ -1163,7 +1278,7 @@ fn watch_boot<T: Send + 'static>(
             {
                 asked_setup[i] = true;
                 let (prompt, answer) = SETUP_ANSWERS[i];
-                eprintln!("  | (answering \"{prompt}\")");
+                echo(&mut log, &format!("(answering \"{prompt}\")"));
                 let _ = write!(stdin, "{answer}\r");
                 let _ = stdin.flush();
             }

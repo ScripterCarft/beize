@@ -185,7 +185,7 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool)
     util::step("Installing");
     // Tell the SSD that everything is free (fast; skipped if the path to the
     // disk cannot pass it on).
-    if util::run(
+    if util::run_attached(
         Command::new("sudo")
             .args(["blkdiscard", "--force"])
             .arg(disk),
@@ -194,7 +194,7 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool)
     {
         eprintln!("  (discard not supported here, writing over the old content)");
     }
-    util::run(
+    util::run_attached(
         Command::new("sudo")
             .arg("dd")
             .arg(format!("if={}", image.display()))
@@ -202,12 +202,12 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool)
             .args(["bs=4M", "conv=fsync", "oflag=direct", "status=progress"]),
     )?;
     // The image ends with its backup GPT; on the larger disk it belongs at the end.
-    util::run(
+    util::run_attached(
         Command::new("sudo")
             .args(["sfdisk", "--relocate", "gpt-bak-std"])
             .arg(disk),
     )?;
-    util::run(&mut Command::new("sync"))?;
+    util::run_attached(&mut Command::new("sync"))?;
     eprintln!(
         "\n  ok: Beize is on {}. Next: keys/secureboot/README.md, step 3.",
         disk.display()

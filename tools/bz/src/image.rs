@@ -297,7 +297,9 @@ unit: sectors
         USR_SLOT_SIZE / SECTOR,
         USR_VERITY_SLOT_SIZE / SECTOR,
     );
-    eprintln!("  $ sfdisk {}", disk.display());
+    if util::verbose() {
+        eprintln!("  $ sfdisk {}", disk.display());
+    }
     let mut child = Command::new("sfdisk")
         .arg("--quiet")
         .arg(disk)

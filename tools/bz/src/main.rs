@@ -27,6 +27,10 @@ use crate::paths::Paths;
 #[derive(Parser)]
 #[command(name = "bz", version, about = "Beize build tool")]
 struct Cli {
+    /// Show every command and all output (by default only failures, and
+    /// boot consoles go to build/work/logs/boot)
+    #[arg(short, long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -87,6 +91,7 @@ enum SecurebootCommand {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    util::set_verbose(cli.verbose);
     let paths = Paths::new()?;
 
     match cli.command {

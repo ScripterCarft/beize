@@ -46,7 +46,11 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
 
     util::step(&format!("Building linux {}", recipe.version));
     let jobs = util::job_count();
-    util::run(make(&src, &obj).arg(format!("-j{jobs}")).arg("bzImage"))?;
+    util::run_logged(
+        make(&src, &obj).arg(format!("-j{jobs}")).arg("bzImage"),
+        "linux",
+        &paths.work.join("logs/linux.log"),
+    )?;
 
     let release = util::output(make(&src, &obj).args(["-s", "kernelrelease"]))?;
     let image = paths.out.join("vmlinuz");

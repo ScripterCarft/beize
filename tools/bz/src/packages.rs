@@ -1,12 +1,10 @@
 //! Builds recipes in dependency order, skipping those whose inputs are unchanged.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use std::fs;
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
@@ -38,6 +36,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     fs::create_dir_all(&stamps)?;
     let mut fingerprints = BTreeMap::new();
     let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut up_to_date = 0;
     for recipe in &order {
         // The package itself and everything it depends on, directly or not.
         let mut visible = BTreeSet::from([recipe.name.clone()]);
@@ -48,7 +47,10 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         let fingerprint = fingerprint(recipe, &repo_digest(paths, recipe)?, &fingerprints);
         let stamp = stamps.join(&recipe.name);
         if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
-            eprintln!("  {} {} is up to date", recipe.name, recipe.version);
+            up_to_date += 1;
+            if util::verbose() {
+                eprintln!("  {} {} is up to date", recipe.name, recipe.version);
+            }
         } else {
             let _ = fs::remove_file(&stamp);
             install::hide_others(paths, &visible)?;
@@ -59,6 +61,9 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         }
         fingerprints.insert(recipe.name.clone(), fingerprint);
         closures.insert(recipe.name.clone(), visible);
+    }
+    if up_to_date > 0 {
+        eprintln!("  {up_to_date} of {} packages up to date", order.len());
     }
     Ok(order)
 }
@@ -205,10 +210,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
     let build_dir = recreate(&paths.work.join("build").join(&recipe.name))?;
     let pkg_dir = recreate(&paths.work.join("pkg").join(&recipe.name))?;
     let home = recreate(&paths.work.join("home"))?;
-    let logs = paths.work.join("logs");
-    fs::create_dir_all(&logs)?;
-    let log_path = logs.join(format!("{}.log", recipe.name));
-    let log = File::create(&log_path)?;
+    let log = paths.work.join("logs").join(format!("{}.log", recipe.name));
 
     let jobs = util::job_count();
     let mut cmd = Command::new("bash");
@@ -231,9 +233,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
         .env("SYSROOT", &paths.sysroot)
         .env("TARGET", TARGET)
         .env("JOBS", jobs.to_string())
-        .stdin(Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log);
+        .stdin(Stdio::null());
     if let Some(src) = &src {
         cmd.env("SRC", src);
     }
@@ -263,48 +263,14 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
         }
     }
 
-    eprintln!("  log: {}", log_path.display());
     let started = Instant::now();
-    let child = cmd.spawn().context("starting bash")?;
-    let status = wait_with_heartbeat(child, &recipe.name, &log_path, started)?;
-    if !status.success() {
-        print_tail(&log_path, 40);
-        bail!("building {} failed with {status}", recipe.name);
-    }
+    util::run_logged(&mut cmd, &recipe.name, &log)?;
     eprintln!("  built in {:.0}s", started.elapsed().as_secs_f64());
 
     if stage == Stage::Target {
         install::merge(paths, &recipe.name, &pkg_dir)?;
     }
     Ok(())
-}
-
-/// How often a running build reports that it is still alive. Build output
-/// goes to the log, so without this a long build (GCC on a small CI runner
-/// takes over an hour) looks exactly like a hang.
-const HEARTBEAT: Duration = Duration::from_secs(60);
-
-fn wait_with_heartbeat(
-    mut child: Child,
-    name: &str,
-    log_path: &Path,
-    started: Instant,
-) -> Result<ExitStatus> {
-    let mut next = started + HEARTBEAT;
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(status);
-        }
-        if Instant::now() >= next {
-            let log_kib = fs::metadata(log_path).map_or(0, |m| m.len() / 1024);
-            eprintln!(
-                "  still building {name}: {} min, log {log_kib} KiB",
-                started.elapsed().as_secs() / 60
-            );
-            next += HEARTBEAT;
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
 }
 
 fn meson_cross_file(paths: &Paths) -> std::path::PathBuf {
@@ -341,15 +307,6 @@ fn recreate(dir: &Path) -> Result<std::path::PathBuf> {
     }
     fs::create_dir_all(dir)?;
     Ok(dir.to_owned())
-}
-
-fn print_tail(log: &Path, lines: usize) {
-    let Ok(file) = File::open(log) else { return };
-    let all: Vec<String> = BufReader::new(file).lines().map_while(Result::ok).collect();
-    eprintln!("  last {lines} lines of {}:", log.display());
-    for line in &all[all.len().saturating_sub(lines)..] {
-        eprintln!("  | {line}");
-    }
 }
 
 #[cfg(test)]
