@@ -317,11 +317,15 @@ auf echter Hardware ungeprüft – und Windows einmalig auf UTC stellen
    - **Doku:** CLAUDE.md (>300 Zeilen) und ADR-Nachträge zu Endfassungen kürzen.
    - **Token sparen:** knappe Ausgaben von `bz` (Zusammenfassung am Ende), gezielt lesen.
 2. **Startzeit auf echter Hardware** – gemessen 2026-10-09: Firmware 20 s + Loader 1 s +
-   **Kernel 11 s + initrd 24 s + System 17 s** (VM: 0,6 + 2,4 + 2,3 s). Das sind Wartezeiten
-   (Timeouts), keine Optimierungsfragen – Ursache zuerst finden (`systemd-analyze blame`,
-   `critical-chain`, `journalctl -b -o short-monotonic`; Verdacht, unbelegt: serielle
-   Konsole `console=ttyS0` auf echter Hardware, wartende Geräte, TPM/PTT). Danach erst
-   verschlanken (initrd 17,9 MB mit ganzem systemd, Kernel zuschneiden).
+   **Kernel 11 s + initrd 24 s + System 17 s** (VM: 0,6 + 2,4 + 2,3 s) – vermutlich der
+   **erste** Start, d. h. initrd und System enthalten die Tippzeit (Recovery-Key bestätigen,
+   Konto/Zeitzone). Ein späterer Start zeigt `graphical.target @1.634s` in `critical-chain`;
+   `blame` nur Geräte-Units (~4,4 s, blockieren nicht). Offen: Werte eines normalen Starts
+   (`systemd-analyze`), dann v. a. die Kernel-Zeit (Verdacht, unbelegt: serielle Konsole
+   `console=ttyS0` auf echter Hardware). Danach verschlanken (initrd 17,9 MB, Kernel).
+   **Keine Administratorrechte:** der Besitzer ist in `wheel`, aber es gibt weder sudo
+   noch su – root nur über die Notfall-Konsole (z. B. kein `mount`). Entscheidung + ADR:
+   sudo-rs (Rust, Ubuntu-Standard seit 25.10) oder run0 (systemd, braucht polkit).
    **Tastatur:** noch US-Layout – `kbd` (Keymaps) fehlt, beize-setup muss nach dem Layout
    fragen (`/etc/vconsole.conf`). `ping` fehlt im Image (iputils). Auf Hardware geprüft
    und gut: Anmelden, Zeitzone, NTS-Zeit (synchronisiert, vorher ~3 s daneben).
