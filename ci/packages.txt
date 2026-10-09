@@ -36,6 +36,8 @@ ca-certificates
 curl
 git
 gpgv
+# ssh-keygen: SSH-signed sources (git's SSH signing, e.g. ntpd-rs)
+openssh-client
 xz-utils
 zstd
 

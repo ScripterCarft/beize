@@ -1,9 +1,10 @@
 //! Upstream sources: download, pin and verify.
 //!
-//! Every source is pinned (SHA-256 for archives, commit for git tags) and
-//! signed by its upstream maintainers. Signatures are checked with `gpgv`
-//! against a keyring committed under `keys/`, so a source can only enter the
-//! build if both the pin and the maintainer's signature match.
+//! Every source is pinned (SHA-256 for archives and single files, commit for
+//! git tags) and signed by its upstream maintainers. Signatures are checked
+//! against a keyring committed under `keys/` – OpenPGP keys with `gpgv`, SSH
+//! keys (git's SSH signing) with `ssh-keygen` – so a source can only enter
+//! the build if both the pin and the maintainer's signature match.
 //!
 //! The only exception is a project that publishes no signatures at all: its
 //! recipe must say so with `unsigned = "<reason>"`, the pin is then the only
@@ -28,7 +29,8 @@ pub struct Source {
 /// Why a source is trusted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Trust {
-    /// Signed by upstream; checked against the keyring `keys/<keyring>.gpg`.
+    /// Signed by upstream; checked against the keyring `keys/<keyring>.gpg`
+    /// or `keys/<keyring>.allowed_signers` (see [`Keyring`]).
     Signed { keyring: String },
     /// Upstream publishes no signatures; only the pin protects the source.
     PinnedOnly { reason: String },
@@ -44,8 +46,11 @@ pub enum Origin {
         /// Detached signature URL; present exactly for signed sources.
         signature: Option<String>,
         signed: SignedData,
+        /// The tarball has no top-level directory (e.g. the tz releases).
+        flat: bool,
     },
-    /// An annotated, signed git tag.
+    /// A git tag: annotated and signed, or – for projects that publish
+    /// lightweight tags – pointing at a signed release commit.
     Git {
         url: String,
         tag: String,
@@ -83,6 +88,8 @@ pub struct RawSource {
     signature: Option<String>,
     #[serde(default)]
     signed: SignedData,
+    #[serde(default)]
+    flat: bool,
     git: Option<String>,
     tag: Option<String>,
     commit: Option<String>,
@@ -137,11 +144,15 @@ impl RawSource {
                     file: self.file.map(expand),
                     signature: self.signature.map(expand),
                     signed: self.signed,
+                    flat: self.flat,
                 }
             }
             (None, Some(url)) => {
                 ensure!(
-                    self.sha256.is_none() && self.file.is_none() && self.signature.is_none(),
+                    self.sha256.is_none()
+                        && self.file.is_none()
+                        && self.signature.is_none()
+                        && !self.flat,
                     "git sources are pinned by commit (and verified by their signed tag)"
                 );
                 let commit = self.commit.context("git sources need commit")?;
@@ -172,11 +183,7 @@ impl Source {
         Ok(match &self.origin {
             Origin::Archive { .. } => {
                 let name = self.file_name()?;
-                [".tar.xz", ".tar.gz", ".tar.zst", ".tar.bz2", ".tgz"]
-                    .iter()
-                    .find_map(|ext| name.strip_suffix(ext))
-                    .unwrap_or(name)
-                    .to_owned()
+                tarball_stem(name).unwrap_or(name).to_owned()
             }
             Origin::Git { url, tag, .. } => format!("{}-{tag}", repo_name(url)),
         })
@@ -197,11 +204,17 @@ impl Source {
     }
 
     /// Downloads and verifies the source (once; later calls use the cache)
-    /// and extracts it into `dir`.
+    /// and extracts it into `dir`. A single file (anything but a tarball,
+    /// e.g. a certificate bundle) is copied into `dir` under its name.
     pub fn extract_into(&self, paths: &Paths, dir: &Path) -> Result<()> {
         fs::create_dir_all(dir)?;
         match &self.origin {
-            Origin::Archive { .. } => {
+            Origin::Archive { .. } if tarball_stem(self.file_name()?).is_none() => {
+                let file = self.fetch(paths, false)?;
+                fs::copy(&file, dir.join(self.file_name()?))?;
+                Ok(())
+            }
+            Origin::Archive { flat, .. } => {
                 let archive = self.fetch(paths, false)?;
                 util::run(
                     Command::new("tar")
@@ -210,7 +223,7 @@ impl Source {
                         .arg(&archive)
                         .arg("--directory")
                         .arg(dir)
-                        .arg("--strip-components=1"),
+                        .arg(format!("--strip-components={}", u8::from(!flat))),
                 )
             }
             Origin::Git { commit, .. } => {
@@ -238,16 +251,12 @@ impl Source {
     /// Returns the archive file or the git clone.
     pub fn fetch(&self, paths: &Paths, force: bool) -> Result<PathBuf> {
         let keyring = match &self.trust {
-            Trust::Signed { keyring } => {
-                let path = paths.root.join("keys").join(format!("{keyring}.gpg"));
-                ensure!(path.exists(), "keyring {} is missing", path.display());
-                Some(path)
-            }
+            Trust::Signed { keyring } => Some(Keyring::find(&paths.root, keyring)?),
             Trust::PinnedOnly { .. } => None,
         };
         // Re-verify whenever the keyring changes.
         let verified_marker = match &keyring {
-            Some(keyring) => format!("{} {}", self.pin(), util::sha256_file(keyring)?),
+            Some(keyring) => format!("{} {}", self.pin(), util::sha256_file(keyring.path())?),
             None => format!("{} unsigned", self.pin()),
         };
 
@@ -271,6 +280,9 @@ impl Source {
                 }
                 if force || fs::read_to_string(&marker).ok().as_deref() != Some(&verified_marker) {
                     if let (Some(keyring), Some(signature)) = (&keyring, signature) {
+                        let Keyring::Gpg(keyring) = keyring else {
+                            bail!("{url}: detached signatures are OpenPGP; use a .gpg keyring");
+                        };
                         let sig = archive.with_extension("sig");
                         download(signature, &sig)?;
                         verify_detached(keyring, &sig, &archive, *signed)
@@ -307,7 +319,7 @@ impl Source {
                     fs::rename(&partial, &clone)?;
                 }
                 if force || fs::read_to_string(&marker).ok().as_deref() != Some(&verified_marker) {
-                    verify_tag(keyring.as_deref(), &clone, tag, commit)
+                    verify_tag(keyring.as_ref(), &clone, tag, commit)
                         .with_context(|| format!("verifying {url} {tag}"))?;
                     fs::write(&marker, &verified_marker)?;
                 }
@@ -366,9 +378,102 @@ fn verify_detached(keyring: &Path, sig: &Path, archive: &Path, signed: SignedDat
     }
 }
 
-/// Checks that `tag` points at `commit` and, for signed sources, that it is
+/// A maintainer keyring under `keys/`: OpenPGP keys (`<name>.gpg`, checked
+/// with gpgv) or SSH keys (`<name>.allowed_signers`, ssh-keygen's format,
+/// for projects that sign with git's SSH signing).
+pub enum Keyring {
+    Gpg(PathBuf),
+    Ssh(PathBuf),
+}
+
+impl Keyring {
+    pub fn find(root: &Path, name: &str) -> Result<Self> {
+        let keys = root.join("keys");
+        let gpg = keys.join(format!("{name}.gpg"));
+        let ssh = keys.join(format!("{name}.allowed_signers"));
+        match (gpg.exists(), ssh.exists()) {
+            (true, false) => Ok(Self::Gpg(gpg)),
+            (false, true) => Ok(Self::Ssh(ssh)),
+            (true, true) => bail!("keyring {name} exists twice: .gpg and .allowed_signers"),
+            (false, false) => bail!(
+                "keyring {name} is missing: neither {} nor {}",
+                gpg.display(),
+                ssh.display()
+            ),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Gpg(path) | Self::Ssh(path) => path,
+        }
+    }
+
+    /// Checks that `signature` (armored, as git stores it) signs `payload`.
+    fn verify(&self, payload: &[u8], signature: &str, scratch: &Path) -> Result<()> {
+        fs::create_dir_all(scratch)?;
+        let (payload_path, sig_path) = (scratch.join("payload"), scratch.join("payload.sig"));
+        fs::write(&payload_path, payload)?;
+        fs::write(&sig_path, signature)?;
+        let result = match self {
+            Self::Gpg(keyring) => Command::new("gpgv")
+                .arg("--keyring")
+                .arg(keyring)
+                .arg(&sig_path)
+                .arg(&payload_path)
+                .output()
+                .context("starting gpgv")
+                .and_then(check_gpgv),
+            Self::Ssh(signers) => verify_ssh(signers, &sig_path, &payload_path),
+        };
+        fs::remove_dir_all(scratch)?;
+        result
+    }
+}
+
+/// Checks an SSH signature in git's namespace against an allowed-signers
+/// file: first which listed signer made it, then the signature itself.
+fn verify_ssh(signers: &Path, sig: &Path, payload: &Path) -> Result<()> {
+    let ssh_keygen = || {
+        let mut cmd = Command::new("ssh-keygen");
+        cmd.arg("-Y");
+        cmd
+    };
+    let principal = util::output(
+        ssh_keygen()
+            .arg("find-principals")
+            .arg("-f")
+            .arg(signers)
+            .arg("-s")
+            .arg(sig),
+    )
+    .context("the signature is not from a key in the keyring")?;
+    let principal = principal.lines().next().unwrap_or_default().to_owned();
+    let out = ssh_keygen()
+        .arg("verify")
+        .arg("-f")
+        .arg(signers)
+        .args(["-I", &principal, "-n", "git", "-s"])
+        .arg(sig)
+        .stdin(fs::File::open(payload)?)
+        .output()
+        .context("starting ssh-keygen")?;
+    let log = String::from_utf8_lossy(&out.stdout);
+    if !out.status.success() {
+        bail!(
+            "signature check failed:\n{}{}",
+            log.trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    eprintln!("  {}", log.trim());
+    Ok(())
+}
+
+/// Checks that `tag` points at `commit` and, for signed sources, that the
+/// tag – or for a lightweight tag the release commit, which is pinned – is
 /// signed by a key in `keyring`.
-fn verify_tag(keyring: Option<&Path>, clone: &Path, tag: &str, commit: &str) -> Result<()> {
+fn verify_tag(keyring: Option<&Keyring>, clone: &Path, tag: &str, commit: &str) -> Result<()> {
     let git = |args: &[&str]| util::output(Command::new("git").arg("-C").arg(clone).args(args));
     let actual = git(&["rev-parse", &format!("refs/tags/{tag}^{{commit}}")])?;
     ensure!(
@@ -379,30 +484,70 @@ fn verify_tag(keyring: Option<&Path>, clone: &Path, tag: &str, commit: &str) -> 
         return Ok(());
     };
 
-    let raw = git(&["cat-file", "tag", tag])?;
-    let (payload, signature) =
-        split_tag_signature(&raw).with_context(|| format!("tag {tag} is not signed"))?;
-    let dir = with_suffix(clone, "tagcheck");
-    fs::create_dir_all(&dir)?;
-    let (payload_path, sig_path) = (dir.join("payload"), dir.join("payload.asc"));
-    fs::write(&payload_path, payload)?;
-    fs::write(&sig_path, signature)?;
-    let result = Command::new("gpgv")
-        .arg("--keyring")
-        .arg(keyring)
-        .arg(&sig_path)
-        .arg(&payload_path)
-        .output()
-        .context("starting gpgv");
-    fs::remove_dir_all(&dir)?;
-    check_gpgv(result?)
+    // The raw object, byte for byte: the signed payload includes the
+    // trailing newline that `util::output` would trim.
+    let object = |kind: &str, name: &str| -> Result<String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(clone)
+            .args(["cat-file", kind, name])
+            .output()
+            .context("starting git cat-file")?;
+        ensure!(out.status.success(), "git cat-file {kind} {name} failed");
+        Ok(String::from_utf8(out.stdout)?)
+    };
+    let (payload, signature) = if git(&["cat-file", "-t", &format!("refs/tags/{tag}")])? == "tag" {
+        split_tag_signature(&object("tag", tag)?)
+            .with_context(|| format!("tag {tag} is not signed"))?
+    } else {
+        split_commit_signature(&object("commit", commit)?).with_context(|| {
+            format!("tag {tag} is lightweight and its commit {commit} is not signed")
+        })?
+    };
+    keyring.verify(
+        payload.as_bytes(),
+        &signature,
+        &with_suffix(clone, "tagcheck"),
+    )
 }
 
-/// Splits `git cat-file tag` output into the signed payload and the signature.
+/// Splits a raw tag object into the signed payload and the signature, which
+/// git appends to the tag message.
 fn split_tag_signature(raw: &str) -> Option<(String, String)> {
-    let start = raw.find("-----BEGIN PGP SIGNATURE-----")?;
-    // `util::output` trims the trailing newline that belongs to the signature.
-    Some((raw[..start].to_owned(), format!("{}\n", &raw[start..])))
+    let start = [
+        "-----BEGIN PGP SIGNATURE-----",
+        "-----BEGIN SSH SIGNATURE-----",
+    ]
+    .iter()
+    .find_map(|marker| raw.find(marker))?;
+    Some((raw[..start].to_owned(), raw[start..].to_owned()))
+}
+
+/// Splits a raw commit object into the signed payload (the commit without
+/// its `gpgsig` header) and the signature (that header, unindented).
+fn split_commit_signature(raw: &str) -> Option<(String, String)> {
+    let (header, message) = raw.split_once("\n\n")?;
+    let mut payload = String::new();
+    let mut signature = String::new();
+    let mut in_signature = false;
+    for line in header.lines() {
+        if let Some(first) = line.strip_prefix("gpgsig ") {
+            in_signature = true;
+            signature.push_str(first);
+        } else if let Some(more) = line.strip_prefix(' ').filter(|_| in_signature) {
+            signature.push('\n');
+            signature.push_str(more);
+        } else {
+            in_signature = false;
+            payload.push_str(line);
+            payload.push('\n');
+        }
+    }
+    if signature.is_empty() {
+        return None;
+    }
+    signature.push('\n');
+    Some((format!("{payload}\n{message}"), signature))
 }
 
 fn check_gpgv(out: std::process::Output) -> Result<()> {
@@ -449,6 +594,13 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 fn repo_name(url: &str) -> &str {
     let last = url.trim_end_matches('/').rsplit('/').next().unwrap_or(url);
     last.strip_suffix(".git").unwrap_or(last)
+}
+
+/// The name without its tarball extension; `None` if it is no tarball.
+fn tarball_stem(name: &str) -> Option<&str> {
+    [".tar.xz", ".tar.gz", ".tar.zst", ".tar.bz2", ".tgz"]
+        .iter()
+        .find_map(|ext| name.strip_suffix(ext))
 }
 
 fn is_hex(s: &str, len: usize) -> bool {
@@ -582,7 +734,7 @@ mod tests {
 
     #[test]
     fn splits_signed_tag() {
-        let raw = "object abc\ntype commit\ntag v262\n\nsystemd v262\n-----BEGIN PGP SIGNATURE-----\n\nxyz\n-----END PGP SIGNATURE-----";
+        let raw = "object abc\ntype commit\ntag v262\n\nsystemd v262\n-----BEGIN PGP SIGNATURE-----\n\nxyz\n-----END PGP SIGNATURE-----\n";
         let (payload, sig) = split_tag_signature(raw).unwrap();
         assert_eq!(
             payload,
@@ -590,6 +742,38 @@ mod tests {
         );
         assert!(sig.starts_with("-----BEGIN PGP SIGNATURE-----"));
         assert!(sig.ends_with("-----END PGP SIGNATURE-----\n"));
-        assert!(split_tag_signature("object abc\n\nunsigned").is_none());
+        assert!(split_tag_signature("object abc\n\nunsigned\n").is_none());
+        let ssh =
+            "object abc\n\nv1\n-----BEGIN SSH SIGNATURE-----\nU1NI\n-----END SSH SIGNATURE-----\n";
+        assert_eq!(split_tag_signature(ssh).unwrap().0, "object abc\n\nv1\n");
+    }
+
+    #[test]
+    fn splits_signed_commit() {
+        let raw = "tree 7e\nparent 6b\nauthor A <a@x> 1 +0200\ncommitter A <a@x> 1 +0200\n\
+                   gpgsig -----BEGIN SSH SIGNATURE-----\n U1NI\n \n -----END SSH SIGNATURE-----\n\
+                   \nRelease 1.9.0\n";
+        let (payload, sig) = split_commit_signature(raw).unwrap();
+        assert_eq!(
+            payload,
+            "tree 7e\nparent 6b\nauthor A <a@x> 1 +0200\ncommitter A <a@x> 1 +0200\n\nRelease 1.9.0\n"
+        );
+        assert_eq!(
+            sig,
+            "-----BEGIN SSH SIGNATURE-----\nU1NI\n\n-----END SSH SIGNATURE-----\n"
+        );
+        assert!(split_commit_signature("tree 7e\nauthor A\n\nunsigned\n").is_none());
+    }
+
+    #[test]
+    fn single_files_are_sources_too() {
+        let source = raw(&format!(
+            "url = \"https://x/cacert-{{version}}.pem\"\nsha256 = \"{DIGEST}\"\nunsigned = \"why\"\n"
+        ))
+        .into_source("2026-09-01")
+        .unwrap();
+        assert_eq!(source.stem().unwrap(), "cacert-2026-09-01.pem");
+        assert_eq!(tarball_stem("a-1.tar.xz"), Some("a-1"));
+        assert_eq!(tarball_stem("cacert.pem"), None);
     }
 }

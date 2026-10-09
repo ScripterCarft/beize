@@ -216,9 +216,10 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
             assert_eq!(recipe.name, name, "{}", path.display());
             for source in recipe.sources() {
-                if let Trust::Signed { keyring } = &source.trust {
-                    let keyring = root.join("keys").join(format!("{keyring}.gpg"));
-                    assert!(keyring.exists(), "{name}: missing {}", keyring.display());
+                if let Trust::Signed { keyring } = &source.trust
+                    && let Err(e) = crate::source::Keyring::find(&root, keyring)
+                {
+                    panic!("{name}: {e}");
                 }
             }
         }
