@@ -67,10 +67,13 @@ if [[ -r $upstream ]]; then
     done < "$upstream"
 fi
 dns_list=$(IFS=,; echo "${dns[*]}")
-lookup=failed
-if read -r address _ < <(getent hosts _gateway); then
-    lookup=$address
-fi
+# All addresses: the gateway has an IPv4 and an IPv6 address, in no fixed
+# order.
+lookup=()
+while read -r address _; do
+    [[ " ${lookup[*]} " == *" $address "* ]] || lookup+=("$address")
+done < <(getent ahosts _gateway)
+lookup_list=$(IFS=,; echo "${lookup[*]}")
 
 # Time (ADR 0012): the zone chosen in the setup, and how many time servers
 # completed the NTS key exchange (DNS, TLS with the root certificates, NTS
@@ -110,7 +113,7 @@ read -r machineid < /etc/machine-id
 
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
-     "network=${network} dns=${dns_list:-none} lookup=${lookup}" \
+     "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
      "tz=${tz:-none} nts=${nts} clock=${clock}" \
      "failed=${failed_list:-none}"
 

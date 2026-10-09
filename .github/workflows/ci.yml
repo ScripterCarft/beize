@@ -36,7 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     container:
-      image: ubuntu:26.04
+      # Docker's official ubuntu image via AWS's mirror (same digest): Docker
+      # Hub refused anonymous pulls from the runners (rate limit).
+      image: public.ecr.aws/docker/library/ubuntu:26.04
       # Privileged for user namespaces (image assembly) and /dev/kvm (boot test).
       options: --privileged --device /dev/kvm
     steps:

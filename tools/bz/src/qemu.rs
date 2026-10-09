@@ -58,8 +58,8 @@ struct BootReport {
     network: String,
     /// DNS servers resolved learned from the network.
     dns: Vec<String>,
-    /// The address `_gateway` resolved to through NSS, or `failed`.
-    lookup: String,
+    /// The addresses `_gateway` resolved to through NSS (IPv4 and IPv6).
+    lookup: Vec<String>,
     /// The zone /etc/localtime points at, or `none`.
     time_zone: String,
     /// How many time servers completed the NTS key exchange. Needs the
@@ -97,7 +97,7 @@ impl BootReport {
             system_unlock: field("systemunlock")?,
             network: field("network")?,
             dns: list("dns")?,
-            lookup: field("lookup")?,
+            lookup: list("lookup")?,
             time_zone: field("tz")?,
             nts: field("nts")?,
             clock: field("clock")?.parse().ok()?,
@@ -726,8 +726,8 @@ fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Res
         report.dns
     );
     ensure!(
-        report.lookup == SLIRP_GATEWAY,
-        "name lookup through NSS failed: _gateway resolved to {}",
+        report.lookup.iter().any(|address| address == SLIRP_GATEWAY),
+        "name lookup through NSS failed: _gateway resolved to {:?}",
         report.lookup
     );
     ensure!(
@@ -1308,7 +1308,7 @@ mod tests {
 
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
-                         network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=America/Sao_Paulo nts=4 \
+                         network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo nts=4 \
                          clock=1791500000 failed=none";
 
     #[test]
@@ -1324,7 +1324,7 @@ mod tests {
         assert_eq!(report.system_unlock, "refused");
         assert_eq!(report.network, "routable");
         assert_eq!(report.dns, [SLIRP_DNS]);
-        assert_eq!(report.lookup, SLIRP_GATEWAY);
+        assert_eq!(report.lookup, [SLIRP_GATEWAY, "fe80::2"]);
         assert_eq!(report.time_zone, SMOKE_TIME_ZONE);
         assert_eq!(report.nts, "4");
         assert_eq!(report.clock, 1_791_500_000);
@@ -1335,13 +1335,13 @@ mod tests {
     fn parses_degraded_report_behind_console_noise() {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
-                    network=timeout dns=none lookup=failed tz=none nts=0 \
+                    network=timeout dns=none lookup=none tz=none nts=0 \
                     clock=946684800 failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
         assert_eq!(report.network, "timeout");
         assert!(report.dns.is_empty());
-        assert_eq!(report.lookup, "failed");
+        assert!(report.lookup.is_empty());
         assert_eq!(report.secure_boot, "off");
         assert_eq!(report.root, "plain");
         assert_eq!(report.boot, 2);

@@ -231,7 +231,7 @@ Architekturentscheidung = neues ADR.
 - **CI rot, lokal grün?** Den CI-Lauf lokal 1:1 nachstellen (sauberer Bau, ~20 min):
   Arbeitsstand ohne `build/` nach `~/ci-x` kopieren (`rsync -a --exclude /build
   --exclude /target ~/beize/ ~/ci-x/`), dann `sudo podman run --rm --privileged
-  --device /dev/kvm -v ~/ci-x:/w -w /w docker.io/library/ubuntu:26.04 ci/system.sh`
+  --device /dev/kvm -v ~/ci-x:/w -w /w public.ecr.aws/docker/library/ubuntu:26.04 ci/system.sh`
   (lange Läufe per `sudo systemd-run --unit=… -p StandardOutput=file:…`).
   Danach `build/work/initrd-tree` bzw. `usr-tree` mit `diff -rq` vergleichen.
 - `actions/cache` im Container: Kompression (zstd/gzip) ist Teil des Cache-Schlüssels –
