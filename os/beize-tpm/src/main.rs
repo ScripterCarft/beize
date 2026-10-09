@@ -9,6 +9,11 @@
 //! - on a different TPM (new mainboard, or a swapped chip) only after the
 //!   owner explicitly confirms it.
 //!
+//! `beize-tpm check-boot` runs before the root partition is unlocked: if
+//! anything was added to this boot (PCR 12 – kernel parameters from SMBIOS,
+//! credentials, add-ons), it refuses to go on, so the owner is never asked
+//! for the recovery key in a changed boot.
+//!
 //! Everything it prints goes to the console; the recovery key never does.
 
 mod efi;
@@ -16,6 +21,7 @@ mod eventlog;
 mod keyring;
 mod policy;
 
+use std::ffi::c_int;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -23,6 +29,7 @@ use std::process::{Command, ExitCode, Stdio};
 
 const EVENT_LOG: &str = "/sys/kernel/security/tpm0/binary_bios_measurements";
 const PCR7: &str = "/sys/class/tpm/tpm0/pcr-sha256/7";
+const PCR12: &str = "/sys/class/tpm/tpm0/pcr-sha256/12";
 const PROFILE: &str = "/usr/lib/beize/secureboot";
 /// The TPM's storage root key, as systemd-tpm2-setup-early found it this boot.
 const CURRENT_SRK: &str = "/run/systemd/tpm2-srk-public-key.pem";
@@ -34,7 +41,8 @@ fn main() -> ExitCode {
     let command = std::env::args().nth(1);
     let result = match command.as_deref() {
         Some("reseal") => reseal(),
-        _ => Err("usage: beize-tpm reseal".into()),
+        Some("check-boot") => check_boot(),
+        _ => Err("usage: beize-tpm reseal | check-boot".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -42,6 +50,52 @@ fn main() -> ExitCode {
             eprintln!("beize-tpm: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn check_boot() -> Result<(), String> {
+    if !Path::new(PCR12).exists() {
+        // No TPM (e.g. switched off in the firmware): nothing to check, and
+        // without a TPM only the recovery key opens the data anyway.
+        println!("No security chip (TPM) found: this start cannot be checked.");
+        return Ok(());
+    }
+    // Anything but a clean PCR 12 – including one that cannot be read – stops
+    // the boot here. This never returns then: systemd-cryptsetup@root is
+    // ordered after this unit, so it never gets to unlock or to ask.
+    match read_pcr(PCR12) {
+        Ok(pcr12) if policy::boot_unchanged(pcr12) => return Ok(()),
+        Ok(_) => {
+            println!();
+            println!("This start was changed: something was added to it (kernel parameters,");
+            println!("credentials or add-ons, e.g. through the firmware). Beize does not open");
+            println!("your data in a changed start. Do not enter the recovery key.");
+        }
+        Err(error) => {
+            println!();
+            println!("This start cannot be checked ({error}); Beize does not open your data.");
+        }
+    }
+    println!("The computer turns off in 60 seconds.");
+    std::thread::sleep(std::time::Duration::from_secs(60));
+    power_off()
+}
+
+/// Turns the computer off at once, without stopping services: nothing has
+/// been unlocked or written in the initrd at this point.
+fn power_off() -> ! {
+    const RB_POWER_OFF: c_int = 0x4321_fedc;
+    unsafe extern "C" {
+        fn sync();
+        fn reboot(cmd: c_int) -> c_int;
+    }
+    // SAFETY: plain system calls without pointers; reboot only returns on error.
+    unsafe {
+        sync();
+        reboot(RB_POWER_OFF);
+    }
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
     }
 }
 
@@ -60,6 +114,10 @@ fn reseal() -> Result<(), String> {
     // Unlocked with the recovery key: the TPM refused this boot's state.
     if !secure_boot_on() {
         println!("Secure Boot is off: the TPM stays bound to the previous state.");
+        return Ok(());
+    }
+    if !policy::boot_unchanged(read_pcr(PCR12)?) {
+        println!("The data stays bound to the previous state: the boot was changed (PCR 12).");
         return Ok(());
     }
     let events = eventlog::parse(&read(EVENT_LOG)?)?;
@@ -82,13 +140,13 @@ fn reseal() -> Result<(), String> {
     // and systemd-cryptenroll would take it for current and do nothing.
     // Should enrolling fail, the recovery key still opens the data.
     cryptenroll(&recovery_key, &["--wipe-slot=tpm2"], &device)?;
-    // PCR 7, and the signed PCR 11 policy (public key from the UKI) with
-    // policy reference "initrd" – as systemd-repart enrolls on first boot.
+    // PCR 7 and 12, and the signed PCR 11 policy (public key from the UKI)
+    // with policy reference "initrd" – as systemd-repart enrolls on first boot.
     cryptenroll(
         &recovery_key,
         &[
             "--tpm2-device=auto",
-            "--tpm2-pcrs=7",
+            "--tpm2-pcrs=7+12",
             "--tpm2-public-key-policyref=initrd",
         ],
         &device,

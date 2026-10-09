@@ -20,7 +20,13 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let src = recipe.unpack(paths)?;
     let obj = paths.work.join("linux-obj");
     fs::create_dir_all(&obj)?;
-    let fragment = paths.root.join("kernel/config/beize-base.config");
+    // Every fragment in kernel/config, in name order: one image for the VM
+    // tests and for real hardware.
+    let mut fragments: Vec<PathBuf> = fs::read_dir(paths.root.join("kernel/config"))?
+        .map(|entry| entry.map(|e| e.path()))
+        .collect::<Result<_, _>>()?;
+    fragments.retain(|path| path.extension().is_some_and(|ext| ext == "config"));
+    fragments.sort();
 
     util::step(&format!("Configuring linux {}", recipe.version));
     util::run(make(&src, &obj).args(["defconfig", "kvm_guest.config"]))?;
@@ -31,10 +37,12 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg("-O")
             .arg(&obj)
             .arg(obj.join(".config"))
-            .arg(&fragment),
+            .args(&fragments),
     )?;
     util::run(make(&src, &obj).arg("olddefconfig"))?;
-    verify_config(&fragment, &obj.join(".config"))?;
+    for fragment in &fragments {
+        verify_config(fragment, &obj.join(".config"))?;
+    }
 
     util::step(&format!("Building linux {}", recipe.version));
     let jobs = util::job_count();

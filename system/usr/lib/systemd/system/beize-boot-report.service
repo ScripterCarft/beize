@@ -1,5 +1,8 @@
 [Unit]
 Description=Report the boot outcome on the console
+# Test hook: only when bz smoke passes the credential (SMBIOS type 11). Images
+# for real hardware import no credentials at all (systemd.import_credentials=no).
+ConditionCredential=beize.smoke
 
 [Service]
 # exec: counts as started immediately, so the script can wait for the end of

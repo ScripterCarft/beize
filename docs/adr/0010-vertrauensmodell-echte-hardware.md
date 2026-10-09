@@ -133,3 +133,33 @@ Wegwerf-Schlüsselspeicher statt 1Password und bootet das Ergebnis.
 - Beize trägt als PK-Eigentümer die Verantwortung, die Microsoft sonst der
   Hersteller trägt: neue Microsoft-KEKs (wie 2023) kommen nur über uns in die
   Firmware – `keys/microsoft/` aktuell halten.
+
+## Nachtrag: Härtung für echte Hardware (2026-10-09)
+
+Vor dem ersten Start auf dem Rechner des Besitzers gefunden und geschlossen:
+
+- **SMBIOS-OEM-Strings sind auf echter Hardware nicht vertrauenswürdig** (manche
+  Boards lassen sie aus einem anderen Betriebssystem heraus umschreiben).
+  systemd-stub hängt `io.systemd.stub.kernel-cmdline-extra` **auch unter Secure Boot**
+  an die versiegelte Kommandozeile an und misst es nur in PCR 12; PID 1 importiert
+  SMBIOS-Credentials auch außerhalb von VMs. Daher:
+  - Der TPM-Slot ist zusätzlich an **PCR 12** gebunden (`TPM2PCRs=7+12`; ohne Zusätze
+    enthält PCR 12 nur systemd's `os-separator`, also vorhersagbar).
+  - `beize-boot-check.service` (initrd, `beize-tpm check-boot`) prüft PCR 12 **vor**
+    dem Entsperren. Wurde etwas hinzugefügt (oder lässt es sich nicht lesen), erklärt
+    es das, kehrt nie zurück und schaltet nach 60 s aus – systemd-cryptsetup@root ist
+    danach geordnet und fragt in einem veränderten Start nie nach dem Recovery-Key.
+    Ohne TPM (im BIOS abgeschaltet) lässt es den Start durch: dann öffnet ohnehin nur
+    der Recovery-Key.
+  - Images für echte Hardware tragen `systemd.import_credentials=no`.
+- **Zwei Kommandozeilen, sonst gleiche Images** (`image::Target`, Test pinnt den
+  Unterschied): VM-Tests mit serieller Konsole als `/dev/console` und Credentials für
+  Testhelfer; echte Hardware mit dem Bildschirm als `/dev/console` (dort fragt systemd
+  nach dem Recovery-Key) und ohne Credential-Import.
+- **Testhelfer nur mit Test-Credential:** Boot-Report (`beize.smoke`) und root-Shell
+  auf ttyS0 (`beize.debug-console`, für `bz run`). Auf echter Hardware starten beide nie.
+- **Kernel für echte Hardware** (`kernel/config/beize-hardware.config`): Bildschirm-
+  Konsole über das Firmware-Framebuffer (simpledrm), NVMe, Intel I225/I226-LAN, C-States.
+- **Installer** `bz install <Platte> --guid <GPT-GUID>`: schreibt nur das Hardware-Image
+  und nur auf eine leere Platte mit genau dieser GUID (auf dem Rechner des Besitzers sind
+  Windows- und Ziel-SSD byte-genau gleich groß).

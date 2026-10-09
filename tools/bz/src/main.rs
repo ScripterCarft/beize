@@ -6,6 +6,7 @@
 mod image;
 mod initrd;
 mod install;
+mod installer;
 mod kernel;
 mod layout;
 mod packages;
@@ -63,6 +64,15 @@ enum Command {
     /// Sign the boot chain with the owner's keys from 1Password and write the
     /// disk image for real hardware to build/out/production (owner only)
     Sign,
+    /// Write the signed image for real hardware onto an empty disk, named by
+    /// its device and its GPT disk GUID (owner only, see keys/secureboot/README.md)
+    Install {
+        /// The whole disk, e.g. /dev/sdc
+        disk: std::path::PathBuf,
+        /// The disk's GPT GUID, as Windows shows it (Get-Disk)
+        #[arg(long)]
+        guid: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -98,6 +108,7 @@ fn main() -> Result<()> {
             &secureboot::microsoft_dir(&paths),
             secureboot::Profile::WithWindows,
         ),
+        Command::Install { disk, guid } => installer::install(&paths, &disk, &guid),
         Command::Sign => {
             let store = secureboot::Store::one_password()?;
             let disk = image::sign(&paths, &store)?;

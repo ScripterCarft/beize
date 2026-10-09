@@ -1,0 +1,20 @@
+[Unit]
+Description=Check that nothing was added to this boot
+Documentation=file:/usr/lib/beize/beize-tpm
+# Before the root partition is unlocked – by the TPM or with the recovery key
+# – PCR 12 must show that nothing was added to the signed UKI: no kernel
+# parameters from SMBIOS OEM strings (which some boards let another operating
+# system rewrite), no credentials, no add-ons (ADR 0010). Otherwise the boot
+# stops with an explanation and the owner is never asked for the recovery key.
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+After=systemd-pcrosseparator.service systemd-tpm2-setup-early.service
+Before=cryptsetup-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/beize-tpm check-boot
+StandardOutput=tty
+TTYPath=/dev/console
+StandardError=journal+console

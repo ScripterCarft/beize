@@ -57,6 +57,15 @@ impl Profile {
     }
 }
 
+/// Whether nothing was added to this boot: PCR 12 holds what systemd-stub
+/// adds to the UKI's own measurements (kernel parameters from SMBIOS or the
+/// boot loader, credentials and add-ons from the ESP) – for Beize nothing –
+/// and systemd's OS separator.
+pub fn boot_unchanged(pcr12: [u8; 32]) -> bool {
+    let separated = eventlog::extend([0u8; 32], Sha256::digest(OS_SEPARATOR).into());
+    pcr12 == [0u8; 32] || pcr12 == separated
+}
+
 /// Checks the event log against the TPM's PCR 7 and the profile. The error
 /// says, in plain words, why the state must not be approved.
 pub fn check(events: &[Event], pcr7: [u8; 32], profile: &Profile) -> Result<(), String> {
@@ -240,6 +249,19 @@ mod tests {
         assert_eq!(check(&events, once, &profile()), Ok(()));
         let twice = eventlog::extend(once, separator);
         assert!(check(&events, twice, &profile()).is_err());
+    }
+
+    #[test]
+    fn a_boot_is_unchanged_with_nothing_but_the_os_separator() {
+        let separated = eventlog::extend([0u8; 32], Sha256::digest(OS_SEPARATOR).into());
+        assert!(boot_unchanged(separated));
+        assert!(boot_unchanged([0u8; 32]));
+        let added = eventlog::extend([0u8; 32], Sha256::digest(b"systemd.debug_shell").into());
+        assert!(!boot_unchanged(added));
+        assert!(!boot_unchanged(eventlog::extend(
+            added,
+            Sha256::digest(OS_SEPARATOR).into()
+        )));
     }
 
     #[test]

@@ -30,6 +30,8 @@ const TAMPER_TIMEOUT: Duration = Duration::from_secs(45);
 /// A systemd credential passed via SMBIOS (honoured in VMs, also under
 /// Secure Boot); boot-report powers off when it is present.
 const SMOKE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.smoke=1";
+/// Credential for `bz run`: a root shell on the serial console (VM images only).
+const DEBUG_CONSOLE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.debug-console=1";
 
 /// The boot outcome as reported by the guest.
 #[derive(Debug, PartialEq)]
@@ -85,6 +87,8 @@ struct Machine {
     disk: PathBuf,
     vars: PathBuf,
     tpm: PathBuf,
+    /// Extra SMBIOS type 11 OEM strings, as a manipulated firmware could set.
+    smbios: Vec<String>,
 }
 
 impl Machine {
@@ -93,6 +97,7 @@ impl Machine {
             disk: paths.work.join(format!("{name}.img")),
             vars: paths.work.join(format!("{name}-vars.fd")),
             tpm: paths.work.join(format!("{name}-tpm")),
+            smbios: Vec::new(),
         }
     }
 
@@ -283,7 +288,11 @@ pub fn run(paths: &Paths) -> Result<()> {
     }
     util::step("Booting in QEMU (quit with Ctrl-A X)");
     let tpm = Swtpm::start(&machine.tpm)?;
-    util::run(qemu(&machine, &tpm)?.args(["-nographic", "-serial", "mon:stdio"]))
+    util::run(
+        qemu(&machine, &tpm)?
+            .args(["-nographic", "-serial", "mon:stdio"])
+            .args(["-smbios", DEBUG_CONSOLE_CREDENTIAL]),
+    )
 }
 
 /// Verifies the image end to end on a fresh test disk:
@@ -325,6 +334,31 @@ pub fn smoke(paths: &Paths) -> Result<()> {
         "the recovery key was shown again on the second boot"
     );
     eprintln!("  ok: the recovery key was shown only once");
+
+    util::step("A boot with something added must stop before asking for the recovery key");
+    // Like a firmware whose SMBIOS OEM strings were rewritten from another OS:
+    // systemd-stub appends these kernel parameters even under Secure Boot.
+    let added = Machine {
+        smbios: vec!["io.systemd.stub.kernel-cmdline-extra=beize.added=1".to_owned()],
+        ..machine.clone()
+    };
+    let run = watch_boot(
+        &added,
+        TAMPER_TIMEOUT,
+        &Answers::recovery_key(&recovery_key),
+        |line| line.contains("This start was changed").then_some(()),
+    )?;
+    ensure!(
+        run.answer.is_some(),
+        "a boot with added kernel parameters was not stopped"
+    );
+    ensure!(
+        !run.prompted,
+        "a boot with added kernel parameters asked for the recovery key"
+    );
+    eprintln!(
+        "\n  ok: the changed boot stopped before unlocking, without asking for the recovery key"
+    );
 
     util::step("A Secure Boot update needs the recovery key once, then the TPM unlocks again");
     // Like Windows installing a revocation: a new dbx entry changes PCR 7.
@@ -497,7 +531,7 @@ fn owner_workflow(paths: &Paths) -> Result<()> {
     let keys = secureboot::Keys::production(&store, &public)?;
     let out = dir.join("out");
     fs::create_dir_all(&out)?;
-    let disk = image::assemble(paths, &keys, &out)?;
+    let disk = image::assemble(paths, &keys, &out, image::Target::Vm)?;
     drop(keys);
 
     let machine = Machine::install_from(paths, "owner", &disk)?;
@@ -713,14 +747,15 @@ fn check_partitions(disk: &Path) -> Result<()> {
 }
 
 /// The root partition's TPM2 slot must be bound to the Secure Boot state
-/// (PCR 7) and to the signed PCR 11 policy for the initrd phase only (ADR 0010).
+/// (PCR 7), to nothing added to the boot (PCR 12) and to the signed PCR 11
+/// policy for the initrd phase only (ADR 0010).
 fn check_root_binding(disk: &Path, scratch: &Path) -> Result<()> {
     let token = root_tpm2_token(disk, scratch)?;
     let pcrs = |key: &str| token[key].as_array().cloned().unwrap_or_default();
     ensure!(
-        pcrs("tpm2-pcrs") == [7] && pcrs("tpm2_pubkey_pcrs") == [11],
-        "the root partition is bound to PCRs {:?} and signed policies over PCRs {:?}, \
-         expected 7 and 11",
+        pcrs("tpm2-pcrs") == [7, 12] && pcrs("tpm2_pubkey_pcrs") == [11],
+        "the root partition is bound to PCRs {} and signed policies over PCRs {}, \
+         expected 7+12 and 11",
         token["tpm2-pcrs"],
         token["tpm2_pubkey_pcrs"]
     );
@@ -731,8 +766,9 @@ fn check_root_binding(disk: &Path, scratch: &Path) -> Result<()> {
         token["tpm2_pubkey_ref"]
     );
     eprintln!(
-        "  ok: the TPM unlocks the root partition only for Secure Boot as enrolled (PCR 7) \
-         and a signed Beize UKI in its initrd (PCR 11, policy reference \"initrd\")"
+        "  ok: the TPM unlocks the root partition only for Secure Boot as enrolled (PCR 7), \
+         nothing added to the boot (PCR 12) and a signed Beize UKI in its initrd \
+         (PCR 11, policy reference \"initrd\")"
     );
     Ok(())
 }
@@ -1060,6 +1096,9 @@ fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
             machine.disk.display()
         ))
         .args(tpm.qemu_args());
+    for value in &machine.smbios {
+        cmd.arg("-smbios").arg(format!("type=11,value={value}"));
+    }
     Ok(cmd)
 }
 

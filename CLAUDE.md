@@ -100,7 +100,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz run         # interaktiv (Ctrl-A X), VM-Disk bleibt bis zum nächsten Image erhalten
 ./bz package <name> · ./bz usr · ./bz initrd · ./bz image · ./bz owner /usr/bin/bash
 # nur der Besitzer, im Terminal (TTY-Sperre), mit 1Password – nie von Claude ausführen:
-./bz secureboot new-keys · ./bz sign
+./bz secureboot new-keys · ./bz sign · ./bz install /dev/sdX --guid "{…}"
+# Anleitung für echte Hardware: keys/secureboot/README.md
 ```
 
 Logs: `build/work/logs/<paket>.log`. Voller Neubau ~10–15 min (GCC zweimal),
@@ -291,6 +292,12 @@ unterscheiden sich zwischen Container-Bau und lokalem Bau; vermutlich der Build-
 Zeitstempel/UUIDs.
 
 **Vorschlag für die Reihenfolge Richtung M2 (echte Hardware):**
+0. Erledigt (2026-10-09): Härtung für echte Hardware (ADR 0010 Nachtrag: PCR 12,
+   `beize-boot-check`, `image::Target` Vm/Hardware, Testhelfer nur mit Credential,
+   Kernel-Fragment `beize-hardware.config`) und Installer `bz install`. **Der Besitzer
+   kann jetzt auf der Samsung-SSD testen** (keys/secureboot/README.md, Schritte 1–3).
+   Noch nicht auf echter Hardware geprüft: Hardware-Kommandozeile (Bildschirm-Konsole),
+   `bz install` über `wsl --mount` (Schreibweg = derselbe wie in `Machine::install`).
 1. **Start von der zweiten SSD** (Installer-Minimalfassung, Kernel/Flags für i7-13700K/Z790).
    Ziel-SSD laut Windows: **Samsung SSD 860 EVO 1 TB** (Disk 0, nur eine leere
    MSR-Partition); die SanDisk 480 GB hat Daten (E:, 36 GB) – nicht anfassen. Vor dem

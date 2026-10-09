@@ -44,7 +44,30 @@ sie schon, bricht `bz` ab – ein Schlüsselwechsel ist ein eigener, bewusster S
 
 Braucht nur db- und PCR-Schlüssel (1Password fragt per Windows Hello). `bz sign`
 prüft, dass sie zu den Dateien hier passen, und löscht sie danach wieder aus dem
-Arbeitsspeicher.
+Arbeitsspeicher. Dieses Image ist für echte Hardware gebaut: Konsole auf dem
+Bildschirm, keine Credentials aus der Firmware, keine Testhelfer.
+
+## 2b. Auf die Ziel-SSD schreiben (einmalig pro Installation)
+
+Ziel ist eine **leere** SSD. Auf dem Rechner des Besitzers (Stand 2026-10-09): die
+**Samsung SSD 860 EVO 1TB**, GPT-GUID `{febded67-6af6-43e1-81b7-73f9309df929}`.
+Achtung: Die Windows-SSD (Corsair) ist auf das Byte gleich groß – erkannt wird die
+richtige Platte nur an der GUID, und genau die prüft `bz install`.
+
+1. PowerShell **als Administrator**: `Get-Disk` – Zeile „Samsung SSD 860 EVO 1TB“,
+   Nummer (`Number`) und `Guid` notieren. Die Nummer kann sich nach einem Neustart
+   ändern, die GUID nicht.
+2. Ebenfalls dort: `wsl --mount \\.\PHYSICALDRIVE<Nummer> --bare` – die Platte
+   erscheint in WSL, Windows greift solange nicht darauf zu.
+3. In WSL: `lsblk -o NAME,SIZE,MODEL` – die neue Platte suchen (z. B. `/dev/sde`).
+4. `./bz install /dev/sde --guid "{febded67-6af6-43e1-81b7-73f9309df929}"`
+   `bz` bricht ab, wenn die GUID nicht passt, etwas eingehängt ist oder auf der
+   Platte mehr als eine leere Microsoft-Verwaltungspartition liegt. Es zeigt Modell,
+   Größe und GUID und schreibt erst nach `yes` (fragt einmal nach dem sudo-Passwort).
+5. PowerShell (Administrator): `wsl --unmount \\.\PHYSICALDRIVE<Nummer>`.
+
+Windows zeigt die SSD danach mit unbekannten Partitionen an – **nicht formatieren
+lassen**, falls es fragt.
 
 ## 3. Schlüssel in die Firmware (einmalig, und nach BIOS-Updates)
 
@@ -58,10 +81,25 @@ Beize schreibt die Schlüssel **selbst** ein – im BIOS werden sie nur gelösch
    BIOS Secure Boot abschaltet oder Schlüssel ändert, verändert PCR 7 – der TPM
    gibt die Beize-Daten dann nicht frei, wie bei BitLocker. Es schützt zusätzlich
    gegen Manipulation, wenn Fremde Zugang zum Rechner haben.)
-3. Von der Beize-SSD starten: systemd-boot zeigt „Enrolling secure boot keys …“
-   und 15 Sekunden Zeit zum Abbrechen (beliebige Taste), schreibt dann PK, KEK,
-   db und dbx ein und startet neu.
-4. Prüfen: Beize startet, Windows startet weiterhin mit Secure Boot.
+3. Von der Beize-SSD starten: beim Einschalten `F8` (ASUS-Bootmenü) → den
+   UEFI-Eintrag der Samsung-SSD wählen. systemd-boot zeigt „Enrolling secure boot
+   keys …“ und 15 Sekunden Zeit zum Abbrechen (beliebige Taste), schreibt dann PK,
+   KEK, db und dbx ein und startet neu.
+4. Wieder `F8` → Samsung-SSD. Erster Start von Beize: Es legt die Partitionen an,
+   verschlüsselt sie und zeigt den **Wiederherstellungsschlüssel** auf dem
+   Bildschirm – abschreiben bzw. in 1Password ablegen. Er wird nur dieses eine Mal
+   angezeigt.
+5. Prüfen: Beize startet ein zweites Mal ohne Eingabe; Windows startet (ohne `F8`)
+   weiterhin mit Secure Boot.
+
+**Notausgang:** BIOS → Key Management → „Load Default Secure Boot Keys“ stellt den
+Werkszustand wieder her. Windows startet dann wie vorher; Beize startet nicht mehr
+unter Secure Boot, seine Daten bleiben verschlossen, bis Schritt 3 wiederholt wird.
+
+**Wenn Beize meldet „This start was changed“:** Es wurde etwas zum Start hinzugefügt
+(Kernel-Parameter, Credentials oder Add-ons, z. B. über die Firmware). Beize öffnet
+die Daten dann nicht und schaltet nach 60 Sekunden aus – **den
+Wiederherstellungsschlüssel nicht eingeben**, sondern die Ursache klären.
 
 **ASUS setzt bei BIOS-Updates die Schlüssel oft auf Werkszustand zurück.** Dann
 startet Beize nicht unter Secure Boot (die Daten bleiben verschlossen) – Schritt 3

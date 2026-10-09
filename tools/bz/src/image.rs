@@ -44,16 +44,35 @@ const LOADER_CONF: &str = "timeout 0\neditor no\nconsole-mode keep\nsecure-boot-
 /// second one.
 const PROFILE: secureboot::Profile = secureboot::Profile::WithWindows;
 
+/// Where an image boots. The images differ only in their command line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// QEMU in `bz smoke`/`bz run`: the serial port is the console the tests
+    /// read, and test hooks arrive as credentials (SMBIOS type 11).
+    Vm,
+    /// Real hardware: the screen is the console – where systemd asks for the
+    /// recovery key – and no credentials are imported: SMBIOS OEM strings can
+    /// be rewritten from another operating system on some boards.
+    Hardware,
+}
+
 /// The kernel command line, sealed into the signed UKI. `usrhash=` pins
 /// `/usr` to exactly the slot whose content matches the root hash (systemd
 /// finds data and hash partition by the UUIDs derived from it) and makes the
 /// kernel verify every block read. The root partition is discovered on the
-/// boot disk (and created there on first boot).
-fn kernel_cmdline(root_hash: &str) -> String {
-    format!(
+/// boot disk (and created there on first boot). The last `console=` becomes
+/// /dev/console; kernel messages go to both.
+fn kernel_cmdline(root_hash: &str, target: Target) -> String {
+    let common = format!(
         "usrhash={root_hash} mount.usr=/dev/mapper/usr mount.usrfstype=erofs mount.usrflags=ro \
-         rw console=tty0 console=ttyS0,115200 loglevel=4"
-    )
+         rw loglevel=4"
+    );
+    match target {
+        Target::Vm => format!("{common} console=tty0 console=ttyS0,115200"),
+        Target::Hardware => {
+            format!("{common} console=ttyS0,115200 console=tty0 systemd.import_credentials=no")
+        }
+    }
 }
 
 /// The UKI on the ESP, as an mtools path.
@@ -106,7 +125,7 @@ fn ukify(paths: &Paths) -> Result<Command> {
 /// Builds the boot chain, signs it with the test keys and writes `out/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let keys = secureboot::Keys::test(paths, PROFILE)?;
-    assemble(paths, &keys, &paths.out)
+    assemble(paths, &keys, &paths.out, Target::Vm)
 }
 
 /// Builds the boot chain and disk image for real hardware into
@@ -115,12 +134,17 @@ pub fn sign(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
     let keys = secureboot::Keys::production(store, &secureboot::production_public_dir(paths))?;
     let out = production_dir(paths);
     fs::create_dir_all(&out)?;
-    assemble(paths, &keys, &out)
+    assemble(paths, &keys, &out, Target::Hardware)
 }
 
-/// Builds the UKI, signs it and systemd-boot with `keys` and writes the disk
-/// image, all into `out`.
-pub fn assemble(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<PathBuf> {
+/// Builds the UKI for `target`, signs it and systemd-boot with `keys` and
+/// writes the disk image, all into `out`.
+pub fn assemble(
+    paths: &Paths,
+    keys: &secureboot::Keys,
+    out: &Path,
+    target: Target,
+) -> Result<PathBuf> {
     let kernel = paths.out.join("vmlinuz");
     let initrd = paths.out.join("initrd.cpio.zst");
     let usr_image = paths.out.join("usr.erofs");
@@ -156,7 +180,7 @@ pub fn assemble(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<Pa
             .arg(&profile)
             .arg("--stub")
             .arg(efi_dir.join("linuxx64.efi.stub"))
-            .arg(format!("--cmdline={}", kernel_cmdline(root_hash)))
+            .arg(format!("--cmdline={}", kernel_cmdline(root_hash, target)))
             .arg(format!("--os-release=@{}", os_release.display()))
             .arg(format!("--uname={}", release.trim()))
             // Signed PCR 11 policies (.pcrsig) and their public key (.pcrpkey).
@@ -298,4 +322,29 @@ fn write_at(disk: &Path, offset: u64, content: &Path) -> Result<()> {
     io::copy(&mut File::open(content)?, &mut out)?;
     out.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The images for VM tests and real hardware must differ in nothing but
+    /// the console order and the credential import: what the tests check is
+    /// what runs on hardware.
+    #[test]
+    fn hardware_and_vm_command_lines_differ_only_where_intended() {
+        let vm = kernel_cmdline("abc", Target::Vm);
+        let hardware = kernel_cmdline("abc", Target::Hardware);
+        let words = |line: &str| line.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        let strip = |mut w: Vec<String>| {
+            w.retain(|w| !w.starts_with("console=") && w != "systemd.import_credentials=no");
+            w
+        };
+        assert_eq!(strip(words(&vm)), strip(words(&hardware)));
+        // The last console= is /dev/console: the serial port in the VM, the screen on hardware.
+        assert!(vm.ends_with("console=ttyS0,115200"));
+        assert!(hardware.contains("console=ttyS0,115200 console=tty0 "));
+        assert!(hardware.ends_with("systemd.import_credentials=no"));
+        assert!(!vm.contains("import_credentials"));
+    }
 }
