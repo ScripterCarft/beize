@@ -303,14 +303,23 @@ sein Konto anlegen, LAN und Zeit prüfen (`networkctl`, `timedatectl`, `ntp-ctl 
 auf echter Hardware ungeprüft – und Windows einmalig auf UTC stellen
 (`keys/secureboot/README.md` Schritt 4).
 
-**Nächste Aufgaben für M2, in dieser Reihenfolge:**
-1. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
+**Nächste Aufgaben, in dieser Reihenfolge (vom Besitzer so festgelegt):**
+1. **Frühjahrsputz, im Plan-Modus:** erst alles lesen, messen und Befunde sammeln, dem
+   Besitzer den Plan zeigen, dann in Häppchen umsetzen. Schwerpunkte:
+   - **Schnelle Schleife:** Bauen + Testen dauert bis 10 min. systemd baut bei jeder
+     Rezeptänderung komplett neu (frisches Build-Verzeichnis, ~5 min; lokal inkrementell,
+     CI sauber?); `bz smoke` macht immer alle ~14 Starts (3–5 min) – schneller Modus mit
+     einem Start, unabhängige Teile parallel. Ziel: Konfig ändern → Ergebnis < 1 min.
+   - **Code:** `qemu.rs` (>1300 Zeilen) aufteilen, Doppeltes finden; `~/probe/probe.py` und
+     `~/probe/drive-run.py` (steuert `bz run`, beantwortet die Einrichtung, `@wait N`) als
+     `bz debug` ins Repo. Tests mit frischem Blick prüfen – zuletzt waren zwei zu Unrecht
+     grün bzw. nur zufällig grün (kvmclock, IPv4/IPv6-Reihenfolge).
+   - **Doku:** CLAUDE.md (>300 Zeilen) und ADR-Nachträge zu Endfassungen kürzen.
+   - **Token sparen:** knappe Ausgaben von `bz` (Zusammenfassung am Ende), gezielt lesen.
+2. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
    optimieren: initrd verschlanken (17 MB, ganzes systemd), Kernel zuschneiden.
-2. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig. Wichtig auch,
+3. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig. Wichtig auch,
    weil Zertifikatsliste und tzdata sonst auf dem Stand der Installation veralten.
-3. Danach eine Aufräumrunde vor M3: `qemu.rs` (>1300 Zeilen) aufteilen, `~/probe/probe.py`
-   und `~/probe/drive-run.py` (steuert `bz run`: Einrichtung beantworten, Befehle im Gast)
-   als `bz debug` ins Repo, §12/ADR-Nachträge zu Endfassungen zusammenführen.
 
 Offen und bewusst zurückgestellt: bit-genaue Builds (Binaries unterscheiden sich
 zwischen Container- und lokalem Bau, vermutlich Build-Pfad), WLAN, NVIDIA (M3),
