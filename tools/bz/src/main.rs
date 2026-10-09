@@ -11,13 +11,13 @@ mod kernel;
 mod layout;
 mod packages;
 mod paths;
-mod qemu;
 mod recipe;
 mod secureboot;
 mod source;
 mod tree;
 mod usr;
 mod util;
+mod vm;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -101,8 +101,8 @@ fn main() -> Result<()> {
         Command::Initrd => initrd::build(&paths).map(drop),
         Command::Image => image::build(&paths).map(drop),
         Command::Build => build_all(&paths),
-        Command::Run => qemu::run(&paths),
-        Command::Smoke => qemu::smoke(&paths),
+        Command::Run => vm::run(&paths),
+        Command::Smoke => vm::smoke(&paths),
         Command::Owner { path } => {
             println!("{}", install::owner(&paths, &path)?);
             Ok(())

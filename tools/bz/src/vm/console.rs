@@ -1,0 +1,336 @@
+//! Headless boots: watching the serial console and answering its questions
+//! as the owner would.
+
+use std::cell::RefCell;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::process::{ChildStdin, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result};
+
+use super::machine::{Machine, Swtpm, qemu};
+use crate::util;
+
+pub(super) const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The firmware refuses a bad image within seconds; this only bounds a hang.
+pub(super) const TAMPER_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// A systemd credential passed via SMBIOS (honoured in VMs, also under
+/// Secure Boot); boot-report powers off when it is present.
+const SMOKE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.smoke=1";
+
+/// Numbers the boot logs in the order of the boots.
+static BOOTS: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    /// The console log of this thread's latest boot: shown when a check fails.
+    pub(super) static LAST_CONSOLE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+/// Outcome of a headless boot.
+pub(super) struct BootRun<T> {
+    /// First answer of the verdict function and the time it took to get there.
+    pub(super) answer: Option<(T, Duration)>,
+    /// Whether the guest shut down by itself (instead of being stopped).
+    pub(super) powered_off: bool,
+    /// Console lines reporting failed units, from the initrd and the system.
+    pub(super) failures: Vec<String>,
+    /// Whether the boot asked for a passphrase (the TPM did not unlock).
+    pub(super) prompted: bool,
+    /// Every console line, without terminal control sequences.
+    pub(super) console: Vec<String>,
+}
+
+/// systemd's prompt for a disk passphrase or recovery key ("Please enter
+/// recovery key for disk root: ..."). It does not end with a newline, so it
+/// is looked for in incomplete lines, too.
+fn is_passphrase_prompt(text: &str) -> bool {
+    text.contains("Please enter") && text.contains(" for disk ")
+}
+
+/// beize-tpm's question whether to adopt a different TPM (beize-tpm/src/main.rs).
+const ADOPT_TPM_PROMPT: &str = "Type yes to bind the data to it";
+
+/// The first boot waits for the owner to confirm the recovery key is saved
+/// (system/initrd/usr/lib/beize/recovery-key); the tests answer "saved".
+pub(super) const RECOVERY_KEY_SAVED_PROMPT: &str =
+    "Type saved once the recovery key is written down";
+
+/// The owner's account the tests create on first boot (beize-setup).
+pub(super) const SMOKE_USER: &str = "smoke";
+
+/// beize-setup's questions and the tests' answers ("Password:" is not part
+/// of "Password again:", each matches only its own question). The time zone:
+/// a country with several zones, so the setup asks back.
+pub(super) const SETUP_ANSWERS: [(&str, &str); 6] = [
+    ("Your login name", SMOKE_USER),
+    ("Your full name", "Smoke Test"),
+    ("Password again:", "smoke-test-password"),
+    ("Password:", "smoke-test-password"),
+    ("Your time zone", "Brazil"),
+    ("Which one?", "Sao Paulo"),
+];
+
+/// The zone the answers above must lead to.
+pub(super) const SMOKE_TIME_ZONE: &str = "America/Sao_Paulo";
+
+/// What to type at the console during a boot, as the owner would.
+#[derive(Clone, Default)]
+pub(super) struct Answers {
+    /// Typed when the boot asks for the recovery key; without one, that
+    /// question ends the boot.
+    recovery_key: Option<String>,
+    /// Typed when beize-tpm asks whether to adopt a new TPM ("no" if unset).
+    adopt_tpm: Option<&'static str>,
+}
+
+impl Answers {
+    pub(super) fn none() -> Self {
+        Self::default()
+    }
+
+    pub(super) fn recovery_key(key: &str) -> Self {
+        Self {
+            recovery_key: Some(key.to_owned()),
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn adopt_tpm(self, answer: &'static str) -> Self {
+        Self {
+            adopt_tpm: Some(answer),
+            ..self
+        }
+    }
+
+    /// The questions answered besides the recovery key, as (prompt, what is
+    /// typed); each is answered once per boot.
+    fn replies(&self) -> Vec<(&'static str, &'static str)> {
+        let mut replies = vec![
+            (ADOPT_TPM_PROMPT, self.adopt_tpm.unwrap_or("no")),
+            (RECOVERY_KEY_SAVED_PROMPT, "saved"),
+        ];
+        replies.extend(SETUP_ANSWERS);
+        replies
+    }
+}
+
+/// Types a line at the console.
+fn type_line(stdin: &mut ChildStdin, text: &str) {
+    let _ = write!(stdin, "{text}\r");
+    let _ = stdin.flush();
+}
+
+enum ConsoleEvent<T> {
+    Verdict(T),
+    Prompted,
+}
+
+/// Writes a console line to the boot's log (and, with `--verbose`, here).
+fn echo(log: &mut File, line: &str) {
+    let _ = writeln!(log, "{line}");
+    if util::verbose() {
+        eprintln!("  | {line}");
+    }
+}
+
+/// Boots headless and feeds every console line to `verdict` until it
+/// answers or `timeout` passes, typing `answers` at the console's questions.
+/// Without a recovery key, being asked for one ends the boot. QEMU is always
+/// stopped before returning.
+pub(super) fn watch_boot<T: Send + 'static>(
+    machine: &Machine,
+    timeout: Duration,
+    answers: &Answers,
+    verdict: impl Fn(&str) -> Option<T> + Send + 'static,
+) -> Result<BootRun<T>> {
+    let answers = answers.clone();
+    let tpm = Swtpm::start(&machine.tpm)?;
+    let started = Instant::now();
+    let mut child = qemu(machine, &tpm)?
+        .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
+        .args(["-smbios", SMOKE_CREDENTIAL])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("starting qemu")?;
+
+    let mut stdout = child.stdout.take().context("qemu stdout")?;
+    let mut stdin = child.stdin.take().context("qemu stdin")?;
+    fs::create_dir_all(&machine.logs)?;
+    let log_path = machine.logs.join(format!(
+        "{:02}-{}.log",
+        BOOTS.fetch_add(1, Ordering::Relaxed) + 1,
+        machine.name()
+    ));
+    let mut log = File::create(&log_path)?;
+    LAST_CONSOLE.set(Some(log_path));
+    let stop_at_prompt = answers.recovery_key.is_none();
+    let (tx, rx) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        let mut failures = Vec::new();
+        let mut console = Vec::new();
+        let mut answered = false;
+        let mut prompted = false;
+        let replies = answers.replies();
+        let mut replied = vec![false; replies.len()];
+        let mut pending = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(n @ 1..) = stdout.read(&mut chunk) {
+            pending.extend_from_slice(&chunk[..n]);
+            while let Some(end) = pending.iter().position(|&b| b == b'\n') {
+                let raw: Vec<u8> = pending.drain(..=end).collect();
+                let line = String::from_utf8_lossy(&raw);
+                let line = line.trim_end_matches(['\r', '\n']);
+                echo(&mut log, line);
+                if is_unit_failure(line) {
+                    failures.push(strip_ansi(line));
+                }
+                if !answered && let Some(answer) = verdict(line) {
+                    answered = true;
+                    let _ = tx.send(ConsoleEvent::Verdict(answer));
+                }
+                console.push(strip_ansi(line));
+            }
+            let shown = strip_ansi(&String::from_utf8_lossy(&pending));
+            if !prompted && is_passphrase_prompt(&shown) {
+                prompted = true;
+                if let Some(key) = &answers.recovery_key {
+                    echo(&mut log, "(typing the recovery key)");
+                    type_line(&mut stdin, key);
+                }
+                let _ = tx.send(ConsoleEvent::Prompted);
+            }
+            for ((prompt, answer), replied) in replies.iter().zip(&mut replied) {
+                if !*replied && shown.contains(prompt) {
+                    *replied = true;
+                    echo(&mut log, &format!("(answering \"{prompt}\": {answer})"));
+                    type_line(&mut stdin, answer);
+                }
+            }
+        }
+        (failures, console, prompted)
+    });
+
+    let deadline = started + timeout;
+    let mut answer = None;
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(ConsoleEvent::Verdict(verdict)) => {
+                answer = Some((verdict, started.elapsed()));
+                break;
+            }
+            Ok(ConsoleEvent::Prompted) if stop_at_prompt => break,
+            Ok(ConsoleEvent::Prompted) => {}
+            Err(_) => break,
+        }
+    }
+    // A healthy guest powers off right after reporting; give it a moment.
+    let grace = if answer.is_some() { 10 } else { 0 };
+    let deadline = Instant::now() + Duration::from_secs(grace);
+    while child.try_wait()?.is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(100));
+    }
+    let powered_off = child.try_wait()?.is_some();
+    if !powered_off {
+        child.kill()?;
+        child.wait()?;
+    }
+    let (failures, console, prompted) = reader.join().unwrap_or_default();
+    Ok(BootRun {
+        answer,
+        powered_off,
+        failures,
+        prompted,
+        console,
+    })
+}
+
+/// A systemd recovery key: 64 characters from the modhex alphabet in eight
+/// groups separated by dashes.
+pub(super) fn find_recovery_key(console: &[String]) -> Option<String> {
+    const MODHEX: &str = "cbdefghijklnrtuv";
+    console
+        .iter()
+        .flat_map(|line| line.split_whitespace())
+        .find(|word| {
+            let groups: Vec<&str> = word.split('-').collect();
+            groups.len() == 8
+                && groups
+                    .iter()
+                    .all(|g| g.len() == 8 && g.chars().all(|c| MODHEX.contains(c)))
+        })
+        .map(str::to_owned)
+}
+
+/// systemd's console status lines for failed units and failed dependencies.
+fn is_unit_failure(line: &str) -> bool {
+    let line = strip_ansi(line);
+    line.contains("[FAILED]") || line.contains("[DEPEND]")
+}
+
+pub(super) fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '' && chars.peek() == Some(&'[') {
+            chars.next();
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out.trim().to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognises_failed_units_on_the_console() {
+        assert!(is_unit_failure(
+            "[0;1;31mFAILED[0m] Failed to listen on Journal Log Access Socket."
+                .replace("[0;1;31mFAILED", "[[0;1;31mFAILED")
+                .as_str()
+        ));
+        assert!(is_unit_failure(
+            "[DEPEND] Dependency failed for Kernel Core Pattern."
+        ));
+        assert!(!is_unit_failure("[  OK  ] Reached target Basic System."));
+        assert_eq!(strip_ansi("[[0;32m  OK  [0m] x"), "[  OK  ] x");
+        assert!(is_passphrase_prompt(
+            "Please enter recovery key for disk root: (press TAB for no echo) "
+        ));
+        assert!(is_passphrase_prompt(
+            "Please enter passphrase for disk root (root): "
+        ));
+        assert!(!is_passphrase_prompt(
+            "Starting Cryptography Setup for root..."
+        ));
+    }
+
+    #[test]
+    fn finds_the_recovery_key_on_the_console() {
+        let key = "fjbdkvhn-nrttdbuj-ecjdhtnc-glklnkjl-crtfgehi-hdgjlbbr-ghlgucnk-lccdfuhb";
+        let console = [
+            "Recovery key for the data on this computer".to_owned(),
+            format!("     {key}"),
+        ];
+        assert_eq!(find_recovery_key(&console).as_deref(), Some(key));
+        // Other dash-separated words are not mistaken for a key.
+        let noise = ["uuid 5024fb5b-d220-4ff2-9c32-385e3a1238fe".to_owned()];
+        assert_eq!(find_recovery_key(&noise), None);
+        assert_eq!(find_recovery_key(&[key.replace('f', "a")]), None);
+    }
+}
