@@ -15,6 +15,7 @@ use crate::install;
 use crate::layout;
 use crate::packages;
 use crate::paths::Paths;
+use crate::say;
 use crate::tree;
 use crate::usr;
 use crate::util;
@@ -68,7 +69,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     util::step("Packing initrd");
     let image = paths.out.join("initrd.cpio.zst");
     pack(&root, &image)?;
-    eprintln!(
+    say!(
         "  initrd -> {} ({:.1} MiB)",
         image.display(),
         fs::metadata(&image)?.len() as f64 / layout::MIB as f64

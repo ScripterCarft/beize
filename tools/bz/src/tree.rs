@@ -13,6 +13,7 @@ use crate::install;
 use crate::packages::{BUILD_EPOCH, TARGET};
 use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
+use crate::say;
 use crate::util;
 
 /// `images/base.toml`: which packages go into the image and the initrd.
@@ -80,7 +81,7 @@ pub fn populate(
         }
     }
     strip_debug_info(paths, &elf_files)?;
-    eprintln!(
+    say!(
         "  {count} files, debug info stripped from {} ELF files",
         elf_files.len()
     );

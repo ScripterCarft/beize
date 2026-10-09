@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 
 use super::machine::{Machine, Swtpm, qemu};
+use crate::say;
 use crate::util;
 
 pub(super) const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -249,7 +250,7 @@ impl Drop for Session {
 fn echo(log: &mut File, line: &str) {
     let _ = writeln!(log, "{line}");
     if util::verbose() {
-        eprintln!("  | {line}");
+        say!("  | {line}");
     }
 }
 

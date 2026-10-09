@@ -13,6 +13,7 @@ use super::console::{
 use super::machine::{Machine, SLIRP_DNS, SLIRP_GATEWAY};
 use super::report::{BootReport, REPORT_MARKER};
 use crate::layout::{self, MIB};
+use crate::say;
 use crate::{image, util};
 
 /// A healthy boot: its report and what appeared on the console.
@@ -103,7 +104,7 @@ pub(super) fn boot_healthy(
         "expected boot #{expected_boot}, the system reports boot #{}",
         report.boot
     );
-    eprintln!(
+    say!(
         "  ok: boot #{} running under Secure Boot after {} guest uptime \
          ({:.1}s including firmware), network via DHCP, no failed units, clean power-off \
          (NTS key exchange with {} time servers)",
@@ -146,7 +147,7 @@ pub(super) fn expect_refused(
         second.prompted,
         "the TPM unlocked after a refused re-binding"
     );
-    eprintln!("  ok: refused to re-bind ({reason}); the recovery key is still needed");
+    say!("  ok: refused to re-bind ({reason}); the recovery key is still needed");
     Ok(())
 }
 
@@ -176,7 +177,7 @@ pub(super) fn expect_rebound(
         !second.prompted,
         "after re-binding the TPM still did not unlock"
     );
-    eprintln!("  ok: after {change} the recovery key was needed once, then the TPM unlocked again");
+    say!("  ok: after {change} the recovery key was needed once, then the TPM unlocked again");
     Ok(())
 }
 
@@ -204,7 +205,7 @@ pub(super) fn expect_root_locked(machine: &Machine, condition: &str) -> Result<(
             TAMPER_TIMEOUT.as_secs()
         ),
     }
-    eprintln!("  ok: with {condition} the TPM did not unlock the root partition");
+    say!("  ok: with {condition} the TPM did not unlock the root partition");
     Ok(())
 }
 
@@ -217,7 +218,7 @@ pub(super) fn check_partitions(disk: &Path) -> Result<()> {
         "first boot did not create the expected partitions; missing: {}\n{dump}",
         missing.join(", ")
     );
-    eprintln!("  ok: first boot created /usr slot B and the root partition");
+    say!("  ok: first boot created /usr slot B and the root partition");
     Ok(())
 }
 
@@ -240,7 +241,7 @@ pub(super) fn check_root_binding(disk: &Path, scratch: &Path) -> Result<()> {
          (policy reference {})",
         token["tpm2_pubkey_ref"]
     );
-    eprintln!(
+    say!(
         "  ok: the TPM unlocks the root partition only for Secure Boot as enrolled (PCR 7), \
          nothing added to the boot (PCR 12) and a signed Beize UKI in its initrd \
          (PCR 11, policy reference \"initrd\")"
@@ -331,7 +332,7 @@ pub(super) fn check_blessed(disk: &Path) -> Result<()> {
         listing.lines().any(|line| line.ends_with(&blessed)),
         "the UKI was not marked as good after a successful boot; ESP holds:\n{listing}"
     );
-    eprintln!(
+    say!(
         "  ok: boot counting marked {} as good",
         layout::blessed_uki_name()
     );

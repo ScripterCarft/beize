@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use crate::paths::Paths;
+use crate::say;
 
 /// Merged-/usr symlinks and their targets, relative to the link's directory.
 const MERGED_LINKS: [(&str, &str); 6] = [
@@ -122,7 +123,7 @@ pub fn merge(paths: &Paths, package: &str, staging: &Path) -> Result<()> {
         .map(|path| format!("{}\n", path.display()))
         .collect();
     fs::write(manifest_path(paths, package), manifest)?;
-    eprintln!("  installed {} files", files.len());
+    say!("  installed {} files", files.len());
     Ok(())
 }
 

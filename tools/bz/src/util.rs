@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
@@ -8,6 +9,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
+
+/// Like `eprintln!`, but kept while [`capture`] runs on this thread.
+#[macro_export]
+macro_rules! say {
+    ($($arg:tt)*) => {
+        $crate::util::say_line(format!($($arg)*))
+    };
+}
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
@@ -95,21 +104,24 @@ const MEMORY_PER_JOB_MIB: u64 = 1536;
 
 /// Number of parallel build jobs: one per CPU, limited by total memory.
 pub fn job_count() -> usize {
+    parallel(1, MEMORY_PER_JOB_MIB)
+}
+
+/// How many jobs that each need `cpus_each` CPUs and `memory_each_mib` of
+/// memory this machine runs side by side (at least one).
+pub fn parallel(cpus_each: usize, memory_each_mib: u64) -> usize {
     let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
     let memory_kib = std::fs::read_to_string("/proc/meminfo")
         .ok()
         .and_then(|info| mem_total_kib(&info));
-    jobs_for(cpus, memory_kib)
+    jobs_for(cpus / cpus_each.max(1), memory_kib, memory_each_mib)
 }
 
-fn jobs_for(cpus: usize, memory_kib: Option<u64>) -> usize {
-    match memory_kib {
-        Some(kib) => {
-            let by_memory = usize::try_from(kib / 1024 / MEMORY_PER_JOB_MIB).unwrap_or(usize::MAX);
-            cpus.min(by_memory).max(1)
-        }
-        None => cpus,
-    }
+fn jobs_for(by_cpus: usize, memory_kib: Option<u64>, memory_each_mib: u64) -> usize {
+    let by_memory = memory_kib.map_or(usize::MAX, |kib| {
+        usize::try_from(kib / 1024 / memory_each_mib.max(1)).unwrap_or(usize::MAX)
+    });
+    by_cpus.min(by_memory).max(1)
 }
 
 fn mem_total_kib(meminfo: &str) -> Option<u64> {
@@ -148,7 +160,7 @@ pub fn run_logged(cmd: &mut Command, what: &str, log: &Path) -> Result<()> {
         }
         if Instant::now() >= next {
             let log_kib = fs::metadata(log).map_or(0, |m| m.len() / 1024);
-            eprintln!(
+            say!(
                 "  still building {what}: {} min, log {log_kib} KiB",
                 started.elapsed().as_secs() / 60
             );
@@ -173,15 +185,43 @@ pub fn print_tail(log: &Path) {
 fn print_text_tail(text: &str, source: &str) {
     let lines: Vec<&str> = text.lines().collect();
     let shown = &lines[lines.len().saturating_sub(TAIL_LINES)..];
-    eprintln!("  last {} lines of {source}:", shown.len());
+    say!("  last {} lines of {source}:", shown.len());
     for line in shown {
-        eprintln!("  | {line}");
+        say!("  | {line}");
     }
 }
 
 /// Prints a step header so long builds stay readable.
 pub fn step(title: &str) {
-    eprintln!("\n==> {title}");
+    say!("\n==> {title}");
+}
+
+thread_local! {
+    /// What a job running beside others said, shown in one piece when it
+    /// is done (see [`capture`]).
+    static CAPTURED: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+}
+
+/// Prints a line of progress to stderr – or keeps it while [`capture`] runs
+/// on this thread. Use through [`say!`](crate::say).
+pub fn say_line(line: String) {
+    if let Some(line) = CAPTURED.with_borrow_mut(|captured| match captured {
+        Some(lines) => {
+            lines.push(line);
+            None
+        }
+        None => Some(line),
+    }) {
+        eprintln!("{line}");
+    }
+}
+
+/// Runs `job` with everything it says kept instead of printed; returns its
+/// result and what it said. Nests: an outer capture goes on afterwards.
+pub fn capture<T>(job: impl FnOnce() -> T) -> (T, Vec<String>) {
+    let outer = CAPTURED.replace(Some(Vec::new()));
+    let result = job();
+    (result, CAPTURED.replace(outer).unwrap_or_default())
 }
 
 fn describe(cmd: &Command) -> String {
@@ -204,11 +244,29 @@ mod tests {
     #[test]
     fn memory_limits_parallel_jobs() {
         // This machine: 24 threads, ~15.4 GiB in WSL -> memory bound.
-        assert_eq!(jobs_for(24, Some(16_152_084)), 10);
+        assert_eq!(jobs_for(24, Some(16_152_084), MEMORY_PER_JOB_MIB), 10);
         // GitHub runner: 4 CPUs, 16 GiB -> CPU bound.
-        assert_eq!(jobs_for(4, Some(16 * 1024 * 1024)), 4);
+        assert_eq!(jobs_for(4, Some(16 * 1024 * 1024), MEMORY_PER_JOB_MIB), 4);
         // Tiny machine still builds, one job at a time.
-        assert_eq!(jobs_for(8, Some(512 * 1024)), 1);
-        assert_eq!(jobs_for(8, None), 8);
+        assert_eq!(jobs_for(8, Some(512 * 1024), MEMORY_PER_JOB_MIB), 1);
+        assert_eq!(jobs_for(8, None, MEMORY_PER_JOB_MIB), 8);
+    }
+
+    #[test]
+    fn captured_output_is_kept_per_thread() {
+        let ((), said) = capture(|| {
+            say!("  ok: {}", 1);
+            step("Next");
+        });
+        assert_eq!(said, ["  ok: 1", "\n==> Next"]);
+        // A capture inside a capture keeps its own lines; the outer one goes on.
+        let (inner, outer) = capture(|| {
+            say!("outer 1");
+            let ((), inner) = capture(|| say!("inner"));
+            say!("outer 2");
+            inner
+        });
+        assert_eq!(inner, ["inner"]);
+        assert_eq!(outer, ["outer 1", "outer 2"]);
     }
 }

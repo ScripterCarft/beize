@@ -10,6 +10,7 @@ use super::console::{Answers, ConsoleEvent, REPORT_TIMEOUT, Session, strip_ansi}
 use super::machine::{Machine, clear_boot_logs};
 use super::run::{self, DEBUG_CONSOLE_CREDENTIAL};
 use crate::paths::Paths;
+use crate::say;
 use crate::util;
 
 /// systemd's last line of a boot; the root shell (serial getty) starts after
@@ -83,7 +84,7 @@ pub fn debug(
             .type_line(&format!("{command}; {}", marker_command(&tag)));
         let done = format!("{MARKER}{tag}");
         if !shell.wait_for(COMMAND_TIMEOUT, true, |line| line == done)? {
-            eprintln!(
+            say!(
                 "  warning: `{command}` did not finish within {}s",
                 COMMAND_TIMEOUT.as_secs()
             );
@@ -92,7 +93,7 @@ pub fn debug(
 
     shell.session.type_line("systemctl poweroff");
     if !shell.session.power_off_within(POWER_OFF_TIMEOUT)? {
-        eprintln!("  warning: the machine did not power off, it was stopped");
+        say!("  warning: the machine did not power off, it was stopped");
     }
     Ok(())
 }

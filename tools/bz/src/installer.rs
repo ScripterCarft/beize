@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use crate::image;
 use crate::paths::Paths;
+use crate::say;
 use crate::util;
 
 /// "Microsoft reserved": Windows puts it on every GPT disk it initialises.
@@ -161,7 +162,7 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool)
     );
     let model = fs::read_to_string(sys.join("device/model")).unwrap_or_default();
 
-    eprintln!(
+    say!(
         "\n  Disk:   {} – {} – {} GB\n  GUID:   {}\n  Image:  {}\n\n  {}",
         disk.display(),
         model.trim(),
@@ -192,7 +193,7 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool)
     )
     .is_err()
     {
-        eprintln!("  (discard not supported here, writing over the old content)");
+        say!("  (discard not supported here, writing over the old content)");
     }
     util::run_attached(
         Command::new("sudo")
@@ -208,7 +209,7 @@ pub fn install(paths: &Paths, disk: &Path, expected_guid: &str, reinstall: bool)
             .arg(disk),
     )?;
     util::run_attached(&mut Command::new("sync"))?;
-    eprintln!(
+    say!(
         "\n  ok: Beize is on {}. Next: keys/secureboot/README.md, step 3.",
         disk.display()
     );

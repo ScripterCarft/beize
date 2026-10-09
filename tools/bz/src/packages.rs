@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::install;
 use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
+use crate::say;
 use crate::util;
 
 /// Target triplet of the cross toolchain.
@@ -49,7 +50,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
             up_to_date += 1;
             if util::verbose() {
-                eprintln!("  {} {} is up to date", recipe.name, recipe.version);
+                say!("  {} {} is up to date", recipe.name, recipe.version);
             }
         } else {
             let _ = fs::remove_file(&stamp);
@@ -63,7 +64,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         closures.insert(recipe.name.clone(), visible);
     }
     if up_to_date > 0 {
-        eprintln!("  {up_to_date} of {} packages up to date", order.len());
+        say!("  {up_to_date} of {} packages up to date", order.len());
     }
     Ok(order)
 }
@@ -265,7 +266,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
 
     let started = Instant::now();
     util::run_logged(&mut cmd, &recipe.name, &log)?;
-    eprintln!("  built in {:.0}s", started.elapsed().as_secs_f64());
+    say!("  built in {:.0}s", started.elapsed().as_secs_f64());
 
     if stage == Stage::Target {
         install::merge(paths, &recipe.name, &pkg_dir)?;

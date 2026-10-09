@@ -13,6 +13,7 @@ use crate::install;
 use crate::layout;
 use crate::packages::{self, BUILD_EPOCH};
 use crate::paths::Paths;
+use crate::say;
 use crate::tree;
 use crate::util;
 
@@ -78,14 +79,14 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         size % layout::VERITY_BLOCK_SIZE == 0,
         "the /usr image is not a multiple of the verity block size"
     );
-    eprintln!(
+    say!(
         "  /usr image -> {} ({:.1} MiB)",
         image.display(),
         size as f64 / layout::MIB as f64
     );
 
     let root_hash = build_verity(paths, &image)?;
-    eprintln!("  dm-verity root hash {root_hash}");
+    say!("  dm-verity root hash {root_hash}");
     Ok(image)
 }
 

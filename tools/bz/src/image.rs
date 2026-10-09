@@ -15,6 +15,7 @@ use crate::layout::{
     USR_VERITY_TYPE,
 };
 use crate::paths::Paths;
+use crate::say;
 use crate::{initrd, secureboot, util};
 
 const SECTOR: u64 = 512;
@@ -254,7 +255,7 @@ pub fn assemble(
     write_at(&disk, USR_START * SECTOR, &usr_image)?;
     write_at(&disk, USR_VERITY_START * SECTOR, &usr_verity)?;
 
-    eprintln!(
+    say!(
         "  disk image -> {} ({} MiB, sparse)",
         disk.display(),
         disk_size / MIB
@@ -298,7 +299,7 @@ unit: sectors
         USR_VERITY_SLOT_SIZE / SECTOR,
     );
     if util::verbose() {
-        eprintln!("  $ sfdisk {}", disk.display());
+        say!("  $ sfdisk {}", disk.display());
     }
     let mut child = Command::new("sfdisk")
         .arg("--quiet")

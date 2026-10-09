@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail, ensure};
 use super::console::{Answers, TAMPER_TIMEOUT, watch_boot};
 use crate::layout::MIB;
 use crate::paths::Paths;
+use crate::say;
 use crate::{secureboot, util};
 
 /// OVMF build that enforces Secure Boot (requires SMM).
@@ -94,12 +95,41 @@ impl Machine {
         Ok(machine)
     }
 
+    /// A copy of this machine's state – disk, firmware variables and TPM –
+    /// as machine `name`, to change and boot without touching this one.
+    pub(super) fn copy_as(&self, paths: &Paths, name: &str) -> Result<Self> {
+        let copy = Self::named(paths, name);
+        if copy.tpm.exists() {
+            fs::remove_dir_all(&copy.tpm)?;
+        }
+        // The disk is sparse (8 GiB, mostly unwritten): keep it that way.
+        for (from, to) in [
+            (&self.disk, &copy.disk),
+            (&self.vars, &copy.vars),
+            (&self.tpm, &copy.tpm),
+        ] {
+            util::run(
+                Command::new("cp")
+                    .args(["--archive", "--sparse=always", "--reflink=auto"])
+                    .arg(from)
+                    .arg(to),
+            )?;
+        }
+        Ok(copy)
+    }
+
     pub(super) fn remove(self) -> Result<()> {
         fs::remove_file(&self.disk)?;
         fs::remove_file(&self.vars)?;
         fs::remove_dir_all(&self.tpm)?;
         Ok(())
     }
+}
+
+/// How many VMs run side by side: each has 4 CPUs and 2 GiB (`qemu`), plus
+/// room for QEMU and swtpm themselves.
+pub(super) fn parallel_vms() -> usize {
+    util::parallel(4, 3 * 1024)
 }
 
 /// Certificates the firmware must hold after enrollment (profile "with
@@ -117,7 +147,7 @@ const ENROLLED: [(&str, &str); 6] = [
 /// Powers a machine in setup mode on once and requires systemd-boot to
 /// enroll the keys from the ESP and reboot, leaving PK, KEK, db and dbx set.
 fn enroll_keys(machine: &Machine) -> Result<()> {
-    eprintln!("  first power-on: enrolling the Secure Boot keys");
+    say!("  first power-on: enrolling the Secure Boot keys");
     // Wait for the end of the enrollment, not its start: writing the
     // variables takes seconds on a slow CI runner, and only the reboot
     // after it gets the short grace period of `watch_boot`.
@@ -285,7 +315,7 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         };
         cmd.args(["-machine", "q35,smm=on,accel=kvm", "-cpu", cpu]);
     } else {
-        eprintln!("  warning: /dev/kvm not accessible, falling back to slow emulation");
+        say!("  warning: /dev/kvm not accessible, falling back to slow emulation");
         cmd.args(["-machine", "q35,smm=on,accel=tcg", "-cpu", "max"]);
     }
     cmd.args(["-global", "driver=cfi.pflash01,property=secure,value=on"])

@@ -18,6 +18,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 
 use crate::paths::Paths;
+use crate::say;
 use crate::util;
 
 #[derive(Debug, Clone)]
@@ -466,7 +467,7 @@ fn verify_ssh(signers: &Path, sig: &Path, payload: &Path) -> Result<()> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    eprintln!("  {}", log.trim());
+    say!("  {}", log.trim());
     Ok(())
 }
 
@@ -556,7 +557,7 @@ fn check_gpgv(out: std::process::Output) -> Result<()> {
         bail!("signature check failed:\n{}", log.trim());
     }
     if let Some(good) = log.lines().find(|l| l.contains("Good signature")) {
-        eprintln!("  {}", good.trim_start_matches("gpgv: "));
+        say!("  {}", good.trim_start_matches("gpgv: "));
     }
     Ok(())
 }

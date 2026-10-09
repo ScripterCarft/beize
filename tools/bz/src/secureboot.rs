@@ -25,6 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::paths::Paths;
+use crate::say;
 use crate::util;
 
 /// Owner GUID recorded with Beize's certificates in the firmware databases.
@@ -233,7 +234,7 @@ impl Keys {
                 .arg(output),
         )
         .with_context(|| format!("verifying signature of {}", output.display()))?;
-        eprintln!("  signed {}", output.display());
+        say!("  signed {}", output.display());
         Ok(())
     }
 }
@@ -285,7 +286,7 @@ impl Store {
     fn put(&self, title: &str, file_name: &str, secret: &[u8]) -> Result<()> {
         match self {
             Self::OnePassword { op, account } => {
-                eprintln!("  storing \"{title}\" in the 1Password vault \"{VAULT}\"");
+                say!("  storing \"{title}\" in the 1Password vault \"{VAULT}\"");
                 let mut cmd = Self::op(op, account);
                 cmd.args(["document", "create", "-", "--vault", VAULT])
                     .args(["--title", title, "--file-name", file_name]);
@@ -301,7 +302,7 @@ impl Store {
     fn get(&self, title: &str) -> Result<Vec<u8>> {
         match self {
             Self::OnePassword { op, account } => {
-                eprintln!("  reading \"{title}\" from the 1Password vault \"{VAULT}\"");
+                say!("  reading \"{title}\" from the 1Password vault \"{VAULT}\"");
                 let mut cmd = Self::op(op, account);
                 cmd.args(["document", "get", title, "--vault", VAULT]);
                 secret_command(&mut cmd, None)
@@ -367,7 +368,7 @@ fn choose_account(op: &str) -> Result<Option<String>> {
         return Ok(None);
     }
 
-    eprintln!("\n  1Password: several accounts found");
+    say!("\n  1Password: several accounts found");
     for (i, account) in accounts.iter().enumerate() {
         // whoami only reports; it does not ask to unlock.
         let unlocked = Command::new(op)
@@ -377,7 +378,7 @@ fn choose_account(op: &str) -> Result<Option<String>> {
             .stderr(Stdio::null())
             .status()
             .is_ok_and(|s| s.success());
-        eprintln!(
+        say!(
             "    {}) {:<32} {:<32} {}",
             i + 1,
             account.email,
@@ -407,7 +408,7 @@ fn choose_account(op: &str) -> Result<Option<String>> {
             fs::create_dir_all(dir)?;
         }
         fs::write(&file, format!("{}\n", choice.id))?;
-        eprintln!(
+        say!(
             "  remembered in {} (delete it to choose again)",
             file.display()
         );
@@ -464,7 +465,7 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
         fs::copy(enroll.join(file), public.join(file))?;
         written.push(public.join(file));
     }
-    eprintln!(
+    say!(
         "  {}\n  The private keys are in the key store only. Commit the files above \
          (see keys/secureboot/README.md).",
         written

@@ -70,7 +70,12 @@ enum Command {
         commands: Vec<String>,
     },
     /// Install the image on a fresh test disk, boot it twice and verify everything
-    Smoke,
+    Smoke {
+        /// Only install and boot twice (all checks of a normal start), skip
+        /// the scenarios that tamper with firmware, TPM and image
+        #[arg(long)]
+        quick: bool,
+    },
     /// Show which package installed a file (e.g. `bz owner /usr/bin/bash`)
     Owner { path: String },
     /// Download every source and check its pin and its maintainers' signature
@@ -129,7 +134,7 @@ fn main() -> Result<()> {
             tpm.as_deref(),
             &commands,
         ),
-        Command::Smoke => vm::smoke(&paths),
+        Command::Smoke { quick } => vm::smoke(&paths, quick),
         Command::Owner { path } => {
             println!("{}", install::owner(&paths, &path)?);
             Ok(())
@@ -151,7 +156,7 @@ fn main() -> Result<()> {
         Command::Sign => {
             let store = secureboot::Store::one_password()?;
             let disk = image::sign(&paths, &store)?;
-            eprintln!(
+            say!(
                 "
   ok: {} is signed with the production keys",
                 disk.display()
@@ -178,14 +183,14 @@ fn verify_sources(paths: &Paths) -> Result<()> {
             }
         }
     }
-    eprintln!("\n  ok: {signed} sources pinned and signed by their maintainers");
+    say!("\n  ok: {signed} sources pinned and signed by their maintainers");
     if !unsigned.is_empty() {
-        eprintln!(
+        say!(
             "  {} sources pinned but UNSIGNED (upstream publishes no signatures):",
             unsigned.len()
         );
         for entry in &unsigned {
-            eprintln!("    - {entry}");
+            say!("    - {entry}");
         }
     }
     Ok(())

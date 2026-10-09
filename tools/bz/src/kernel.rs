@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::paths::Paths;
 use crate::recipe::Recipe;
+use crate::say;
 use crate::util;
 
 /// Fixed build metadata so the same sources produce the same kernel.
@@ -56,7 +57,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let image = paths.out.join("vmlinuz");
     fs::copy(obj.join("arch/x86/boot/bzImage"), &image)?;
     fs::write(paths.out.join("kernel.release"), &release)?;
-    eprintln!("  kernel {release} -> {}", image.display());
+    say!("  kernel {release} -> {}", image.display());
     Ok(image)
 }
 

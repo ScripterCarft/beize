@@ -96,7 +96,8 @@ Versionen und die repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ./bz verify      # alle Quellen: Pin + Maintainer-Signatur; listet unsignierte Ausnahmen
 ./bz build       # kernel → Pakete → usr (+verity) → initrd → image  (inkrementell)
-./bz smoke       # DER Abnahmetest, muss nach jeder Änderung grün sein
+./bz smoke       # DER Abnahmetest (~75 s, Szenarien parallel), vor jedem Commit grün
+./bz smoke --quick   # nur Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
 ./bz run         # interaktiv (Ctrl-A X), VM-Disk bleibt bis zum nächsten Image erhalten
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell der run-VM, Ausgabe auf stdout
 #   --machine smoke (liegengebliebene Test-Disk) · --tpm smoke-other-tpm · --recovery-key … · '@wait N'
