@@ -49,6 +49,29 @@ if [[ $root == encrypted && -n $mapper ]]; then
     fi
 fi
 
+# Network (ADR 0011): nothing in the boot waits for it, so wait here (after
+# reading the uptime). "routable" = an address and a default route; dns = the
+# servers resolved learned from the network; lookup = a name resolved through
+# NSS (nss-resolve synthesizes _gateway), as every program resolves names.
+network=timeout
+if /usr/lib/systemd/systemd-networkd-wait-online --operational-state=routable --timeout=30; then
+    read -r _ network < <(busctl get-property org.freedesktop.network1 /org/freedesktop/network1 \
+        org.freedesktop.network1.Manager OperationalState)
+    network=${network//\"/}
+fi
+dns=()
+upstream=/run/systemd/resolve/resolv.conf
+if [[ -r $upstream ]]; then
+    while read -r key value _; do
+        [[ $key == nameserver ]] && dns+=("$value")
+    done < "$upstream"
+fi
+dns_list=$(IFS=,; echo "${dns[*]}")
+lookup=failed
+if read -r address _ < <(getent hosts _gateway); then
+    lookup=$address
+fi
+
 failed=()
 while read -r unit _; do
     failed+=("$unit")
@@ -66,6 +89,7 @@ read -r machineid < /etc/machine-id
 
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
+     "network=${network} dns=${dns_list:-none} lookup=${lookup}" \
      "failed=${failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.

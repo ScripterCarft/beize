@@ -1,7 +1,7 @@
 # Beize – Übergabe für Claude Code
 
 Diese Datei ist der Einstieg für jede neue Session. Sie ersetzt den bisherigen
-Chatverlauf. Stand: 2026-10-07, nach „Root-Partition mit LUKS2 + TPM2“ (ADR 0009).
+Chatverlauf. Stand: 2026-10-09, nach „Netzwerk über LAN“ (ADR 0011).
 
 ## 1. Was Beize ist
 
@@ -116,7 +116,8 @@ Recovery-Key beim 1. Start angezeigt, beim 2. nicht mehr; Gegentests: dieselbe D
 mit anderem TPM → Abfrage „Please enter recovery key for disk root“, der Test tippt
 den Key ein, System startet; mit Secure Boot aus (Schlüssel bleiben) → Root bleibt zu; unsigniertes UKI → „Access denied“,
 ein verändertes Byte in `/usr` → „data block … is corrupted“. Bei fehlgeschlagenen
-Units gibt der Boot-Report deren Journal aus (`BEIZE-FAILED-LOG …`). Zum Schluss der
+Units gibt der Boot-Report deren Journal aus; jeder Start muss per DHCP (virtio-net,
+QEMU-NAT) `routable` werden, DNS 10.0.2.3 lernen und `_gateway` über NSS auflösen (`BEIZE-FAILED-LOG …`). Zum Schluss der
 Ablauf des Besitzers (`new-keys` → `sign`) mit Wegwerf-Schlüsselspeicher statt 1Password,
 Ergebnis wird eingeschrieben und gebootet.
 Aktuell: Start 5,23 s Gast-Uptime (Kernel 0,56 + initrd 2,42 + System 2,25 s),
@@ -174,7 +175,8 @@ signierte Quellen, Besitz-Manifeste · 0006 Secure Boot, Test- vs.
 Produktionsschlüssel · 0007 nur `/usr`, A/B, Einrichtung beim ersten Start ·
 0008 dm-verity für `/usr` · 0009 Root mit LUKS2 + TPM2 (PCR 7), signierte
 PCR-11-Richtlinie im UKI, UKI-Werkzeuge aus eigenem systemd · 0010 Beize als
-Plattform-Eigentümer, Vertrauensprofile, Produktionsschlüssel/1Password. Neue
+Plattform-Eigentümer, Vertrauensprofile, Produktionsschlüssel/1Password · 0011
+Netzwerk (networkd + resolved, keine eingebauten Fremd-Server). Neue
 Architekturentscheidung = neues ADR.
 
 ## 9. Regeln für Rezepte und Code
@@ -250,7 +252,7 @@ Architekturentscheidung = neues ADR.
 - initrd 15,9 MiB / 2,3 s – enthält noch ganz systemd; verschlanken. hwdb nicht generiert.
 - Compiler-Flags generisch (`-O2 -pipe`); Ziel x86-64-v3 + Raptor-Lake-Tuning, Kernel auf Hardware zuschneiden.
 - Updater (systemd-sysupdate), Verhalten bei
-  verity-Fehlern zur Laufzeit (Neustart → Rückfall?), Netzwerk, NVIDIA, Bluetooth,
+  verity-Fehlern zur Laufzeit (Neustart → Rückfall?), WLAN, NVIDIA, Bluetooth,
   Start von der zweiten SSD, Installer.
 - TPM: Rollback – jedes ältere, mit demselben PCR-Schlüssel signierte UKI erfüllt die
   Richtlinie ebenfalls (Abhilfe erst mit Versions-Sperre/Schlüsselwechsel).
@@ -286,14 +288,20 @@ Recovery nur bei erlaubtem Zustand, Start-Prüfung PCR 12), Härtung für echte 
 `bz install`, **Anmelden**: libxcrypt + Linux-PAM, login/sulogin, `os/beize-setup`
 (Konto beim ersten Start; root bekommt denselben Hash für die Notfall-Konsole),
 Konsole während Recovery-Key und Einrichtung stumm (`systemd-mute-console`), Terminus-
-Schrift. `bz smoke`: 33 Prüfungen grün, Start 5,26 s.
+Schrift, **LAN** (ADR 0011: networkd + resolved, DHCP, nss-resolve, kein Fallback-DNS/NTP,
+LLMNR aus, IPv6-Privatsphäre; beize-setup wartet per `tcdrain`, bis seine Ausgabe gesendet
+ist – sonst verwarf `TTYReset` die letzte Zeile). `bz smoke` grün, Start 5,26 s.
 
-**Der Besitzer soll als Nächstes** neu bauen/signieren/installieren und beim ersten Start
-sein Konto anlegen (Anmelden auf echter Hardware ist noch ungeprüft).
+**Der Besitzer soll als Nächstes** neu bauen/signieren/installieren, beim ersten Start
+sein Konto anlegen und LAN prüfen (`networkctl`, `resolvectl`) – beides auf echter
+Hardware ungeprüft.
 
 **Nächste Aufgaben für M2, in dieser Reihenfolge:**
-1. **Netzwerk über LAN** (Intel I225/I226, Treiber `igc` ist im Kernel):
-   systemd-networkd + resolved, DHCP; Smoke-Test mit virtio-net.
+1. **Zeitsynchronisation mit NTS** (ADR 0011, Abschnitt „offen“): chrony vs. ntpd-rs
+   prüfen (Größe, Abhängigkeiten, signierte Releases, Cross-Build), Server: mehrere
+   unabhängige NTS-Betreiber (PTB, Netnod, …), später eigene; Serverliste als eigene
+   Datei unter `/usr` (austauschbar). Bootstrap bei falscher Hardware-Uhr lösen;
+   Dual-Boot: Windows hält die RTC in Ortszeit. Entscheidung mit dem Besitzer → ADR.
 2. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
    optimieren: initrd verschlanken (17 MB, ganzes systemd), Kernel zuschneiden.
 3. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig.

@@ -3,10 +3,13 @@
 //!
 //! systemd-mute-console mutes both for as long as a varlink connection that
 //! called io.systemd.MuteConsole.Mute stays open – the mechanism
-//! systemd-firstboot uses (`--mute-console=yes`). Dropping the guard closes
-//! the connection, and the output comes back.
+//! systemd-firstboot uses (`--mute-console=yes`). Dropping the guard waits
+//! until the setup's own output is sent, then closes the connection, and the
+//! output comes back.
 
-use std::io::{Read, Write};
+use std::ffi::c_int;
+use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
@@ -35,4 +38,20 @@ pub fn console() -> Option<Muted> {
         }
     }
     Some(Muted(stream))
+}
+
+unsafe extern "C" {
+    fn tcdrain(fd: c_int) -> c_int;
+}
+
+impl Drop for Muted {
+    /// Before the console comes back: wait until everything written to it has
+    /// been sent. A serial console is slow; the getty starting right after the
+    /// setup flushes the port, and the last lines would be lost.
+    fn drop(&mut self) {
+        let _ = io::stdout().flush();
+        // SAFETY: tcdrain only waits on the descriptor; on anything but a
+        // terminal it fails with ENOTTY, which changes nothing.
+        unsafe { tcdrain(io::stdout().as_raw_fd()) };
+    }
 }

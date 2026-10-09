@@ -26,13 +26,16 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] CI baut und bootet das komplette System
 - [x] Secure Boot: signiertes systemd-boot + UKI, eigene Schlüssel; der Boot-Test
       läuft unter erzwungenem Secure Boot und prüft, dass Unsigniertes abgewiesen wird
-- [ ] Produktionsschlüssel (1Password) und Signieren für echte Hardware
+- [x] Produktionsschlüssel (1Password) und Signieren für echte Hardware
 - [x] Nur `/usr` wird ausgeliefert; die initrd legt beim ersten Start `/usr`-Slot B und die
       Root-Partition (`/etc`, `/var`, `/home`) an; Boot-Counting mit automatischem Rückfall
 - [x] dm-verity für `/usr`: Root-Hash im signierten UKI, jeder Block wird beim Lesen geprüft
 - [x] Root-Partition (`/etc`, `/var`, `/home`) mit LUKS2 verschlüsselt, an TPM2 und den
       Secure-Boot-Zustand gebunden; entsperrt ohne Eingabe nur auf genau diesem Rechner
 - [x] Wiederherstellungsschlüssel: beim ersten Start erzeugt und einmal angezeigt
+- [x] Netzwerk über LAN (systemd-networkd + resolved, DHCP, keine eingebauten
+      Fremd-Server, IPv6-Privatsphäre); der Boot-Test prüft DHCP, DNS und Namensauflösung
+- [ ] Zeitsynchronisation mit authentifizierter Zeit (NTS)
 - [ ] Updater (systemd-sysupdate)
 - [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
 - [ ] Start von der zweiten SSD

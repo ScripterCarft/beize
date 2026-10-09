@@ -1,0 +1,16 @@
+# Wired network: every physical Ethernet port is configured automatically
+# via DHCPv4 and IPv6 router advertisements (ADR 0011). DNS and NTP servers
+# come from the network.
+[Match]
+# Physical ports only: no bridges, veth pairs, tunnels.
+Kind=!*
+Type=ether
+
+[Network]
+DHCP=yes
+
+[IPv6AcceptRA]
+# Stable address per network that does not reveal the MAC address (RFC 7217)
+# instead of EUI-64; temporary addresses for outgoing connections come from
+# networkd.conf.d/beize.conf.
+Token=prefixstable

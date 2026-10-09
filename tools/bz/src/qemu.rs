@@ -33,6 +33,11 @@ const SMOKE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.smoke=
 /// Credential for `bz run`: a root shell on the serial console (VM images only).
 const DEBUG_CONSOLE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.debug-console=1";
 
+/// QEMU user networking ("slirp"): its DHCP server hands out this gateway and
+/// this DNS server – the guest must learn both from the network (ADR 0011).
+const SLIRP_GATEWAY: &str = "10.0.2.2";
+const SLIRP_DNS: &str = "10.0.2.3";
+
 /// The boot outcome as reported by the guest.
 #[derive(Debug, PartialEq)]
 struct BootReport {
@@ -49,11 +54,17 @@ struct BootReport {
     /// `refused` if the TPM did not unlock the root partition for the running
     /// system (it may only in the initrd).
     system_unlock: String,
+    /// networkd's operational state; `routable` = address + default route.
+    network: String,
+    /// DNS servers resolved learned from the network.
+    dns: Vec<String>,
+    /// The address `_gateway` resolved to through NSS, or `failed`.
+    lookup: String,
     failed: Vec<String>,
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 failed=none`.
     fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -62,7 +73,12 @@ impl BootReport {
                 .find_map(|f| f.strip_prefix(key)?.strip_prefix('='))
                 .map(str::to_owned)
         };
-        let failed = field("failed")?;
+        let list = |key: &str| {
+            Some(match field(key)?.as_str() {
+                "none" => Vec::new(),
+                list => list.split(',').map(str::to_owned).collect(),
+            })
+        };
         Some(Self {
             state: field("state")?,
             secure_boot: field("secureboot")?,
@@ -72,10 +88,10 @@ impl BootReport {
             machine_id: field("machineid")?,
             uptime: field("uptime")?,
             system_unlock: field("systemunlock")?,
-            failed: match failed.as_str() {
-                "none" => Vec::new(),
-                list => list.split(',').map(str::to_owned).collect(),
-            },
+            network: field("network")?,
+            dns: list("dns")?,
+            lookup: field("lookup")?,
+            failed: list("failed")?,
         })
     }
 }
@@ -645,6 +661,21 @@ fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Res
         run.failures.join("\n  ")
     );
     ensure!(
+        report.network == "routable",
+        "the wired network did not come up via DHCP (network={})",
+        report.network
+    );
+    ensure!(
+        report.dns == [SLIRP_DNS],
+        "the DNS servers are not the network's: expected {SLIRP_DNS}, got {:?}",
+        report.dns
+    );
+    ensure!(
+        report.lookup == SLIRP_GATEWAY,
+        "name lookup through NSS failed: _gateway resolved to {}",
+        report.lookup
+    );
+    ensure!(
         run.powered_off,
         "the system did not power off cleanly after reporting"
     );
@@ -655,7 +686,7 @@ fn boot_healthy(machine: &Machine, expected_boot: u32, answers: &Answers) -> Res
     );
     eprintln!(
         "\n  ok: boot #{} running under Secure Boot after {} guest uptime \
-         ({:.1}s including firmware), no failed units, clean power-off",
+         ({:.1}s including firmware), network via DHCP, no failed units, clean power-off",
         report.boot,
         report.uptime,
         elapsed.as_secs_f64()
@@ -1176,7 +1207,9 @@ fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
             "if=virtio,format=raw,file={}",
             machine.disk.display()
         ))
-        .args(tpm.qemu_args());
+        .args(tpm.qemu_args())
+        // One wired port behind QEMU's NAT with DHCP; virtio like the disk.
+        .args(["-nic", "user,model=virtio-net-pci"]);
     for value in &machine.smbios {
         cmd.arg("-smbios").arg(format!("type=11,value={value}"));
     }
@@ -1196,7 +1229,8 @@ mod tests {
     use super::*;
 
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
-                         machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused failed=none";
+                         machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
+                         network=routable dns=10.0.2.3 lookup=10.0.2.2 failed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -1209,6 +1243,9 @@ mod tests {
         assert_eq!(report.machine_id, "0123456789abcdef0123456789abcdef");
         assert_eq!(report.uptime, "2.95s");
         assert_eq!(report.system_unlock, "refused");
+        assert_eq!(report.network, "routable");
+        assert_eq!(report.dns, [SLIRP_DNS]);
+        assert_eq!(report.lookup, SLIRP_GATEWAY);
         assert!(report.failed.is_empty());
     }
 
@@ -1216,9 +1253,13 @@ mod tests {
     fn parses_degraded_report_behind_console_noise() {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
+                    network=timeout dns=none lookup=failed \
                     failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
+        assert_eq!(report.network, "timeout");
+        assert!(report.dns.is_empty());
+        assert_eq!(report.lookup, "failed");
         assert_eq!(report.secure_boot, "off");
         assert_eq!(report.root, "plain");
         assert_eq!(report.boot, 2);
