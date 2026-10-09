@@ -78,6 +78,9 @@ fi
 # source), too long to wait for here. Needs the internet: waits a little.
 tz=$(readlink /etc/localtime)
 tz=${tz#*/zoneinfo/}
+# The system clock (seconds since 1970): `bz smoke` checks it after a reset
+# hardware clock.
+printf -v clock '%(%s)T' -1
 nts=0
 if [[ $network == routable ]]; then
     for _ in {1..20}; do
@@ -108,7 +111,7 @@ read -r machineid < /etc/machine-id
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup}" \
-     "tz=${tz:-none} nts=${nts}" \
+     "tz=${tz:-none} nts=${nts} clock=${clock}" \
      "failed=${failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.

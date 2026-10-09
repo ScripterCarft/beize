@@ -1,0 +1,11 @@
+#!/usr/bin/bash
+# Remembers the current time for the next boot (ADR 0012): systemd sets the
+# clock at boot to at least the mtime of /var/lib/systemd/timesync/clock – a
+# hardware clock that lost its time (empty BIOS battery) then starts from the
+# last verified time instead of the build date. Only time that ntpd-rs has
+# synchronized from its NTS sources is stored; a wrong clock never is.
+set -eu
+
+[[ $(timedatectl show --property=NTPSynchronized --value) == yes ]] || exit 0
+mkdir -p /var/lib/systemd/timesync
+touch /var/lib/systemd/timesync/clock

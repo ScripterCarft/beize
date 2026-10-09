@@ -6,3 +6,4 @@ disable systemd-pcrlock-*.service
 enable beize-setup.service
 # Time with NTS (ADR 0012).
 enable ntpd-rs.service
+enable beize-save-clock.timer

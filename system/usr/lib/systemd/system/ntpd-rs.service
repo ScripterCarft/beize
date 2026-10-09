@@ -12,8 +12,10 @@ Type=notify
 # Configuration: /etc/ntpd-rs/ntp.toml, a link to /usr/lib/ntpd-rs/ntp.toml
 # unless the owner replaced it (tmpfiles.d/beize.conf).
 ExecStart=/usr/bin/ntp-daemon
-Restart=on-failure
-RestartSec=10s
+# No automatic restart, as upstream's hardening guide advises: every start
+# allows one large clock step, so restarts could add up an attacker's
+# steps. A stopped ntpd-rs shows as a failed unit; the next boot restarts it.
+Restart=no
 # An unprivileged user of its own; the only privilege: setting the clock.
 DynamicUser=yes
 RuntimeDirectory=ntpd-rs

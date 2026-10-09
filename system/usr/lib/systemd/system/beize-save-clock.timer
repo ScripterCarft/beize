@@ -1,0 +1,10 @@
+[Unit]
+Description=Remember the verified time for the next boot, hourly
+
+[Timer]
+# ntpd-rs needs ~2 minutes for its first synchronization.
+OnBootSec=5min
+OnUnitActiveSec=1h
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Remember the verified time for the next boot
+Documentation=file:/usr/lib/beize/save-clock
+After=ntpd-rs.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/beize/save-clock

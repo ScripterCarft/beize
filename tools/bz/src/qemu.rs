@@ -65,11 +65,13 @@ struct BootReport {
     /// How many time servers completed the NTS key exchange. Needs the
     /// internet, so reported, not required.
     nts: String,
+    /// The system clock when reporting, in seconds since 1970.
+    clock: u64,
     failed: Vec<String>,
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 failed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 clock=1791500000 failed=none`.
     fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -98,6 +100,7 @@ impl BootReport {
             lookup: field("lookup")?,
             time_zone: field("tz")?,
             nts: field("nts")?,
+            clock: field("clock")?.parse().ok()?,
             failed: list("failed")?,
         })
     }
@@ -112,6 +115,9 @@ struct Machine {
     tpm: PathBuf,
     /// Extra SMBIOS type 11 OEM strings, as a manipulated firmware could set.
     smbios: Vec<String>,
+    /// The hardware clock's time at power-on (QEMU `-rtc base=`); `None`:
+    /// the host's time, like a working clock.
+    rtc: Option<&'static str>,
 }
 
 impl Machine {
@@ -121,6 +127,7 @@ impl Machine {
             vars: paths.work.join(format!("{name}-vars.fd")),
             tpm: paths.work.join(format!("{name}-tpm")),
             smbios: Vec::new(),
+            rtc: None,
         }
     }
 
@@ -610,9 +617,46 @@ fn owner_workflow(paths: &Paths) -> Result<()> {
 
     let machine = Machine::install_from(paths, "owner", &disk)?;
     boot_healthy(&machine, 1, &Answers::none())?;
+    empty_battery(&machine)?;
     machine.remove()?;
     fs::remove_dir_all(&dir)?;
     eprintln!("  ok: keys from the key store signed an image that boots under Secure Boot");
+    Ok(())
+}
+
+/// A hardware clock that lost its time, as with an empty BIOS battery.
+const EMPTY_BATTERY_RTC: &str = "2000-01-01T00:00:00";
+
+/// Boots with the hardware clock reset to 2000: systemd must move the clock
+/// to at least Beize's build time (or the last verified time saved by
+/// beize-save-clock), so certificates and NTS can work (ADR 0012).
+fn empty_battery(machine: &Machine) -> Result<()> {
+    util::step("A hardware clock reset to 2000 (empty BIOS battery) must not set the time back");
+    let reset = Machine {
+        rtc: Some(EMPTY_BATTERY_RTC),
+        ..machine.clone()
+    };
+    let boot = boot_healthy(&reset, 2, &Answers::none())?;
+    let host_now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    ensure!(
+        boot.report.clock >= crate::packages::BUILD_EPOCH,
+        "the clock started from the reset hardware clock: {} is before Beize's build time {}",
+        boot.report.clock,
+        crate::packages::BUILD_EPOCH
+    );
+    // Otherwise the test did not reset anything (e.g. the guest read the
+    // host's time instead of its hardware clock).
+    ensure!(
+        boot.report.clock + 3600 < host_now,
+        "the guest's clock is the host's time ({}), the hardware clock reset had no effect",
+        boot.report.clock
+    );
+    eprintln!(
+        "  ok: the system clock started at or after Beize's build time ({} time servers verified)",
+        boot.report.nts
+    );
     Ok(())
 }
 
@@ -1209,7 +1253,15 @@ fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     let mut cmd = Command::new("qemu-system-x86_64");
     // Secure Boot firmware keeps its variables in SMM-protected flash.
     if kvm_available() {
-        cmd.args(["-machine", "q35,smm=on,accel=kvm", "-cpu", "host"]);
+        // A guest under KVM takes the wall clock from the host (kvmclock),
+        // not from the hardware clock. A machine with its own hardware clock
+        // time goes without it, like a real PC.
+        let cpu = if machine.rtc.is_some() {
+            "host,-kvmclock"
+        } else {
+            "host"
+        };
+        cmd.args(["-machine", "q35,smm=on,accel=kvm", "-cpu", cpu]);
     } else {
         eprintln!("  warning: /dev/kvm not accessible, falling back to slow emulation");
         cmd.args(["-machine", "q35,smm=on,accel=tcg", "-cpu", "max"]);
@@ -1236,6 +1288,9 @@ fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     for value in &machine.smbios {
         cmd.arg("-smbios").arg(format!("type=11,value={value}"));
     }
+    if let Some(base) = machine.rtc {
+        cmd.arg("-rtc").arg(format!("base={base}"));
+    }
     Ok(cmd)
 }
 
@@ -1254,7 +1309,7 @@ mod tests {
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
                          network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=America/Sao_Paulo nts=4 \
-                         failed=none";
+                         clock=1791500000 failed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -1272,6 +1327,7 @@ mod tests {
         assert_eq!(report.lookup, SLIRP_GATEWAY);
         assert_eq!(report.time_zone, SMOKE_TIME_ZONE);
         assert_eq!(report.nts, "4");
+        assert_eq!(report.clock, 1_791_500_000);
         assert!(report.failed.is_empty());
     }
 
@@ -1280,7 +1336,7 @@ mod tests {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
                     network=timeout dns=none lookup=failed tz=none nts=0 \
-                    failed=systemd-logind.service,systemd-logind-varlink.socket";
+                    clock=946684800 failed=systemd-logind.service,systemd-logind-varlink.socket";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
         assert_eq!(report.network, "timeout");

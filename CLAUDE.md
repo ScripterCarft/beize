@@ -295,6 +295,7 @@ ist – sonst verwarf `TTYReset` die letzte Zeile), **Zeit** (ADR 0012: ntpd-rs 
 PTB/Netnod/time.nl/Cloudflare, Mozilla-Zertifikate unter `/etc/ssl/cert.pem`, tzdata +
 Zeitzonen-Frage in beize-setup; `bz` prüft dafür SSH-signierte Commits). In der VM
 gemessen: synchronisiert nach ~2 min (8 Messungen à 16 s, bewusst nicht verkürzt).
+Leere BIOS-Batterie: verifizierte Zeit wird stündlich gesichert (systemd-Epoch-Datei).
 `bz smoke` grün, Start 5,28 s.
 
 **Der Besitzer soll als Nächstes** neu bauen/signieren/installieren, beim ersten Start
