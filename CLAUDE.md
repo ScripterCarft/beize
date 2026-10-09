@@ -316,8 +316,15 @@ auf echter Hardware ungeprüft – und Windows einmalig auf UTC stellen
      grün bzw. nur zufällig grün (kvmclock, IPv4/IPv6-Reihenfolge).
    - **Doku:** CLAUDE.md (>300 Zeilen) und ADR-Nachträge zu Endfassungen kürzen.
    - **Token sparen:** knappe Ausgaben von `bz` (Zusammenfassung am Ende), gezielt lesen.
-2. **Startzeit auf echter Hardware messen** (`systemd-analyze` beim Besitzer), dann
-   optimieren: initrd verschlanken (17 MB, ganzes systemd), Kernel zuschneiden.
+2. **Startzeit auf echter Hardware** – gemessen 2026-10-09: Firmware 20 s + Loader 1 s +
+   **Kernel 11 s + initrd 24 s + System 17 s** (VM: 0,6 + 2,4 + 2,3 s). Das sind Wartezeiten
+   (Timeouts), keine Optimierungsfragen – Ursache zuerst finden (`systemd-analyze blame`,
+   `critical-chain`, `journalctl -b -o short-monotonic`; Verdacht, unbelegt: serielle
+   Konsole `console=ttyS0` auf echter Hardware, wartende Geräte, TPM/PTT). Danach erst
+   verschlanken (initrd 17,9 MB mit ganzem systemd, Kernel zuschneiden).
+   **Tastatur:** noch US-Layout – `kbd` (Keymaps) fehlt, beize-setup muss nach dem Layout
+   fragen (`/etc/vconsole.conf`). `ping` fehlt im Image (iputils). Auf Hardware geprüft
+   und gut: Anmelden, Zeitzone, NTS-Zeit (synchronisiert, vorher ~3 s daneben).
 3. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig. Wichtig auch,
    weil Zertifikatsliste und tzdata sonst auf dem Stand der Installation veralten.
 
