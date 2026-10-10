@@ -208,9 +208,8 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 `beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
 nächsten Installation.
 
-**Nächster Schritt (2026-10-10):** CI-Lauf der Phase-3-Commits prüfen (neue Pakete,
-Kernel mit Modulen, linux-firmware 632 MB im Quellen-Cache – Runner-Disk war vorher bei
-91 %, `df` im Log). Dann installiert der Besitzer das neue Image auf der Hardware (`bz
+**Nächster Schritt (2026-10-10):** Phase 3 ist in der CI grün (`e9353d2`, 37 min; Runner-Disk
+nach dem Bau 92 %, 6,5 GB frei). Der Besitzer installiert das neue Image auf der Hardware (`bz
 sign`, `bz install`); Journal kopieren, `bz boot-times` + `bz hw-check`, Messwerte in
 `docs/hardware.md` ersetzen (erwartet: Kernel ohne die 5,7 s von `mei_me`; Loader mit
 18 MB Microcode beobachten). Danach Phase 4 (eigener Chat).
