@@ -37,9 +37,12 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
       Fremd-Server, IPv6-Privatsphäre); der Boot-Test prüft DHCP, DNS und Namensauflösung
 - [x] Uhrzeit: authentifiziert per NTS (ntpd-rs), Zeitzonen, Zertifikatsspeicher
 - [x] Läuft auf dem Rechner des Besitzers: Secure Boot, Verschlüsselung, Anmelden, LAN, Zeit
+- [x] Was läuft, steht im signierten Image; der Boot-Test prüft jede laufende Unit
+- [x] Alles für x86-64-v3 gebaut und gehärtet (FORTIFY, CET, Stack-Clash, RELRO/now);
+      `bz` prüft jede ELF-Datei im Image
 - [ ] Startzeit auf echter Hardware, Administratorrechte, Tastaturlayout
 - [ ] Updater (systemd-sysupdate)
-- [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
+- [ ] Kernel für i7-13700K / Z790, NVIDIA, Bluetooth
 - [ ] Start von der zweiten SSD
 
 ## Voraussetzungen

@@ -103,7 +103,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
 - Start in der VM: 5,3 s Gast-Uptime, erster Start ~8 s. Der zweite Start hat ein
-  Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~2× Messwert); bei Änderung neu
+  Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei Änderung neu
   messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`, manuell
   und wöchentlich `ci/system.sh` im privilegierten `ubuntu:26.04`-Container
@@ -118,7 +118,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung. Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -172,7 +172,6 @@ in die Endfassung einarbeiten, keine Nachträge.
 ## 10. Offene Punkte (außer der aktuellen Aufgabe)
 
 - initrd 17,9 MiB (zstd -19) – enthält noch ganz systemd; verschlanken. hwdb nicht generiert.
-- Compiler-Flags generisch (`-O2 -pipe`); Ziel x86-64-v3 + Raptor-Lake-Tuning, Kernel zuschneiden.
 - Updater (systemd-sysupdate), Verhalten bei verity-Fehlern zur Laufzeit, WLAN, NVIDIA,
   Bluetooth, Start von der zweiten SSD, Installer.
 - TPM: Rollback älterer signierter UKIs; `CONFIG_TCG_TPM2_HMAC` aus; Attestierung bei
@@ -198,8 +197,9 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    Smoke-Test, `docs/hardware.md`.
    ✓ **1b. Was läuft (ADR 0013):** Units im signierten Image statt in `/etc`, Regeln
    `images/base.preset` → systemd-Vorgaben → `disable *`; Smoke prüft die laufenden Units.
-2. **Toolchain (ADR 0014):** x86-64-v3, `-mtune=generic`, Härtung (FORTIFY=3, stack-clash,
-   CET, PIE, RELRO/now, Frame-Pointer); ELF-Guard in `bz`; Boot-Report meldet fehlendes v3.
+2. ✓ **Toolchain (ADR 0014):** gcc mit x86-64-v3/`generic` als Standard, Härtung wie Fedora,
+   ELF-Prüfung in `bz` (alle ELF in `/usr` + initrd; Ausnahmen `NO_CET` in `elf.rs`), Kernel
+   mit Shadow Stacks für Programme, Boot-Report `shstk=` (WSL-VMs ohne CET: `nohw`).
 3. **Kernel (ADR 0015):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
    verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
    Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI

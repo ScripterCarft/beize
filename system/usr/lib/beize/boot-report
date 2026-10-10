@@ -31,6 +31,22 @@ if [[ -r $sb_var ]] && [[ $(od -An -tu1 -j4 -N1 "$sb_var") -eq 1 ]]; then
     secureboot=on
 fi
 
+# Shadow stack (ADR 0014): "on" if PID 1 runs with one – kernel, glibc and
+# systemd all support it; "nohw" if the CPU has none (e.g. a VM whose
+# hypervisor hides CET), "off" otherwise.
+shstk=nohw
+while IFS=: read -r key value; do
+    if [[ $key == flags* ]]; then
+        [[ " $value " == *" shstk "* ]] && shstk=off
+        break
+    fi
+done < /proc/cpuinfo
+if [[ $shstk == off ]]; then
+    while IFS=: read -r key value; do
+        [[ $key == x86_Thread_features && " $value " == *" shstk "* ]] && shstk=on
+    done < /proc/1/status
+fi
+
 # How /usr and / are mounted, judged by the device-mapper target below them:
 # /usr is "verity" only if every block read is checked against the root hash
 # in the signed UKI; / is "encrypted" only if it lives on a LUKS2 volume.
@@ -178,7 +194,7 @@ echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
      "tz=${tz:-none} nts=${nts} clock=${clock}" \
-     "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain}" \
+     "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain} shstk=${shstk}" \
      "failed=${failed_list:-none} bootfailed=${boot_failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.

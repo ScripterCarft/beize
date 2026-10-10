@@ -123,7 +123,7 @@ pub fn recreate(dir: &Path) -> Result<PathBuf> {
     Ok(dir.to_owned())
 }
 
-fn is_elf(path: &Path) -> Result<bool> {
+pub fn is_elf(path: &Path) -> Result<bool> {
     if !path.symlink_metadata()?.is_file() {
         return Ok(false);
     }

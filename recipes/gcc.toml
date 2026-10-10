@@ -35,9 +35,17 @@ dest = "mpc"
 script = '''
 sed -e '/m64=/s/lib64/lib/' -i "$SRC/gcc/config/i386/t-linux64"
 
+# gcc builds its run-time libraries (libgcc_s, libstdc++) for the target
+# itself: they get Beize's hardening (ADR 0014) through the *_FOR_TARGET
+# variables; --enable-cet adds -fcf-protection.
+export CFLAGS_FOR_TARGET="-O2 -pipe -fstack-clash-protection \
+  -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
+export CXXFLAGS_FOR_TARGET="$CFLAGS_FOR_TARGET"
+export LDFLAGS_FOR_TARGET="-Wl,-z,relro -Wl,-z,now -Wl,-z,pack-relative-relocs"
 "$SRC/configure" \
   --target="$TARGET" --prefix="$TOOLS" --with-sysroot="$SYSROOT" \
   --with-glibc-version=2.44 \
+  --with-arch=x86-64-v3 --with-tune=generic --enable-cet \
   --enable-default-pie --enable-default-ssp \
   --enable-shared --enable-threads=posix --enable-__cxa_atexit \
   --enable-linker-build-id --disable-nls --disable-multilib \

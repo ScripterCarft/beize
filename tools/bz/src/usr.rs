@@ -9,6 +9,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 
+use crate::elf;
 use crate::install;
 use crate::layout;
 use crate::packages::{self, BUILD_EPOCH};
@@ -78,6 +79,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(&usr),
     )?;
     enable_units(paths, &root)?;
+    elf::check_tree(paths, &root, "/usr")?;
     fs::write(usr.join("lib/os-release"), layout::os_release())?;
     write_repart_definitions(&usr)?;
 

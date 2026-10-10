@@ -17,8 +17,19 @@ use crate::{stamp, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
-/// Compiler flags for everything built for Beize. Tuned per CPU in M2.
-const TARGET_CFLAGS: &str = "-O2 -pipe";
+/// Compiler flags for everything built for Beize (ADR 0014): Fedora's
+/// hardening and frame pointers. x86-64-v3 is the compiler's default
+/// (`--with-arch`), so it also holds where a package overrides CFLAGS.
+const TARGET_CFLAGS: &str = "-O2 -pipe -Wall -Werror=format-security \
+     -Wp,-U_FORTIFY_SOURCE,-D_FORTIFY_SOURCE=3 -Wp,-D_GLIBCXX_ASSERTIONS \
+     -fexceptions -fasynchronous-unwind-tables -fstack-protector-strong \
+     -fstack-clash-protection -fcf-protection \
+     -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer";
+/// Linker flags for everything built for Beize (ADR 0014).
+const TARGET_LDFLAGS: &str = "-Wl,-z,relro -Wl,-z,now -Wl,--as-needed -Wl,-z,pack-relative-relocs";
+/// rustc flags for Beize's own Rust code and Rust packages (ADR 0014); PIE,
+/// RELRO and BIND_NOW are rustc's defaults.
+const TARGET_RUSTFLAGS: &str = "-C target-cpu=x86-64-v3 -C force-frame-pointers=yes";
 /// Fixed timestamp handed to builds via SOURCE_DATE_EPOCH (2026-10-06 00:00 UTC).
 pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// Bump to force a full rebuild after changing the build environment below.
@@ -117,14 +128,20 @@ fn topological_order(
     Ok(order)
 }
 
+/// The build environment every fingerprint starts with.
+fn environment() -> String {
+    format!(
+        "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {TARGET_LDFLAGS} {TARGET_RUSTFLAGS} \
+         {BUILD_EPOCH}\n"
+    )
+}
+
 /// Everything that influences a build: the recipe itself, the build
 /// environment, the repository content it builds from and the fingerprints
 /// of all dependencies.
 fn fingerprint(recipe: &Recipe, repo: &str, known: &BTreeMap<String, String>) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(format!(
-        "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {BUILD_EPOCH}\n"
-    ));
+    hasher.update(environment());
     hasher.update(&recipe.text);
     hasher.update(repo);
     for source in recipe.sources() {
@@ -173,7 +190,10 @@ fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path) {
         .env("REPO", &paths.root)
         // Only target artifacts link with the cross compiler against the
         // sysroot; build scripts and proc macros stay with the host's cc.
-        .env("RUSTFLAGS", format!("-C linker={TARGET}-gcc"));
+        .env(
+            "RUSTFLAGS",
+            format!("-C linker={TARGET}-gcc {TARGET_RUSTFLAGS}"),
+        );
     if let Some(rustc) = cargo
         .parent()
         .map(|bin| bin.join("rustc"))
@@ -241,6 +261,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
                 .env("STRIP", format!("{TARGET}-strip"))
                 .env("CFLAGS", TARGET_CFLAGS)
                 .env("CXXFLAGS", TARGET_CFLAGS)
+                .env("LDFLAGS", TARGET_LDFLAGS)
                 .env("PKG_CONFIG_SYSROOT_DIR", &paths.sysroot)
                 .env(
                     "PKG_CONFIG_LIBDIR",
@@ -313,9 +334,7 @@ mod tests {
         let digest = repo_digest(&paths, &recipe).unwrap();
         assert_eq!(digest, "");
         let mut legacy = Sha256::new();
-        legacy.update(format!(
-            "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {BUILD_EPOCH}\n"
-        ));
+        legacy.update(environment());
         legacy.update(&recipe.text);
         let legacy: String = legacy
             .finalize()

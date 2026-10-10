@@ -125,17 +125,29 @@ pub(super) fn boot_healthy(
         report.chain > 0,
         "beize-boot-chain wrote no critical chain into the journal"
     );
+    // Where the CPU has shadow stacks, systemd must run with one (ADR 0014).
+    ensure!(
+        matches!(report.shstk.as_str(), "on" | "nohw"),
+        "the CPU has shadow stacks, but PID 1 runs without one (shstk={})",
+        report.shstk
+    );
     say!(
         "  ok: boot #{} running under Secure Boot after {} guest uptime \
          ({:.1}s including firmware; kernel {} + initrd {} + system {}), network via DHCP, \
-         no failed units, clean power-off (NTS key exchange with {} time servers)",
+         no failed units, clean power-off (NTS key exchange with {} time servers; \
+         shadow stack {})",
         report.boot,
         report.uptime,
         elapsed.as_secs_f64(),
         seconds(report.kernel),
         seconds(report.initrd),
         seconds(report.userspace),
-        report.nts
+        report.nts,
+        if report.shstk == "on" {
+            "on"
+        } else {
+            "not in this CPU"
+        }
     );
     Ok(HealthyBoot {
         report,
@@ -145,15 +157,16 @@ pub(super) fn boot_healthy(
 }
 
 /// The most each phase of an ordinary boot (not the first, nothing typed)
-/// may take in the VM, in µs: about twice what it takes (2026-10-10, eight
-/// second boots during full smoke runs: kernel 0.56–0.61 s, initrd
-/// 2.42–2.51 s, system 2.27–2.44 s). The margin covers a 4-CPU CI runner
-/// and the scenarios that run beside the installation; a boot that gets
-/// slower than this has a cause to find before it reaches real hardware.
+/// may take in the VM, in µs: about 1.5 times what it takes on the slower
+/// machine, the 4-CPU CI runner (2026-10-10, second boots during full smoke
+/// runs – CI: kernel 0.74–0.93 s, initrd 3.78–3.84 s, system 2.77–2.90 s;
+/// the owner's PC: kernel 0.56–0.63 s, initrd 2.42–2.51 s, system
+/// 2.26–2.44 s). A boot that gets slower than this has a cause to find
+/// before it reaches real hardware; a runner's bad day must not fail it.
 const BOOT_BUDGET: [(&str, u64); 3] = [
-    ("kernel", 1_200_000),
-    ("initrd", 5_000_000),
-    ("system", 5_000_000),
+    ("kernel", 1_400_000),
+    ("initrd", 6_000_000),
+    ("system", 4_500_000),
 ];
 
 /// Holds an ordinary boot to [`BOOT_BUDGET`].
@@ -472,7 +485,7 @@ mod tests {
                 "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=2 \
                  machineid=x uptime=5.3s systemunlock=refused network=routable dns=none \
                  lookup=none tz=none nts=0 clock=0 kernel={kernel} initrd={initrd} \
-                 userspace={userspace} chain=12 failed=none bootfailed=none"
+                 userspace={userspace} chain=12 shstk=on failed=none bootfailed=none"
             )
         };
         let [(_, kernel), (_, initrd), (_, system)] = BOOT_BUDGET;

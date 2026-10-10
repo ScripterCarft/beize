@@ -4,6 +4,7 @@
 //! disk image and runs it in QEMU.
 
 mod boottimes;
+mod elf;
 mod image;
 mod initrd;
 mod install;

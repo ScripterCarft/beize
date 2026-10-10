@@ -11,6 +11,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
+use crate::elf;
 use crate::install;
 use crate::layout;
 use crate::packages;
@@ -78,6 +79,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     for secret in ["etc/shadow", "etc/gshadow"] {
         let _ = fs::remove_file(root.join(secret));
     }
+    elf::check_tree(paths, &root, "the initrd")?;
     tree::normalize_mtimes(&root)?;
 
     util::step("Packing initrd");

@@ -13,11 +13,20 @@ keyring = "glibc"
 [build]
 script = '''
 echo "rootsbindir=/usr/bin" > configparms
+# Hardening (ADR 0014) through glibc's own switches: FORTIFY, stack
+# protector, BIND_NOW and CET are configure options. --enable-cet must be
+# explicit: configure probes the preprocessor without CFLAGS, misses
+# -fcf-protection and would compile CET code without CET support. glibc
+# links itself, so no LDFLAGS; it is not C++, so no _GLIBCXX_ASSERTIONS.
+export CFLAGS="-O2 -pipe -fstack-clash-protection -fcf-protection \
+  -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
+unset CXXFLAGS LDFLAGS
 "$SRC/configure" \
   --prefix=/usr --libdir=/usr/lib --libexecdir=/usr/lib \
   --host="$TARGET" --build="$("$SRC/scripts/config.guess")" \
   --with-headers="$SYSROOT/usr/include" --enable-kernel=6.1 \
-  --enable-stack-protector=strong --disable-werror --disable-nscd \
+  --enable-stack-protector=strong --enable-fortify-source=3 --enable-bind-now --enable-cet \
+  --disable-werror --disable-nscd \
   libc_cv_slibdir=/usr/lib
 make -j"$JOBS"
 make DESTDIR="$PKG" install
