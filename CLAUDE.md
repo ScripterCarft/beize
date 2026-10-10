@@ -214,7 +214,9 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    Eigen-Patch: ~5 s PCIe-Retraining leerer Root-Ports = Regression aus 7.2 (72780f796468),
    Fix „Skip Target Speed quirk on clamped ports with no link“ liegt upstream auf pci/misc
    für 7.3 → mit 7.3 prüfen. ~5,7 s `mei_me` an 00:14.0 (xHCI, gleiche ID 8086:7a60) –
-   tritt nur auf, weil mei_me fest eingebaut ist; Patch für den Besitzer liegt in WSL
+   tritt nur auf, weil mei_me fest eingebaut ist. Als Modul nur behoben, wenn xHCI fest
+   bleibt (wie Fedora; sonst Wettlauf beider Module um dieselbe Modalias) – passt ohnehin,
+   die Tastatur für den Recovery-Key braucht xHCI vor udev. Patch für den Besitzer liegt in WSL
    `~/upstream/0001-mei-me-*.patch` (Name/Signed-off-by eintragen, an die Adressen aus
    `get_maintainer.pl` senden). Grundsatz: Bei Fehlern zuerst fragen, welche eigene
    Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
