@@ -22,6 +22,10 @@ use crate::util;
 const USR_FS_UUID: &str = "6265697a-6500-4000-8000-000000000010";
 /// UUID in the dm-verity superblock; fixed for reproducibility.
 const USR_VERITY_UUID: &str = "6265697a-6500-4000-8000-000000000011";
+/// Which units the image enables (ADR 0013).
+const UNIT_PRESET: &str = "images/base.preset";
+/// The only preset file the image ships, system and user: `disable *`.
+const SHIPPED_PRESET: &str = "99-beize.preset";
 
 /// Builds the packages of `images/base.toml` and writes `out/usr.erofs`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
@@ -32,7 +36,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let stamp = Stamp::new(
         paths,
         "usr",
-        tree::assembly_inputs(paths, &recipes, "usr")?,
+        tree::assembly_inputs(paths, &recipes, "usr")?.file(&paths.root.join(UNIT_PRESET))?,
         &[
             &image,
             &paths.out.join("usr.verity"),
@@ -73,6 +77,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(format!("{}/.", paths.root.join("system/usr").display()))
             .arg(&usr),
     )?;
+    enable_units(paths, &root)?;
     fs::write(usr.join("lib/os-release"), layout::os_release())?;
     write_repart_definitions(&usr)?;
 
@@ -140,6 +145,120 @@ fn build_verity(paths: &Paths, image: &Path) -> Result<String> {
     Ok(root_hash)
 }
 
+/// Enables the units of the image (ADR 0013): Beize's own systemctl applies
+/// `images/base.preset`, systemd's defaults and `disable *` to the tree, as
+/// systemd would on first boot, and the links it creates in /etc move into
+/// /usr – what runs is part of the signed image, and an update changes it
+/// together with everything else. Only [`SHIPPED_PRESET`] stays in the image,
+/// so systemd's own preset pass on first boot enables nothing in /etc.
+fn enable_units(paths: &Paths, root: &Path) -> Result<()> {
+    let systemd = root.join("usr/lib/systemd");
+    let presets = ["system-preset", "user-preset"].map(|dir| systemd.join(dir));
+    for dir in &presets {
+        ensure!(
+            dir.join(SHIPPED_PRESET).is_file(),
+            "{} is missing from system/usr",
+            dir.join(SHIPPED_PRESET).display()
+        );
+    }
+    fs::copy(
+        paths.root.join(UNIT_PRESET),
+        presets[0].join("10-beize.preset"),
+    )?;
+    for scope in [None, Some("--global")] {
+        util::run(
+            sysroot_command(paths, "usr/bin/systemctl")
+                .arg(format!("--root={}", root.display()))
+                .args(scope)
+                .arg("preset-all"),
+        )?;
+    }
+    let etc = root.join("etc");
+    for scope in ["system", "user"] {
+        move_links(&etc.join("systemd").join(scope), &systemd.join(scope))?;
+    }
+    if etc.exists() {
+        ensure_no_files(&etc)?;
+        fs::remove_dir_all(&etc)?;
+    }
+    for dir in &presets {
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.file_name() != Some(SHIPPED_PRESET.as_ref()) {
+                fs::remove_file(&path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A program from the sysroot, run on the build host through the sysroot's
+/// dynamic loader (same architecture), so it matches the image's version.
+fn sysroot_command(paths: &Paths, program: &str) -> Command {
+    let sysroot = &paths.sysroot;
+    let mut cmd = Command::new(sysroot.join("usr/lib/ld-linux-x86-64.so.2"));
+    cmd.arg("--library-path")
+        .arg(format!(
+            "{}:{}",
+            sysroot.join("usr/lib").display(),
+            sysroot.join("usr/lib/systemd").display()
+        ))
+        .arg(sysroot.join(program));
+    cmd
+}
+
+/// Moves the unit links systemctl created under `from` into `to`. A link
+/// that already exists there (systemd ships some, e.g. `ctrl-alt-del.target`)
+/// must name the same unit.
+fn move_links(from: &Path, to: &Path) -> Result<()> {
+    if !from.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(from)? {
+        let path = entry?.path();
+        let target = to.join(path.file_name().context("a link without a name")?);
+        let meta = fs::symlink_metadata(&path)?;
+        if meta.is_dir() {
+            fs::create_dir_all(&target)?;
+            move_links(&path, &target)?;
+            fs::remove_dir(&path)?;
+        } else if meta.is_symlink() {
+            if fs::symlink_metadata(&target).is_ok() {
+                let unit =
+                    |link: &Path| fs::read_link(link).map(|t| t.file_name().map(ToOwned::to_owned));
+                ensure!(
+                    unit(&path)? == unit(&target)?,
+                    "enabling units: {} would replace {}, which names another unit",
+                    path.display(),
+                    target.display()
+                );
+                fs::remove_file(&path)?;
+            } else {
+                fs::rename(&path, &target)?;
+            }
+        } else {
+            bail!("enabling units: systemctl wrote a file, {}", path.display());
+        }
+    }
+    Ok(())
+}
+
+/// Fails if anything but empty directories is left under `dir`.
+fn ensure_no_files(dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if fs::symlink_metadata(&path)?.is_dir() {
+            ensure_no_files(&path)?;
+        } else {
+            bail!(
+                "enabling units left {} outside /usr (ADR 0007)",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Installs the systemd-repart definitions into a `/usr` tree.
 pub fn write_repart_definitions(usr: &Path) -> Result<()> {
     let dir = usr.join("lib/repart.d");
@@ -180,5 +299,39 @@ mod tests {
             }
         }
         assert!(scripts > 0);
+    }
+
+    #[test]
+    fn unit_links_move_into_usr_and_never_replace_another_unit() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("bz-links-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (etc, usr) = (dir.join("etc"), dir.join("usr"));
+        fs::create_dir_all(etc.join("multi-user.target.wants")).unwrap();
+        fs::create_dir_all(&usr).unwrap();
+        let unit = |name: &str| format!("/usr/lib/systemd/system/{name}");
+        symlink(
+            unit("a.service"),
+            etc.join("multi-user.target.wants/a.service"),
+        )
+        .unwrap();
+        // Shipped by systemd already, relative: the same unit.
+        symlink("reboot.target", usr.join("ctrl-alt-del.target")).unwrap();
+        symlink(unit("reboot.target"), etc.join("ctrl-alt-del.target")).unwrap();
+        move_links(&etc, &usr).unwrap();
+        assert_eq!(
+            fs::read_link(usr.join("multi-user.target.wants/a.service")).unwrap(),
+            Path::new(&unit("a.service"))
+        );
+        assert_eq!(
+            fs::read_link(usr.join("ctrl-alt-del.target")).unwrap(),
+            Path::new("reboot.target")
+        );
+        ensure_no_files(&etc).unwrap();
+
+        symlink(unit("poweroff.target"), etc.join("ctrl-alt-del.target")).unwrap();
+        assert!(move_links(&etc, &usr).is_err());
+        assert!(ensure_no_files(&etc).is_err());
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

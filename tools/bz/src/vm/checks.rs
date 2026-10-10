@@ -11,7 +11,7 @@ use super::console::{
     Answers, REPORT_TIMEOUT, SMOKE_TIME_ZONE, TAMPER_TIMEOUT, strip_ansi, watch_boot,
 };
 use super::machine::{Machine, SLIRP_DNS, SLIRP_GATEWAY};
-use super::report::{BootReport, REPORT_MARKER};
+use super::report::{BootReport, REPORT_MARKER, Units};
 use crate::layout::{self, MIB};
 use crate::say;
 use crate::{image, util};
@@ -179,6 +179,62 @@ pub(super) fn check_boot_budget(report: &BootReport) -> Result<()> {
         .join(", ");
     say!("  ok: within the time budget ({budget})");
     Ok(())
+}
+
+/// What runs in an ordinary boot of the image in the VM (ADR 0013).
+const EXPECTED_UNITS: &str = include_str!("../../../../images/running-units.txt");
+
+/// Requires exactly the units of [`EXPECTED_UNITS`] to be active, and no unit
+/// links in /etc: what runs is decided in the image, never by accident (a
+/// new systemd release, a package that enables itself).
+pub(super) fn check_units(console: &[String]) -> Result<()> {
+    let units = Units::find(console).context("the boot did not report its units")?;
+    ensure!(
+        units.etc.is_empty(),
+        "units are enabled in /etc, not in the image: {}",
+        units.etc.join(", ")
+    );
+    let expected = expected_units(EXPECTED_UNITS);
+    let unexpected: Vec<&str> = units
+        .active
+        .iter()
+        .map(String::as_str)
+        .filter(|unit| !expected.contains(unit))
+        .collect();
+    let missing: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|unit| !units.active.iter().any(|active| active == unit))
+        .collect();
+    ensure!(
+        unexpected.is_empty() && missing.is_empty(),
+        "the units that run are not the expected ones (images/running-units.txt; \
+         enable or disable in images/base.preset, with the reason)\n  \
+         unexpected: {}\n  missing: {}",
+        if unexpected.is_empty() {
+            "none".to_owned()
+        } else {
+            unexpected.join(", ")
+        },
+        if missing.is_empty() {
+            "none".to_owned()
+        } else {
+            missing.join(", ")
+        }
+    );
+    say!(
+        "  ok: exactly the {} expected units run, none enabled in /etc",
+        expected.len()
+    );
+    Ok(())
+}
+
+/// The unit names of `images/running-units.txt`, without comments.
+fn expected_units(list: &str) -> Vec<&str> {
+    list.lines()
+        .map(|line| line.split('#').next().unwrap_or_default())
+        .flat_map(str::split_whitespace)
+        .collect()
 }
 
 /// µs as seconds, e.g. `0.61s`.

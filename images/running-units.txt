@@ -1,0 +1,58 @@
+# What runs in an ordinary boot of the image in the VM (ADR 0013): the
+# active services, sockets, timers and paths after the second boot of
+# `bz smoke`. The test requires exactly these – a unit that appears or
+# disappears (a new systemd release, a changed default) is a decision:
+# enable or disable it in images/base.preset with the reason, then update
+# this list. Sockets are listening only; their service starts on demand.
+
+# Beize: the boot report (only with the test credential), time with NTS.
+beize-boot-report.service beize-save-clock.timer ntpd-rs.service
+
+# Verified /usr, measured boot and the TPM (ADR 0008–0010).
+systemd-veritysetup@usr.service systemd-tpm2-setup.service
+systemd-pcrphase-sysinit.service systemd-pcrphase.service systemd-pcrfs-root.service
+systemd-pcrmachine.service systemd-pcrproduct.service systemd-pcrextend.socket
+systemd-pcrlock.socket systemd-cryptenroll.socket systemd-creds.socket
+systemd-bootctl.socket systemd-boot-random-seed.service systemd-random-seed.service
+
+# The root partition: created and grown on first boot, factory reset (ADR 0007).
+systemd-repart.service systemd-repart.socket systemd-growfs-root.service
+systemd-remount-fs.service systemd-factory-reset.socket systemd-sysinstall.socket
+
+# Logging and crash reports.
+systemd-journald.service systemd-journald.socket systemd-journald-dev-log.socket
+systemd-journal-flush.service systemd-journalctl.socket systemd-journalctl-metrics.socket
+systemd-coredump.socket systemd-coredumpd.service systemd-coredump-register.service
+
+# Devices.
+systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-varlink.socket
+systemd-udev-trigger.service systemd-udev-load-credentials.service systemd-rfkill.socket
+
+# Users, sessions, login (a console login until the compositor, M3).
+systemd-logind.service systemd-logind-varlink.socket systemd-user-sessions.service
+systemd-update-utmp.service systemd-userdbd.service systemd-userdbd.socket
+systemd-userdb-load-credentials.service getty@tty1.service systemd-vconsole-setup.service
+systemd-mute-console.socket systemd-ask-password.socket
+systemd-ask-password-console.path systemd-ask-password-wall.path
+
+# System basics: D-Bus, kernel settings, runtime files, host name.
+dbus.service dbus.socket systemd-sysctl.service systemd-hostnamed.socket
+systemd-tmpfiles-setup.service systemd-tmpfiles-setup-dev.service
+systemd-tmpfiles-setup-dev-early.service systemd-tmpfiles-clean.timer
+
+# Network (ADR 0011).
+systemd-networkd.service systemd-networkd.socket systemd-networkd-varlink.socket
+systemd-networkd-varlink-metrics.socket systemd-networkd-resolve-hook.socket
+systemd-networkd-persistent-storage.service systemd-network-generator.service
+systemd-resolved.service systemd-resolved-monitor.socket systemd-resolved-varlink.socket
+
+# systemd's defaults for services nothing in Beize uses yet (containers,
+# extensions, updates, local system reports): listening, idle until used.
+# They become part of a feature (M3–M5) or are disabled with a reason.
+systemd-machined.socket systemd-mountfsd.socket systemd-nsresourced.socket
+systemd-nsresourced.service systemd-sysext.socket systemd-storage-block.socket
+systemd-storage-fs.socket systemd-sysupdate-notify-bootctl.socket
+systemd-sysupdate-notify-pcrlock.socket systemd-sysupdate-notify-sysext.socket
+systemd-report.socket systemd-report-basic.socket systemd-report-cgroup.socket
+systemd-report-files.socket systemd-report-sign-plain.socket
+systemd-report-sign-tpm2.socket

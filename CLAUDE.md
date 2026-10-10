@@ -74,7 +74,7 @@ Neubinden, echte Hardware).
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert), `deps`, `stage`, `[build] script` |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/base.toml` | Pakete für `/usr` und für die initrd |
+| `images/` | `base.toml` Pakete für `/usr` und initrd · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente (`beize-base`, `beize-hardware`), nach dem Merge verifiziert |
 | `ci/packages.txt`, `ci/system.sh` | einzige Liste der Build-Abhängigkeiten; kompletter CI-Ablauf |
@@ -118,7 +118,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -143,6 +143,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   `sed`/`awk`/`grep` (Skripte in reinem Bash).
 - Autotools-Abfragen beim Host (`AC_CHECK_PROG`) im Rezept beantworten (`ac_cv_…=yes`).
 - Skripte unter `system/` müssen ausführbar sein (Test prüft das).
+- **Units aktivieren nur über `images/base.preset`** (mit Grund; `bz` legt die Links in
+  `/usr`), nie über Presets oder `.wants`-Links in `system/`. Ändert sich, was läuft,
+  `images/running-units.txt` mitpflegen (ADR 0013).
 - Ausgaben in `bz` über `say!` (nicht `eprintln!`), damit parallele Szenarien sie
   gesammelt zeigen; Prüfungen im Smoke-Test müssen belegen, dass ihre Bedingung
   hergestellt wurde (Gegenprobe: Eigenschaft absichtlich brechen → rot).
@@ -189,20 +192,15 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 `beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
 nächsten Installation.
 
-**Offene Entscheidung des Besitzers (gefunden in Phase 1):** Beize liefert kein
-`99-default.preset` (`disable *`; upstream systemd überlässt das der Distribution). Darum ist
-jede Unit mit `[Install]` ohne Preset-Regel beim ersten Start aktiviert (z. B.
-`e2scrub_reap.service`), ohne dass Beize das entschieden hat. Vorschlag: `disable *` für
-System und Benutzer, alles Gewollte ausdrücklich in `10-beize.preset`, Smoke-Check der
-aktivierten Units.
-
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
 1. ✓ **Messen als Werkzeug:** `bz boot-times`, `beize-boot-chain.service`, Zeitbudget im
    Smoke-Test, `docs/hardware.md`.
-2. **Toolchain (ADR 0013):** x86-64-v3, `-mtune=generic`, Härtung (FORTIFY=3, stack-clash,
+   ✓ **1b. Was läuft (ADR 0013):** Units im signierten Image statt in `/etc`, Regeln
+   `images/base.preset` → systemd-Vorgaben → `disable *`; Smoke prüft die laufenden Units.
+2. **Toolchain (ADR 0014):** x86-64-v3, `-mtune=generic`, Härtung (FORTIFY=3, stack-clash,
    CET, PIE, RELRO/now, Frame-Pointer); ELF-Guard in `bz`; Boot-Report meldet fehlendes v3.
-3. **Kernel (ADR 0014):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
+3. **Kernel (ADR 0015):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
    verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
    Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI
    (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Im ADR
@@ -212,10 +210,12 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
    kritische Kette straffen, BIOS-Empfehlungen dokumentieren.
-5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0015): XKB als einzige Quelle
+5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0016): XKB als einzige Quelle
    (xkeyboard-config, libxkbcommon, localed, kbd), beize-setup fragt Layout vor dem Passwort.
-   b) Rechte (ADR 0016): run0 + polkit (duktape), kein setuid in `/usr` (Test).
+   b) Rechte (ADR 0017): run0 + polkit (duktape), kein setuid in `/usr` (Test).
    c) iputils `ping` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
-6. **A/B-Updates (ADR 0017) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
-   systemd-sysupdate (usr, verity, UKI), signierte SHA256SUMS, `bz release`, Rückfall per
-   Boot-Counting; Smoke: Update A→B mit TPM, kaputtes Update → A, zweites Update.
+6. **A/B-Updates (ADR 0018) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
+   systemd-sysupdate (usr, verity, UKI, signierter Bootloader – `systemd-boot-update` ist
+   deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:
+   zählt ein Start mit fehlgeschlagener Unit als gescheitert?); Smoke: Update A→B mit TPM,
+   kaputtes Update → A, zweites Update.

@@ -1,0 +1,20 @@
+# Which units of the image are enabled (ADR 0013). bz applies this at build
+# time with Beize's own systemctl, together with systemd's defaults
+# (90-systemd.preset) and "disable *" for everything else (99-beize.preset),
+# and puts the resulting links into /usr: what runs is part of the signed
+# image, /etc holds only the owner's changes. The first matching line wins,
+# so this file overrides systemd's defaults – only with a reason.
+
+# Beize's own units.
+enable beize-boot-chain.service
+enable beize-boot-report.service
+enable beize-save-clock.timer
+enable beize-setup.service
+# Time with NTS (ADR 0012).
+enable ntpd-rs.service
+
+# The boot loader on the ESP is signed with Beize's keys. This service copies
+# the unsigned one from /usr over it as soon as an update brings a newer
+# version, and Secure Boot then refuses to start. The boot loader is updated
+# signed, together with the image.
+disable systemd-boot-update.service

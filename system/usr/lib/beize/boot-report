@@ -158,6 +158,22 @@ boot=$((boot + 1))
 mkdir -p "${counter%/*}" && echo "$boot" > "$counter" && sync "$counter"
 read -r machineid < /etc/machine-id
 
+# What runs (ADR 0013): the active services, sockets, timers and paths, and
+# the unit links in /etc – what the image enables lives in /usr, so /etc
+# holds only the owner's changes. `bz smoke` compares both with what it
+# expects. Before the report, which ends the test's wait.
+units=()
+while read -r unit _; do
+    units+=("$unit")
+done < <(systemctl list-units --type=service,socket,timer,path --state=active --no-legend --plain)
+etc_links=()
+shopt -s globstar nullglob
+for link in /etc/systemd/system/** /etc/systemd/user/**; do
+    [[ -L $link ]] && etc_links+=("${link#/etc/systemd/}")
+done
+shopt -u globstar nullglob
+echo "BEIZE-UNITS etc=$(IFS=,; echo "${etc_links[*]:-none}") active=$(IFS=,; echo "${units[*]}")"
+
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \

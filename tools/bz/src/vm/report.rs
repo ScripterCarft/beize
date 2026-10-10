@@ -3,6 +3,38 @@
 
 /// Printed by /usr/lib/beize/boot-report once systemd has finished booting.
 pub(super) const REPORT_MARKER: &str = "BEIZE-BOOT-REPORT ";
+/// Printed by /usr/lib/beize/boot-report just before the report.
+const UNITS_MARKER: &str = "BEIZE-UNITS ";
+
+/// What runs, as reported by the guest (ADR 0013).
+#[derive(Debug, PartialEq)]
+pub(super) struct Units {
+    /// Unit links in /etc/systemd/{system,user}, relative to /etc/systemd.
+    pub(super) etc: Vec<String>,
+    /// Active services, sockets, timers and paths.
+    pub(super) active: Vec<String>,
+}
+
+impl Units {
+    /// Finds `BEIZE-UNITS etc=none active=a.service,b.socket` on a console.
+    pub(super) fn find(console: &[String]) -> Option<Self> {
+        let line = console.iter().rev().find(|l| l.contains(UNITS_MARKER))?;
+        let fields = &line[line.find(UNITS_MARKER)? + UNITS_MARKER.len()..];
+        let list = |key: &str| {
+            let value = fields
+                .split_whitespace()
+                .find_map(|f| f.strip_prefix(key)?.strip_prefix('='))?;
+            Some(match value {
+                "none" | "" => Vec::new(),
+                list => list.split(',').map(str::to_owned).collect(),
+            })
+        };
+        Some(Self {
+            etc: list("etc")?,
+            active: list("active")?,
+        })
+    }
+}
 
 /// The boot outcome as reported by the guest.
 #[derive(Debug, PartialEq)]
@@ -158,5 +190,28 @@ mod tests {
         assert_eq!(BootReport::parse("BEIZE-BOOT-REPORT state=running"), None);
         assert_eq!(BootReport::parse(&CLEAN.replace("boot=1", "boot=x")), None);
         assert_eq!(BootReport::parse(&CLEAN.replace(" chain=12", "")), None);
+    }
+
+    #[test]
+    fn finds_the_last_unit_inventory() {
+        let console = [
+            "BEIZE-UNITS etc=none active=old.service".to_owned(),
+            "\x1b[0m BEIZE-UNITS etc=system/x.target.wants/a.service active=a.service,b.socket"
+                .to_owned(),
+            "BEIZE-BOOT-REPORT state=running".to_owned(),
+        ];
+        assert_eq!(
+            Units::find(&console),
+            Some(Units {
+                etc: vec!["system/x.target.wants/a.service".into()],
+                active: vec!["a.service".into(), "b.socket".into()],
+            })
+        );
+        assert_eq!(Units::find(&console[2..]), None);
+        assert_eq!(
+            Units::find(&["BEIZE-UNITS etc=none".to_owned()]),
+            None,
+            "an inventory without its active units is incomplete"
+        );
     }
 }
