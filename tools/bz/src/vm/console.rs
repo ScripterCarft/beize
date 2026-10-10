@@ -27,7 +27,7 @@ pub(super) const TAMPER_TIMEOUT: Duration = Duration::from_secs(45);
 /// keeps systemd from starting a getty on the serial console, which belongs
 /// to the test – a getty resets the console when it starts and discards what
 /// the report wrote.
-const SMOKE_CREDENTIALS: [&str; 2] = [
+pub(super) const SMOKE_CREDENTIALS: [&str; 2] = [
     "type=11,value=io.systemd.credential:beize.smoke=1",
     "type=11,value=io.systemd.credential:getty.auto=no",
 ];
@@ -95,6 +95,18 @@ pub(super) const SETUP_STARTS_OVER: &str = "Starting over.";
 /// The zone the answers above must lead to.
 pub(super) const SMOKE_TIME_ZONE: &str = "America/Sao_Paulo";
 
+/// The emergency gate (os/beize-tpm/src/emergency.rs): its headline, its
+/// menu, its question for the recovery key, what it says to a wrong key and
+/// before the shell starts.
+pub(super) const EMERGENCY_HEADLINE: &str = "Beize could not start.";
+const EMERGENCY_CHOICE: &str = "Choose:";
+const EMERGENCY_KEY_PROMPT: &str = "Recovery key of this computer:";
+pub(super) const EMERGENCY_WRONG_KEY: &str = "That is not the recovery key of this computer.";
+pub(super) const EMERGENCY_SHELL_STARTS: &str = "Leaving the shell restarts the computer.";
+/// A well-formed recovery key that opens nothing.
+const NOT_THE_RECOVERY_KEY: &str =
+    "cbdefghi-jklnrtuv-cbdefghi-jklnrtuv-cbdefghi-jklnrtuv-cbdefghi-jklnrtuv";
+
 /// What to type at the console during a boot, as the owner would.
 #[derive(Clone, Default)]
 pub(super) struct Answers {
@@ -103,6 +115,9 @@ pub(super) struct Answers {
     recovery_key: Option<String>,
     /// Typed when beize-tpm asks whether to adopt a new TPM ("no" if unset).
     adopt_tpm: Option<&'static str>,
+    /// The recovery key for the emergency gate, typed after a wrong key and
+    /// Ctrl+C were refused; unset: the gate's questions stay unanswered.
+    emergency_key: Option<String>,
 }
 
 impl Answers {
@@ -117,6 +132,15 @@ impl Answers {
         }
     }
 
+    /// At the emergency gate: a wrong key, then Ctrl+C at the menu, then
+    /// the recovery key.
+    pub(super) fn emergency_gate(key: &str) -> Self {
+        Self {
+            emergency_key: Some(key.to_owned()),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn adopt_tpm(self, answer: &'static str) -> Self {
         Self {
             adopt_tpm: Some(answer),
@@ -127,16 +151,24 @@ impl Answers {
     /// The questions answered besides the recovery key, as (prompt, what is
     /// typed the first time it is asked, the second time, …); asked more
     /// often, it stays unanswered.
-    fn replies(&self) -> Vec<(&'static str, Vec<&'static str>)> {
+    fn replies(&self) -> Vec<(&'static str, Vec<String>)> {
+        let owned = |typed: &[&str]| typed.iter().map(|t| (*t).to_owned()).collect();
         let mut replies = vec![
-            (ADOPT_TPM_PROMPT, vec![self.adopt_tpm.unwrap_or("no")]),
-            (RECOVERY_KEY_SAVED_PROMPT, vec!["saved"]),
+            (ADOPT_TPM_PROMPT, owned(&[self.adopt_tpm.unwrap_or("no")])),
+            (RECOVERY_KEY_SAVED_PROMPT, owned(&["saved"])),
         ];
         replies.extend(
             SETUP_ANSWERS
                 .iter()
-                .map(|(prompt, typed)| (*prompt, typed.to_vec())),
+                .map(|(prompt, typed)| (*prompt, owned(typed))),
         );
+        if let Some(key) = &self.emergency_key {
+            replies.push((EMERGENCY_CHOICE, owned(&["s", CTRL_C, "s"])));
+            replies.push((
+                EMERGENCY_KEY_PROMPT,
+                vec![NOT_THE_RECOVERY_KEY.to_owned(), key.clone()],
+            ));
+        }
         replies
     }
 }
@@ -329,7 +361,7 @@ fn read_console(
             if line_answered || !shown.contains(prompt) {
                 continue;
             }
-            let Some(&reply) = typed.get(*replied) else {
+            let Some(reply) = typed.get(*replied) else {
                 continue;
             };
             *replied += 1;
@@ -340,6 +372,9 @@ fn read_console(
                     let _ = stdin.write_all(CTRL_C.as_bytes());
                     let _ = stdin.flush();
                 }
+            } else if *prompt == EMERGENCY_KEY_PROMPT {
+                echo(&mut log, &format!("(typing a key at \"{prompt}\")"));
+                answer(reply);
             } else {
                 echo(&mut log, &format!("(answering \"{prompt}\": {reply})"));
                 answer(reply);

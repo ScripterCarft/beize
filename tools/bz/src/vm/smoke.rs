@@ -27,11 +27,13 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use super::checks::{
     boot_healthy, check_blessed, check_boot_budget, check_partitions, check_root_binding,
-    check_units, expect_rebound, expect_refused, expect_root_locked,
+    check_units, damage_root_file_system, expect_rebound, expect_refused, expect_root_locked,
 };
 use super::console::{
-    Answers, LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS,
-    SETUP_STARTS_OVER, SMOKE_USER, TAMPER_TIMEOUT, find_recovery_key, watch_boot,
+    Answers, ConsoleEvent, EMERGENCY_HEADLINE, EMERGENCY_SHELL_STARTS, EMERGENCY_WRONG_KEY,
+    LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS, SETUP_STARTS_OVER,
+    SMOKE_CREDENTIALS, SMOKE_USER, Session, TAMPER_TIMEOUT, find_recovery_key, strip_ansi,
+    watch_boot,
 };
 use super::machine::{Machine, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
 use super::report::{BootReport, REPORT_MARKER};
@@ -51,6 +53,7 @@ enum Scenario {
     UnsignedUki,
     CorruptedUsr,
     OwnerKeys,
+    EmergencyGate,
 }
 
 use Scenario::*;
@@ -58,8 +61,9 @@ use Scenario::*;
 /// What starts right away; the longest first, so they finish together.
 const INDEPENDENT: [Scenario; 3] = [OwnerKeys, CorruptedUsr, UnsignedUki];
 /// What starts from a copy of the installation once [`Install`] passed.
-const ON_THE_INSTALLATION: [Scenario; 5] = [
+const ON_THE_INSTALLATION: [Scenario; 6] = [
     OtherTpm,
+    EmergencyGate,
     ForeignDb,
     SecureBootUpdate,
     SecureBootOff,
@@ -84,6 +88,9 @@ impl Scenario {
             UnsignedUki => "Secure Boot must refuse an unsigned kernel image",
             CorruptedUsr => "dm-verity must detect a modified /usr",
             OwnerKeys => "The owner's signing workflow must yield an image that boots",
+            EmergencyGate => {
+                "A failed start gives a shell only for the recovery key, and the TPM is locked then"
+            }
         }
     }
 
@@ -103,6 +110,7 @@ impl Scenario {
             UnsignedUki => unsigned_uki(paths),
             CorruptedUsr => corrupted_usr(paths),
             OwnerKeys => owner_workflow(paths),
+            EmergencyGate => emergency_gate(paths, smoke.installed()?),
         }
     }
 }
@@ -504,6 +512,71 @@ fn unsigned_uki(paths: &Paths) -> Result<()> {
         None => bail!(
             "no verdict on the unsigned kernel image within {}s",
             TAMPER_TIMEOUT.as_secs()
+        ),
+    }
+    machine.remove()
+}
+
+/// Bounds a boot into the emergency gate, a wrong key (3 s penalty), a
+/// restart after Ctrl+C and the shell.
+const GATE_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Like a thief who damages the disk so that the start fails after the TPM
+/// unlocked the data (ADR 0016): the console must not hand out a shell – not
+/// for a wrong key, not after Ctrl+C. With the recovery key it does, and from
+/// that shell the TPM unlocks nothing.
+fn emergency_gate(paths: &Paths, installed: &Installed) -> Result<()> {
+    let machine = installed.machine.copy_as(paths, "smoke-emergency")?;
+    damage_root_file_system(&machine.disk, &paths.work)?;
+    let session = Session::start(
+        &machine,
+        &Answers::emergency_gate(&installed.recovery_key),
+        &SMOKE_CREDENTIALS,
+    )?;
+    let deadline = Instant::now() + GATE_TIMEOUT;
+    let (mut headlines, mut refused, mut detached) = (0, false, false);
+    let mut tpm_refused = None;
+    while let Some(event) = session.next(deadline) {
+        let ConsoleEvent::Line(line) = event else {
+            continue;
+        };
+        let line = strip_ansi(&line);
+        let line = line.trim();
+        if line.contains(EMERGENCY_HEADLINE) {
+            headlines += 1;
+        } else if line.contains(EMERGENCY_WRONG_KEY) {
+            refused = true;
+        } else if line.contains(EMERGENCY_SHELL_STARTS) {
+            ensure!(
+                refused && headlines >= 2,
+                "the emergency gate opened a shell before it refused a wrong key and Ctrl+C"
+            );
+            // The TPM unlocked the root partition before its mount failed:
+            // close it, then ask the TPM for the key once more.
+            session.type_line("systemd-cryptsetup detach root && echo BEIZE-DETACHED");
+            session.type_line(
+                "systemd-cryptsetup attach probe /dev/gpt-auto-root-luks - \
+                 tpm2-device=auto,headless=yes >/dev/null 2>&1 \
+                 && echo BEIZE-TPM-UNLOCKED || echo BEIZE-TPM-REFUSED",
+            );
+        } else if line == "BEIZE-DETACHED" {
+            detached = true;
+        } else if line == "BEIZE-TPM-UNLOCKED" || line == "BEIZE-TPM-REFUSED" {
+            tpm_refused = Some(line == "BEIZE-TPM-REFUSED");
+            break;
+        }
+    }
+    session.power_off_within(Duration::ZERO)?;
+    match tpm_refused {
+        None => bail!(
+            "no emergency shell with the recovery key within {}s",
+            GATE_TIMEOUT.as_secs()
+        ),
+        Some(_) if !detached => bail!("the emergency shell could not close the root partition"),
+        Some(false) => bail!("from the emergency shell the TPM still unlocked the root partition"),
+        Some(true) => say!(
+            "  ok: no shell for a wrong key or after Ctrl+C; with the recovery key a shell \
+             from which the TPM unlocks nothing"
         ),
     }
     machine.remove()

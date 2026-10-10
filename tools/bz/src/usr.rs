@@ -39,7 +39,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let stamp = Stamp::new(
         paths,
         "usr",
-        tree::assembly_inputs(paths, &recipes, "usr")?
+        tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
             .file(&paths.root.join(UNIT_PRESET))?
             .tree(&kernel.modules)?,
         &[
@@ -83,6 +83,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(&usr),
     )?;
     enable_units(paths, &root)?;
+    compile_hwdb(paths, &root)?;
     install_modules(paths, &kernel, &root, |_| true)?;
     ensure_no_firmware_needed(paths, &kernel)?;
     elf::check_tree(paths, &root, "/usr")?;
@@ -245,6 +246,24 @@ fn ensure_no_firmware_needed(paths: &Paths, kernel: &Kernel) -> Result<()> {
         requested.trim().is_empty(),
         "kernel modules request firmware, which bz does not install yet: {}",
         requested.split_whitespace().collect::<Vec<_>>().join(", ")
+    );
+    Ok(())
+}
+
+/// Compiles udev's hardware database into `/usr/lib/udev/hwdb.bin` with the
+/// image's systemd-hwdb (ADR 0016). `/usr` is read-only, so the sources are
+/// of no use at run time and stay out.
+fn compile_hwdb(paths: &Paths, root: &Path) -> Result<()> {
+    util::run(
+        sysroot_command(paths, "usr/bin/systemd-hwdb")
+            .args(["update", "--usr", "--strict"])
+            .arg(format!("--root={}", root.display())),
+    )?;
+    let sources = root.join("usr/lib/udev/hwdb.d");
+    fs::remove_dir_all(&sources).with_context(|| format!("removing {}", sources.display()))?;
+    say!(
+        "  hwdb.bin {:.1} MiB",
+        fs::metadata(root.join("usr/lib/udev/hwdb.bin"))?.len() as f64 / layout::MIB as f64
     );
     Ok(())
 }

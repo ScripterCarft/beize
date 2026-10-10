@@ -1,11 +1,11 @@
-# Beize's own TPM helper for the initrd (os/beize-tpm, ADR 0010): checks the
-# measured Secure Boot state and re-binds the root partition after a
-# recovery-key unlock. The first of Beize's own Rust programs in the image.
+# Beize's own TPM helper (os/beize-tpm, ADR 0010, ADR 0016): checks the
+# measured Secure Boot state, re-binds the root partition after a
+# recovery-key unlock, and guards the emergency shell (initrd and system).
 name = "beize-tpm"
 version = "0.1.0"
 stage = "target"
-# libgcc_s for Rust's unwinding.
-deps = ["gcc", "glibc", "gcc-runtime"]
+# libgcc_s for Rust's unwinding; libcryptsetup checks the recovery key.
+deps = ["gcc", "glibc", "gcc-runtime", "cryptsetup"]
 repo = ["os/beize-tpm", "Cargo.toml", "Cargo.lock"]
 
 [build]

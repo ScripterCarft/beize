@@ -41,7 +41,7 @@ Microcode und Firmware lieferte Beize nicht aus.
   Fedora – damit gewinnt xHCI auch die Modalias, die `mei_me` fälschlich für denselben
   Controller meldet). Alles Gerätespezifische (NVMe, AHCI, virtio, Netzwerk, Chipsatz,
   Sensoren …) ist Modul; udev lädt, was die Hardware hat. In die initrd kommen nur die
-  Plattencontroller aus `images/base.toml` samt Abhängigkeiten. Werkzeuge: kmod,
+  Plattencontroller aus `images/initrd.toml` samt Abhängigkeiten. Werkzeuge: kmod,
   systemd mit `kmod` und `acl`.
 - **Module signiert und erzwungen** (`MODULE_SIG_FORCE`), ML-DSA-87 wie Fedora (dazu wie
   dort `PKCS7_WAIVE_AUTHATTRS_REJECTION_FOR_MLDSA`: OpenSSL < 4.0 signiert ML-DSA nur

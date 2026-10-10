@@ -408,6 +408,39 @@ pub(super) fn check_root_binding(disk: &Path, scratch: &Path) -> Result<()> {
 /// systemd's TPM2 token from the LUKS2 header of the root partition: what the
 /// TPM checks before it releases the key.
 fn root_tpm2_token(disk: &Path, scratch: &Path) -> Result<serde_json::Value> {
+    let (_, metadata) = root_luks(disk, scratch)?;
+    metadata["tokens"]
+        .as_object()
+        .and_then(|tokens| tokens.values().find(|t| t["type"] == "systemd-tpm2"))
+        .cloned()
+        .context("the root partition has no systemd-tpm2 token")
+}
+
+/// Damages the file system inside the encrypted root partition without the
+/// key, as anyone with the disk could: one flipped byte of the ciphertext
+/// garbles 16 bytes of the first ext4 group descriptor. The LUKS2 header
+/// stays intact, so the TPM still unlocks, and blkid still sees ext4 (the
+/// superblock is untouched) – mounting the root then fails its checksum.
+pub(super) fn damage_root_file_system(disk: &Path, scratch: &Path) -> Result<()> {
+    /// The group descriptors follow the superblock's 4 KiB block.
+    const EXT4_GROUP_DESCRIPTORS: u64 = 4096;
+    let (start, metadata) = root_luks(disk, scratch)?;
+    let data: u64 = metadata["segments"]["0"]["offset"]
+        .as_str()
+        .context("no data segment in the root partition's LUKS2 header")?
+        .parse()?;
+    let offset = start + data + EXT4_GROUP_DESCRIPTORS;
+    let mut file = fs::OpenOptions::new().read(true).write(true).open(disk)?;
+    let mut byte = [0u8; 1];
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut byte)?;
+    file.seek(SeekFrom::Start(offset))?;
+    std::io::Write::write_all(&mut file, &[byte[0] ^ 0xff])?;
+    Ok(())
+}
+
+/// The byte offset of the root partition on `disk` and its LUKS2 metadata.
+fn root_luks(disk: &Path, scratch: &Path) -> Result<(u64, serde_json::Value)> {
     let table: serde_json::Value = serde_json::from_str(&util::output(
         Command::new("sfdisk").arg("--json").arg(disk),
     )?)?;
@@ -427,7 +460,11 @@ fn root_tpm2_token(disk: &Path, scratch: &Path) -> Result<serde_json::Value> {
     let mut file = fs::File::open(disk)?;
     file.seek(SeekFrom::Start(start))?;
     file.read_exact(&mut header)?;
-    let copy = scratch.join("root-luks-header");
+    // One copy per disk: scenarios run side by side.
+    let copy = scratch.join(format!(
+        "{}.luks-header",
+        disk.file_name().context("a disk without a name")?.display()
+    ));
     fs::write(&copy, &header)?;
     let dump = util::output(
         Command::new("cryptsetup")
@@ -435,12 +472,7 @@ fn root_tpm2_token(disk: &Path, scratch: &Path) -> Result<serde_json::Value> {
             .arg(&copy),
     );
     fs::remove_file(&copy)?;
-    let metadata: serde_json::Value = serde_json::from_str(&dump?)?;
-    metadata["tokens"]
-        .as_object()
-        .and_then(|tokens| tokens.values().find(|t| t["type"] == "systemd-tpm2"))
-        .cloned()
-        .context("the root partition has no systemd-tpm2 token")
+    Ok((start, serde_json::from_str(&dump?)?))
 }
 
 /// The partitions expected after first boot, as (type, label), that the

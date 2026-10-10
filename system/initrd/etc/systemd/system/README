@@ -1,4 +1,0 @@
-systemd-cryptenroll-firstboot.service is masked: it is systemd's interactive
-enrollment on first boot. Beize creates the recovery key itself
-(beize-recovery-key.service) and must not ask anything else; the unit runs as
-soon as /sysroot/var exists, which beize-tpm creates.

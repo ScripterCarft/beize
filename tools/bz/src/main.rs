@@ -18,6 +18,7 @@ mod packages;
 mod paths;
 mod recipe;
 mod secureboot;
+mod select;
 mod source;
 mod stamp;
 mod tree;

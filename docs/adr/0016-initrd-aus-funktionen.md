@@ -85,11 +85,16 @@ Mäuse) liegt nur als Quelltext in `/usr/lib/udev/hwdb.d`; ohne die kompilierte
   kein Nebeneffekt eines Paket-Updates.
 - Wächst ein Paket um eine dlopen-Abhängigkeit, merkt das `bz` nicht von selbst – fehlt
   sie in der initrd, scheitert der Smoke-Test (die Funktion läuft dann nicht).
-- Erwartet: initrd deutlich kleiner (Schätzung: unter 8 MiB komprimiert), kürzeres
-  Laden und Entpacken; die Messung auf der Hardware entscheidet.
-- Eigener Code für das Notfall-Tor: Auswahl und Abfrage (Bash, systemd-ask-password),
-  Prüfung des Keys als kleiner Befehl in `beize-tpm` über libcryptsetup, das schon in
-  der initrd ist – keine neue Bibliothek, kein `cryptsetup`-Kommandozeilenwerkzeug.
+- initrd 10,7 statt 19,3 MiB komprimiert (33 statt 78 MB entpackt), 175 statt rund
+  1 300 Dateien aus Paketen, 58 statt 347 Units. Den Rest machen systemd selbst und
+  libcrypto aus (zusammen 16 MB) – kleiner nur ohne Funktion. Was die Startzeit
+  gewinnt, zeigt die Messung auf der Hardware.
+- Eigener Code für das Notfall-Tor: `beize-tpm emergency` (Rust; Abfrage über
+  systemd-ask-password, Prüfung über libcryptsetup, das initrd und `/usr` ohnehin
+  haben – keine neue Bibliothek, kein `cryptsetup`-Kommandozeilenwerkzeug).
+  `beize-tpm` liegt dafür auch in `/usr`. Die Gegenprobe ist Teil der Abnahme:
+  ohne die PCR-11-Erweiterung entsperrt das TPM aus der Shell, und der Smoke-Test
+  scheitert.
 - Wer den Recovery-Key verliert und das System startet nicht mehr, kommt nicht an die
   Daten – gewollt, wie bei FileVault und BitLocker.
 - udev wendet Gerätekorrekturen aus der hwdb an (z. B. Tasten von Notebooks und

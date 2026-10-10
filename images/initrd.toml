@@ -1,0 +1,112 @@
+# The initrd in the UKI, by function (ADR 0016). It finds /usr, creates the
+# root partition on first boot, unlocks it and hands over; nothing else.
+#
+# A function names units, udev rules, further files (programs no unit names,
+# generators, data) and the dlopen features (.note.dlopen) it needs. bz adds
+# what follows from them: the programs in the units' Exec*= lines and in the
+# udev rules, script interpreters, and every library they link or dlopen.
+# Beize's own files from system/initrd always come along. bz fails if a unit
+# needs a unit that is not here, a program is missing or a library cannot be
+# found.
+
+# Where the files come from.
+packages = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm", "kmod"]
+
+# Kernel modules: the disk controllers (ADR 0015); udev loads the one the
+# machine has. Everything else needed before the root is built in.
+modules = ["nvme", "ahci", "sd_mod", "vmd", "virtio_pci", "virtio_blk"]
+
+[functions.service-manager]
+why = "systemd as PID 1 with the initrd targets, the journal, switch-root, emergency, reboot and power-off"
+units = [
+    "initrd.target", "initrd-root-device.target", "initrd-root-fs.target", "initrd-usr-fs.target",
+    "initrd-fs.target", "initrd-switch-root.target", "initrd-switch-root.service",
+    "initrd-cleanup.service", "initrd-parse-etc.service",
+    "basic.target", "sysinit.target", "local-fs.target", "local-fs-pre.target", "sockets.target",
+    "paths.target", "slices.target", "timers.target", "swap.target",
+    "emergency.target", "emergency.service",
+    "shutdown.target", "umount.target", "final.target", "reboot.target", "systemd-reboot.service",
+    "poweroff.target", "systemd-poweroff.service", "ctrl-alt-del.target",
+    "systemd-journald.service", "systemd-journald.socket", "systemd-journald-dev-log.socket",
+]
+files = [
+    "usr/lib/systemd/systemd", "usr/lib/systemd/systemd-executor", "usr/lib/systemd/systemd-shutdown",
+    # Mount units run util-linux mount(8) and umount(8), named in no unit file.
+    "usr/bin/mount", "usr/bin/umount",
+    # Reads the units' fstab-style kernel parameters (mount.usr=, root=).
+    "usr/lib/systemd/system-generators/systemd-fstab-generator",
+    # Groups and users that units and udev rules refer to (bz runs sysusers).
+    "usr/lib/sysusers.d",
+    # glibc unwinds through libgcc_s when a thread is cancelled (dlopen, no note).
+    "usr/lib/libgcc_s.so.1",
+]
+dlopen = ["acl", "mount"]
+
+[functions.devices]
+why = "udev finds the disks, loads their drivers and names the partitions"
+units = [
+    "systemd-udevd.service", "systemd-udevd-kernel.socket", "systemd-udevd-control.socket",
+    "systemd-udevd-varlink.socket", "systemd-udev-trigger.service", "initrd-udevadm-cleanup-db.service",
+]
+rules = [
+    "50-udev-default.rules", "60-block.rules", "60-persistent-storage.rules", "80-drivers.rules",
+    "99-systemd.rules", "10-dm.rules", "13-dm-disk.rules", "95-dm-notify.rules",
+    # /dev/tpmrm0 for the tss group, tpm2.target
+    "60-tpm2-id.rules", "tpm-udev.rules",
+    # /dev/gpt-auto-root and /dev/gpt-auto-root-luks for the gpt-auto generator
+    "90-image-dissect.rules",
+]
+dlopen = ["kmod", "blkid"]
+
+[functions.usr]
+why = "/usr: found by its root hash (usrhash=), opened with dm-verity, mounted read-only"
+units = ["veritysetup-pre.target", "veritysetup.target", "systemd-validatefs@.service"]
+files = [
+    "usr/lib/systemd/system-generators/systemd-veritysetup-generator",
+    # Named by the units the generator writes.
+    "usr/lib/systemd/systemd-veritysetup",
+    "usr/lib/systemd/systemd-validatefs",
+]
+dlopen = ["cryptsetup"]
+
+[functions.root]
+why = "the root partition: created on first boot (systemd-repart, mkfs.ext4), unlocked by the TPM or the recovery key"
+units = [
+    "cryptsetup-pre.target", "cryptsetup.target", "systemd-repart.service",
+    "systemd-ask-password-console.path", "systemd-ask-password-console.service",
+]
+files = [
+    "usr/lib/systemd/system-generators/systemd-gpt-auto-generator",
+    "usr/lib/systemd/system-generators/systemd-cryptsetup-generator",
+    # Named by the units the generators write.
+    "usr/lib/systemd/systemd-cryptsetup",
+    # systemd-repart formats the root partition with it.
+    "usr/bin/mkfs.ext4",
+]
+# Units the generators write at boot.
+generated = ["systemd-cryptsetup@root.service", "sysroot.mount"]
+dlopen = ["cryptsetup", "fdisk", "libcrypto", "tpm"]
+
+[functions.tpm]
+why = "TPM: storage root key, measurements into PCR 11 and the NvPCRs (ADR 0009, ADR 0010)"
+units = [
+    "tpm2.target", "systemd-tpm2-setup-early.service", "systemd-pcrphase-initrd.service",
+    "systemd-pcrosseparator.service", "systemd-pcrnvdone.service", "systemd-pcrextend.socket",
+    # Copies what the UKI hands over in /.extra (PCR signature and public
+    # key, profile, boot secret) to /run, where systemd and the system look.
+    "systemd-tmpfiles-setup.service",
+]
+files = [
+    "usr/lib/systemd/system-generators/systemd-tpm2-generator",
+    # The NvPCRs systemd-tpm2-setup-early allocates; the system extends them.
+    "usr/lib/nvpcr",
+    "usr/lib/tmpfiles.d/20-systemd-stub.conf",
+]
+dlopen = ["tpm", "libcrypto"]
+
+[functions.beize]
+why = "Beize's own checks (system/initrd): boot check, recovery key, TPM re-binding"
+units = ["systemd-mute-console.socket"]
+# What the scripts and beize-tpm call.
+files = ["usr/bin/systemd-cryptenroll", "usr/bin/systemd-ask-password", "usr/bin/varlinkctl"]
+dlopen = ["cryptsetup", "tpm", "libcrypto"]

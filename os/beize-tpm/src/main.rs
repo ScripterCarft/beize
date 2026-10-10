@@ -1,4 +1,4 @@
-//! `beize-tpm` – Beize's TPM helper for the initrd (ADR 0010).
+//! `beize-tpm` – Beize's TPM helper (ADR 0010, ADR 0016).
 //!
 //! `beize-tpm reseal` runs once the root partition is unlocked and mounted at
 //! /sysroot. After an ordinary boot (the TPM unlocked) it only keeps the
@@ -14,11 +14,17 @@
 //! credentials, add-ons), it refuses to go on, so the owner is never asked
 //! for the recovery key in a changed boot.
 //!
+//! `beize-tpm emergency` is what the console offers when a start fails, in the
+//! initrd and in the system: an emergency shell only with the recovery key
+//! (see `emergency`, ADR 0016).
+//!
 //! Everything it prints goes to the console; the recovery key never does.
 
 mod efi;
+mod emergency;
 mod eventlog;
 mod keyring;
+mod luks;
 mod policy;
 
 use std::ffi::c_int;
@@ -42,7 +48,8 @@ fn main() -> ExitCode {
     let result = match command.as_deref() {
         Some("reseal") => reseal(),
         Some("check-boot") => check_boot(),
-        _ => Err("usage: beize-tpm reseal | check-boot".into()),
+        Some("emergency") => emergency::run(),
+        _ => Err("usage: beize-tpm reseal | check-boot | emergency".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

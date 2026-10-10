@@ -75,7 +75,7 @@ Neubinden, echte Hardware).
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/` | `base.toml` Pakete für `/usr` und initrd, Module der initrd · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
+| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
 | `ci/packages.txt`, `ci/system.sh` | einzige Liste der Build-Abhängigkeiten; kompletter CI-Ablauf |
@@ -150,6 +150,13 @@ in die Endfassung einarbeiten, keine Nachträge.
 - **Units aktivieren nur über `images/base.preset`** (mit Grund; `bz` legt die Links in
   `/usr`), nie über Presets oder `.wants`-Links in `system/`. Ändert sich, was läuft,
   `images/running-units.txt` mitpflegen (ADR 0013).
+- **initrd (ADR 0016):** Was hinein soll, steht als Funktion mit Grund in
+  `images/initrd.toml`; `bz` leitet Programme und Bibliotheken ab und bricht bei Lücken
+  ab. Nicht ableitbar (deshalb dort ausdrücklich): was Generatoren erzeugen und deren
+  Programme, `mount`/`umount` der Mount-Units, Daten (nvpcr, tmpfiles.d). Fehlt etwas,
+  zeigt es erst der Smoke-Test.
+- Notfallzugang nur über `beize-tpm emergency` (Drop-ins für emergency/rescue), nie
+  `sulogin`, `debug-shell` oder ein Generator, der eine Shell öffnet.
 - **Kernel-Optionen** nur in das passende Fragment unter `kernel/config/`, mit Grund
   (Vorbild Fedora nennen); fehlende Abhängigkeiten meldet `bz`. Gerätetreiber als
   Modul (`=m`), fest nur Infrastruktur vor udev (ADR 0015).
@@ -182,10 +189,12 @@ in die Endfassung einarbeiten, keine Nachträge.
 - systemd-Konsolenzeilen enthalten ANSI-Codes **mitten im Text** → `strip_ansi`.
 - `sbvarsign` signiert die `.auth`-Dateien mit der aktuellen Zeit: `disk.img` ist nie
   bit-gleich (der Image-Stamp nimmt deshalb die Schlüssel, nicht die `.auth`).
+- Rust `Command::output()` setzt stdin auf null: Programme, die am Terminal fragen sollen
+  (systemd-ask-password), brauchen `.stdin(Stdio::inherit())`, sonst warten sie auf
+  einen Passwort-Agenten.
 
 ## 10. Offene Punkte (außer der aktuellen Aufgabe)
 
-- initrd 19,3 MiB (zstd -19) – enthält noch ganz systemd; verschlanken (Phase 4). hwdb nicht generiert.
 - Kernel ohne BTF (`DEBUG_INFO_BTF`, wie Fedora): systemd braucht es für BPF-Funktionen
   (z. B. `RestrictFileSystems=`), sched_ext auch; kostet DWARF beim Bau (Zeit, CI-Platz).
 - `bz outdated`: mpc 1.4.1 mit der nächsten Toolchain-Änderung (baut die Toolchain neu).

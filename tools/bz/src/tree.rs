@@ -17,28 +17,36 @@ use crate::say;
 use crate::stamp::Fingerprint;
 use crate::util;
 
-/// `images/base.toml`: which packages go into the image and the initrd.
-/// Target dependencies (glibc, ...) are included automatically.
+/// The image definition of `/usr`.
+pub const IMAGE_DEFINITION: &str = "images/base.toml";
+
+/// `images/base.toml`: which packages go into the `/usr` image. Target
+/// dependencies (glibc, ...) are included automatically.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImageDefinition {
     pub packages: Vec<String>,
-    pub initrd: Vec<String>,
-    /// Kernel modules in the initrd, by name; their dependencies come along.
-    pub initrd_modules: Vec<String>,
 }
 
 pub fn image_definition(paths: &Paths) -> Result<ImageDefinition> {
-    let path = paths.root.join("images/base.toml");
-    let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    read_toml(&paths.root.join(IMAGE_DEFINITION))
+}
+
+pub fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
+    let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// What a tree assembled from `recipes` and the repository's `system/<own>`
-/// files depends on: the image definition, the build of every package
-/// (including the toolchain that strips them) and those files.
-pub fn assembly_inputs(paths: &Paths, recipes: &[Recipe], own: &str) -> Result<Fingerprint> {
-    let mut inputs = Fingerprint::new()?.file(&paths.root.join("images/base.toml"))?;
+/// files depends on: its definition (relative to the repository), the build
+/// of every package (including the toolchain that strips them) and those files.
+pub fn assembly_inputs(
+    paths: &Paths,
+    definition: &str,
+    recipes: &[Recipe],
+    own: &str,
+) -> Result<Fingerprint> {
+    let mut inputs = Fingerprint::new()?.file(&paths.root.join(definition))?;
     for recipe in recipes {
         inputs = inputs.text(&format!(
             "{} {}",
@@ -83,21 +91,29 @@ pub fn populate(
     dest: &Path,
     keep: impl Fn(&Path) -> bool,
 ) -> Result<usize> {
-    let mut elf_files = Vec::new();
-    let mut count = 0;
+    let mut files = Vec::new();
     for recipe in target_packages(recipes) {
-        for file in install::manifest(paths, &recipe.name)? {
-            if !keep(&file) {
-                continue;
-            }
-            let target = dest.join(&file);
-            install::copy_entry(&paths.sysroot.join(&file), &target)?;
-            if is_elf(&target)? {
-                elf_files.push(target);
-            }
-            count += 1;
+        files.extend(
+            install::manifest(paths, &recipe.name)?
+                .into_iter()
+                .filter(|file| keep(file)),
+        );
+    }
+    copy_files(paths, &files, dest)
+}
+
+/// Copies `files` (relative to the root) from the sysroot into `dest` and
+/// strips debug information. Returns the file count.
+pub fn copy_files(paths: &Paths, files: &[PathBuf], dest: &Path) -> Result<usize> {
+    let mut elf_files = Vec::new();
+    for file in files {
+        let target = dest.join(file);
+        install::copy_entry(&paths.sysroot.join(file), &target)?;
+        if is_elf(&target)? {
+            elf_files.push(target);
         }
     }
+    let count = files.len();
     strip_debug_info(paths, &elf_files)?;
     say!(
         "  {count} files, debug info stripped from {} ELF files",
@@ -180,8 +196,7 @@ mod tests {
     #[test]
     fn repository_image_definition_parses() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../images/base.toml");
-        let def: ImageDefinition = toml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let def: ImageDefinition = read_toml(&path).unwrap();
         assert!(def.packages.contains(&"systemd".to_owned()));
-        assert!(def.initrd.contains(&"systemd".to_owned()));
     }
 }
