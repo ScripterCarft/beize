@@ -205,12 +205,19 @@ in die Endfassung einarbeiten, keine Nachträge.
 **Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
 neu installieren: `keys/secureboot/README.md`). Installiert ist `0f386c1` (Phase 3, CI grün).
 
-**Nächster Schritt: Phase 4 (eigener Chat).** Gemessen 2026-10-10 (`docs/hardware.md`):
-32,2 s statt 35,3 s; Kernel 7,3 s (`mei_me`-Pause weg), Loader 0,65 s trotz Microcode.
-Befunde für Phase 4:
-- Kernel 1,9 s `mem auto-init`: `INIT_ON_FREE_DEFAULT_ON=y` aus `hardening.config` nullt
-  32 GB beim Start. Fedora und Ubuntu: nur `INIT_ON_ALLOC`. Entscheidung des Besitzers
-  (Sicherheit gegen Startzeit), ins ADR 0015 einarbeiten. 5 s PCIe-Retraining → 7.3.
+**Phase 4 läuft.** Gemessen 2026-10-10 (`docs/hardware.md`): 32,2 s statt 35,3 s.
+`INIT_ON_FREE` (1,9 s) bleibt – Besitzer, ADR 0015. 5 s PCIe-Retraining → 7.3.
+**Nächster Schritt: Besitzer gibt `docs/adr/0016-initrd-aus-funktionen.md` (Entwurf,
+uncommittet) frei** – offen v. a. „keine Notfall-Shell in der initrd“. Danach umsetzen.
+Befunde aus dem Hardware-Journal (Boot 0) für Phase 4:
+- initrd 4,0 s: **1,7 s wartet das Stoppen von `systemd-udevd`** vor switch-root
+  (9,48 → 11,15 s), zeitgleich mit der USB-Erkennung (Hubs, HID; letzte Meldung 11,0 s);
+  im Boot −1 (USB längst fertig) 9 ms. Ursache klären (wartet udevd auf Worker?).
+- **0,65 s `systemd-tpm2-setup-early`:** „TPM's NV index space is exhausted“, 4×
+  `Esys_NV_DefineSpace` à 0,2 s, NvPCR „login“ übersprungen. Klären, ob Reste früherer
+  Installationen den NV-Speicher belegen (dann: wer räumt auf?) oder Intel PTT zu klein ist.
+- `ldconfig.service` läuft in der initrd (verschwindet mit ADR 0016).
+- ntpd-rs startet vor dem Netz: Namensauflösung scheitert 1×/s (nur Log, keine Verzögerung).
 - Warnungen, die **auch in der VM** auftreten (Ursache offen): `systemd-growfs`:
   `crypt_resize() … Operation not permitted`; `dbus-daemon`: „Failed to drop
   supplementary groups“; `systemd-networkd`: kein nftables (`NF_TABLES` fehlt);
@@ -240,14 +247,14 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    (Name/Signed-off-by eintragen, an die Adressen aus `get_maintainer.pl`). Grundsatz: Bei
    Fehlern zuerst fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht
    hat (Beispiel dieser Phase: ML-DSA übernommen, die zugehörige PKCS#7-Option nicht).
-4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
+4. **Startpfad (ADR 0016):** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
    kritische Kette straffen, BIOS-Empfehlungen dokumentieren.
-5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0016): XKB als einzige Quelle
+5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0017): XKB als einzige Quelle
    (xkeyboard-config, libxkbcommon, localed, kbd), beize-setup fragt Layout vor dem Passwort.
-   b) Rechte (ADR 0017): run0 + polkit (duktape), kein setuid in `/usr` (Test).
+   b) Rechte (ADR 0018): run0 + polkit (duktape), kein setuid in `/usr` (Test).
    c) iputils `ping` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
-6. **A/B-Updates (ADR 0018) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
+6. **A/B-Updates (ADR 0019) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
    systemd-sysupdate (usr, verity, UKI, signierter Bootloader – `systemd-boot-update` ist
    deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:
    zählt ein Start mit fehlgeschlagener Unit als gescheitert?); Smoke: Update A→B mit TPM,

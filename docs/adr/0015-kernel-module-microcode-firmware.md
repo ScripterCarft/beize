@@ -79,8 +79,13 @@ Microcode und Firmware lieferte Beize nicht aus.
 - Module von Dritten, die `bz` nicht baut, lassen sich nicht laden (wie
   Treibersignatur unter Windows). Lockdown verbietet Ruhezustand auf Platte
   (Hibernation); Standby ist nicht betroffen.
+- Speicher wird beim Anfordern **und** beim Freigeben genullt (`INIT_ON_FREE` aus
+  `hardening.config`, ausdrücklich behalten; Fedora und Ubuntu nur beim Anfordern):
+  Kein alter Inhalt überlebt im freien Speicher, Use-after-free liest Nullen statt
+  fremder Daten. Kostet beim Start ~2 s auf 32 GB, weil der Kernel einmal den ganzen
+  RAM löscht (Entscheidung des Besitzers).
 - Der Microcode macht das UKI 6,6 MB größer (alle Intel-Updates wären 17,3 MB, davon
-  10 MB Server). Was das an Ladezeit kostet, zeigt die nächste Messung auf der Hardware.
+  10 MB Server); der Loader brauchte auf der Hardware trotzdem nur 0,65 s.
 - linux-firmware ist 632 MB groß und wird nie ganz entpackt; `bz` holt nur, was es
   braucht.
 - Der Wegwerf-Schlüssel macht Module nicht bit-genau reproduzierbar (offener Punkt
