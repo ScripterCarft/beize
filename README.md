@@ -101,7 +101,7 @@ Logs in `build/work/logs/`.
 | `recipes/` | Ein Rezept pro Paket: gepinnte, signierte Quelle, Abhängigkeiten, Build-Skript |
 | `keys/` | Öffentliche Schlüssel der Upstream-Maintainer (siehe `keys/README.md`) |
 | `ci/` | Paketliste und kompletter CI-Ablauf |
-| `images/` | Welche Pakete in `/usr` und in die initrd gehören, welche Units laufen (ADR 0013) |
+| `images/` | Welche Pakete in `/usr` gehören, aus welchen Funktionen die initrd besteht (ADR 0016), welche Units laufen (ADR 0013) |
 | `os/` | Eigener Rust-Code im Image (`beize-tpm`, `beize-setup`) |
 | `system/usr/`, `system/initrd/` | Eigene Dateien in `/usr` und in der initrd (Units, Skripte, Werkseinstellungen) |
 | `kernel/config/` | Kernel-Konfiguration nach Funktion (ADR 0015); `kernel/beize.config` ist das aufgelöste Ergebnis |

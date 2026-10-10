@@ -56,8 +56,40 @@ Gewöhnlicher Start (nicht der erste) nach Phase 3 des Fahrplans (Kernel 7.2.9, 
 | Summe | 32,2 s | 35,3–36,0 s |
 
 Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s, Fix in
-7.3), 1,9 s `mem auto-init` (`INIT_ON_FREE_DEFAULT_ON` aus `hardening.config` löscht
-beim Start die 32 GB RAM). initrd: `systemd-cryptsetup@root` 0,9 s, `tpm2-setup-early`
-0,65 s.
+7.3), 1,9 s `mem auto-init` (`INIT_ON_FREE`, bewusst behalten, ADR 0015). initrd:
+- 1,7 s wartet das Stoppen von udevd vor switch-root auf einen Worker, der `product`
+  eines USB-Hubs liest. Der Kernel nimmt dafür die Gerätesperre, die der Hub hält,
+  solange er alle Ports durchzählt. Upstream-Patch: WSL
+  `~/upstream/0002-usb-core-sysfs-string-attrs-without-device-lock.patch`; in der VM
+  mit 8 Hubs à 8 Geräten 2,6 s → 11 ms.
+- 0,9 s `systemd-cryptsetup@root` (TPM-Entsperren auf Intel PTT).
+- 0,65 s `tpm2-setup-early`: Initialisieren der NvPCRs, ~0,2 s je NvPCR, upstream
+  bewusst vor dem Entsperren. `login` passt nicht mehr in den NV-Speicher
+  (TPM_RC_NV_SPACE); beim nächsten Start klären: `systemd-analyze nvpcrs` und
+  `systemd-analyze identify-tpm2`.
+
+Netz: Die DHCP-Adresse kommt 4,6 s (Boot 0) bzw. 12 s (Boot −1) nach dem Link; in der
+VM nach 11 ms. Die Verzögerung liegt im Netz (Router prüft die Adresse vor dem Angebot,
+oder Spanning Tree am Switch-Port). Sie verzögert den Start nicht (ADR 0011), nur die
+erste Zeitsynchronisierung.
 
 Wird nach jeder Phase des Fahrplans ersetzt, nicht ergänzt.
+
+## Firmware (BIOS) einstellen
+
+Die Firmware braucht 18,5 s, mehr als alles danach zusammen. Je Einstellung einzeln
+ändern und messen (`bz boot-times`), damit klar ist, was wirkt. Keine davon berührt
+PCR 7 (Secure-Boot-Zustand), der Recovery-Key wird also nicht verlangt.
+
+| Einstellung (ASUS, BIOS 3201) | Wert | Warum |
+| --- | --- | --- |
+| Ai Tweaker → DRAM: Memory Context Restore bzw. MRC Fast Boot | Enabled | DDR5 wird sonst bei jedem Start neu trainiert – der größte Posten |
+| Boot → Fast Boot | Enabled | überspringt Tests, die nur beim Hardware-Wechsel nötig sind |
+| Boot → Next Boot after AC Power Loss | Fast Boot | dasselbe nach Stromausfall |
+| Advanced → Network Stack | Disabled | kein Versuch, übers Netz zu starten (PXE) |
+| Boot → POST Delay Time | 0 | keine Wartezeit für den Setup-Aufruf |
+| Tool → Armoury Crate: Download & Install | Disabled | die WPBT-Tabelle (im ACPI-Log sichtbar) schleust bei jedem Start ein Installationsprogramm in Windows ein; für Beize ohne Nutzen, unter Windows ein Fremdeinfluss auf das System |
+
+Nicht empfohlen: leere PCIe-/M.2-Steckplätze abschalten, um das Retraining zu umgehen
+– die Ursache behebt Kernel 7.3. Fast Boot betrifft nur die Firmware; die Tastatur für
+den Recovery-Key initialisiert Beize selbst (xHCI und USB-HID fest im Kernel).

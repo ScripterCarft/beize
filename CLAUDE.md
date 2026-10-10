@@ -209,30 +209,36 @@ in die Endfassung einarbeiten, keine Nachträge.
   `config.h`, inkrementell würde ohnehin fast alles neu übersetzt).
 - CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-10)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-11)
 
 **Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
-neu installieren: `keys/secureboot/README.md`). Installiert ist `0f386c1` (Phase 3, CI grün).
+neu installieren: `keys/secureboot/README.md`). Installiert ist `0f386c1` (Phase 3).
 
-**Phase 4 läuft.** Gemessen 2026-10-10 (`docs/hardware.md`): 32,2 s statt 35,3 s.
-`INIT_ON_FREE` (1,9 s) bleibt – Besitzer, ADR 0015. 5 s PCIe-Retraining → 7.3.
-**ADR 0016 angenommen** (initrd aus Funktionen, Notfall-Shell nur mit Recovery-Key +
-PCR-11-Sperre, hwdb). **Nächster Schritt: umsetzen**, danach die Befunde unten.
-Befunde aus dem Hardware-Journal (Boot 0) für Phase 4:
-- initrd 4,0 s: **1,7 s wartet das Stoppen von `systemd-udevd`** vor switch-root
-  (9,48 → 11,15 s), zeitgleich mit der USB-Erkennung (Hubs, HID; letzte Meldung 11,0 s);
-  im Boot −1 (USB längst fertig) 9 ms. Ursache klären (wartet udevd auf Worker?).
-- **0,65 s `systemd-tpm2-setup-early`:** „TPM's NV index space is exhausted“, 4×
-  `Esys_NV_DefineSpace` à 0,2 s, NvPCR „login“ übersprungen. Klären, ob Reste früherer
-  Installationen den NV-Speicher belegen (dann: wer räumt auf?) oder Intel PTT zu klein ist.
-- `ldconfig.service` läuft in der initrd (verschwindet mit ADR 0016).
-- ntpd-rs startet vor dem Netz: Namensauflösung scheitert 1×/s (nur Log, keine Verzögerung).
-- Warnungen, die **auch in der VM** auftreten (Ursache offen): `systemd-growfs`:
-  `crypt_resize() … Operation not permitted`; `dbus-daemon`: „Failed to drop
-  supplementary groups“; `systemd-networkd`: kein nftables (`NF_TABLES` fehlt);
-  PID 1: „Failed to copy os-release for propagation“. Nur Hardware: `igc` „can't disable
-  ASPM; OS doesn't have ASPM control“, `i2c` ITE8853 (-16), `intel-lpss` debugfs.
-  `PKCS7: Waived invalid module sig (has authattrs)` ist das erwartete ML-DSA-Verhalten.
+**Phase 4 umgesetzt** (ADR 0016, Commits `46339d9`, `2caccc6`): initrd aus Funktionen
+(10,7 statt 19,3 MiB), Notfall-Tor `beize-tpm emergency` (Shell nur mit Recovery-Key, PCR 11
+vorher gesperrt; Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, os-release-Warnung
+behoben, BIOS-Empfehlungen in `docs/hardware.md`. `INIT_ON_FREE` bleibt (Besitzer, ADR 0015).
+**Nächste Schritte:**
+1. CI von `2caccc6` prüfen (`46339d9` scheiterte nur am fehlenden `libcryptsetup-dev` im
+   Prüf-Job). Mit den CI-Werten `BOOT_BUDGET` prüfen: lokal ist die initrd-Phase in der VM
+   unverändert (2,4–2,7 s; dort dominiert swtpm, nicht die Größe).
+2. Besitzer installiert das neue Image, BIOS-Einstellungen einzeln testen; Journal nach
+   `~/hw-logs`, dann `docs/hardware.md` ersetzen. Dabei `systemd-analyze nvpcrs` und
+   `identify-tpm2` (warum passt NvPCR `login` nicht?) und das Notfall-Tor einmal ansehen.
+3. Besitzer sendet (Name/E-Mail eintragen): WSL `~/upstream/0002-usb-core-sysfs-*.patch`
+   (udevd wartet 1,7 s auf einen Worker, der `product` eines Hubs liest; an Greg KH,
+   linux-usb, LKML; Basis 7.2.9, vor dem Senden auf usb-next prüfen) und das Issue
+   `~/upstream/ntpd-rs-offline-retries.md` (28 Warnungen bis DHCP; GitHub pendulum-project).
+Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR und liegt
+upstream bewusst vor dem Entsperren (`systemd-pcrnvdone` Before=`cryptsetup-pre.target`) –
+kein Beize-Fehler. DHCP braucht auf der Hardware 4,6–12 s nach dem Link, in der VM 11 ms
+(Netz des Besitzers, verzögert den Start nicht). USB-Reproduktion in der VM: `qemu-xhci`
+mit 8 `usb-hub` à 8 HID-Geräten (Befehl im Patch).
+Offene Warnungen (auch in der VM, Ursache offen): `systemd-growfs`: `crypt_resize() …
+Operation not permitted`; `dbus-daemon`: „Failed to drop supplementary groups“;
+`systemd-networkd`: kein nftables (`NF_TABLES` fehlt). Nur Hardware: `igc` „can't disable
+ASPM“, `i2c` ITE8853 (-16), `intel-lpss` debugfs. `PKCS7: Waived invalid module sig (has
+authattrs)` ist das erwartete ML-DSA-Verhalten.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
@@ -256,9 +262,9 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    (Name/Signed-off-by eintragen, an die Adressen aus `get_maintainer.pl`). Grundsatz: Bei
    Fehlern zuerst fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht
    hat (Beispiel dieser Phase: ML-DSA übernommen, die zugehörige PKCS#7-Option nicht).
-4. **Startpfad (ADR 0016):** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
-   NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
-   kritische Kette straffen, BIOS-Empfehlungen dokumentieren.
+4. ✓ **Startpfad (ADR 0016):** initrd aus Funktionen, Notfall-Tor, hwdb, Befunde analysiert
+   (udev → Kernel-Patch, NvPCR → by design, ntpd-rs → Upstream-Issue), BIOS-Empfehlungen.
+   Offen: Messung auf der Hardware (Schritt 2 oben).
 5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0017): XKB als einzige Quelle
    (xkeyboard-config, libxkbcommon, localed, kbd), beize-setup fragt Layout vor dem Passwort.
    b) Rechte (ADR 0018): run0 + polkit (duktape), kein setuid in `/usr` (Test).
