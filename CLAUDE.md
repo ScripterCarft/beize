@@ -183,8 +183,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-10)
 
-**Beize läuft auf dem Rechner des Besitzers** (Samsung SSD 860 EVO, `/dev/sde` unter WSL,
-Disk 0 in Windows; SanDisk 480 GB (E:, Daten) und Corsair (Windows) nie anfassen).
+**Beize läuft auf dem Rechner des Besitzers** (Samsung SSD 860 EVO, Disk 0 in Windows; unter
+WSL wechselt der Buchstabe – mit `lsblk` an den Partitionen `esp`/`beize_*`/`root` erkennen;
+SanDisk 480 GB (E:, Daten) und Corsair (Windows) nie anfassen).
 Neu installieren: `keys/secureboot/README.md` (`bz build`, `bz sign`, `wsl --mount`,
 `bz install /dev/sde --guid "{6265697a-6500-4000-8000-000000000001}" --reinstall`).
 
@@ -196,16 +197,31 @@ auf fremdem TPM; `systemunlock=refused` bei jedem „TPM2“-Fehler; fehlgeschla
 bei stummer Konsole unsichtbar – jetzt `bootfailed=` aus dem Journal), je mit Gegenprobe;
 ADR 0009/0010 als Endfassung.
 
-**Nächste Aufgaben, in dieser Reihenfolge (vom Besitzer festgelegt):**
-1. **Startzeit auf echter Hardware.** Normaler Start gemessen: Firmware 24 s + Loader 1 s +
-   **Kernel 11,7 s** + initrd 4 s + System 1,6 s = 43 s (VM: Kernel 0,6 s, initrd 2,4 s).
-   Hauptbaustelle Kernel; Verdacht (unbelegt): `console=ttyS0` auf echter Hardware oder
-   Treiber, die auf Hardware warten – Kernel-Log mit Zeitstempeln ansehen. Firmware ist
-   BIOS-Sache (Fast Boot). Danach initrd und Kernel verschlanken.
-   **Keine Administratorrechte:** Besitzer ist in `wheel`, aber weder sudo noch su – root
-   nur über die Notfall-Konsole. Entscheidung + ADR: sudo-rs oder run0 (braucht polkit).
-   **Tastatur:** noch US-Layout – `kbd` fehlt, beize-setup muss nach dem Layout fragen
-   (`/etc/vconsole.conf`). `ping` fehlt (iputils). Auf Hardware gut: Anmelden, Zeitzone,
-   NTS-Zeit. Windows einmalig auf UTC stellen (`keys/secureboot/README.md` Schritt 4).
-2. **Updates über die A/B-Slots** (systemd-sysupdate) – damit ist M2 fertig; auch nötig,
-   damit Zertifikatsliste und tzdata nicht veralten.
+Gemessen auf Hardware (2026-10-10): Firmware 17–24 s + Loader 1 s + Kernel 11,7 s + initrd
+4 s + System 1,6 s (VM: Kernel 0,6 s). Windows einmalig auf UTC stellen (`keys/secureboot/README.md` Schritt 4).
+**Hardware-Journal auslesen** (ohne Neubau, Journal ist persistent): Besitzer `wsl --mount
+\\.\PHYSICALDRIVE0 --bare`, `sudo cryptsetup open --readonly /dev/sdX6 beize-root` (Recovery-Key,
+tippt nur er), dann `mount -o ro,noload`; Kernel-Zeiten aus `_SOURCE_MONOTONIC_TIMESTAMP`
+(die Eintrags-Monotonic zeigt nur, wann journald das kmsg las).
+
+**Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
+nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
+1. **Messen als Werkzeug:** `bz boot-times <journal>` (Aufschlüsselung, Kernel-Lücken,
+   kritische Kette), Zeitbudget im Smoke-Test (mit Gegenprobe), `docs/hardware.md`.
+2. **Toolchain (ADR 0013):** x86-64-v3, `-mtune=generic`, Härtung (FORTIFY=3, stack-clash,
+   CET, PIE, RELRO/now, Frame-Pointer); ELF-Guard in `bz`; Boot-Report meldet fehlendes v3.
+3. **Kernel (ADR 0014):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
+   verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
+   Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI
+   (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`; Kernel auf
+   neuesten Stable.
+4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
+   NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
+   kritische Kette straffen, BIOS-Empfehlungen dokumentieren.
+5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0015): XKB als einzige Quelle
+   (xkeyboard-config, libxkbcommon, localed, kbd), beize-setup fragt Layout vor dem Passwort.
+   b) Rechte (ADR 0016): run0 + polkit (duktape), kein setuid in `/usr` (Test).
+   c) iputils `ping` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
+6. **A/B-Updates (ADR 0017) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
+   systemd-sysupdate (usr, verity, UKI), signierte SHA256SUMS, `bz release`, Rückfall per
+   Boot-Counting; Smoke: Update A→B mit TPM, kaputtes Update → A, zweites Update.
