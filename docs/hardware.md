@@ -42,15 +42,22 @@ schreibt (fehlt bei Images, die vor dieser Unit gebaut wurden).
 
 ## Messwerte
 
-Stand 2026-10-10, Image vor dem M2-Fahrplan; gewöhnliche Starts (nicht der erste):
+Gewöhnlicher Start (nicht der erste) nach Phase 3 des Fahrplans (Kernel 7.2.9, Image
+`0f386c1`, 2026-10-10), daneben das Image vor dem Fahrplan. VM-Werte: Kommentar zu
+`BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
 
-| Phase | Hardware | VM (`bz smoke`) |
+| Phase | nach Phase 3 | vor dem Fahrplan |
 | --- | --- | --- |
-| Firmware | 16,9–17,5 s (erster Start nach Installation 21,8 s) | – |
-| Loader (systemd-boot) | 1,0–1,1 s | – |
-| Kernel | 11,7 s | 0,56–0,61 s |
-| initrd | 4,0 s | 2,42–2,51 s |
-| System | 1,6–1,7 s | 2,27–2,44 s |
-| Summe | 35,3–36,0 s | – |
+| Firmware | 18,5 s (erster Start nach Installation 21,3 s) | 16,9–17,5 s (21,8 s) |
+| Loader (systemd-boot) | 0,65 s (mit 6,6 MB Microcode) | 1,0–1,1 s |
+| Kernel | 7,3 s | 11,7 s |
+| initrd | 4,0 s | 4,0 s |
+| System | 1,7 s | 1,6–1,7 s |
+| Summe | 32,2 s | 35,3–36,0 s |
+
+Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s, Fix in
+7.3), 1,9 s `mem auto-init` (`INIT_ON_FREE_DEFAULT_ON` aus `hardening.config` löscht
+beim Start die 32 GB RAM). initrd: `systemd-cryptsetup@root` 0,9 s, `tpm2-setup-early`
+0,65 s.
 
 Wird nach jeder Phase des Fahrplans ersetzt, nicht ergänzt.

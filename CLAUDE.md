@@ -188,7 +188,6 @@ in die Endfassung einarbeiten, keine Nachträge.
 - initrd 19,3 MiB (zstd -19) – enthält noch ganz systemd; verschlanken (Phase 4). hwdb nicht generiert.
 - Kernel ohne BTF (`DEBUG_INFO_BTF`, wie Fedora): systemd braucht es für BPF-Funktionen
   (z. B. `RestrictFileSystems=`), sched_ext auch; kostet DWARF beim Bau (Zeit, CI-Platz).
-- Microcode macht das UKI 6,6 MB größer (ohne Server/Nicht-v3) – Loader-Zeit auf der Hardware messen.
 - `bz outdated`: mpc 1.4.1 mit der nächsten Toolchain-Änderung (baut die Toolchain neu).
 - Updater (systemd-sysupdate), Verhalten bei verity-Fehlern zur Laufzeit, WLAN, NVIDIA,
   Bluetooth, Start von der zweiten SSD, Installer.
@@ -204,17 +203,20 @@ in die Endfassung einarbeiten, keine Nachträge.
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-10)
 
 **Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
-neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
-`beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
-nächsten Installation.
+neu installieren: `keys/secureboot/README.md`). Installiert ist `0f386c1` (Phase 3, CI grün).
 
-**Nächster Schritt (2026-10-10):** Phase 3 ist in der CI grün (`e9353d2`, 37 min; Runner-Disk
-nach dem Bau 92 %, 6,5 GB frei). Danach gepusht, CI noch prüfen: `8771fdb` (Microcode nur für
-v3-CPUs ohne Server, 6,6 MB) und `0f386c1` (beize-setup: Strg+C startet neu, Transaktion
-gegen Stromausfall – Fehler, den der Besitzer auf der Hardware fand). Der Besitzer installiert das neue Image auf der Hardware (`bz
-sign`, `bz install`); Journal kopieren, `bz boot-times` + `bz hw-check`, Messwerte in
-`docs/hardware.md` ersetzen (erwartet: Kernel ohne die 5,7 s von `mei_me`; Loader mit
-6,6 MB Microcode beobachten). Danach Phase 4 (eigener Chat).
+**Nächster Schritt: Phase 4 (eigener Chat).** Gemessen 2026-10-10 (`docs/hardware.md`):
+32,2 s statt 35,3 s; Kernel 7,3 s (`mei_me`-Pause weg), Loader 0,65 s trotz Microcode.
+Befunde für Phase 4:
+- Kernel 1,9 s `mem auto-init`: `INIT_ON_FREE_DEFAULT_ON=y` aus `hardening.config` nullt
+  32 GB beim Start. Fedora und Ubuntu: nur `INIT_ON_ALLOC`. Entscheidung des Besitzers
+  (Sicherheit gegen Startzeit), ins ADR 0015 einarbeiten. 5 s PCIe-Retraining → 7.3.
+- Warnungen, die **auch in der VM** auftreten (Ursache offen): `systemd-growfs`:
+  `crypt_resize() … Operation not permitted`; `dbus-daemon`: „Failed to drop
+  supplementary groups“; `systemd-networkd`: kein nftables (`NF_TABLES` fehlt);
+  PID 1: „Failed to copy os-release for propagation“. Nur Hardware: `igc` „can't disable
+  ASPM; OS doesn't have ASPM control“, `i2c` ITE8853 (-16), `intel-lpss` debugfs.
+  `PKCS7: Waived invalid module sig (has authattrs)` ist das erwartete ML-DSA-Verhalten.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
