@@ -15,6 +15,9 @@ if ! command -v cargo >/dev/null; then
     source "$HOME/.cargo/env"
 fi
 
+# Free space after each step: a full build is close to what a runner has.
 ./bz verify
 ./bz build
+df -h .
 ./bz smoke
+df -h .

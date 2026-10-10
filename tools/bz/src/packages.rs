@@ -49,7 +49,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     let mut fingerprints = BTreeMap::new();
     let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut up_to_date = 0;
-    for recipe in &order {
+    for (index, recipe) in order.iter().enumerate() {
         // The package itself and everything it depends on, directly or not.
         let mut visible = BTreeSet::from([recipe.name.clone()]);
         for dep in &recipe.deps {
@@ -70,6 +70,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
             install::unhide_all(paths)?;
             built?;
             fs::write(&stamp, &fingerprint)?;
+            clean_up(paths, recipe, &order[index + 1..])?;
         }
         fingerprints.insert(recipe.name.clone(), fingerprint);
         closures.insert(recipe.name.clone(), visible);
@@ -78,6 +79,35 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         say!("  {up_to_date} of {} packages up to date", order.len());
     }
     Ok(order)
+}
+
+/// Removes what a successful build leaves in `work/`, as rpmbuild does: the
+/// build tree always, the unpacked sources unless a later package or the
+/// kernel (built incrementally from its tree) still needs them. Otherwise a
+/// full build holds every package's trees at once – more than the ~14 GB a
+/// CI runner has free. A failed build keeps both for debugging.
+fn clean_up(paths: &Paths, recipe: &Recipe, later: &[Recipe]) -> Result<()> {
+    remove(&paths.work.join("build").join(&recipe.name))?;
+    let Some(source) = &recipe.source else {
+        return Ok(());
+    };
+    let stem = source.stem()?;
+    let kernel = Recipe::load(paths, "linux")?;
+    for other in later.iter().chain([&kernel]) {
+        if let Some(other) = &other.source
+            && other.stem()? == stem
+        {
+            return Ok(());
+        }
+    }
+    remove(&paths.work.join("src").join(stem))
+}
+
+fn remove(dir: &Path) -> Result<()> {
+    if dir.exists() {
+        fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
+    }
+    Ok(())
 }
 
 /// The fingerprint a package was last built with: what a step that uses
@@ -314,9 +344,7 @@ fn write_meson_cross_file(paths: &Paths) -> Result<()> {
 }
 
 fn recreate(dir: &Path) -> Result<std::path::PathBuf> {
-    if dir.exists() {
-        fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
-    }
+    remove(dir)?;
     fs::create_dir_all(dir)?;
     Ok(dir.to_owned())
 }
