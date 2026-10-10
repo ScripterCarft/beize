@@ -213,8 +213,10 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 3. **Kernel (ADR 0014):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
    verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
    Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI
-   (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`; Kernel auf
-   neuesten Stable.
+   (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Im ADR
+   entscheiden: neuester Stable oder LTS (Stabilität; Beize nimmt bisher sofort den neuesten
+   Stable und trifft so frische Regressionen als Erster). Grundsatz: Bei Fehlern zuerst fragen,
+   welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
 4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
    kritische Kette straffen, BIOS-Empfehlungen dokumentieren.
