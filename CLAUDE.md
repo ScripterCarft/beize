@@ -221,9 +221,10 @@ Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, BIOS-Empfehlungen. `INIT_ON_
 (Besitzer, ADR 0015). `BOOT_BUDGET` unverändert (VM-initrd-Phase hängt am swtpm).
 
 **Nächster Schritt: Phase 5 (eigener Chat), ADR 0017 Tastatur/Locale vorab abstimmen.**
-Beim Besitzer offen (kein Blocker): Kernel-Patches senden nach WSL `~/upstream/EINREICHEN.md`
-(mei an char-misc-next, USB an usb-next; geprüft, Branches in `~/upstream/kernel`, Skript
-`send.sh` setzt Name/E-Mail und ruft `b4 send`). ntpd-rs: Regression (Backoff aus #969
+Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
+USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
+Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
+wird der USB-Patch angenommen: ADR „nur upstream angenommene Kernel-Patches“ vorschlagen. ntpd-rs: Regression (Backoff aus #969
 beim Spawner-Umbau verloren), Issue vorausgefüllt im Browser geöffnet – `gh`-Token darf
 keine fremden Issues anlegen; Link in `~/upstream/ntpd-rs-issue-link.txt`. BIOS-Empfehlungen sind gesetzt (2026-10-11);
 Firmware-Zeit einmal ohne F8 messen (Weg in `docs/hardware.md`; bisherige Werte enthalten das Bootmenü).
