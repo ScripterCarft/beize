@@ -95,6 +95,8 @@ Einstellung einzeln ändern und ohne F8 messen (`bz boot-times`), damit klar ist
 wirkt. Keine davon berührt
 PCR 7 (Secure-Boot-Zustand), der Recovery-Key wird also nicht verlangt.
 
+Stand 2026-10-11: alle gesetzt.
+
 | Einstellung (ASUS, BIOS 3201) | Wert | Warum |
 | --- | --- | --- |
 | Ai Tweaker → DRAM: Memory Context Restore bzw. MRC Fast Boot | Enabled | DDR5 wird sonst bei jedem Start neu trainiert – der größte Posten |

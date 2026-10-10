@@ -225,8 +225,8 @@ Beim Besitzer offen (kein Blocker): senden (Name/E-Mail eintragen) WSL
 `~/upstream/0001-mei-me-*.patch`, `~/upstream/0002-usb-core-sysfs-*.patch` (udevd wartet
 1,7 s auf einen Worker, der `product` eines Hubs liest; an Greg KH, linux-usb, LKML; Basis
 7.2.9, vor dem Senden auf usb-next prüfen) und das Issue `~/upstream/ntpd-rs-offline-
-retries.md` (GitHub pendulum-project/ntpd-rs). Firmware-Zeit ohne F8 messen (Weg in
-`docs/hardware.md`: alle bisherigen Werte enthalten das Bootmenü), BIOS-Einstellungen einzeln.
+retries.md` (GitHub pendulum-project/ntpd-rs). BIOS-Empfehlungen sind gesetzt (2026-10-11);
+Firmware-Zeit einmal ohne F8 messen (Weg in `docs/hardware.md`; bisherige Werte enthalten das Bootmenü).
 Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR, upstream bewusst
 vor dem Entsperren; `login` passt nicht in den NV-Speicher des PTT (systemd überspringt ihn,
 Beize nutzt ihn nicht) – abgeschlossen. DHCP braucht auf der Hardware 4,6–12 s nach dem Link,
