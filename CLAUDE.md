@@ -181,8 +181,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 - systemd-Rezeptänderungen bauen systemd komplett neu (~5 min): bewusst so gelassen
   (frisches Build-Verzeichnis = kein veralteter Zustand; meson-Optionen landen in
   `config.h`, inkrementell würde ohnehin fast alles neu übersetzt).
-- CI, zurückgestellt: `permissions: contents: read`, `push` nur auf `main` +
-  `pull_request`, Dependabot + Actions auf Commit-SHAs, rustup-Warnung im Container.
+- CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-10)
 
@@ -191,9 +190,10 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 `beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
 nächsten Installation.
 
-**Nächster Schritt (2026-10-10):** CI-Lauf von `5c577e1` prüfen (`gh run list`; baut die
-Toolchain neu, 1–2 h). Die lokalen Commits danach sind noch nicht gepusht – erst nach der
-CI pushen (ein Push bricht den laufenden Lauf ab). Dann Phase 3.
+**Nächster Schritt (2026-10-10):** CI-Lauf von `43a7267` prüfen (`gh run list`; baut die
+Toolchain neu, 1–2 h). Der Lauf von `5c577e1` scheiterte an voller Runner-Disk; behoben in
+`5581bae` (bz räumt Build-/Quellbäume nach erfolgreichem Bau weg, `df` im Log). Vorher nicht
+pushen (bricht den Lauf ab). Dann Phase 3.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
@@ -218,7 +218,8 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    bleibt (wie Fedora; sonst Wettlauf beider Module um dieselbe Modalias) – passt ohnehin,
    die Tastatur für den Recovery-Key braucht xHCI vor udev. Patch für den Besitzer liegt in WSL
    `~/upstream/0001-mei-me-*.patch` (Name/Signed-off-by eintragen, an die Adressen aus
-   `get_maintainer.pl` senden). Grundsatz: Bei Fehlern zuerst fragen, welche eigene
+   `get_maintainer.pl` senden). Autologin auf ttyS0 (`beize-autologin.conf`) nur noch im
+   Test-Image, nicht im Image für echte Hardware (Besitzer, 2026-10-10). Grundsatz: Bei Fehlern zuerst fragen, welche eigene
    Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
 4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
