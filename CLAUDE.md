@@ -122,7 +122,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware. Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb. Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -207,8 +207,8 @@ neu installieren: `keys/secureboot/README.md`). Installiert ist `0f386c1` (Phase
 
 **Phase 4 läuft.** Gemessen 2026-10-10 (`docs/hardware.md`): 32,2 s statt 35,3 s.
 `INIT_ON_FREE` (1,9 s) bleibt – Besitzer, ADR 0015. 5 s PCIe-Retraining → 7.3.
-**Nächster Schritt: Besitzer gibt `docs/adr/0016-initrd-aus-funktionen.md` (Entwurf,
-uncommittet) frei** – offen v. a. „keine Notfall-Shell in der initrd“. Danach umsetzen.
+**ADR 0016 angenommen** (initrd aus Funktionen, Notfall-Shell nur mit Recovery-Key +
+PCR-11-Sperre, hwdb). **Nächster Schritt: umsetzen**, danach die Befunde unten.
 Befunde aus dem Hardware-Journal (Boot 0) für Phase 4:
 - initrd 4,0 s: **1,7 s wartet das Stoppen von `systemd-udevd`** vor switch-root
   (9,48 → 11,15 s), zeitgleich mit der USB-Erkennung (Hubs, HID; letzte Meldung 11,0 s);
