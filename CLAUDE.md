@@ -209,12 +209,14 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI
    (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Entschieden
    (Besitzer): **neuester Stable**, nicht LTS – neue Funktionen und Geräteunterstützung zuerst.
-   PCIe-Wartezeiten beim Start: „Upstream first“ wie die großen Distributionen – erst
-   BIOS-Version/-Einstellung als Ursache ausschließen, dann Gegenprobe mit einem
-   Ubuntu-/Fedora-Live-USB (Besitzer; `lspci -vvv`, `dmesg` sichern), dann Bericht + Patch an
-   linux-pci (Claude bereitet vor, der Besitzer sendet unter seinem Namen); bis zur Aufnahme
-   upstream unverändert lassen, kein Eigen-Patch. Grundsatz: Bei Fehlern zuerst fragen,
-   welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
+   Kernel-Wartezeit auf der Hardware (11,7 s, Fedora-Live 0,8 s), „Upstream first“, kein
+   Eigen-Patch: ~5 s PCIe-Retraining leerer Root-Ports = Regression aus 7.2 (72780f796468),
+   Fix „Skip Target Speed quirk on clamped ports with no link“ liegt upstream auf pci/misc
+   für 7.3 → mit 7.3 prüfen. ~5,7 s `mei_me` an 00:14.0 (xHCI, gleiche ID 8086:7a60) –
+   tritt nur auf, weil mei_me fest eingebaut ist; Patch für den Besitzer liegt in WSL
+   `~/upstream/0001-mei-me-*.patch` (Name/Signed-off-by eintragen, an die Adressen aus
+   `get_maintainer.pl` senden). Grundsatz: Bei Fehlern zuerst fragen, welche eigene
+   Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
 4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
    kritische Kette straffen, BIOS-Empfehlungen dokumentieren.
