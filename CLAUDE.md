@@ -191,6 +191,10 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 `beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
 nächsten Installation.
 
+**Nächster Schritt (2026-10-10):** CI-Lauf von `5c577e1` prüfen (`gh run list`; baut die
+Toolchain neu, 1–2 h). Die lokalen Commits danach sind noch nicht gepusht – erst nach der
+CI pushen (ein Push bricht den laufenden Lauf ab). Dann Phase 3.
+
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
 1. ✓ **Messen als Werkzeug:** `bz boot-times`, `beize-boot-chain.service`, Zeitbudget im
@@ -203,9 +207,13 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 3. **Kernel (ADR 0015):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
    verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
    Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI
-   (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Im ADR
-   entscheiden: neuester Stable oder LTS (Stabilität; Beize nimmt bisher sofort den neuesten
-   Stable und trifft so frische Regressionen als Erster). Grundsatz: Bei Fehlern zuerst fragen,
+   (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Entschieden
+   (Besitzer): **neuester Stable**, nicht LTS – neue Funktionen und Geräteunterstützung zuerst.
+   PCIe-Wartezeiten beim Start: „Upstream first“ wie die großen Distributionen – erst
+   BIOS-Version/-Einstellung als Ursache ausschließen, dann Gegenprobe mit einem
+   Ubuntu-/Fedora-Live-USB (Besitzer; `lspci -vvv`, `dmesg` sichern), dann Bericht + Patch an
+   linux-pci (Claude bereitet vor, der Besitzer sendet unter seinem Namen); bis zur Aufnahme
+   upstream unverändert lassen, kein Eigen-Patch. Grundsatz: Bei Fehlern zuerst fragen,
    welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
 4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
