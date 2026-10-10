@@ -225,8 +225,8 @@ Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei �
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
 wird der USB-Patch angenommen: ADR „nur upstream angenommene Kernel-Patches“ vorschlagen. ntpd-rs: Regression (Backoff aus #969
-beim Spawner-Umbau verloren), Issue vorausgefüllt im Browser geöffnet – `gh`-Token darf
-keine fremden Issues anlegen; Link in `~/upstream/ntpd-rs-issue-link.txt`. BIOS-Empfehlungen sind gesetzt (2026-10-11);
+beim Spawner-Umbau verloren), Issue vom Besitzer angelegt (2026-10-11; `gh`-Token darf
+keine fremden Issues anlegen). BIOS-Empfehlungen sind gesetzt (2026-10-11);
 Firmware-Zeit einmal ohne F8 messen (Weg in `docs/hardware.md`; bisherige Werte enthalten das Bootmenü).
 Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR, upstream bewusst
 vor dem Entsperren; `login` passt nicht in den NV-Speicher des PTT (systemd überspringt ihn,
