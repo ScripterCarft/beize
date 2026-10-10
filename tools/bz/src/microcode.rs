@@ -42,14 +42,16 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let work = tree::recreate(&paths.work.join("microcode"))?;
     // Intel: intel-ucode/ only; intel-ucode-with-caveats/ needs special
     // handling (as in Arch and Fedora).
-    let intel_files = extract(paths, &intel, &work.join("intel"), &["*/intel-ucode/*"])?;
+    let mut intel_files = extract(paths, &intel, &work.join("intel"), &["*/intel-ucode/*"])?;
+    intel_files.retain(|file| intel_runs_beize(&file_name(file)));
     // AMD: the microcode_amd*.bin containers, not their .asc signatures.
-    let amd_files = extract(
+    let mut amd_files = extract(
         paths,
         &firmware,
         &work.join("amd"),
         &["*/amd-ucode/microcode_amd*.bin"],
     )?;
+    amd_files.retain(|file| amd_runs_beize(&file_name(file)));
 
     let root = work.join("cpio");
     let dir = root.join("kernel/x86/microcode");
@@ -66,6 +68,48 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     );
     stamp.write()?;
     Ok(archive)
+}
+
+/// Intel family 6 models Beize leaves out (file names `06-<model>-<stepping>`):
+/// servers (Xeon, server Atoms), and Atoms and Lakefield without AVX2, which
+/// cannot run x86-64-v3 (ADR 0014). Everything before model 0x3c (Haswell)
+/// and family 0x0f (Pentium 4) predates x86-64-v3 as well. Future models stay
+/// in: new CPUs get their updates without a change here.
+const INTEL_LEFT_OUT: [u8; 21] = [
+    // Servers: Haswell-EP, Broadwell-EP/DE, Skylake/Cascade/Cooper Lake-SP,
+    // Ice Lake-SP/D, Sapphire/Emerald Rapids, Granite Rapids, Sierra Forest,
+    // and the server Atoms Avoton, Denverton, Snow Ridge.
+    0x3f, 0x4f, 0x56, 0x55, 0x6a, 0x6c, 0x8f, 0xcf, 0xad, 0xae, 0xaf, 0x4d, 0x5f, 0x86,
+    // Without AVX2: Airmont, Goldmont, Goldmont Plus, Lakefield, Elkhart
+    // Lake, Jasper Lake, Silvermont tablets (Merrifield/Moorefield).
+    0x4c, 0x5c, 0x7a, 0x8a, 0x96, 0x9c, 0x5a,
+];
+
+/// Whether Beize ships the Intel update file `name` (`ff-mm-ss`, hex).
+fn intel_runs_beize(name: &str) -> bool {
+    let mut parts = name.split('-').map(|part| u8::from_str_radix(part, 16));
+    match (parts.next(), parts.next()) {
+        (Some(Ok(0x06)), Some(Ok(model))) => model >= 0x3c && !INTEL_LEFT_OUT.contains(&model),
+        // Family 0x0f is the Pentium 4; families after 6 are new CPUs.
+        (Some(Ok(family)), Some(Ok(_))) => family != 0x0f && family > 0x06,
+        _ => false,
+    }
+}
+
+/// Whether Beize ships the AMD container `name`: family 15h (Excavator has
+/// x86-64-v3) and the Zen families 17h, 19h, 1ah. Not the families 10h–14h
+/// (`microcode_amd.bin`) nor 16h (Jaguar, no AVX2). AMD does not split
+/// desktop and server (EPYC) parts, and all of it is 0.3 MB.
+fn amd_runs_beize(name: &str) -> bool {
+    name.strip_prefix("microcode_amd_fam")
+        .and_then(|rest| rest.strip_suffix("h.bin"))
+        .is_some_and(|family| family != "16")
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Extracts the members matching `patterns` from the recipe's verified
@@ -115,4 +159,27 @@ fn concatenate(files: &[PathBuf], dest: &Path) -> Result<()> {
     }
     fs::write(dest, data)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ships_microcode_for_the_cpus_beize_runs_on() {
+        // The owner's i7-13700K (Raptor Lake), Haswell, Alder Lake-N, a future family.
+        for name in ["06-b7-01", "06-3c-03", "06-be-00", "13-01-00"] {
+            assert!(intel_runs_beize(name), "{name}");
+        }
+        // Sapphire Rapids, Granite Rapids, Ivy Bridge, Goldmont, Pentium 4.
+        for name in [
+            "06-8f-08", "06-ad-01", "06-3a-09", "06-5c-09", "0f-04-0a", "README",
+        ] {
+            assert!(!intel_runs_beize(name), "{name}");
+        }
+        assert!(amd_runs_beize("microcode_amd_fam19h.bin"));
+        assert!(amd_runs_beize("microcode_amd_fam1ah.bin"));
+        assert!(!amd_runs_beize("microcode_amd_fam16h.bin"));
+        assert!(!amd_runs_beize("microcode_amd.bin"));
+    }
 }

@@ -54,7 +54,9 @@ Microcode und Firmware lieferte Beize nicht aus.
   den laufenden Kernel nicht verändern – kein unsigniertes Modul, kein `/dev/mem`, kein
   unsigniertes kexec. Erst damit schützt die Modulsignatur.
 - **Microcode im UKI** (`.ucode`-Abschnitt, ukify): Intel (`intel-ucode/`, ohne
-  „with-caveats“, wie Arch und Fedora) und AMD (aus linux-firmware), für alle CPUs.
+  „with-caveats“, wie Arch und Fedora) und AMD (aus linux-firmware), für jede CPU, auf
+  der Beize läuft (x86-64-v3), ohne Server: Xeons, ältere CPUs und Atoms ohne AVX2
+  bleiben draußen (Ausschlussliste in `bz`, damit neue CPUs ohne Änderung dabei sind).
   Der Kernel spielt ihn ein, bevor er sonst etwas tut; ein Microcode-Update ist Teil
   des signierten Images.
 - **Firmware aus linux-firmware, nur was ein gebautes Modul anfordert**
@@ -77,8 +79,8 @@ Microcode und Firmware lieferte Beize nicht aus.
 - Module von Dritten, die `bz` nicht baut, lassen sich nicht laden (wie
   Treibersignatur unter Windows). Lockdown verbietet Ruhezustand auf Platte
   (Hibernation); Standby ist nicht betroffen.
-- Der Microcode macht das UKI 18 MB größer (zu zwei Dritteln Server-CPUs). Ob das die
-  Ladezeit der Firmware spürbar verlängert, zeigt die nächste Messung auf der Hardware.
+- Der Microcode macht das UKI 6,6 MB größer (alle Intel-Updates wären 17,3 MB, davon
+  10 MB Server). Was das an Ladezeit kostet, zeigt die nächste Messung auf der Hardware.
 - linux-firmware ist 632 MB groß und wird nie ganz entpackt; `bz` holt nur, was es
   braucht.
 - Der Wegwerf-Schlüssel macht Module nicht bit-genau reproduzierbar (offener Punkt

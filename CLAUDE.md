@@ -188,7 +188,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 - initrd 19,3 MiB (zstd -19) – enthält noch ganz systemd; verschlanken (Phase 4). hwdb nicht generiert.
 - Kernel ohne BTF (`DEBUG_INFO_BTF`, wie Fedora): systemd braucht es für BPF-Funktionen
   (z. B. `RestrictFileSystems=`), sched_ext auch; kostet DWARF beim Bau (Zeit, CI-Platz).
-- Microcode macht das UKI 18 MB größer – Ladezeit (Phase „Loader“) auf der Hardware messen.
+- Microcode macht das UKI 6,6 MB größer (ohne Server/Nicht-v3) – Loader-Zeit auf der Hardware messen.
 - `bz outdated`: mpc 1.4.1 mit der nächsten Toolchain-Änderung (baut die Toolchain neu).
 - Updater (systemd-sysupdate), Verhalten bei verity-Fehlern zur Laufzeit, WLAN, NVIDIA,
   Bluetooth, Start von der zweiten SSD, Installer.
@@ -212,7 +212,7 @@ nächsten Installation.
 nach dem Bau 92 %, 6,5 GB frei). Der Besitzer installiert das neue Image auf der Hardware (`bz
 sign`, `bz install`); Journal kopieren, `bz boot-times` + `bz hw-check`, Messwerte in
 `docs/hardware.md` ersetzen (erwartet: Kernel ohne die 5,7 s von `mei_me`; Loader mit
-18 MB Microcode beobachten). Danach Phase 4 (eigener Chat).
+6,6 MB Microcode beobachten). Danach Phase 4 (eigener Chat).
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
