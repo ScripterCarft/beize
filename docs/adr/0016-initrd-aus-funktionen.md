@@ -76,8 +76,9 @@ Mäuse) liegt nur als Quelltext in `/usr/lib/udev/hwdb.d`; ohne die kompilierte
   Recovery-Key-Eingabe eine Tastatur, und dafür genügt der Standard.
 - **Prüfungen:** Die Smoke-Szenarien (erster Start, TPM, Recovery-Key, Neubinden)
   decken jede Funktion ab und bleiben der Abnahmetest. `bz` gibt Größe und Anzahl der
-  Programme der initrd aus; das Zeitbudget der initrd-Phase in `BOOT_BUDGET` wird nach
-  dem Umbau neu gemessen und verschärft.
+  Programme der initrd aus. Das Zeitbudget der initrd-Phase in `BOOT_BUDGET` bleibt:
+  In der VM bestimmt das Software-TPM die Dauer, nicht die Größe der initrd (neu
+  gemessen nach dem Umbau, CI 3,5–4,2 s wie vorher).
 
 ## Konsequenzen
 

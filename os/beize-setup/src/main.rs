@@ -4,7 +4,8 @@
 //! `beize-setup owner` creates the owner's account: asks for a login name
 //! and a password (twice), adds the user to /etc/passwd, /etc/group (own
 //! group, and wheel: administrator) and /etc/shadow (yescrypt), gives root
-//! the same password hash – the emergency shell asks for root's password –
+//! the same password hash – root logs in at the console until run0 replaces
+//! that (the emergency shell asks for the recovery key instead, ADR 0016) –
 //! and creates the home directory. It also asks for the time zone
 //! (/etc/localtime). Runs once; afterwards /var/lib/beize/owner exists.
 

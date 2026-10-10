@@ -212,28 +212,26 @@ in die Endfassung einarbeiten, keine Nachträge.
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-11)
 
 **Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
-neu installieren: `keys/secureboot/README.md`). Installiert ist `0f386c1` (Phase 3).
+neu installieren: `keys/secureboot/README.md`). Installiert ist `18b89a3` (Phase 4, CI grün,
+auf der Hardware gemessen 2026-10-11: ab Loader 13,5 s, vor dem Fahrplan 18,4 s).
 
-**Phase 4 umgesetzt** (ADR 0016, Commits `46339d9`, `2caccc6`): initrd aus Funktionen
-(10,7 statt 19,3 MiB), Notfall-Tor `beize-tpm emergency` (Shell nur mit Recovery-Key, PCR 11
-vorher gesperrt; Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, os-release-Warnung
-behoben, BIOS-Empfehlungen in `docs/hardware.md`. `INIT_ON_FREE` bleibt (Besitzer, ADR 0015).
-**Nächste Schritte:**
-1. CI von `2caccc6` prüfen (`46339d9` scheiterte nur am fehlenden `libcryptsetup-dev` im
-   Prüf-Job). Mit den CI-Werten `BOOT_BUDGET` prüfen: lokal ist die initrd-Phase in der VM
-   unverändert (2,4–2,7 s; dort dominiert swtpm, nicht die Größe).
-2. Besitzer installiert das neue Image, BIOS-Einstellungen einzeln testen; Journal nach
-   `~/hw-logs`, dann `docs/hardware.md` ersetzen. Dabei `systemd-analyze nvpcrs` und
-   `identify-tpm2` (warum passt NvPCR `login` nicht?) und das Notfall-Tor einmal ansehen.
-3. Besitzer sendet (Name/E-Mail eintragen): WSL `~/upstream/0002-usb-core-sysfs-*.patch`
-   (udevd wartet 1,7 s auf einen Worker, der `product` eines Hubs liest; an Greg KH,
-   linux-usb, LKML; Basis 7.2.9, vor dem Senden auf usb-next prüfen) und das Issue
-   `~/upstream/ntpd-rs-offline-retries.md` (28 Warnungen bis DHCP; GitHub pendulum-project).
-Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR und liegt
-upstream bewusst vor dem Entsperren (`systemd-pcrnvdone` Before=`cryptsetup-pre.target`) –
-kein Beize-Fehler. DHCP braucht auf der Hardware 4,6–12 s nach dem Link, in der VM 11 ms
-(Netz des Besitzers, verzögert den Start nicht). USB-Reproduktion in der VM: `qemu-xhci`
-mit 8 `usb-hub` à 8 HID-Geräten (Befehl im Patch).
+**Phase 4 abgeschlossen** (ADR 0016): initrd aus Funktionen (10,7 statt 19,3 MiB),
+Notfall-Tor `beize-tpm emergency` (Shell nur mit Recovery-Key, PCR 11 vorher gesperrt;
+Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, BIOS-Empfehlungen. `INIT_ON_FREE` bleibt
+(Besitzer, ADR 0015). `BOOT_BUDGET` unverändert (VM-initrd-Phase hängt am swtpm).
+
+**Nächster Schritt: Phase 5 (eigener Chat), ADR 0017 Tastatur/Locale vorab abstimmen.**
+Beim Besitzer offen (kein Blocker): senden (Name/E-Mail eintragen) WSL
+`~/upstream/0001-mei-me-*.patch`, `~/upstream/0002-usb-core-sysfs-*.patch` (udevd wartet
+1,7 s auf einen Worker, der `product` eines Hubs liest; an Greg KH, linux-usb, LKML; Basis
+7.2.9, vor dem Senden auf usb-next prüfen) und das Issue `~/upstream/ntpd-rs-offline-
+retries.md` (GitHub pendulum-project/ntpd-rs). Firmware-Zeit ohne F8 messen (Weg in
+`docs/hardware.md`: alle bisherigen Werte enthalten das Bootmenü), BIOS-Einstellungen einzeln.
+Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR, upstream bewusst
+vor dem Entsperren; `login` passt nicht in den NV-Speicher des PTT (systemd überspringt ihn,
+Beize nutzt ihn nicht) – abgeschlossen. DHCP braucht auf der Hardware 4,6–12 s nach dem Link,
+in der VM 11 ms (Netz des Besitzers). USB-Reproduktion: `qemu-xhci` mit 8 `usb-hub` à 8
+HID-Geräten (Befehl im Patch).
 Offene Warnungen (auch in der VM, Ursache offen): `systemd-growfs`: `crypt_resize() …
 Operation not permitted`; `dbus-daemon`: „Failed to drop supplementary groups“;
 `systemd-networkd`: kein nftables (`NF_TABLES` fehlt). Nur Hardware: `igc` „can't disable
@@ -264,7 +262,7 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    hat (Beispiel dieser Phase: ML-DSA übernommen, die zugehörige PKCS#7-Option nicht).
 4. ✓ **Startpfad (ADR 0016):** initrd aus Funktionen, Notfall-Tor, hwdb, Befunde analysiert
    (udev → Kernel-Patch, NvPCR → by design, ntpd-rs → Upstream-Issue), BIOS-Empfehlungen.
-   Offen: Messung auf der Hardware (Schritt 2 oben).
+   Gemessen: ab Loader 13,5 s; initrd bleibt 4,0 s bis zum USB-Patch.
 5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0017): XKB als einzige Quelle
    (xkeyboard-config, libxkbcommon, localed, kbd), beize-setup fragt Layout vor dem Passwort.
    b) Rechte (ADR 0018): run0 + polkit (duktape), kein setuid in `/usr` (Test).

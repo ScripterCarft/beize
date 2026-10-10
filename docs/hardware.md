@@ -42,18 +42,28 @@ schreibt (fehlt bei Images, die vor dieser Unit gebaut wurden).
 
 ## Messwerte
 
-Gewöhnlicher Start (nicht der erste) nach Phase 3 des Fahrplans (Kernel 7.2.9, Image
-`0f386c1`, 2026-10-10), daneben das Image vor dem Fahrplan. VM-Werte: Kommentar zu
-`BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
+Gewöhnlicher Start (nicht der erste) nach Phase 4 des Fahrplans (Kernel 7.2.9, Image
+`18b89a3`, 2026-10-11), daneben Phase 3 und das Image vor dem Fahrplan. VM-Werte:
+Kommentar zu `BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
 
-| Phase | nach Phase 3 | vor dem Fahrplan |
-| --- | --- | --- |
-| Firmware | 18,5 s (erster Start nach Installation 21,3 s) | 16,9–17,5 s (21,8 s) |
-| Loader (systemd-boot) | 0,65 s (mit 6,6 MB Microcode) | 1,0–1,1 s |
-| Kernel | 7,3 s | 11,7 s |
-| initrd | 4,0 s | 4,0 s |
-| System | 1,7 s | 1,6–1,7 s |
-| Summe | 32,2 s | 35,3–36,0 s |
+| Phase | nach Phase 4 | nach Phase 3 | vor dem Fahrplan |
+| --- | --- | --- | --- |
+| Firmware | 21,8 s* | 18,5 s* | 16,9–17,5 s* |
+| Loader (systemd-boot) | 0,54 s | 0,65 s | 1,0–1,1 s |
+| Kernel | 7,2 s | 7,3 s | 11,7 s |
+| initrd | 4,0 s | 4,0 s | 4,0 s |
+| System | 1,7 s | 1,7 s | 1,6–1,7 s |
+| ab Loader | 13,5 s | 13,7 s | 18,4 s |
+
+\* Enthält die Zeit im F8-Bootmenü, also nicht vergleichbar. Für einen echten
+Firmware-Wert Beize einmal ohne Menü starten: in Windows (Administrator)
+`bcdedit /enum firmware`, den Eintrag der Samsung-SSD suchen, dann
+`bcdedit /set {fwbootmgr} bootsequence {<ID>}` und neu starten – nur der nächste Start
+geht zu Beize.
+
+Phase 4 verkleinerte die initrd von 19,3 auf 10,7 MiB: Der Loader lädt 0,1 s schneller.
+Die initrd-Phase bleibt bei 4,0 s, weil ihre Zeit fast ganz in den drei Punkten unten
+steckt, nicht in der Größe.
 
 Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s, Fix in
 7.3), 1,9 s `mem auto-init` (`INIT_ON_FREE`, bewusst behalten, ADR 0015). initrd:
@@ -63,10 +73,13 @@ Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s, Fi
   `~/upstream/0002-usb-core-sysfs-string-attrs-without-device-lock.patch`; in der VM
   mit 8 Hubs à 8 Geräten 2,6 s → 11 ms.
 - 0,9 s `systemd-cryptsetup@root` (TPM-Entsperren auf Intel PTT).
-- 0,65 s `tpm2-setup-early`: Initialisieren der NvPCRs, ~0,2 s je NvPCR, upstream
-  bewusst vor dem Entsperren. `login` passt nicht mehr in den NV-Speicher
-  (TPM_RC_NV_SPACE); beim nächsten Start klären: `systemd-analyze nvpcrs` und
-  `systemd-analyze identify-tpm2`.
+- 0,7 s `tpm2-setup-early`: Initialisieren der NvPCRs, ~0,2 s je NvPCR, upstream
+  bewusst vor dem Entsperren. `hardware`, `verity` und `cryptsetup` sind angelegt,
+  `login` passt nicht mehr in den NV-Speicher des TPM (Intel PTT „ADL“, Firmware
+  600.18, Spezifikation 1.38; TPM_RC_NV_SPACE). systemd überspringt ihn ordnungsgemäß;
+  Beize nutzt ihn nicht (er misst Anmeldungen für spätere Richtlinien). Welche
+  fremden NV-Indizes den Platz belegen, zeigt nur `tpm2_getcap handles-nv-index`, das
+  Beize nicht mitbringt – kein Anlass, dafür ein Werkzeug ins Image zu nehmen.
 
 Netz: Die DHCP-Adresse kommt 4,6 s (Boot 0) bzw. 12 s (Boot −1) nach dem Link; in der
 VM nach 11 ms. Die Verzögerung liegt im Netz (Router prüft die Adresse vor dem Angebot,
@@ -77,8 +90,9 @@ Wird nach jeder Phase des Fahrplans ersetzt, nicht ergänzt.
 
 ## Firmware (BIOS) einstellen
 
-Die Firmware braucht 18,5 s, mehr als alles danach zusammen. Je Einstellung einzeln
-ändern und messen (`bz boot-times`), damit klar ist, was wirkt. Keine davon berührt
+Die Firmware ist der größte Posten (gemessen bisher nur mit F8-Menü, siehe oben). Je
+Einstellung einzeln ändern und ohne F8 messen (`bz boot-times`), damit klar ist, was
+wirkt. Keine davon berührt
 PCR 7 (Secure-Boot-Zustand), der Recovery-Key wird also nicht verlangt.
 
 | Einstellung (ASUS, BIOS 3201) | Wert | Warum |

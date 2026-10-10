@@ -179,11 +179,13 @@ pub(super) fn boot_healthy(
 
 /// The most each phase of an ordinary boot (not the first, nothing typed)
 /// may take in the VM, in µs: about 1.5 times what it takes on the slower
-/// machine, the 4-CPU CI runner (2026-10-10, second boots during full smoke
-/// runs – CI: kernel 0.74–0.93 s, initrd 3.78–3.84 s, system 2.77–2.90 s;
-/// the owner's PC: kernel 0.56–0.63 s, initrd 2.42–2.51 s, system
-/// 2.26–2.44 s). A boot that gets slower than this has a cause to find
-/// before it reaches real hardware; a runner's bad day must not fail it.
+/// machine, the 4-CPU CI runner (2026-10-11, second and later boots during
+/// full smoke runs, with the initrd of ADR 0016 – CI: kernel 0.53–1.22 s,
+/// initrd 3.51–4.21 s, system 3.01–3.46 s; the owner's PC: kernel
+/// 0.43–0.57 s, initrd 2.38–2.71 s, system 2.28–2.32 s). The smaller initrd
+/// did not shorten the VM's initrd phase: the software TPM dominates it.
+/// A boot that gets slower than this has a cause to find before it reaches
+/// real hardware; a runner's bad day must not fail it.
 const BOOT_BUDGET: [(&str, u64); 3] = [
     ("kernel", 1_400_000),
     ("initrd", 6_000_000),
