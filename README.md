@@ -40,9 +40,12 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] Was läuft, steht im signierten Image; der Boot-Test prüft jede laufende Unit
 - [x] Alles für x86-64-v3 gebaut und gehärtet (FORTIFY, CET, Stack-Clash, RELRO/now);
       `bz` prüft jede ELF-Datei im Image
+- [x] Kernel mit eigener Konfiguration auf Upstreams Standardwerten, Treiber als
+      signierte Module (nur signierte werden geladen, Lockdown), CPU-Microcode im UKI;
+      der Boot-Test prüft, dass ein unsigniertes Modul abgewiesen wird
 - [ ] Startzeit auf echter Hardware, Administratorrechte, Tastaturlayout
 - [ ] Updater (systemd-sysupdate)
-- [ ] Kernel für i7-13700K / Z790, NVIDIA, Bluetooth
+- [ ] NVIDIA, WLAN, Bluetooth, Ton
 - [ ] Start von der zweiten SSD
 
 ## Voraussetzungen
@@ -72,6 +75,8 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 ./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
 ./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
 ./bz boot-times <journal>   # Wo ein Start Zeit verbraucht hat (docs/hardware.md)
+./bz hw-check <journal>     # Welche PCI-Geräte eines Rechners im Image einen Treiber haben
+./bz outdated               # Welche Quellen neuere Upstream-Releases haben
 ./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen
 ```
 
@@ -99,7 +104,7 @@ Logs in `build/work/logs/`.
 | `images/` | Welche Pakete in `/usr` und in die initrd gehören, welche Units laufen (ADR 0013) |
 | `os/` | Eigener Rust-Code im Image (`beize-tpm`, `beize-setup`) |
 | `system/usr/`, `system/initrd/` | Eigene Dateien in `/usr` und in der initrd (Units, Skripte, Werkseinstellungen) |
-| `kernel/config/` | Kernel-Konfigurationsfragmente, nach dem Mergen verifiziert |
+| `kernel/config/` | Kernel-Konfiguration nach Funktion (ADR 0015); `kernel/beize.config` ist das aufgelöste Ergebnis |
 | `docs/adr/` | Architekturentscheidungen mit Begründung |
 | `docs/hardware.md` | Rechner des Besitzers, Startzeit messen, Messwerte |
 

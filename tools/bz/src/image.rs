@@ -17,7 +17,7 @@ use crate::layout::{
 use crate::paths::Paths;
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
-use crate::{initrd, secureboot, util};
+use crate::{initrd, microcode, secureboot, util};
 
 const SECTOR: u64 = 512;
 /// The ESP starts at 1 MiB; 1 MiB at the end holds the backup GPT.
@@ -126,11 +126,13 @@ fn ukify(paths: &Paths) -> Result<Command> {
 
 /// Builds the boot chain, signs it with the test keys and writes `out/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
+    microcode::build(paths)?;
     let disk = paths.out.join("disk.img");
     let mut inputs = Fingerprint::new()?;
     for built in [
         "vmlinuz",
         "kernel.release",
+        "microcode.cpio",
         "initrd.cpio.zst",
         "usr.erofs",
         "usr.verity",
@@ -188,10 +190,11 @@ pub fn assemble(
     target: Target,
 ) -> Result<PathBuf> {
     let kernel = paths.out.join("vmlinuz");
+    let microcode = paths.out.join("microcode.cpio");
     let initrd = paths.out.join("initrd.cpio.zst");
     let usr_image = paths.out.join("usr.erofs");
     let usr_verity = paths.out.join("usr.verity");
-    for input in [&kernel, &initrd, &usr_image, &usr_verity] {
+    for input in [&kernel, &microcode, &initrd, &usr_image, &usr_verity] {
         if !input.exists() {
             bail!("{} is missing; run `bz build`", input.display());
         }
@@ -215,6 +218,9 @@ pub fn assemble(
             .arg("build")
             .arg("--linux")
             .arg(&kernel)
+            // CPU microcode (.ucode), applied before the kernel does anything else.
+            .arg("--microcode")
+            .arg(&microcode)
             .arg("--initrd")
             .arg(&initrd)
             // The Secure Boot profile of these keys, signed with the UKI.

@@ -37,7 +37,8 @@ pub struct Recipe {
     /// their content is part of the build fingerprint.
     pub repo: Vec<String>,
     pub build: Option<Build>,
-    /// Raw recipe text; part of the build fingerprint.
+    /// The recipe text, part of the build fingerprint – without the `latest`
+    /// lines: where releases are announced does not change the build.
     pub text: String,
 }
 
@@ -111,7 +112,10 @@ impl Recipe {
             extra,
             repo: raw.repo,
             build: raw.build,
-            text: text.to_owned(),
+            text: text
+                .split_inclusive('\n')
+                .filter(|line| !line.trim_start().starts_with("latest = "))
+                .collect(),
         })
     }
 
@@ -201,6 +205,24 @@ mod tests {
     }
 
     #[test]
+    fn where_releases_are_announced_is_not_part_of_the_build() {
+        let plain = format!(
+            "name = \"a\"\n[source]\n{}",
+            signed("https://x/a.tar.xz", "a")
+        );
+        let monitored = plain.replace(
+            "[source]\n",
+            "[source]\nlatest = { release-monitoring = 1 }\n",
+        );
+        let recipe = Recipe::parse(&monitored).unwrap();
+        assert_eq!(recipe.text, plain);
+        assert_eq!(
+            recipe.source.unwrap().latest,
+            Some(crate::source::Latest::ReleaseMonitoring(1))
+        );
+    }
+
+    #[test]
     fn rejects_unknown_fields() {
         assert!(Recipe::parse("name = \"a\"\npatches = []\n").is_err());
     }
@@ -221,6 +243,20 @@ mod tests {
                 {
                     panic!("{name}: {e}");
                 }
+            }
+            // `bz outdated` must be able to check every source: the main one
+            // names where releases are announced, an extra too unless it is
+            // part of the same release (its file carries the version).
+            if let Some(source) = &recipe.source {
+                assert!(source.latest.is_some(), "{name}: [source] needs `latest`");
+            }
+            for extra in &recipe.extra {
+                assert!(
+                    extra.source.latest.is_some()
+                        || extra.source.stem().unwrap().contains(&recipe.version),
+                    "{name}: [[extra]] {} needs `latest`",
+                    extra.dest
+                );
             }
         }
     }

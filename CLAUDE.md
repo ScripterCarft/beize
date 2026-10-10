@@ -72,12 +72,12 @@ Neubinden, echte Hardware).
 | Pfad | Inhalt |
 | --- | --- |
 | `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery), `beize-setup` (1. Start: Konto, Zeitzone) |
-| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
-| `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert), `deps`, `stage`, `[build] script` |
+| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
+| `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/` | `base.toml` Pakete für `/usr` und initrd · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
+| `images/` | `base.toml` Pakete für `/usr` und initrd, Module der initrd · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
-| `kernel/config/` | Kernel-Fragmente (`beize-base`, `beize-hardware`), nach dem Merge verifiziert |
+| `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
 | `ci/packages.txt`, `ci/system.sh` | einzige Liste der Build-Abhängigkeiten; kompletter CI-Ablauf |
 
 ## 6. Bauen und Testen (in `~/beize`)
@@ -91,7 +91,10 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
 ./bz run             # interaktiv (Ctrl-A X); VM-Disk bleibt bis zum nächsten Image
 ./bz boot-times ~/hw-logs/journal [--boot -1]   # Phasen, Kernel-Lücken, langsamste Units, Kette
+./bz hw-check ~/hw-logs/journal   # welches PCI-Gerät des Rechners im Image einen Treiber hat
+./bz outdated        # neuere Upstream-Releases aller Quellen
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
+# --locked (CI): kernel/beize.config muss aktuell sein, statt neu geschrieben zu werden
 # nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys · ./bz sign · ./bz install
 ```
 
@@ -147,6 +150,11 @@ in die Endfassung einarbeiten, keine Nachträge.
 - **Units aktivieren nur über `images/base.preset`** (mit Grund; `bz` legt die Links in
   `/usr`), nie über Presets oder `.wants`-Links in `system/`. Ändert sich, was läuft,
   `images/running-units.txt` mitpflegen (ADR 0013).
+- **Kernel-Optionen** nur in das passende Fragment unter `kernel/config/`, mit Grund
+  (Vorbild Fedora nennen); fehlende Abhängigkeiten meldet `bz`. Gerätetreiber als
+  Modul (`=m`), fest nur Infrastruktur vor udev (ADR 0015).
+- Neue Quelle: `latest = { release-monitoring = <id> }` (ID auf release-monitoring.org
+  suchen, Homepage prüfen); Test verlangt es.
 - Ausgaben in `bz` über `say!` (nicht `eprintln!`), damit parallele Szenarien sie
   gesammelt zeigen; Prüfungen im Smoke-Test müssen belegen, dass ihre Bedingung
   hergestellt wurde (Gegenprobe: Eigenschaft absichtlich brechen → rot).
@@ -162,6 +170,11 @@ in die Endfassung einarbeiten, keine Nachträge.
   ~/ci-x:/w -w /w public.ecr.aws/docker/library/ubuntu:26.04 ci/system.sh`; danach
   `build/work/initrd-tree` bzw. `usr-tree` mit `diff -rq` vergleichen.
 - `actions/cache` im Container: `zstd` **vor** dem Wiederherstellen installieren.
+- Kernel: `allnoconfig` verneint auch Upstreams Sicherheitsstandards (Mitigations) –
+  Basis bleibt `alldefconfig`. Module installiert kbuild nach `INSTALL_MOD_PATH/lib/modules`
+  (es gibt kein `KERNEL_MODULE_DIRECTORY`).
+- Große Dateien per QEMU-fw_cfg verzögern die Firmware enorm (237 KiB: 45 s) – nur
+  kleine Testdateien so hineinreichen.
 - FAT32 braucht ≥ 65 525 Cluster (Compile-Time-Check); auf größeren Disks Backup-GPT
   verschieben (`sfdisk --relocate gpt-bak-std`).
 - systemd-repart lässt Partitionen ohne `SizeMaxBytes=` wachsen, auch bestehende (Test
@@ -172,7 +185,11 @@ in die Endfassung einarbeiten, keine Nachträge.
 
 ## 10. Offene Punkte (außer der aktuellen Aufgabe)
 
-- initrd 17,9 MiB (zstd -19) – enthält noch ganz systemd; verschlanken. hwdb nicht generiert.
+- initrd 19,3 MiB (zstd -19) – enthält noch ganz systemd; verschlanken (Phase 4). hwdb nicht generiert.
+- Kernel ohne BTF (`DEBUG_INFO_BTF`, wie Fedora): systemd braucht es für BPF-Funktionen
+  (z. B. `RestrictFileSystems=`), sched_ext auch; kostet DWARF beim Bau (Zeit, CI-Platz).
+- Microcode macht das UKI 18 MB größer – Ladezeit (Phase „Loader“) auf der Hardware messen.
+- `bz outdated`: mpc 1.4.1 mit der nächsten Toolchain-Änderung (baut die Toolchain neu).
 - Updater (systemd-sysupdate), Verhalten bei verity-Fehlern zur Laufzeit, WLAN, NVIDIA,
   Bluetooth, Start von der zweiten SSD, Installer.
 - TPM: Rollback älterer signierter UKIs; `CONFIG_TCG_TPM2_HMAC` aus; Attestierung bei
@@ -191,10 +208,12 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 `beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
 nächsten Installation.
 
-**Nächster Schritt (2026-10-10):** Phase 3. Entwurf ADR 0015
-(`docs/adr/0015-kernel-module-microcode-firmware.md`) liegt dem Besitzer zur Freigabe vor;
-erst danach umsetzen. CI mit neuer Toolchain grün (`43a7267`, 1 h 58 min; Runner-Disk
-nach dem Bau 91 % belegt, 6,8 GB frei – bei Module+Firmware im Auge behalten).
+**Nächster Schritt (2026-10-10):** CI-Lauf der Phase-3-Commits prüfen (neue Pakete,
+Kernel mit Modulen, linux-firmware 632 MB im Quellen-Cache – Runner-Disk war vorher bei
+91 %, `df` im Log). Dann installiert der Besitzer das neue Image auf der Hardware (`bz
+sign`, `bz install`); Journal kopieren, `bz boot-times` + `bz hw-check`, Messwerte in
+`docs/hardware.md` ersetzen (erwartet: Kernel ohne die 5,7 s von `mei_me`; Loader mit
+18 MB Microcode beobachten). Danach Phase 4 (eigener Chat).
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
@@ -205,23 +224,19 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 2. ✓ **Toolchain (ADR 0014):** gcc mit x86-64-v3/`generic` als Standard, Härtung wie Fedora,
    ELF-Prüfung in `bz` (alle ELF in `/usr` + initrd; Ausnahmen `NO_CET` in `elf.rs`), Kernel
    mit Shadow Stacks für Programme, Boot-Report `shstk=` (WSL-VMs ohne CET: `nohw`).
-3. **Kernel (ADR 0015):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
-   verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
-   Fragmente statt defconfig+kvm_guest (dabei PCIe-Dienste wie Fedora: `HOTPLUG_PCI_PCIE`,
-   `PCIEAER`, `ACPI_PCI_SLOT` fehlen bisher). kmod, systemd `kmod`/`acl`. Microcode im UKI
-   (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Entschieden
-   (Besitzer): **neuester Stable**, nicht LTS – neue Funktionen und Geräteunterstützung zuerst.
-   Kernel-Wartezeit auf der Hardware (11,7 s, Fedora-Live 0,8 s), „Upstream first“, kein
-   Eigen-Patch: ~5 s PCIe-Retraining leerer Root-Ports = Regression aus 7.2 (72780f796468),
-   Fix „Skip Target Speed quirk on clamped ports with no link“ liegt upstream auf pci/misc
-   für 7.3 → mit 7.3 prüfen. ~5,7 s `mei_me` an 00:14.0 (xHCI, gleiche ID 8086:7a60) –
-   tritt nur auf, weil mei_me fest eingebaut ist. Als Modul nur behoben, wenn xHCI fest
-   bleibt (wie Fedora; sonst Wettlauf beider Module um dieselbe Modalias) – passt ohnehin,
-   die Tastatur für den Recovery-Key braucht xHCI vor udev. Patch für den Besitzer liegt in WSL
-   `~/upstream/0001-mei-me-*.patch` (Name/Signed-off-by eintragen, an die Adressen aus
-   `get_maintainer.pl` senden). Autologin auf ttyS0 (`beize-autologin.conf`) nur noch im
-   Test-Image, nicht im Image für echte Hardware (Besitzer, 2026-10-10). Grundsatz: Bei Fehlern zuerst fragen, welche eigene
-   Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
+3. ✓ **Kernel (ADR 0015):** Konfiguration nach Funktion auf `alldefconfig` + Upstream-Härtung,
+   aufgelöst in `kernel/beize.config`; Treiber als ML-DSA-signierte Module, Lockdown
+   „integrity“, Microcode im UKI, kmod/zstd/acl; Smoke prüft Lockdown, Modulsignatur
+   (Gegenprobe), Treiber je PCI-Gerät; `bz hw-check`, `bz outdated`. Autologin im Image
+   entfernt: `bz run`/`debug` melden root per Credential an, `bz smoke` schaltet den
+   seriellen getty per `getty.auto=no` ab (er setzt die Konsole zurück und verwarf den Report).
+   Offen: **7.3** (erscheint ~Ende Oktober; `bz outdated` zeigt es) – Fix „Skip Target Speed
+   quirk on clamped ports with no link“ für ~5 s PCIe-Retraining leerer Root-Ports
+   (Regression 72780f796468) mit 7.3 auf der Hardware prüfen. `mei_me`-Patch (meldet die
+   xHCI-ID 8086:7a60) sendet der Besitzer: WSL `~/upstream/0001-mei-me-*.patch`
+   (Name/Signed-off-by eintragen, an die Adressen aus `get_maintainer.pl`). Grundsatz: Bei
+   Fehlern zuerst fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht
+   hat (Beispiel dieser Phase: ML-DSA übernommen, die zugehörige PKCS#7-Option nicht).
 4. **Startpfad:** initrd nach Funktionen + ELF-Abhängigkeiten zusammensetzen, hwdb bauen,
    NvPCR-Fehler von `systemd-tpm2-setup` und NTS-vor-Netz bei ntpd-rs an der Ursache lösen,
    kritische Kette straffen, BIOS-Empfehlungen dokumentieren.

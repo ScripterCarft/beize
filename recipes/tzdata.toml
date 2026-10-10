@@ -8,6 +8,7 @@ stage = "target"
 # The tz releases are tarballs without a top-level directory; data and code
 # unpack into the same tree, as upstream's instructions do.
 [source]
+latest = { release-monitoring = 5021 }
 url = "https://data.iana.org/time-zones/releases/tzdata{version}.tar.gz"
 sha256 = "b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652"
 signature = "https://data.iana.org/time-zones/releases/tzdata{version}.tar.gz.asc"

@@ -24,6 +24,8 @@ use crate::util;
 pub struct ImageDefinition {
     pub packages: Vec<String>,
     pub initrd: Vec<String>,
+    /// Kernel modules in the initrd, by name; their dependencies come along.
+    pub initrd_modules: Vec<String>,
 }
 
 pub fn image_definition(paths: &Paths) -> Result<ImageDefinition> {

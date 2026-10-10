@@ -22,9 +22,15 @@ pub(super) const REPORT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The firmware refuses a bad image within seconds; this only bounds a hang.
 pub(super) const TAMPER_TIMEOUT: Duration = Duration::from_secs(45);
 
-/// A systemd credential passed via SMBIOS (honoured in VMs, also under
-/// Secure Boot); boot-report powers off when it is present.
-const SMOKE_CREDENTIAL: &str = "type=11,value=io.systemd.credential:beize.smoke=1";
+/// systemd credentials passed via SMBIOS (honoured in VMs, also under Secure
+/// Boot): boot-report powers off when beize.smoke is present; getty.auto=no
+/// keeps systemd from starting a getty on the serial console, which belongs
+/// to the test – a getty resets the console when it starts and discards what
+/// the report wrote.
+const SMOKE_CREDENTIALS: [&str; 2] = [
+    "type=11,value=io.systemd.credential:beize.smoke=1",
+    "type=11,value=io.systemd.credential:getty.auto=no",
+];
 
 /// Numbers the boot logs in the order of the boots.
 static BOOTS: AtomicUsize = AtomicUsize::new(0);
@@ -159,7 +165,11 @@ pub(super) struct Session {
 
 impl Session {
     /// Powers the machine on, passing `credential` via SMBIOS.
-    pub(super) fn start(machine: &Machine, answers: &Answers, credential: &str) -> Result<Self> {
+    pub(super) fn start(
+        machine: &Machine,
+        answers: &Answers,
+        credentials: &[&str],
+    ) -> Result<Self> {
         let tpm = Swtpm::start(&machine.tpm)?;
         fs::create_dir_all(&machine.logs)?;
         let log_path = machine.logs.join(format!(
@@ -170,9 +180,12 @@ impl Session {
         let log = File::create(&log_path)?;
         LAST_CONSOLE.set(Some(log_path));
         let started = Instant::now();
-        let mut child = qemu(machine, &tpm)?
+        let mut qemu = qemu(machine, &tpm)?;
+        for credential in credentials {
+            qemu.args(["-smbios", credential]);
+        }
+        let mut child = qemu
             .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
-            .args(["-smbios", credential])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -316,7 +329,7 @@ pub(super) fn watch_boot<T>(
     answers: &Answers,
     verdict: impl Fn(&str) -> Option<T>,
 ) -> Result<BootRun<T>> {
-    let session = Session::start(machine, answers, SMOKE_CREDENTIAL)?;
+    let session = Session::start(machine, answers, &SMOKE_CREDENTIALS)?;
     let deadline = session.started + timeout;
     let mut answer = None;
     while let Some(event) = session.next(deadline) {

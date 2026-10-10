@@ -9,10 +9,14 @@ use super::machine::{Machine, Swtpm, clear_boot_logs, qemu};
 use crate::paths::Paths;
 use crate::util;
 
-/// Credential for `bz run` and `bz debug`: a root shell on the serial
-/// console (VM images only).
-pub(super) const DEBUG_CONSOLE_CREDENTIAL: &str =
-    "type=11,value=io.systemd.credential:beize.debug-console=1";
+/// Credentials for `bz run` and `bz debug`: root logged in on the serial
+/// console without a password, read by util-linux's agetty and login (as
+/// mkosi does). Only the VMs pass them; the image itself has no autologin,
+/// and images for real hardware import no credentials at all.
+pub(super) const DEBUG_CONSOLE_CREDENTIALS: [&str; 2] = [
+    "type=11,value=io.systemd.credential:tty.serial.ttyS0.agetty.autologin=root",
+    "type=11,value=io.systemd.credential:tty.serial.ttyS0.login.noauth=yes",
+];
 
 /// Boots the image with the serial console attached to this terminal.
 /// Quit QEMU with Ctrl-A X.
@@ -23,7 +27,11 @@ pub fn run(paths: &Paths) -> Result<()> {
     util::run_attached(
         qemu(&machine, &tpm)?
             .args(["-nographic", "-serial", "mon:stdio"])
-            .args(["-smbios", DEBUG_CONSOLE_CREDENTIAL]),
+            .args(
+                DEBUG_CONSOLE_CREDENTIALS
+                    .iter()
+                    .flat_map(|c| ["-smbios", c]),
+            ),
     )
 }
 

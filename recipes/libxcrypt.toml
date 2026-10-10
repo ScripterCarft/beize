@@ -6,6 +6,7 @@ stage = "target"
 deps = ["gcc", "glibc"]
 
 [source]
+latest = { release-monitoring = 16436 }
 url = "https://github.com/besser82/libxcrypt/releases/download/v{version}/libxcrypt-{version}.tar.xz"
 sha256 = "71513a31c01a428bccd5367a32fd95f115d6dac50fb5b60c779d5c7942aec071"
 signature = "https://github.com/besser82/libxcrypt/releases/download/v{version}/libxcrypt-{version}.tar.xz.asc"

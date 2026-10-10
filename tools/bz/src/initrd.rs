@@ -4,15 +4,17 @@
 //! partition. On first boot systemd-repart, running here, creates the second
 //! `/usr` slot and the root partition before the root is mounted (ADR 0007).
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::elf;
 use crate::install;
+use crate::kernel::{self, Kernel};
 use crate::layout;
 use crate::packages;
 use crate::paths::Paths;
@@ -36,12 +38,13 @@ const SKIPPED: [&str; 5] = [
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let definition = tree::image_definition(paths)?;
     let recipes = packages::build(paths, &definition.initrd)?;
+    let kernel = kernel::built(paths)?;
 
     let image = paths.out.join("initrd.cpio.zst");
     let stamp = Stamp::new(
         paths,
         "initrd",
-        tree::assembly_inputs(paths, &recipes, "initrd")?,
+        tree::assembly_inputs(paths, &recipes, "initrd")?.tree(&kernel.modules)?,
         &[&image],
     );
     if stamp.is_current() {
@@ -72,6 +75,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     fs::write(root.join("etc/initrd-release"), layout::os_release())?;
     symlink("usr/lib/systemd/systemd", root.join("init"))?;
     usr::write_repart_definitions(&root.join("usr"))?;
+    let modules = with_dependencies(paths, &kernel, &definition.initrd_modules)?;
+    usr::install_modules(paths, &kernel, &root, |name| modules.contains(name))?;
     // sysusers does not run in the initrd, yet sockets and udev rules refer to
     // system groups (systemd-journal, disk, tty, ...). Generate the user and
     // group databases now; password hashes are not needed in the initrd.
@@ -93,13 +98,59 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     Ok(image)
 }
 
+/// The named modules and every module they need (`depends`, and the soft
+/// dependencies the kernel loads with them).
+fn with_dependencies(paths: &Paths, kernel: &Kernel, names: &[String]) -> Result<BTreeSet<String>> {
+    let files: BTreeMap<String, _> = kernel::module_files(&kernel.modules)?
+        .into_iter()
+        .map(|file| (kernel::module_name(&file), file))
+        .collect();
+    let mut found = BTreeSet::new();
+    let mut pending: Vec<String> = names.iter().map(|n| n.replace('-', "_")).collect();
+    while let Some(name) = pending.pop() {
+        if !found.insert(name.clone()) {
+            continue;
+        }
+        let file = files
+            .get(&name)
+            .with_context(|| format!("the kernel has no module {name} (images/base.toml)"))?;
+        for field in ["depends", "softdep"] {
+            let value = util::output(
+                usr::sysroot_command(paths, "usr/bin/modinfo")
+                    .args(["--field", field])
+                    .arg(file),
+            )?;
+            pending.extend(
+                value
+                    .split([',', ' ', '\n'])
+                    .filter(|word| !word.is_empty() && !word.ends_with(':'))
+                    .map(|word| word.replace('-', "_")),
+            );
+        }
+    }
+    Ok(found)
+}
+
 /// Writes a reproducible, zstd-compressed newc cpio archive of `root`.
 pub fn pack(root: &Path, image: &Path) -> Result<()> {
+    cpio(
+        root,
+        &format!("zstd -19 -T0 --quiet --force -o '{}'", image.display()),
+    )
+}
+
+/// Writes a reproducible, uncompressed newc cpio archive of `root` (the
+/// kernel reads early microcode only from an uncompressed one).
+pub fn pack_uncompressed(root: &Path, image: &Path) -> Result<()> {
+    cpio(root, &format!("cat > '{}'", image.display()))
+}
+
+/// Archives `root` and pipes the archive into the shell command `sink`.
+fn cpio(root: &Path, sink: &str) -> Result<()> {
     let pipeline = format!(
         "set -euo pipefail; find . -print0 | LC_ALL=C sort -z \
          | cpio --null --create --format=newc --owner=0:0 --reproducible --quiet \
-         | zstd -19 -T0 --quiet --force -o '{}'",
-        image.display()
+         | {sink}"
     );
     util::run(
         Command::new("bash")

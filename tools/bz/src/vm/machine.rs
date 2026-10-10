@@ -42,6 +42,9 @@ pub(super) struct Machine {
     pub(super) rtc: Option<&'static str>,
     /// Where the console of each boot is logged.
     pub(super) logs: PathBuf,
+    /// An unsigned kernel module the boot report tries to load (ADR 0015),
+    /// passed in through QEMU's fw_cfg.
+    pub(super) unsigned_module: PathBuf,
 }
 
 impl Machine {
@@ -53,6 +56,7 @@ impl Machine {
             smbios: Vec::new(),
             rtc: None,
             logs: boot_logs(paths),
+            unsigned_module: paths.out.join("unsigned-module.ko"),
         }
     }
 
@@ -342,6 +346,12 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     }
     if let Some(base) = machine.rtc {
         cmd.arg("-rtc").arg(format!("base={base}"));
+    }
+    if machine.unsigned_module.exists() {
+        cmd.arg("-fw_cfg").arg(format!(
+            "name=opt/org.beize/unsigned-module,file={}",
+            machine.unsigned_module.display()
+        ));
     }
     Ok(cmd)
 }

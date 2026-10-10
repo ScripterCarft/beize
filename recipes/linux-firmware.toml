@@ -1,0 +1,12 @@
+# Firmware and AMD microcode (ADR 0015). Not unpacked as a whole: bz takes
+# only what it needs from the archive (microcode, firmware the modules request).
+name = "linux-firmware"
+version = "20260916"
+
+[source]
+latest = { release-monitoring = 141464 }
+url = "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-{version}.tar.xz"
+sha256 = "f80dcb757a623deda62200c08e0e1a88c76fb6b54964f31b35fa74da1c90ccc5"
+signature = "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "linux-firmware"

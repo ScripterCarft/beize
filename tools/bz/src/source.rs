@@ -25,6 +25,22 @@ use crate::util;
 pub struct Source {
     pub origin: Origin,
     pub trust: Trust,
+    /// Where `bz outdated` learns of newer releases.
+    pub latest: Option<Latest>,
+}
+
+/// Where upstream announces its releases (`latest = { … }` in a recipe).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub enum Latest {
+    /// A project on release-monitoring.org (Anitya), which Fedora tracks
+    /// its packages with: `{ release-monitoring = 1517 }`.
+    ReleaseMonitoring(u64),
+    /// kernel.org's release list, the newest of a moniker: `{ kernel-org = "stable" }`.
+    KernelOrg(String),
+    /// A URL that always serves upstream's current file; newer when its
+    /// SHA-256 differs from the pin: `{ file = "https://…" }`.
+    File(String),
 }
 
 /// Why a source is trusted.
@@ -97,6 +113,7 @@ pub struct RawSource {
     keyring: Option<String>,
     unsigned: Option<String>,
     dest: Option<String>,
+    latest: Option<Latest>,
 }
 
 impl RawSource {
@@ -122,7 +139,8 @@ impl RawSource {
                 bail!("a source is either signed (keyring) or unsigned, not both")
             }
             _ => bail!(
-                "every source needs a keyring; a project without any signatures needs                  an explicit `unsigned = \"<reason>\"`"
+                "every source needs a keyring; a project without any signatures needs \
+                 an explicit `unsigned = \"<reason>\"`"
             ),
         };
         let signed = matches!(trust, Trust::Signed { .. });
@@ -166,7 +184,11 @@ impl RawSource {
             }
             _ => bail!("a source needs exactly one of url or git"),
         };
-        Ok(Source { origin, trust })
+        Ok(Source {
+            origin,
+            trust,
+            latest: self.latest,
+        })
     }
 }
 

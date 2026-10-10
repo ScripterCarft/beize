@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use crate::elf;
 use crate::install;
+use crate::kernel::{self, Kernel};
 use crate::layout;
 use crate::packages::{self, BUILD_EPOCH};
 use crate::paths::Paths;
@@ -32,12 +33,15 @@ const SHIPPED_PRESET: &str = "99-beize.preset";
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let definition = tree::image_definition(paths)?;
     let recipes = packages::build(paths, &definition.packages)?;
+    let kernel = kernel::built(paths)?;
 
     let image = paths.out.join("usr.erofs");
     let stamp = Stamp::new(
         paths,
         "usr",
-        tree::assembly_inputs(paths, &recipes, "usr")?.file(&paths.root.join(UNIT_PRESET))?,
+        tree::assembly_inputs(paths, &recipes, "usr")?
+            .file(&paths.root.join(UNIT_PRESET))?
+            .tree(&kernel.modules)?,
         &[
             &image,
             &paths.out.join("usr.verity"),
@@ -79,6 +83,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(&usr),
     )?;
     enable_units(paths, &root)?;
+    install_modules(paths, &kernel, &root, |_| true)?;
+    ensure_no_firmware_needed(paths, &kernel)?;
     elf::check_tree(paths, &root, "/usr")?;
     fs::write(usr.join("lib/os-release"), layout::os_release())?;
     write_repart_definitions(&usr)?;
@@ -194,9 +200,58 @@ fn enable_units(paths: &Paths, root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copies the kernel's modules that `keep` accepts (by name, e.g. `nvme`)
+/// into `root` and writes their index with Beize's own depmod.
+pub fn install_modules(
+    paths: &Paths,
+    kernel: &Kernel,
+    root: &Path,
+    keep: impl Fn(&str) -> bool,
+) -> Result<()> {
+    let dest = root.join(kernel::MODULE_DIR).join(&kernel.release);
+    for module in kernel::module_files(&kernel.modules)? {
+        if !keep(&kernel::module_name(&module)) {
+            continue;
+        }
+        let target = dest.join(module.strip_prefix(&kernel.modules)?);
+        fs::create_dir_all(target.parent().context("a module without a directory")?)?;
+        fs::copy(&module, &target)?;
+    }
+    // modules.order and modules.builtin* tell kmod what is built in.
+    for entry in fs::read_dir(&kernel.modules)? {
+        let path = entry?.path();
+        if path.is_file() {
+            fs::copy(&path, dest.join(path.file_name().context("no file name")?))?;
+        }
+    }
+    util::run(
+        sysroot_command(paths, "usr/bin/depmod")
+            .arg(format!("--basedir={}", root.display()))
+            .arg(&kernel.release),
+    )
+}
+
+/// Beize ships firmware only where a module asks for it (ADR 0015), and no
+/// module built so far does. The first one that does – WLAN, Bluetooth, a
+/// GPU – must come with the firmware selection, not work half.
+fn ensure_no_firmware_needed(paths: &Paths, kernel: &Kernel) -> Result<()> {
+    let modules = kernel::module_files(&kernel.modules)?;
+    let requested = util::output(
+        sysroot_command(paths, "usr/bin/modinfo")
+            .args(["--field", "firmware"])
+            .args(&modules),
+    )?;
+    ensure!(
+        requested.trim().is_empty(),
+        "kernel modules request firmware, which bz does not install yet: {}",
+        requested.split_whitespace().collect::<Vec<_>>().join(", ")
+    );
+    Ok(())
+}
+
 /// A program from the sysroot, run on the build host through the sysroot's
 /// dynamic loader (same architecture), so it matches the image's version.
-fn sysroot_command(paths: &Paths, program: &str) -> Command {
+pub fn sysroot_command(paths: &Paths, program: &str) -> Command {
     let sysroot = &paths.sysroot;
     let mut cmd = Command::new(sysroot.join("usr/lib/ld-linux-x86-64.so.2"));
     cmd.arg("--library-path")

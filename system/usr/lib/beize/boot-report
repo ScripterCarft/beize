@@ -47,6 +47,43 @@ if [[ $shstk == off ]]; then
     done < /proc/1/status
 fi
 
+# Kernel (ADR 0015). Lockdown: the active mode is the one in brackets.
+lockdown=none
+if [[ -r /sys/kernel/security/lockdown ]]; then
+    read -r line < /sys/kernel/security/lockdown
+    [[ $line =~ \[([a-z]+)\] ]] && lockdown=${BASH_REMATCH[1]}
+fi
+# Module signatures: `bz smoke` passes a module as the compiler wrote it,
+# unsigned, through QEMU's fw_cfg. The kernel must refuse it – and load the
+# same module from the image, where it is signed.
+unsigned=none signed=none
+fw_cfg=/sys/firmware/qemu_fw_cfg/by_name/opt/org.beize/unsigned-module/raw
+if [[ -r $fw_cfg ]]; then
+    cp "$fw_cfg" /run/beize-unsigned.ko
+    if error=$(insmod /run/beize-unsigned.ko 2>&1); then
+        unsigned=loaded
+        rmmod nls_utf8
+    elif [[ $error == *"Key was rejected by service"* ]]; then
+        unsigned=refused
+    else
+        unsigned=error
+        echo "BEIZE-MODULE-PROBE ${error//$'\n'/ | }"
+    fi
+    rm -f /run/beize-unsigned.ko
+    signed=failed
+    modprobe nls_utf8 && signed=loaded && modprobe --remove nls_utf8
+fi
+# Every PCI device has a driver – udev loaded the modules for what the machine
+# has – apart from bridges (class 06xx), which the PCI core handles itself.
+nodriver=()
+for device in /sys/bus/pci/devices/*; do
+    read -r class < "$device/class"
+    [[ $class == 0x06* || -e $device/driver ]] && continue
+    read -r vendor < "$device/vendor"
+    read -r id < "$device/device"
+    nodriver+=("${vendor#0x}:${id#0x}")
+done
+
 # How /usr and / are mounted, judged by the device-mapper target below them:
 # /usr is "verity" only if every block read is checked against the root hash
 # in the signed UKI; / is "encrypted" only if it lives on a LUKS2 volume.
@@ -195,6 +232,8 @@ echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
      "tz=${tz:-none} nts=${nts} clock=${clock}" \
      "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain} shstk=${shstk}" \
+     "lockdown=${lockdown} unsigned=${unsigned} signed=${signed}" \
+     "nodriver=$(IFS=,; echo "${nodriver[*]:-none}")" \
      "failed=${failed_list:-none} bootfailed=${boot_failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.

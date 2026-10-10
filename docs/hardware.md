@@ -8,6 +8,10 @@ Monitor 1440p @ 240 Hz. Beize liegt auf der Samsung SSD 860 EVO (Disk 0 in Windo
 SanDisk 480 GB (E:, Daten) und Corsair (Windows) nie anfassen. Installieren:
 [`keys/secureboot/README.md`](../keys/secureboot/README.md).
 
+Treiber im Image (`bz hw-check`, Stand 2026-10-10): alle PCI-Geräte außer WLAN, Ton
+(HDA) und der NVIDIA-GPU – sie kommen mit ihren Phasen; SPI-Flash (BIOS) und Shared
+SRAM brauchen keinen.
+
 ## Startzeit messen
 
 Das Journal auf der Root-Partition ist persistent; es lässt sich unter WSL ohne Neubau
@@ -27,6 +31,7 @@ Auswerten:
 ```sh
 ./bz boot-times ~/hw-logs/journal               # letzter Start
 ./bz boot-times ~/hw-logs/journal --boot -1     # der davor; --gap 500 nur Pausen ab 500 ms
+./bz hw-check ~/hw-logs/journal                 # welches PCI-Gerät im Image einen Treiber hat
 ```
 
 `bz boot-times` zeigt die Phasen wie systemds „Startup finished“, Pausen zwischen

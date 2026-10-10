@@ -1,0 +1,24 @@
+# Extended attributes library, required by libacl.
+name = "attr"
+version = "2.6.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 137 }
+url = "https://download.savannah.nongnu.org/releases/attr/attr-{version}.tar.xz"
+sha256 = "6c8a2148a7b85043b68492bce43316b0e2e214fc4e628c7ede078e76e216330b"
+signature = "https://download.savannah.nongnu.org/releases/attr/attr-{version}.tar.xz.sig"
+keyring = "acl"
+
+[build]
+script = '''
+"$SRC/configure" --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --bindir=/usr/bin --sysconfdir=/etc --disable-static --disable-nls
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+# /etc/xattr.conf only lists attributes to skip when copying files between
+# filesystems (NFS, XFS, EVM); without it, everything is copied.
+rm "$PKG/etc/xattr.conf"
+rmdir "$PKG/etc"
+'''

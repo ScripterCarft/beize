@@ -6,6 +6,7 @@ stage = "target"
 deps = ["gcc", "glibc", "util-linux"]
 
 [source]
+latest = { release-monitoring = 646 }
 url = "https://cdn.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v{version}/e2fsprogs-{version}.tar.xz"
 sha256 = "fd5bf388cbdbe006a3d3b318d983b2948382440acc85a87f1e7d108653e8db0b"
 signature = "https://cdn.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v{version}/e2fsprogs-{version}.tar.sign"

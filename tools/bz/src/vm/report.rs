@@ -74,6 +74,16 @@ pub(super) struct BootReport {
     pub(super) chain: u32,
     /// `on` if PID 1 runs with a shadow stack, `nohw` if the CPU has none.
     pub(super) shstk: String,
+    /// The kernel's lockdown mode, e.g. `integrity` (ADR 0015).
+    pub(super) lockdown: String,
+    /// What the kernel did with the unsigned module `bz smoke` passes in:
+    /// `refused`, `loaded`, `error`, or `none` (not passed in).
+    pub(super) unsigned: String,
+    /// Whether the same module, signed, loaded from the image: `loaded`,
+    /// `failed` or `none`.
+    pub(super) signed: String,
+    /// PCI devices (vendor:device) without a driver, bridges excepted.
+    pub(super) no_driver: Vec<String>,
     /// Units that are failed now, in the running system.
     pub(super) failed: Vec<String>,
     /// Units whose start failed at any time in this boot, the initrd and
@@ -117,6 +127,10 @@ impl BootReport {
             userspace: field("userspace")?.parse().ok()?,
             chain: field("chain")?.parse().ok()?,
             shstk: field("shstk")?,
+            lockdown: field("lockdown")?,
+            unsigned: field("unsigned")?,
+            signed: field("signed")?,
+            no_driver: list("nodriver")?,
             failed: list("failed")?,
             boot_failed: list("bootfailed")?,
         })
@@ -131,7 +145,8 @@ mod tests {
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
                          network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo nts=4 \
                          clock=1791500000 kernel=612000 initrd=2100000 userspace=1400000 chain=12 \
-                         shstk=on failed=none bootfailed=none";
+                         shstk=on lockdown=integrity unsigned=refused signed=loaded nodriver=none \
+                         failed=none bootfailed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -155,6 +170,10 @@ mod tests {
         assert_eq!(report.userspace, 1_400_000);
         assert_eq!(report.chain, 12);
         assert_eq!(report.shstk, "on");
+        assert_eq!(report.lockdown, "integrity");
+        assert_eq!(report.unsigned, "refused");
+        assert_eq!(report.signed, "loaded");
+        assert!(report.no_driver.is_empty());
         assert!(report.failed.is_empty());
         assert!(report.boot_failed.is_empty());
     }
@@ -164,7 +183,7 @@ mod tests {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
                     network=timeout dns=none lookup=none tz=none nts=0 \
-                    clock=946684800 kernel=0 initrd=0 userspace=0 chain=0 shstk=nohw failed=systemd-logind.service,systemd-logind-varlink.socket \
+                    clock=946684800 kernel=0 initrd=0 userspace=0 chain=0 shstk=nohw lockdown=none unsigned=none signed=none nodriver=1af4:1041,8086:2918 failed=systemd-logind.service,systemd-logind-varlink.socket \
                     bootfailed=systemd-logind.service,beize-tpm.service";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
@@ -174,6 +193,7 @@ mod tests {
         assert_eq!(report.secure_boot, "off");
         assert_eq!(report.root, "plain");
         assert_eq!(report.boot, 2);
+        assert_eq!(report.no_driver, ["1af4:1041", "8086:2918"]);
         assert_eq!(
             report.failed,
             ["systemd-logind.service", "systemd-logind-varlink.socket"]

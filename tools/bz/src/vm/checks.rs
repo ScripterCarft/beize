@@ -131,11 +131,32 @@ pub(super) fn boot_healthy(
         "the CPU has shadow stacks, but PID 1 runs without one (shstk={})",
         report.shstk
     );
+    // ADR 0015: lockdown, enforced module signatures, a driver for every device.
+    ensure!(
+        report.lockdown == "integrity",
+        "the kernel runs without lockdown \"integrity\" (lockdown={})",
+        report.lockdown
+    );
+    ensure!(
+        report.unsigned == "refused",
+        "the kernel did not refuse an unsigned module (unsigned={})",
+        report.unsigned
+    );
+    ensure!(
+        report.signed == "loaded",
+        "the signed module from the image did not load (signed={})",
+        report.signed
+    );
+    ensure!(
+        report.no_driver.is_empty(),
+        "PCI devices without a driver (vendor:device): {}",
+        report.no_driver.join(", ")
+    );
     say!(
         "  ok: boot #{} running under Secure Boot after {} guest uptime \
          ({:.1}s including firmware; kernel {} + initrd {} + system {}), network via DHCP, \
          no failed units, clean power-off (NTS key exchange with {} time servers; \
-         shadow stack {})",
+         shadow stack {}; lockdown, only signed modules, every device driven)",
         report.boot,
         report.uptime,
         elapsed.as_secs_f64(),
@@ -485,7 +506,8 @@ mod tests {
                 "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=2 \
                  machineid=x uptime=5.3s systemunlock=refused network=routable dns=none \
                  lookup=none tz=none nts=0 clock=0 kernel={kernel} initrd={initrd} \
-                 userspace={userspace} chain=12 shstk=on failed=none bootfailed=none"
+                 userspace={userspace} chain=12 shstk=on lockdown=integrity \
+                 unsigned=refused signed=loaded nodriver=none failed=none bootfailed=none"
             )
         };
         let [(_, kernel), (_, initrd), (_, system)] = BOOT_BUDGET;

@@ -9,6 +9,7 @@ deps = ["gcc", "glibc", "gcc-runtime", "openssl"]
 
 # The release tags are lightweight; the release commit is SSH-signed.
 [source]
+latest = { release-monitoring = 370767 }
 git = "https://github.com/pendulum-project/ntpd-rs.git"
 tag = "v{version}"
 commit = "46ec9bb4d5b6cb24f814f5543d85b9138afb4cba"

@@ -10,6 +10,7 @@ stage = "target"
 deps = ["gcc", "glibc", "util-linux"]
 
 [source]
+latest = { release-monitoring = 5354 }
 url = "https://sourceware.org/pub/lvm2/LVM2.{version}.tgz"
 sha256 = "d87ec0dac9061f1fa58ebced5c6b1360c87d4c5cd7b455dc0ebe1d3f036920d7"
 signature = "https://sourceware.org/pub/lvm2/LVM2.{version}.tgz.asc"

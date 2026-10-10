@@ -1,11 +1,16 @@
 # What Beize consists of. Target dependencies (glibc, ...) are included
 # automatically; build-only files are filtered out.
 
-# The /usr image.
+# The /usr image. All kernel modules go in (/usr/lib/modules).
 packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils", "beize-setup",
-            "tzdata", "ca-certificates", "ntpd-rs"]
+            "tzdata", "ca-certificates", "ntpd-rs", "kmod"]
 
 # The initrd in the UKI: finds /usr, creates the root partition on first boot
 # (systemd-repart, mkfs.ext4) and mounts it. bash runs Beize's own initrd
 # scripts (recovery key, system/initrd); there are no coreutils.
-initrd = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm"]
+initrd = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm", "kmod"]
+
+# Kernel modules in the initrd: the disk controllers (ADR 0015); udev loads
+# the one the machine has. Everything else needed before the root is built
+# into the kernel.
+initrd_modules = ["nvme", "ahci", "sd_mod", "vmd", "virtio_pci", "virtio_blk"]

@@ -1,0 +1,27 @@
+# Kernel module tools (ADR 0015): udev loads modules through libkmod, bz runs
+# depmod on the image. Modules are zstd-compressed and live in /usr/lib/modules;
+# the kernel checks their signatures itself, so kmod needs no OpenSSL.
+name = "kmod"
+version = "34.2"
+stage = "target"
+deps = ["gcc", "glibc", "zstd"]
+
+[source]
+latest = { release-monitoring = 1517 }
+url = "https://cdn.kernel.org/pub/linux/utils/kernel/kmod/kmod-{version}.tar.xz"
+sha256 = "5a5d5073070cc7e0c7a7a3c6ec2a0e1780850c8b47b3e3892226b93ffcb9cb54"
+signature = "https://cdn.kernel.org/pub/linux/utils/kernel/kmod/kmod-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "kmod"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
+  -Dmoduledir=/usr/lib/modules -Ddistconfdir=/usr/lib \
+  -Dzstd=enabled -Dxz=disabled -Dzlib=disabled -Dopenssl=disabled \
+  -Dmanpages=false -Ddocs=false -Dbuild-tests=false \
+  -Dbashcompletiondir=no -Dfishcompletiondir=no -Dzshcompletiondir=no
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''

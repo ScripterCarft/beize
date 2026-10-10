@@ -1,0 +1,21 @@
+# POSIX access control lists: systemd-logind grants the logged-in user access
+# to device nodes (uaccess), journald lets users read their own journal.
+name = "acl"
+version = "2.4.0"
+stage = "target"
+deps = ["gcc", "glibc", "attr"]
+
+[source]
+latest = { release-monitoring = 16 }
+url = "https://download.savannah.nongnu.org/releases/acl/acl-{version}.tar.xz"
+sha256 = "e661131456d2708a01c614a0f400e11d7d1bfaeb6f3e74b75bb980b72f0161a3"
+signature = "https://download.savannah.nongnu.org/releases/acl/acl-{version}.tar.xz.sig"
+keyring = "acl"
+
+[build]
+script = '''
+"$SRC/configure" --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --bindir=/usr/bin --disable-static --disable-nls
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

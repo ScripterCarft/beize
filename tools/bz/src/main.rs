@@ -5,12 +5,15 @@
 
 mod boottimes;
 mod elf;
+mod hwcheck;
 mod image;
 mod initrd;
 mod install;
 mod installer;
 mod kernel;
 mod layout;
+mod microcode;
+mod outdated;
 mod packages;
 mod paths;
 mod recipe;
@@ -34,6 +37,10 @@ struct Cli {
     /// boot consoles go to build/work/logs/boot)
     #[arg(short, long, global = true)]
     verbose: bool,
+    /// Fail instead of updating files bz keeps in the repository, such as
+    /// kernel/beize.config (CI)
+    #[arg(long, global = true)]
+    locked: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -92,10 +99,21 @@ enum Command {
         #[arg(long, default_value_t = 100)]
         gap: u64,
     },
+    /// Show which PCI devices of a real machine the built image has a driver
+    /// for, from that machine's journal (see docs/hardware.md)
+    HwCheck {
+        /// A journal directory or file
+        journal: std::path::PathBuf,
+        /// Which boot, as `journalctl --boot` takes it
+        #[arg(long, default_value = "0", allow_hyphen_values = true)]
+        boot: String,
+    },
     /// Show which package installed a file (e.g. `bz owner /usr/bin/bash`)
     Owner { path: String },
     /// Download every source and check its pin and its maintainers' signature
     Verify,
+    /// Show which sources have newer upstream releases
+    Outdated,
     /// The owner's production Secure Boot keys (owner only, in a terminal)
     Secureboot {
         #[command(subcommand)]
@@ -128,6 +146,7 @@ enum SecurebootCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     util::set_verbose(cli.verbose);
+    util::set_locked(cli.locked);
     let paths = Paths::new()?;
 
     match cli.command {
@@ -152,6 +171,8 @@ fn main() -> Result<()> {
         ),
         Command::Smoke { quick } => vm::smoke(&paths, quick),
         Command::BootTimes { journal, boot, gap } => boottimes::show(&journal, &boot, gap),
+        Command::HwCheck { journal, boot } => hwcheck::show(&paths, &journal, &boot),
+        Command::Outdated => outdated::show(&paths),
         Command::Owner { path } => {
             println!("{}", install::owner(&paths, &path)?);
             Ok(())

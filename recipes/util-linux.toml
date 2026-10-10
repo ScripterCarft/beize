@@ -7,6 +7,7 @@ stage = "target"
 deps = ["gcc", "glibc", "libxcrypt", "linux-pam"]
 
 [source]
+latest = { release-monitoring = 8179 }
 url = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-{version}.tar.xz"
 sha256 = "fbd62a100ab7bb8746ba0661255c3c48185b1e9021507c624da01fbc696330ec"
 signature = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-{version}.tar.sign"

@@ -24,11 +24,16 @@ systemd-journald.service systemd-journald.socket systemd-journald-dev-log.socket
 systemd-journal-flush.service systemd-journalctl.socket systemd-journalctl-metrics.socket
 systemd-coredump.socket systemd-coredumpd.service systemd-coredump-register.service
 
-# Devices.
+# Devices. udev loads the drivers; kmod-static-nodes creates the device nodes
+# of modules loaded on first access (ADR 0015). systemd-rfkill.socket comes
+# back with the first radio (WLAN, Bluetooth).
 systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-varlink.socket
-systemd-udev-trigger.service systemd-udev-load-credentials.service systemd-rfkill.socket
+systemd-udev-trigger.service systemd-udev-load-credentials.service
+kmod-static-nodes.service
 
-# Users, sessions, login (a console login until the compositor, M3).
+# Users, sessions, login (a console login until the compositor, M3). The
+# serial console has a login too, except in this test, which reads it
+# (getty.auto=no); bz run and bz debug log root in there by credentials.
 systemd-logind.service systemd-logind-varlink.socket systemd-user-sessions.service
 systemd-update-utmp.service systemd-userdbd.service systemd-userdbd.socket
 systemd-userdb-load-credentials.service getty@tty1.service systemd-vconsole-setup.service

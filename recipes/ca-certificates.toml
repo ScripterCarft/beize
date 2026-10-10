@@ -7,6 +7,7 @@ version = "2026-09-25"
 stage = "target"
 
 [source]
+latest = { file = "https://curl.se/ca/cacert.pem" }
 url = "https://curl.se/ca/cacert-{version}.pem"
 sha256 = "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
 unsigned = "neither Mozilla's certdata.txt nor curl's PEM extract of it is signed; pinned by SHA-256, fetched over HTTPS"

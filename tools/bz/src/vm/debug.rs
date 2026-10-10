@@ -8,7 +8,7 @@ use anyhow::{Result, bail, ensure};
 
 use super::console::{Answers, ConsoleEvent, REPORT_TIMEOUT, Session, strip_ansi};
 use super::machine::{Machine, clear_boot_logs};
-use super::run::{self, DEBUG_CONSOLE_CREDENTIAL};
+use super::run::{self, DEBUG_CONSOLE_CREDENTIALS};
 use crate::paths::Paths;
 use crate::say;
 use crate::util;
@@ -61,7 +61,7 @@ pub fn debug(
 
     util::step(&format!("Booting {}", machine.name()));
     let shell = Shell {
-        session: Session::start(&machine, &answers, DEBUG_CONSOLE_CREDENTIAL)?,
+        session: Session::start(&machine, &answers, &DEBUG_CONSOLE_CREDENTIALS)?,
         key_given: recovery_key.is_some(),
     };
     ensure!(

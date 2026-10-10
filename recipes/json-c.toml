@@ -7,6 +7,7 @@ deps = ["gcc", "glibc"]
 # json-c publishes no signatures at all (neither release archives nor tags,
 # checked 2026-10-07), so this is the one source that is only pinned.
 [source]
+latest = { release-monitoring = 1477 }
 git = "https://github.com/json-c/json-c.git"
 tag = "json-c-{version}-20260627"
 commit = "aa716cd8d663c976b99b0f30f102ee1d8ef63146"

@@ -1,0 +1,23 @@
+# Zstandard library: kmod reads and writes zstd-compressed kernel modules
+# (ADR 0015). Only the shared library; the command-line tools are not shipped.
+name = "zstd"
+version = "1.5.7"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 12083 }
+url = "https://github.com/facebook/zstd/releases/download/v{version}/zstd-{version}.tar.gz"
+sha256 = "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3"
+signature = "https://github.com/facebook/zstd/releases/download/v{version}/zstd-{version}.tar.gz.sig"
+keyring = "zstd"
+
+[build]
+script = '''
+meson setup . "$SRC/build/meson" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release \
+  -Ddefault_library=shared -Dbin_programs=false -Dbin_contrib=false \
+  -Dzlib=disabled -Dlzma=disabled -Dlz4=disabled
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''

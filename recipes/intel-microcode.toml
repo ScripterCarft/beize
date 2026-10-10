@@ -1,0 +1,15 @@
+# Intel CPU microcode (ADR 0015), loaded by the kernel from the UKI before
+# anything else. Only intel-ucode/; intel-ucode-with-caveats/ needs special
+# handling and is left out, as Arch and Fedora do.
+name = "intel-microcode"
+version = "20260925"
+
+# Intel signs neither the release archives nor the tags or commits (checked
+# 2026-10-10); the microcode itself carries Intel's signature, which the CPU
+# checks before applying it.
+[source]
+latest = { release-monitoring = 20614 }
+url = "https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files/archive/refs/tags/microcode-{version}.tar.gz"
+file = "intel-microcode-{version}.tar.gz"
+sha256 = "0ec19023dad1e6dd0c5909174b8dff2555b91cf01671e36271a1ef36655c0cfc"
+unsigned = "Intel publishes no signatures for the microcode releases; pinned by digest. The CPU verifies Intel's signature inside each update before applying it"

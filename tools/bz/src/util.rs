@@ -19,6 +19,17 @@ macro_rules! say {
 }
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
+static LOCKED: AtomicBool = AtomicBool::new(false);
+
+/// `bz --locked` (CI): files bz keeps up to date in the repository, such as
+/// the resolved kernel configuration, must already be current.
+pub fn set_locked(on: bool) {
+    LOCKED.store(on, Ordering::Relaxed);
+}
+
+pub fn locked() -> bool {
+    LOCKED.load(Ordering::Relaxed)
+}
 
 /// `bz --verbose`: echo every command and show all output as it happens.
 pub fn set_verbose(on: bool) {

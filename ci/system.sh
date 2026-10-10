@@ -17,7 +17,7 @@ fi
 
 # Free space after each step: a full build is close to what a runner has.
 ./bz verify
-./bz build
+./bz build --locked
 df -h .
 ./bz smoke
 df -h .
