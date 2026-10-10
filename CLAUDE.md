@@ -221,11 +221,11 @@ Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, BIOS-Empfehlungen. `INIT_ON_
 (Besitzer, ADR 0015). `BOOT_BUDGET` unverändert (VM-initrd-Phase hängt am swtpm).
 
 **Nächster Schritt: Phase 5 (eigener Chat), ADR 0017 Tastatur/Locale vorab abstimmen.**
-Beim Besitzer offen (kein Blocker): senden (Name/E-Mail eintragen) WSL
-`~/upstream/0001-mei-me-*.patch`, `~/upstream/0002-usb-core-sysfs-*.patch` (udevd wartet
-1,7 s auf einen Worker, der `product` eines Hubs liest; an Greg KH, linux-usb, LKML; Basis
-7.2.9, vor dem Senden auf usb-next prüfen) und das Issue `~/upstream/ntpd-rs-offline-
-retries.md` (GitHub pendulum-project/ntpd-rs). BIOS-Empfehlungen sind gesetzt (2026-10-11);
+Beim Besitzer offen (kein Blocker): Kernel-Patches senden nach WSL `~/upstream/EINREICHEN.md`
+(mei an char-misc-next, USB an usb-next; geprüft, Branches in `~/upstream/kernel`, Skript
+`send.sh` setzt Name/E-Mail und ruft `b4 send`). ntpd-rs: Regression (Backoff aus #969
+beim Spawner-Umbau verloren), Issue vorausgefüllt im Browser geöffnet – `gh`-Token darf
+keine fremden Issues anlegen; Link in `~/upstream/ntpd-rs-issue-link.txt`. BIOS-Empfehlungen sind gesetzt (2026-10-11);
 Firmware-Zeit einmal ohne F8 messen (Weg in `docs/hardware.md`; bisherige Werte enthalten das Bootmenü).
 Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR, upstream bewusst
 vor dem Entsperren; `login` passt nicht in den NV-Speicher des PTT (systemd überspringt ihn,
