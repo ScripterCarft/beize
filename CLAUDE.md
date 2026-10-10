@@ -27,7 +27,8 @@ M5 Feinschliff. Stand im Detail: `README.md`.
   Ein neuer Signaturschlüssel kommt in einen **eigenen** Commit.
 - **1Password ist tabu.** Claude greift nie auf den Tresor zu (kein `op`) und führt
   `bz secureboot new-keys`, `bz sign`, `bz install` nie aus (ADR 0010).
-- Die CI beobachtet der Besitzer selbst und meldet, wenn sie rot ist.
+- CI prüft Claude nach jedem Push selbst (`gh run list`/`gh run view`), ohne
+  Polling-Schleifen – Actions-Minuten sind knapp.
 - Der Besitzer leert den Chat zwischen größeren Schritten: vorher §11 aktuell halten.
 - Hardware des Besitzers, Journal von dort auslesen, Messwerte: `docs/hardware.md`.
 
@@ -118,7 +119,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung. Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware. Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -190,10 +191,10 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 `beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
 nächsten Installation.
 
-**Nächster Schritt (2026-10-10):** CI-Lauf von `43a7267` prüfen (`gh run list`; baut die
-Toolchain neu, 1–2 h). Der Lauf von `5c577e1` scheiterte an voller Runner-Disk; behoben in
-`5581bae` (bz räumt Build-/Quellbäume nach erfolgreichem Bau weg, `df` im Log). Vorher nicht
-pushen (bricht den Lauf ab). Dann Phase 3.
+**Nächster Schritt (2026-10-10):** Phase 3. Entwurf ADR 0015
+(`docs/adr/0015-kernel-module-microcode-firmware.md`) liegt dem Besitzer zur Freigabe vor;
+erst danach umsetzen. CI mit neuer Toolchain grün (`43a7267`, 1 h 58 min; Runner-Disk
+nach dem Bau 91 % belegt, 6,8 GB frei – bei Module+Firmware im Auge behalten).
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
