@@ -206,7 +206,8 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    mit Shadow Stacks für Programme, Boot-Report `shstk=` (WSL-VMs ohne CET: `nohw`).
 3. **Kernel (ADR 0015):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter
    verity), udev lädt per Modalias; fest nur Infrastruktur vor udev. Eigene gegliederte
-   Fragmente statt defconfig+kvm_guest. kmod, systemd `kmod`/`acl`. Microcode im UKI
+   Fragmente statt defconfig+kvm_guest (dabei PCIe-Dienste wie Fedora: `HOTPLUG_PCI_PCIE`,
+   `PCIEAER`, `ACPI_PCI_SLOT` fehlen bisher). kmod, systemd `kmod`/`acl`. Microcode im UKI
    (`.ucode`), linux-firmware nur nach `modinfo -F firmware`. `bz outdated`. Entschieden
    (Besitzer): **neuester Stable**, nicht LTS – neue Funktionen und Geräteunterstützung zuerst.
    Kernel-Wartezeit auf der Hardware (11,7 s, Fedora-Live 0,8 s), „Upstream first“, kein
