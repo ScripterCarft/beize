@@ -6,10 +6,15 @@ Documentation=file:/usr/lib/beize/beize-setup
 ConditionPathExists=!/var/lib/beize/owner
 After=systemd-sysusers.service local-fs.target systemd-mute-console.socket
 Before=systemd-user-sessions.service getty@tty1.service serial-getty@ttyS0.service
+# Should the setup still fail, it starts again: the start job stays pending
+# meanwhile, so no login appears without an account.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+Restart=on-failure
+RestartSec=2s
 ExecStart=/usr/lib/beize/beize-setup owner
 StandardInput=tty
 StandardOutput=tty

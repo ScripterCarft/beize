@@ -72,17 +72,25 @@ pub(super) const RECOVERY_KEY_SAVED_PROMPT: &str =
 /// The owner's account the tests create on first boot (beize-setup).
 pub(super) const SMOKE_USER: &str = "smoke";
 
-/// beize-setup's questions and the tests' answers ("Password:" is not part
-/// of "Password again:", each matches only its own question). The time zone:
-/// a country with several zones, so the setup asks back.
-pub(super) const SETUP_ANSWERS: [(&str, &str); 6] = [
-    ("Your login name", SMOKE_USER),
-    ("Your full name", "Smoke Test"),
-    ("Password again:", "smoke-test-password"),
-    ("Password:", "smoke-test-password"),
-    ("Your time zone", "Brazil"),
-    ("Which one?", "Sao Paulo"),
+/// Typed as an answer: Ctrl+C alone, without Enter.
+pub(super) const CTRL_C: &str = "\u{3}";
+
+/// beize-setup's questions and the tests' answers, in the order typed ("Password:"
+/// is not part of "Password again:", each matches only its own question). The
+/// first password question gets Ctrl+C: the setup must start over instead of
+/// ending, so the owner's name is asked twice. The time zone: a country with
+/// several zones, so the setup asks back.
+pub(super) const SETUP_ANSWERS: [(&str, &[&str]); 6] = [
+    ("Your login name", &[SMOKE_USER, SMOKE_USER]),
+    ("Your full name", &["Smoke Test", "Smoke Test"]),
+    ("Password again:", &["smoke-test-password"]),
+    ("Password:", &[CTRL_C, "smoke-test-password"]),
+    ("Your time zone", &["Brazil"]),
+    ("Which one?", &["Sao Paulo"]),
 ];
+
+/// What beize-setup says after Ctrl+C.
+pub(super) const SETUP_STARTS_OVER: &str = "Starting over.";
 
 /// The zone the answers above must lead to.
 pub(super) const SMOKE_TIME_ZONE: &str = "America/Sao_Paulo";
@@ -117,13 +125,18 @@ impl Answers {
     }
 
     /// The questions answered besides the recovery key, as (prompt, what is
-    /// typed); each is answered once per boot.
-    fn replies(&self) -> Vec<(&'static str, &'static str)> {
+    /// typed the first time it is asked, the second time, …); asked more
+    /// often, it stays unanswered.
+    fn replies(&self) -> Vec<(&'static str, Vec<&'static str>)> {
         let mut replies = vec![
-            (ADOPT_TPM_PROMPT, self.adopt_tpm.unwrap_or("no")),
-            (RECOVERY_KEY_SAVED_PROMPT, "saved"),
+            (ADOPT_TPM_PROMPT, vec![self.adopt_tpm.unwrap_or("no")]),
+            (RECOVERY_KEY_SAVED_PROMPT, vec!["saved"]),
         ];
-        replies.extend(SETUP_ANSWERS);
+        replies.extend(
+            SETUP_ANSWERS
+                .iter()
+                .map(|(prompt, typed)| (*prompt, typed.to_vec())),
+        );
         replies
     }
 }
@@ -283,12 +296,16 @@ fn read_console(
     };
     let mut seen = Seen::default();
     let replies = answers.replies();
-    let mut replied = vec![false; replies.len()];
+    // How often each question was answered, and whether the unfinished line
+    // (a question waiting for its answer) has been answered already.
+    let mut replied = vec![0; replies.len()];
+    let mut line_answered = false;
     let mut pending = Vec::new();
     let mut chunk = [0u8; 4096];
     while let Ok(n @ 1..) = stdout.read(&mut chunk) {
         pending.extend_from_slice(&chunk[..n]);
         while let Some(end) = pending.iter().position(|&b| b == b'\n') {
+            line_answered = false;
             let raw: Vec<u8> = pending.drain(..=end).collect();
             let line = String::from_utf8_lossy(&raw);
             let line = line.trim_end_matches(['\r', '\n']);
@@ -308,9 +325,22 @@ fn read_console(
             }
             let _ = events.send(ConsoleEvent::Prompted);
         }
-        for ((prompt, reply), replied) in replies.iter().zip(&mut replied) {
-            if !*replied && shown.contains(prompt) {
-                *replied = true;
+        for ((prompt, typed), replied) in replies.iter().zip(&mut replied) {
+            if line_answered || !shown.contains(prompt) {
+                continue;
+            }
+            let Some(&reply) = typed.get(*replied) else {
+                continue;
+            };
+            *replied += 1;
+            line_answered = true;
+            if reply == CTRL_C {
+                echo(&mut log, &format!("(pressing Ctrl+C at \"{prompt}\")"));
+                if let Ok(mut stdin) = stdin.lock() {
+                    let _ = stdin.write_all(CTRL_C.as_bytes());
+                    let _ = stdin.flush();
+                }
+            } else {
                 echo(&mut log, &format!("(answering \"{prompt}\": {reply})"));
                 answer(reply);
             }

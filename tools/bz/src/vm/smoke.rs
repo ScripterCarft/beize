@@ -30,8 +30,8 @@ use super::checks::{
     check_units, expect_rebound, expect_refused, expect_root_locked,
 };
 use super::console::{
-    Answers, LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS, SMOKE_USER,
-    TAMPER_TIMEOUT, find_recovery_key, watch_boot,
+    Answers, LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS,
+    SETUP_STARTS_OVER, SMOKE_USER, TAMPER_TIMEOUT, find_recovery_key, watch_boot,
 };
 use super::machine::{Machine, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
 use super::report::{BootReport, REPORT_MARKER};
@@ -294,6 +294,16 @@ fn install(paths: &Paths) -> Result<Installed> {
         "first boot did not create the owner's account"
     );
     say!("  ok: first boot created the owner's account \"{SMOKE_USER}\"");
+    // The answers press Ctrl+C at the first password: the setup must start
+    // over, not end – it did, as the account exists.
+    ensure!(
+        first
+            .console
+            .iter()
+            .any(|line| line.contains(SETUP_STARTS_OVER)),
+        "the setup did not start over after Ctrl+C"
+    );
+    say!("  ok: Ctrl+C in the account setup started it over");
     // The setup mutes the console: no boot messages in the middle of its
     // questions (found on the owner's PC, where they garbled the prompts).
     let setup: Vec<&String> = first
@@ -305,7 +315,9 @@ fn install(paths: &Paths) -> Result<Installed> {
     let noise: Vec<&&String> = setup
         .iter()
         .filter(|line| {
-            line.contains("[  OK  ]") || line.contains("Starting ") || line.contains("Finished ")
+            line.contains("[  OK  ]")
+                || (line.contains("Starting ") && !line.contains(SETUP_STARTS_OVER))
+                || line.contains("Finished ")
         })
         .collect();
     ensure!(
