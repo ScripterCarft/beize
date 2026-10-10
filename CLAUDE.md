@@ -209,7 +209,9 @@ neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
 nächsten Installation.
 
 **Nächster Schritt (2026-10-10):** Phase 3 ist in der CI grün (`e9353d2`, 37 min; Runner-Disk
-nach dem Bau 92 %, 6,5 GB frei). Der Besitzer installiert das neue Image auf der Hardware (`bz
+nach dem Bau 92 %, 6,5 GB frei). Danach gepusht, CI noch prüfen: `8771fdb` (Microcode nur für
+v3-CPUs ohne Server, 6,6 MB) und `0f386c1` (beize-setup: Strg+C startet neu, Transaktion
+gegen Stromausfall – Fehler, den der Besitzer auf der Hardware fand). Der Besitzer installiert das neue Image auf der Hardware (`bz
 sign`, `bz install`); Journal kopieren, `bz boot-times` + `bz hw-check`, Messwerte in
 `docs/hardware.md` ersetzen (erwartet: Kernel ohne die 5,7 s von `mei_me`; Loader mit
 6,6 MB Microcode beobachten). Danach Phase 4 (eigener Chat).
