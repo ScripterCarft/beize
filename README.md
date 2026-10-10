@@ -36,6 +36,8 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] Netzwerk über LAN (systemd-networkd + resolved, DHCP, keine eingebauten
       Fremd-Server, IPv6-Privatsphäre); der Boot-Test prüft DHCP, DNS und Namensauflösung
 - [x] Uhrzeit: authentifiziert per NTS (ntpd-rs), Zeitzonen, Zertifikatsspeicher
+- [x] Läuft auf dem Rechner des Besitzers: Secure Boot, Verschlüsselung, Anmelden, LAN, Zeit
+- [ ] Startzeit auf echter Hardware, Administratorrechte, Tastaturlayout
 - [ ] Updater (systemd-sysupdate)
 - [ ] Kernel und Compiler-Flags für i7-13700K / Z790, NVIDIA, Netzwerk, Bluetooth
 - [ ] Start von der zweiten SSD
@@ -59,27 +61,27 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 ## Benutzung
 
 ```sh
-./bz build                  # Toolchain, Kernel, Pakete, /usr-Image, initrd und Disk bauen
+./bz build                  # Toolchain, Kernel, Pakete, /usr-Image, initrd und Disk bauen (nur Geändertes)
+./bz smoke                  # Installieren, booten und alles prüfen, inkl. Gegentests (~75 s)
+./bz smoke --quick          # Nur Installation und zwei Starts (~30 s)
 ./bz run                    # In QEMU starten; der Zustand bleibt bis zum nächsten Build erhalten
-./bz smoke                  # Auf frischer Disk zweimal booten und alles prüfen (siehe unten)
+./bz debug 'networkctl'     # Befehle in der VM ausführen und ihre Ausgabe zeigen
 ./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
 ./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
 ./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen
 ```
 
-Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`.
+Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`; `-v` zeigt alle Ausgaben.
 
-`./bz smoke` installiert das Image auf eine frische 8-GB-Test-Disk und prüft:
-Secure Boot aktiv, `/usr` über dm-verity, Root-Partition verschlüsselt und per TPM
-entsperrt, erster Start legt Partitionen an, systemd `running` ohne eine
-einzige fehlgeschlagene Unit (auch in der initrd), Boot-Counting markiert den Start
-als gut, der zweite Start findet dieselbe Installation, der Recovery-Key wird genau
-einmal angezeigt – und vier Gegentests: mit einem anderen TPM bleibt die
-Root-Partition verschlossen (der Recovery-Key öffnet sie), mit abgeschaltetem
-Secure Boot ebenfalls, ein unsigniertes Kernel-Image wird von der Firmware abgewiesen, ein
-einziges verändertes Byte in `/usr` wird von dm-verity erkannt.
-Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden.
-Build-Logs pro Paket: `build/work/logs/<paket>.log`.
+`./bz smoke` installiert das Image wie auf einem PC mit gelöschten Secure-Boot-Schlüsseln,
+startet es zweimal und prüft dabei alles, was ein Start leisten muss (Secure Boot, dm-verity,
+Verschlüsselung, keine fehlgeschlagene Unit, Netz, Zeitzone, Recovery-Key genau einmal).
+Danach laufen parallel, jeweils auf einer Kopie der Installation, die Gegentests: anderer TPM,
+Secure Boot aus, Secure-Boot-Update, fremdes db-Zertifikat, hinzugefügter Kernel-Parameter,
+unsigniertes Kernel-Image, verändertes `/usr`, und der Signier-Ablauf des Besitzers.
+Einzelheiten: `tools/bz/src/vm/smoke.rs`.
+Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden;
+Logs in `build/work/logs/`.
 
 ## Aufbau
 
@@ -90,7 +92,8 @@ Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 | `keys/` | Öffentliche Schlüssel der Upstream-Maintainer (siehe `keys/README.md`) |
 | `ci/` | Paketliste und kompletter CI-Ablauf |
 | `images/` | Welche Pakete in `/usr` und in die initrd gehören |
-| `system/usr/` | Eigene Dateien in `/usr` (Units, Werkseinstellungen für `/etc`) |
+| `os/` | Eigener Rust-Code im Image (`beize-tpm`, `beize-setup`) |
+| `system/usr/`, `system/initrd/` | Eigene Dateien in `/usr` und in der initrd (Units, Skripte, Werkseinstellungen) |
 | `kernel/config/` | Kernel-Konfigurationsfragmente, nach dem Mergen verifiziert |
 | `docs/adr/` | Architekturentscheidungen mit Begründung |
 
@@ -98,6 +101,8 @@ Build-Logs pro Paket: `build/work/logs/<paket>.log`.
 
 - Jede Upstream-Quelle ist auf Version und Prüfsumme (bzw. Commit) gepinnt und
   muss von ihren Maintainern signiert sein; unsignierte Quellen nimmt `bz` nicht an.
-- Gleicher Quellstand ergibt das gleiche Image (feste Zeitstempel, IDs, Metadaten).
+- Reproduzierbar angelegt (feste Zeitstempel, IDs, Metadaten). Noch nicht bit-gleich:
+  Binaries aus Container- und lokalem Bau unterscheiden sich, und die Secure-Boot-
+  Einschreibdateien tragen die Signierzeit.
 - Private Schlüssel (Secure Boot, Signaturen) liegen nie im Repository, sondern in 1Password.
 - Größere Entscheidungen werden als ADR festgehalten.

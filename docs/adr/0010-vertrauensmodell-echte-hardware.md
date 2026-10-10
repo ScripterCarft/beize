@@ -1,6 +1,7 @@
 # 0010 – Beize als Plattform-Eigentümer, Vertrauensprofile, Produktionsschlüssel
 
-Status: angenommen · 2026-10-08 · ersetzt den Schlüsselteil von ADR 0006
+Status: angenommen · 2026-10-08 · Endfassung 2026-10-10 · ersetzt den
+Schlüsselteil von ADR 0006
 
 ## Kontext
 
@@ -70,8 +71,9 @@ akzeptiert):
   technische Absicherung, dass Automatisierung (CI, Claude) nie an die
   Produktionsschlüssel kommt.
 
-**Daten (TPM):** Der TPM-Slot der Root-Partition ist an PCR 7 (Secure-Boot-Zustand)
-**und** an die signierte PCR-11-Richtlinie mit Policy-Referenz `initrd` gebunden:
+**Daten (TPM):** Der TPM-Slot der Root-Partition ist an PCR 7 (Secure-Boot-Zustand),
+PCR 12 (nichts hinzugefügt, siehe „Echte Hardware“) **und** an die signierte
+PCR-11-Richtlinie mit Policy-Referenz `initrd` gebunden (ADR 0009):
 Unsere eigenen Updates brauchen nie eine Eingabe, und nur die initrd eines signierten
 Beize-UKI bekommt den TPM-Schlüssel – das laufende System nicht noch einmal (eine Hürde,
 kein Schutz gegen ein kompromittiertes System: nach dem Entsperren hält der Kernel den
@@ -97,7 +99,7 @@ Zustand abgesegnet werden darf – der Recovery-Key allein genügt nicht:
   („yes“) auf der Konsole – ein getauschter Chip wird nie stillschweigend übernommen.
 Erst dann löscht `beize-tpm` den alten TPM-Slot (sonst hält `systemd-cryptenroll`
 den Slot eines anderen TPM mit gleichen PCR-Werten für aktuell) und schreibt neu ein:
-PCR 7 + signierte PCR-11-Richtlinie „initrd“. Den eingegebenen Schlüssel liest es aus
+PCR 7+12 + signierte PCR-11-Richtlinie „initrd“. Den eingegebenen Schlüssel liest es aus
 dem Zwischenspeicher von systemd-cryptsetup im Kernel-Schlüsselbund
 (`KeyringMode=shared`) und gibt ihn nur über stdin an `systemd-cryptenroll` weiter.
 Sonst: Ablehnung mit Grund auf der Konsole, der Recovery-Key bleibt nötig.
@@ -112,9 +114,43 @@ neuen TPM deckt es nicht ab. Wieder prüfen, wenn Beize selbst Firmware-/dbx-Upd
 einspielt (dann lassen sich Änderungen vorhersagen). Die pcrlock-Dienste sind per
 Preset aus.
 
+**Echte Hardware:**
+
+- **SMBIOS-OEM-Strings sind auf echter Hardware nicht vertrauenswürdig** (manche
+  Boards lassen sie aus einem anderen Betriebssystem heraus umschreiben).
+  systemd-stub hängt `io.systemd.stub.kernel-cmdline-extra` **auch unter Secure Boot**
+  an die versiegelte Kommandozeile an und misst es nur in PCR 12; PID 1 importiert
+  SMBIOS-Credentials auch außerhalb von VMs. Daher:
+  - Der TPM-Slot ist zusätzlich an **PCR 12** gebunden (ohne Zusätze enthält es nur
+    systemd's `os-separator`, also vorhersagbar).
+  - `beize-boot-check.service` (initrd, `beize-tpm check-boot`) prüft PCR 12 **vor**
+    dem Entsperren. Wurde etwas hinzugefügt (oder lässt es sich nicht lesen), erklärt
+    es das, kehrt nie zurück und schaltet nach 60 s aus. systemd-cryptsetup@root ist
+    danach geordnet und fragt in einem veränderten Start nie nach dem Recovery-Key.
+    Ohne TPM (im BIOS abgeschaltet) lässt es den Start durch, dann öffnet ohnehin nur
+    der Recovery-Key.
+  - Images für echte Hardware tragen `systemd.import_credentials=no`.
+- **Zwei Kommandozeilen, sonst gleiche Images** (`image::Target`, ein Test pinnt den
+  Unterschied): VM-Tests mit serieller Konsole als `/dev/console` und Credentials für
+  Testhelfer; echte Hardware mit dem Bildschirm als `/dev/console` (dort fragt systemd
+  nach dem Recovery-Key) und ohne Credential-Import.
+- **Testhelfer nur mit Test-Credential:** Boot-Report (`beize.smoke`) und Root-Shell
+  auf ttyS0 (`beize.debug-console`, für `bz run`/`bz debug`). Auf echter Hardware
+  starten beide nie.
+- **Kernel für echte Hardware** (`kernel/config/beize-hardware.config`): Bildschirm-
+  Konsole über das Firmware-Framebuffer (simpledrm), NVMe, Intel I225/I226-LAN,
+  C-States, zusätzlich die Konsolenschrift Terminus 16×32 (der Kernel wählt sie bei
+  hoher Auflösung selbst, in VMs bleibt 8×16).
+- **Installer** `bz install <Platte> --guid <GPT-GUID>`: schreibt nur das Hardware-Image
+  und nur auf eine leere Platte mit genau dieser GUID (auf dem Rechner des Besitzers sind
+  Windows- und Ziel-SSD byte-genau gleich groß). `--reinstall` ersetzt nur eine Platte,
+  deren GUID Beizes eigene ist.
+
 **Tests:** Jede Test-VM startet mit Firmware im Setup-Modus; systemd-boot schreibt
 die Schlüssel ein, `bz smoke` prüft danach PK/KEK/db/dbx in der Firmware und erst
-dann die Starts – der Weg ist derselbe wie auf echter Hardware. Zusätzlich
+dann die Starts – der Weg ist derselbe wie auf echter Hardware. Jede Änderung
+(dbx-Update, fremdes db-Zertifikat, neuer TPM, Secure Boot aus, hinzugefügter
+Kernel-Parameter) läuft auf einer eigenen Kopie der Installation. Zusätzlich
 durchläuft ein Test den Ablauf des Besitzers (`new-keys` → `sign`) mit einem
 Wegwerf-Schlüsselspeicher statt 1Password und bootet das Ergebnis.
 
@@ -133,42 +169,3 @@ Wegwerf-Schlüsselspeicher statt 1Password und bootet das Ergebnis.
 - Beize trägt als PK-Eigentümer die Verantwortung, die Microsoft sonst der
   Hersteller trägt: neue Microsoft-KEKs (wie 2023) kommen nur über uns in die
   Firmware – `keys/microsoft/` aktuell halten.
-
-## Nachtrag: Härtung für echte Hardware (2026-10-09)
-
-Vor dem ersten Start auf dem Rechner des Besitzers gefunden und geschlossen:
-
-- **SMBIOS-OEM-Strings sind auf echter Hardware nicht vertrauenswürdig** (manche
-  Boards lassen sie aus einem anderen Betriebssystem heraus umschreiben).
-  systemd-stub hängt `io.systemd.stub.kernel-cmdline-extra` **auch unter Secure Boot**
-  an die versiegelte Kommandozeile an und misst es nur in PCR 12; PID 1 importiert
-  SMBIOS-Credentials auch außerhalb von VMs. Daher:
-  - Der TPM-Slot ist zusätzlich an **PCR 12** gebunden (`TPM2PCRs=7+12`; ohne Zusätze
-    enthält PCR 12 nur systemd's `os-separator`, also vorhersagbar).
-  - `beize-boot-check.service` (initrd, `beize-tpm check-boot`) prüft PCR 12 **vor**
-    dem Entsperren. Wurde etwas hinzugefügt (oder lässt es sich nicht lesen), erklärt
-    es das, kehrt nie zurück und schaltet nach 60 s aus – systemd-cryptsetup@root ist
-    danach geordnet und fragt in einem veränderten Start nie nach dem Recovery-Key.
-    Ohne TPM (im BIOS abgeschaltet) lässt es den Start durch: dann öffnet ohnehin nur
-    der Recovery-Key.
-  - Images für echte Hardware tragen `systemd.import_credentials=no`.
-- **Zwei Kommandozeilen, sonst gleiche Images** (`image::Target`, Test pinnt den
-  Unterschied): VM-Tests mit serieller Konsole als `/dev/console` und Credentials für
-  Testhelfer; echte Hardware mit dem Bildschirm als `/dev/console` (dort fragt systemd
-  nach dem Recovery-Key) und ohne Credential-Import.
-- **Testhelfer nur mit Test-Credential:** Boot-Report (`beize.smoke`) und root-Shell
-  auf ttyS0 (`beize.debug-console`, für `bz run`). Auf echter Hardware starten beide nie.
-- **Kernel für echte Hardware** (`kernel/config/beize-hardware.config`): Bildschirm-
-  Konsole über das Firmware-Framebuffer (simpledrm), NVMe, Intel I225/I226-LAN, C-States.
-  **Konsolenschrift:** zusätzlich Terminus 16×32 (`CONFIG_FONT_TER16x32`); der Kernel
-  wählt sie bei hoher Auflösung selbst (2560×1440: 160×45 statt 320×90 Zeichen, die
-  8×16-Schrift war beim ersten Start auf echter Hardware zu klein), in VMs bleibt 8×16.
-- **Installer** `bz install <Platte> --guid <GPT-GUID>`: schreibt nur das Hardware-Image
-  und nur auf eine leere Platte mit genau dieser GUID (auf dem Rechner des Besitzers sind
-  Windows- und Ziel-SSD byte-genau gleich groß). `--reinstall` ersetzt nur eine Platte,
-  deren GUID Beizes eigene ist.
-- **Erster Start auf echter Hardware: 2026-10-09** auf dem Rechner des Besitzers
-  (Samsung SSD 860 EVO): Einschreiben der Schlüssel, Start unter Secure Boot,
-  Verschlüsselung, TPM-Entsperren, zweiter Start ohne Eingabe, Windows unverändert –
-  alles wie im Test. Gefunden: Recovery-Key vom Login-Bildschirm überschrieben (ADR 0009
-  Nachtrag), Konsolenschrift zu klein.

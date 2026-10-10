@@ -1,6 +1,7 @@
-# 0009 – Root-Partition mit LUKS2, versiegelt an TPM2 und PCR 7
+# 0009 – Root-Partition mit LUKS2, versiegelt an den TPM
 
-Status: angenommen · 2026-10-07
+Status: angenommen · 2026-10-07 · Endfassung 2026-10-10 (PCR 12 und
+Bindung nur in der initrd: ADR 0010)
 
 ## Kontext
 
@@ -15,103 +16,71 @@ mit intaktem Secure Boot.
 - systemd-repart legt die Root-Partition beim ersten Start in der initrd als
   **LUKS2-Volume** an (`Encrypt=tpm2`, aes-xts-plain64 über dm-crypt mit AES-NI)
   und versiegelt den Schlüssel im TPM. Es gibt keinen Passwort-Slot.
-- Bindung an **PCR 7** (`TPM2PCRs=7`): Dort misst die Firmware den Secure-Boot-
-  Zustand – an/aus, PK/KEK/db/dbx und welches db-Zertifikat den Start
-  freigegeben hat. Weil nur Beize-signierte Binaries starten und die
-  Kommandozeile im signierten UKI steckt, heißt „PCR 7 stimmt“: Es läuft
-  ein von uns signierter Start auf diesem Rechner.
-- Beim Start findet systemd-gpt-auto-generator die verschlüsselte Root-Partition
-  und entsperrt sie mit `tpm2-device=auto`; der Volume-Schlüssel wird zusätzlich
-  in einen PCR gemessen (systemd-Standard).
-- Kernel: TPM-Treiber für CRB (Intel PTT, QEMU) und TIS (diskrete TPMs) fest
-  eingebaut; `TCG_TPM2_HMAC` (Schutz gegen Mitlesen auf dem TPM-Bus) bleibt
-  vorerst aus – der Zielrechner nutzt Intel PTT ohne externen Bus.
-- TPM-Software: tpm2-tss (signiert, nur ESYS/MU/RC/TCTI-Device, ohne FAPI),
-  von systemd per dlopen geladen – im System und in der initrd.
+- **Bindung** (`TPM2PCRs=7+12` in `layout.rs`, Drop-in für systemd-repart in
+  `system/initrd/`):
+  - **PCR 7**, der Secure-Boot-Zustand: an/aus, PK/KEK/db/dbx und welches
+    db-Zertifikat den Start freigegeben hat. Weil nur Beize-signierte Binaries
+    starten und die Kommandozeile im signierten UKI steckt, heißt „PCR 7 stimmt“:
+    Es läuft ein von uns signierter Start auf diesem Rechner.
+  - **PCR 12**: Dem Start wurde nichts hinzugefügt (Kernel-Parameter über SMBIOS,
+    Credentials, Add-ons; Begründung in ADR 0010).
+  - **Signierte PCR-11-Richtlinie mit Policy-Referenz `initrd`**: repart übernimmt
+    den öffentlichen PCR-Schlüssel aus dem UKI (`.pcrpkey`) von selbst. Nur die
+    Signatur für die Phase „enter-initrd“ erfüllt die Richtlinie. Sobald die initrd
+    „leave-initrd“ in PCR 11 misst, gibt der TPM den Schlüssel nicht noch einmal
+    heraus, auch nicht dem laufenden System. Das ist eine zusätzliche Hürde, kein Schutz
+    gegen ein kompromittiertes System: Nach dem Entsperren hält der Kernel den
+    Datenschlüssel (dm-crypt), wie bei jeder Festplattenverschlüsselung.
+- Beim Start findet systemd-gpt-auto-generator die Root-Partition und entsperrt sie
+  mit `tpm2-device=auto`.
+- **Recovery-Key, verpflichtend:** `beize-recovery-key.service` (initrd, direkt nach
+  dem ersten Entsperren) erzeugt ihn mit `systemd-cryptenroll --recovery-key`
+  (64 leicht abtippbare Zeichen) und zeigt ihn **genau einmal** an. Der Start wartet,
+  bis der Besitzer `saved` eintippt (auf echter Hardware leerte die Anmeldung sonst
+  den Bildschirm, bevor der Key zu sehen war). Bis zum Neustart liegt er nur im
+  Arbeitsspeicher (`/run/beize/recovery-key`, nur root), nie auf der Platte oder im
+  Journal. Solange der TPM entsperrt, lässt er sich ersetzen:
+  `systemd-cryptenroll --unlock-tpm2-device=auto --wipe-slot=recovery --recovery-key`.
+  Die initrd enthält dafür bash (keine coreutils, das Skript nutzt nur Builtins).
 - **Signierte PCR-11-Richtlinie im UKI** (`.pcrsig` + `.pcrpkey`, ukify
-  `--pcr-private-key … --sign-initrd-pcrs`): systemd 262 richtet damit beim Start
-  die NvPCRs des TPM ein (`systemd-tpm2-setup-early`); ohne sie schlägt der Dienst
-  fehl. Signiert wird mit einem eigenen PCR-Schlüssel (RSA-2048), in Tests ein
-  Wegwerf-Schlüssel neben den Secure-Boot-Testschlüsseln, für echte Hardware ein
-  Produktionsschlüssel des Besitzers (wie ADR 0006).
+  `--pcr-private-key … --sign-initrd-pcrs`). systemd 262 braucht sie zusätzlich, um
+  die NvPCRs des TPM einzurichten (`systemd-tpm2-setup-early`). Signiert wird mit einem
+  eigenen PCR-Schlüssel (RSA-2048): in Tests ein Wegwerf-Schlüssel, für echte Hardware
+  der Produktionsschlüssel des Besitzers (ADR 0010).
 - **ukify und systemd-measure kommen aus unserem eigenen systemd-Build**, nicht vom
-  Build-Host: Sie müssen zur Version von Stub und systemd im Image passen (ukify 259
-  des Hosts kennt die initrd-Richtlinien von 262 nicht). ukify liegt im Sysroot
-  unter `usr/lib/beize-build/` (wird nie ausgeliefert); systemd-measure läuft über
-  den Loader des Sysroots auf dem Host.
+  Build-Host: Sie müssen zur Version von Stub und systemd im Image passen. ukify liegt
+  im Sysroot unter `usr/lib/beize-build/` (wird nie ausgeliefert), systemd-measure
+  läuft über den Loader des Sysroots auf dem Host.
+- Kernel: TPM-Treiber für CRB (Intel PTT, QEMU) und TIS (diskrete TPMs) fest
+  eingebaut. `TCG_TPM2_HMAC` (Schutz gegen Mitlesen auf dem TPM-Bus) bleibt aus, weil
+  der Zielrechner Intel PTT ohne externen Bus nutzt. TPM-Software: tpm2-tss (signiert,
+  nur ESYS/MU/RC/TCTI-Device, ohne FAPI), von systemd per dlopen geladen.
 
 ## Verworfene Alternativen
 
-- **PCR 0/2 (Firmware-Code) zusätzlich:** jedes BIOS-Update sperrt das System aus.
-- **Root zusätzlich an die signierte PCR-11-Richtlinie binden** (bindet an genau
-  unsere UKIs, übersteht Updates; mit Policy-Referenz `initrd` ist der Schlüssel
-  sogar nur in der initrd entsperrbar, nicht mehr aus dem laufenden System):
-  die Signatur ist jetzt vorhanden, die Bindung kommt aber erst mit dem
-  Produktionsschlüssel-Workflow – sonst hinge die Root-Partition an einem
-  Testschlüssel.
-- **TPM + PIN:** möglich, widerspricht aber dem Ziel „startet ohne Eingabe“; kann
+- **PCR 0/2 (Firmware-Code) zusätzlich:** Jedes BIOS-Update würde das System aussperren.
+- **TPM + PIN:** möglich, widerspricht aber dem Ziel „startet ohne Eingabe“. Kann
   später als Option kommen.
+- **`systemd-cryptenroll --firstboot`** (systemd 262): Der Recovery-Key ist dort
+  optional (Enter überspringt) und läuft über ein Textmenü. Beize verlangt den Key
+  und zeigt ihn selbst an.
+- `systemd-pcrlock`: siehe ADR 0010.
 
 ## Konsequenzen
 
 - Schutz gegen: Ausbau der SSD, Start eines fremden Systems, abgeschaltetes oder
-  verändertes Secure Boot. Kein Schutz gegen jemanden, der den laufenden,
-  entsperrten Rechner bedienen kann – das ist Aufgabe von Anmeldung und Sperrbildschirm.
-- Schwäche von PCR 7 allein: Jeder ältere, mit demselben db-Schlüssel signierte
-  UKI entsperrt ebenfalls (Rollback). Abhilfe kommt mit der PCR-11-Richtlinie
-  bzw. dbx-Einträgen.
-- **Ändert sich PCR 7** (Firmware-Update setzt Schlüssel zurück, Schlüsselwechsel,
-  dbx-Update) **oder stirbt der TPM**, öffnet nur noch der Recovery-Key die Daten
-  (siehe unten).
-- `bz smoke` verlangt `root=encrypted` bei jedem Start und prüft die Gegenrichtung:
-  dieselbe Disk mit einem anderen TPM und mit abgeschaltetem Secure Boot darf
-  nicht entsperren. Jede VM hat dafür ihren eigenen Software-TPM (swtpm).
-- Kosten: rund 0,1 s Startzeit (gemessen 5,23 s statt ~5,1 s Gast-Uptime); der
-  erste Start dauert durch Verschlüsseln und Formatieren ~7 s.
-
-## Nachtrag: Recovery-Key (2026-10-07)
-
-- Jede Installation bekommt beim ersten Start **verpflichtend** einen Recovery-Key
-  (`beize-recovery-key.service` → `systemd-cryptenroll --unlock-tpm2-device=auto
-  --recovery-key`): zufällig erzeugt, 64 leicht abtippbare Zeichen.
-- Er wird **genau einmal angezeigt** (Konsole, später im Onboarding) und liegt bis
-  zum nächsten Neustart nur im Arbeitsspeicher (`/run/beize/recovery-key`, nur root).
-  Er wird nie auf die Platte und nie ins Journal geschrieben; aufbewahren muss ihn
-  der Besitzer selbst (Claude greift nie auf 1Password zu).
-- Solange der TPM noch entsperrt, lässt sich ein verlorener Key ersetzen:
-  `systemd-cryptenroll --unlock-tpm2-device=auto --wipe-slot=recovery --recovery-key`.
-- Verworfen: der Assistent `systemd-cryptenroll --firstboot` von systemd 262 –
-  optional (Enter überspringt), textbasiertes Menü in der initrd; Beize verlangt den
-  Key und zeigt ihn selbst an.
-- `bz smoke` prüft: Key beim ersten Start angezeigt, beim zweiten nicht mehr; mit
-  einem anderen TPM fragt das System nach dem Key, und mit ihm startet es normal.
-
-## Nachtrag: Bindung nur in der initrd (2026-10-08, ADR 0010)
-
-- Gemessen am LUKS2-Header: repart band den TPM-Slot schon bisher **zusätzlich** an
-  die signierte PCR-11-Richtlinie (`tpm2_pubkey_pcrs: [11]`), weil es den
-  öffentlichen PCR-Schlüssel aus dem UKI (`/run/systemd/tpm2-pcr-public-key.pem`)
-  von selbst verwendet. Die Annahme oben („erst mit Produktionsschlüsseln“) war falsch.
-- Jetzt zusätzlich mit **Policy-Referenz `initrd`** (`systemd-repart.service`-Drop-in
-  in `system/initrd/`): Nur die Signatur, die das UKI für die Phase „enter-initrd“
-  trägt, erfüllt die Richtlinie. Sobald die initrd „leave-initrd“ in PCR 11 misst,
-  gibt der TPM den TPM-Schlüssel nicht **noch einmal** heraus. Das ist eine zusätzliche
-  Hürde, kein Schutz gegen ein kompromittiertes laufendes System: Nach dem Entsperren
-  hält der Kernel den Datenschlüssel (dm-crypt), wer dort root ist, liest die Daten und
-  kann den Schlüssel aus dem Speicher holen – wie bei jeder Festplattenverschlüsselung.
-  Der Boot-Report prüft einmal pro Start, dass der TPM nach der initrd verweigert
-  (`systemunlock=refused`); der TPM überwacht das laufende System nicht.
-- Der Recovery-Key wird deshalb **in der initrd** angelegt
-  (`beize-recovery-key.service` in `system/initrd/`), direkt nach dem Entsperren.
-  Die initrd enthält dafür bash (keine coreutils; das Skript nutzt nur Builtins).
-  stderr von `systemd-cryptenroll` (im interaktiven Modus mit QR-Code des Schlüssels)
-  erscheint nur im Fehlerfall und nie im Journal.
-- **Der erste Start wartet, bis der Besitzer `saved` eintippt** (2026-10-09): Auf echter
-  Hardware leerte die Anmeldung auf tty1 den Bildschirm Sekundenbruchteile nach der
-  Anzeige – beim ersten Start auf dem Rechner des Besitzers war der Schlüssel weg,
-  bevor er ihn sehen konnte (in der VM liest der Test die serielle Konsole, die nicht
-  geleert wird). Ein bloßes Enter genügt nicht. `bz smoke` prüft, dass gewartet wurde.
-- Verbleibende Schwäche: Jedes ältere, mit demselben PCR-Schlüssel signierte UKI
-  erfüllt die Richtlinie ebenfalls (Rollback). PCR 7 bleibt direkt gebunden; ändert es
-  sich (dbx-Update, BIOS-Update), bindet `beize-tpm-reseal` nach einmaliger Eingabe
-  des Recovery-Keys neu (ADR 0010).
+  verändertes Secure Boot, hinzugefügte Kernel-Parameter. Kein Schutz gegen jemanden,
+  der den laufenden, entsperrten Rechner bedienen kann; das ist Aufgabe von Anmeldung
+  und Sperrbildschirm.
+- **Rollback:** Jedes ältere, mit demselben PCR-Schlüssel signierte UKI erfüllt die
+  Richtlinie ebenfalls (Abhilfe erst mit Versions-Sperre oder Schlüsselwechsel).
+- **Ändert sich PCR 7** (dbx-Update, BIOS-Update, neue Schlüssel) **oder ist es ein
+  anderer TPM**, öffnet nur der Recovery-Key. `beize-tpm` bindet danach neu, aber nur
+  einen erlaubten Zustand (ADR 0010).
+- `bz smoke` prüft: `root=encrypted` bei jedem Start; im LUKS2-Header PCR 7+12 und die
+  signierte Richtlinie über PCR 11 mit Referenz `initrd`; dass das laufende System den
+  TPM-Schlüssel nicht bekommt (Boot-Report `systemunlock=refused`); den Recovery-Key
+  beim ersten Start und nur dort; Gegentests mit einem anderen TPM und mit
+  abgeschaltetem Secure Boot (jeweils auf einer Kopie der Installation, eigener swtpm).
+- Kosten: rund 0,1 s Startzeit. Der erste Start dauert durch Verschlüsseln und
+  Formatieren ~8 s.
