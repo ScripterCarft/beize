@@ -5,9 +5,8 @@ Status: angenommen · 2026-10-09 (Zeitsynchronisation: ADR 0012)
 ## Kontext
 
 Beize braucht Netzwerk – zuerst über LAN (Intel I225/I226, Treiber `igc`), später
-WLAN. systemd-networkd, -resolved und -timesyncd werden mit systemd ohnehin gebaut
-und sind per Preset aktiviert; bisher fehlte jede Konfiguration, networkd ließ den
-Anschluss also unkonfiguriert. Zu entscheiden war außerdem, welche Server Beize von
+WLAN. systemd-networkd und -resolved werden mit systemd ohnehin gebaut und sind per
+Preset aktiviert; ohne Konfiguration ließ networkd den Anschluss aber unkonfiguriert. Zu entscheiden war außerdem, welche Server Beize von
 sich aus kontaktiert: systemd bringt fest eingebaute Ausweich-Server mit
 (DNS: Cloudflare, Google, Quad9; Zeit: Google).
 
@@ -44,5 +43,5 @@ sich aus kontaktiert: systemd bringt fest eingebaute Ausweich-Server mit
   verlangt bei jedem gesunden Start: Zustand `routable`, als DNS genau den Server
   aus DHCP (10.0.2.3), und `_gateway` über NSS aufgelöst (nss-resolve). Kein
   Internet nötig, der Test bleibt offline stabil.
-- Auf echter Hardware ist LAN noch ungeprüft (Treiber `igc`, `r8169`, `e1000e`
-  sind im Kernel).
+- Auf dem Rechner des Besitzers läuft LAN über `igc` (Intel 2.5GbE) mit dieser
+  Konfiguration.

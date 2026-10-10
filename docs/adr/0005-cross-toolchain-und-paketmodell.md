@@ -21,9 +21,12 @@ Abhängigkeiten, Stufe (`toolchain` oder `target`) und ein Build-Skript.
 
 **Signierte Quellen.** Jede Quelle ist doppelt abgesichert: gepinnt (SHA-256 des
 Archivs bzw. Commit eines Git-Tags) und von ihren Upstream-Maintainern signiert.
-`bz` prüft die Signatur mit `gpgv` gegen einen minimalen Schlüsselbund unter
-`keys/` und nimmt unsignierte Quellen nicht an. Wo ein Projekt keine signierten
-Archive veröffentlicht (systemd), wird der signierte Release-Tag verwendet.
+`bz` prüft die Signatur gegen einen minimalen Schlüsselbund unter `keys/` (OpenPGP
+mit `gpgv`, Gits SSH-Signaturen mit `ssh-keygen -Y verify`). Wo ein Projekt keine
+signierten Archive veröffentlicht (systemd), wird der signierte Release-Tag
+verwendet. Veröffentlicht Upstream gar keine Signatur, ist die Quelle nur gepinnt –
+als begründete Ausnahme im Rezept (`unsigned = "<Grund>"`), die `bz verify` jedes
+Mal auflistet (`keys/README.md`).
 
 **Inkrementell.** Ein Paket wird neu gebaut, wenn sich sein Rezept, seine
 Quellen, die Build-Umgebung oder eine Abhängigkeit geändert haben (Fingerprint).
@@ -32,12 +35,11 @@ Quellen, die Build-Umgebung oder eine Abhängigkeit geändert haben (Fingerprint
 die Pfade auf das zusammengeführte `/usr`, prüft auf Konflikte mit anderen
 Paketen und schreibt ein Manifest. `bz owner <pfad>` beantwortet, woher eine Datei kommt.
 
-**Image.** Das Root-Dateisystem wird nur aus den Manifesten der Pakete in
+**Image.** Das `/usr`-Image wird nur aus den Manifesten der Pakete in
 `images/base.toml` zusammengesetzt, ohne Header, statische Bibliotheken und
-Dokumentation, und ohne Debug-Informationen. Es ist ein read-only EROFS-Image (LZ4).
+Dokumentation, und ohne Debug-Informationen. Es ist ein read-only EROFS-Image (LZ4HC).
 
 ## Konsequenzen
 
 - Kein Paketmanager im laufenden System; Pakete existieren nur zur Build-Zeit.
 - Der erste vollständige Build dauert länger (zwei GCC-Durchläufe), danach wird nur gebaut, was sich geändert hat.
-- Das frühe `beize-init` aus M1 entfällt, PID 1 ist systemd.

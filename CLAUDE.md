@@ -1,7 +1,7 @@
 # Beize – Übergabe für Claude Code
 
-Einstieg für jede neue Session; ersetzt den Chatverlauf. Stand: 2026-10-10, nach dem
-Frühjahrsputz. Was im Code, in den ADRs oder im README steht, steht hier nicht noch einmal.
+Einstieg für jede neue Session; ersetzt den Chatverlauf. Stand: siehe §11. Was im Code,
+in den ADRs, im README oder in `docs/` steht, steht hier nicht noch einmal.
 
 ## 1. Was Beize ist
 
@@ -28,7 +28,7 @@ M5 Feinschliff. Stand im Detail: `README.md`.
 - **1Password ist tabu.** Claude greift nie auf den Tresor zu (kein `op`) und führt
   `bz secureboot new-keys`, `bz sign`, `bz install` nie aus (ADR 0010).
 - Die CI beobachtet der Besitzer selbst und meldet, wenn sie rot ist.
-- Der Besitzer leert den Chat zwischen größeren Schritten: vorher §12 aktuell halten.
+- Der Besitzer leert den Chat zwischen größeren Schritten: vorher §11 aktuell halten.
 - Hardware des Besitzers, Journal von dort auslesen, Messwerte: `docs/hardware.md`.
 
 ## 3. Umgebung
@@ -71,7 +71,7 @@ Neubinden, echte Hardware).
 | Pfad | Inhalt |
 | --- | --- |
 | `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery), `beize-setup` (1. Start: Konto, Zeitzone) |
-| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
+| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert), `deps`, `stage`, `[build] script` |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
@@ -135,8 +135,8 @@ in die Endfassung einarbeiten, keine Nachträge.
 - Rezepte **ohne** `repo` behalten ihren Fingerprint (Test) – sonst baut alles neu.
 - **Ein Paket sieht beim Bauen nur seine (transitiven) `deps` im Sysroot.** Fehlt etwas,
   gehört es in `deps` – nicht die Sperre umgehen.
-- Build-Jobs nach RAM begrenzt (1,5 GiB/Job), VMs nach CPUs/RAM (4 CPUs, 3 GiB) –
-  nicht zurückdrehen.
+- Build-Jobs nach RAM begrenzt (1,5 GiB/Job), parallele VMs nach CPUs/RAM (je 4 CPUs
+  und 3 GiB reserviert, Gast 2 GiB) – nicht zurückdrehen.
 - Werkzeuge, die zur systemd-Version im Image passen müssen (ukify, systemd-measure),
   kommen aus unserem systemd-Build (ADR 0009).
 - Host-Werkzeuge, die `bz` aufruft, gehören in `ci/packages.txt`. Im Gast gibt es kein
@@ -184,11 +184,10 @@ in die Endfassung einarbeiten, keine Nachträge.
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-10)
 
-**Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`).
-Neu installieren: `keys/secureboot/README.md` (`bz build`, `bz sign`, `wsl --mount`,
-`bz install /dev/sde --guid "{6265697a-6500-4000-8000-000000000001}" --reinstall`).
-Das installierte Image hat `beize-boot-chain` noch nicht – erst nach der nächsten Installation
-zeigt `bz boot-times` die kritische Kette der Hardware.
+**Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
+neu installieren: `keys/secureboot/README.md`). Das installierte Image hat
+`beize-boot-chain` noch nicht – die kritische Kette der Hardware gibt es erst nach der
+nächsten Installation.
 
 **Offene Entscheidung des Besitzers (gefunden in Phase 1):** Beize liefert kein
 `99-default.preset` (`disable *`; upstream systemd überlässt das der Distribution). Darum ist
@@ -199,9 +198,8 @@ aktivierten Units.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
-1. ✓ **Messen als Werkzeug** (2026-10-10): `bz boot-times`, `beize-boot-chain.service`,
-   Zeitbudget im Smoke-Test (Gegenproben: initrd +4 s → rot; keine Kette → rot),
-   `docs/hardware.md`.
+1. ✓ **Messen als Werkzeug:** `bz boot-times`, `beize-boot-chain.service`, Zeitbudget im
+   Smoke-Test, `docs/hardware.md`.
 2. **Toolchain (ADR 0013):** x86-64-v3, `-mtune=generic`, Härtung (FORTIFY=3, stack-clash,
    CET, PIE, RELRO/now, Frame-Pointer); ELF-Guard in `bz`; Boot-Report meldet fehlendes v3.
 3. **Kernel (ADR 0014):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter

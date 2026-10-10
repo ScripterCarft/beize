@@ -19,4 +19,4 @@ möglich, ist aber kein Ziel.
 ## Konsequenzen
 
 - Binärkompatibilität zum Linux-Desktop-Standard.
-- Das frühe `beize-init` ist nur ein Werkzeug für M1-Boot-Tests und wird ersetzt.
+- PID 1 ist systemd, in der initrd wie im System.

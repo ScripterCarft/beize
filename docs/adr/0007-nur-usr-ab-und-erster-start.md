@@ -42,5 +42,5 @@ Beize folgt dem von systemd empfohlenen Aufbau (`docs/ROOTFS_DISCOVERY.md`,
   bleiben, das alte System bleibt als Rückfall erhalten.
 - `bz smoke` installiert das Image auf eine frische Test-Disk, bootet zweimal
   und prüft Partitionen, Boot-Counting und dass der Zustand den Neustart übersteht.
-- Offen, in dieser Reihenfolge: dm-verity für `/usr` (Root-Hash im UKI),
-  Verschlüsselung der Root-Partition mit TPM2, Updater (systemd-sysupdate).
+- dm-verity für `/usr` (ADR 0008) und die Verschlüsselung der Root-Partition
+  (ADR 0009) bauen darauf auf; offen ist der Updater (systemd-sysupdate).

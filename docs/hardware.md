@@ -35,9 +35,6 @@ nur, wann journald den Kernel-Puffer las), die langsamsten Units in initrd und S
 und die kritische Kette, die `beize-boot-chain.service` nach jedem Start ins Journal
 schreibt (fehlt bei Images, die vor dieser Unit gebaut wurden).
 
-In der VM hält `bz smoke` den zweiten Start an ein Zeitbudget je Phase
-(`BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`).
-
 ## Messwerte
 
 Stand 2026-10-10, Image vor dem M2-Fahrplan; gewöhnliche Starts (nicht der erste):
