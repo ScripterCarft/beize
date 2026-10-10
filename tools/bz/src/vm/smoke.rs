@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use super::checks::{
-    boot_healthy, check_blessed, check_partitions, check_root_binding, expect_rebound,
-    expect_refused, expect_root_locked,
+    boot_healthy, check_blessed, check_boot_budget, check_partitions, check_root_binding,
+    expect_rebound, expect_refused, expect_root_locked,
 };
 use super::console::{
     Answers, LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS, SMOKE_USER,
@@ -320,6 +320,9 @@ fn install(paths: &Paths) -> Result<Installed> {
     say!("  ok: the account setup had the console to itself");
 
     let second = boot_healthy(&machine, 2, &Answers::none())?;
+    // The first boot creates partitions and asks questions: the second is
+    // the one every later boot is like.
+    check_boot_budget(&second.report)?;
     ensure!(
         second.report.machine_id == first.report.machine_id,
         "machine ID changed between boots ({} -> {}): the root partition did not persist",

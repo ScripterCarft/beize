@@ -1,0 +1,9 @@
+#!/usr/bin/bash
+# Writes the critical chain of this boot into the journal once systemd has
+# finished starting up, on every machine: `bz boot-times` shows it, also for
+# a journal copied from real hardware (docs/hardware.md).
+set -u
+
+# "degraded" is a finished boot too: its chain is just as interesting.
+systemctl is-system-running --wait > /dev/null
+exec systemd-analyze critical-chain --no-pager

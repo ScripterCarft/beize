@@ -3,6 +3,7 @@
 //! Turns the recipes and configuration in this repository into a bootable
 //! disk image and runs it in QEMU.
 
+mod boottimes;
 mod image;
 mod initrd;
 mod install;
@@ -77,6 +78,19 @@ enum Command {
         #[arg(long)]
         quick: bool,
     },
+    /// Show where a boot spent its time, from its journal (e.g. one copied
+    /// from real hardware, see docs/hardware.md)
+    BootTimes {
+        /// A journal directory or file
+        journal: std::path::PathBuf,
+        /// Which boot, as `journalctl --boot` takes it: 0 the last, -1 the
+        /// one before, or a boot ID
+        #[arg(long, default_value = "0", allow_hyphen_values = true)]
+        boot: String,
+        /// Show pauses between kernel messages from this many milliseconds
+        #[arg(long, default_value_t = 100)]
+        gap: u64,
+    },
     /// Show which package installed a file (e.g. `bz owner /usr/bin/bash`)
     Owner { path: String },
     /// Download every source and check its pin and its maintainers' signature
@@ -136,6 +150,7 @@ fn main() -> Result<()> {
             &commands,
         ),
         Command::Smoke { quick } => vm::smoke(&paths, quick),
+        Command::BootTimes { journal, boot, gap } => boottimes::show(&journal, &boot, gap),
         Command::Owner { path } => {
             println!("{}", install::owner(&paths, &path)?);
             Ok(())

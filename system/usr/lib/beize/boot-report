@@ -7,6 +7,23 @@ set -u
 state=$(systemctl is-system-running --wait)
 read -r uptime _ < /proc/uptime
 
+# The phases of the boot in µs, as systemd measured them (the numbers of
+# "Startup finished"): `bz smoke` holds them to a time budget. The initrd
+# began when the kernel handed over, the system at the switch to the real
+# root. 0 = not measured.
+kernel=0 initrd=0 userspace=0
+stamps=()
+while read -r _ value; do
+    stamps+=("$value")
+done < <(busctl get-property org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+    org.freedesktop.systemd1.Manager InitRDTimestampMonotonic \
+    UserspaceTimestampMonotonic FinishTimestampMonotonic)
+if ((${#stamps[@]} == 3 && stamps[0] > 0 && stamps[1] > stamps[0] && stamps[2] > stamps[1])); then
+    kernel=${stamps[0]}
+    initrd=$((stamps[1] - stamps[0]))
+    userspace=$((stamps[2] - stamps[1]))
+fi
+
 # EFI variable SecureBoot: 4 attribute bytes, then 1 = enabled.
 secureboot=off
 sb_var=/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
@@ -100,6 +117,19 @@ if [[ $network == routable ]]; then
     done
 fi
 
+# Lines beize-boot-chain wrote into the journal in this boot: the critical
+# chain `bz boot-times` shows. It starts with this script; wait until it is
+# done.
+for _ in {1..40}; do
+    [[ $(systemctl show --property=ActiveState --value beize-boot-chain.service) == active ]] || break
+    sleep 0.25
+done
+# --quiet: without it, "-- No entries --" would count as a line.
+chain=0
+while read -r _; do
+    chain=$((chain + 1))
+done < <(journalctl --boot --identifier=beize-boot-chain --output=cat --no-pager --quiet)
+
 failed=()
 while read -r unit _; do
     failed+=("$unit")
@@ -132,6 +162,7 @@ echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
      "tz=${tz:-none} nts=${nts} clock=${clock}" \
+     "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain}" \
      "failed=${failed_list:-none} bootfailed=${boot_failed_list:-none}"
 
 # The journal of every failed unit, so a failed test run explains itself.

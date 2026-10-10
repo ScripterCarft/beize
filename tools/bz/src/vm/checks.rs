@@ -113,13 +113,28 @@ pub(super) fn boot_healthy(
         "expected boot #{expected_boot}, the system reports boot #{}",
         report.boot
     );
+    // A missing measurement must not pass a time budget as "0 s".
+    ensure!(
+        report.kernel > 0 && report.initrd > 0 && report.userspace > 0,
+        "systemd did not measure the boot phases (kernel={} initrd={} userspace={} µs)",
+        report.kernel,
+        report.initrd,
+        report.userspace
+    );
+    ensure!(
+        report.chain > 0,
+        "beize-boot-chain wrote no critical chain into the journal"
+    );
     say!(
         "  ok: boot #{} running under Secure Boot after {} guest uptime \
-         ({:.1}s including firmware), network via DHCP, no failed units, clean power-off \
-         (NTS key exchange with {} time servers)",
+         ({:.1}s including firmware; kernel {} + initrd {} + system {}), network via DHCP, \
+         no failed units, clean power-off (NTS key exchange with {} time servers)",
         report.boot,
         report.uptime,
         elapsed.as_secs_f64(),
+        seconds(report.kernel),
+        seconds(report.initrd),
+        seconds(report.userspace),
         report.nts
     );
     Ok(HealthyBoot {
@@ -127,6 +142,48 @@ pub(super) fn boot_healthy(
         console: run.console,
         prompted: run.prompted,
     })
+}
+
+/// The most each phase of an ordinary boot (not the first, nothing typed)
+/// may take in the VM, in µs: about twice what it takes (2026-10-10, eight
+/// second boots during full smoke runs: kernel 0.56–0.61 s, initrd
+/// 2.42–2.51 s, system 2.27–2.44 s). The margin covers a 4-CPU CI runner
+/// and the scenarios that run beside the installation; a boot that gets
+/// slower than this has a cause to find before it reaches real hardware.
+const BOOT_BUDGET: [(&str, u64); 3] = [
+    ("kernel", 1_200_000),
+    ("initrd", 5_000_000),
+    ("system", 5_000_000),
+];
+
+/// Holds an ordinary boot to [`BOOT_BUDGET`].
+pub(super) fn check_boot_budget(report: &BootReport) -> Result<()> {
+    let measured = [report.kernel, report.initrd, report.userspace];
+    let over: Vec<String> = BOOT_BUDGET
+        .iter()
+        .zip(measured)
+        .filter(|((_, budget), took)| took > budget)
+        .map(|((phase, budget), took)| {
+            format!("{phase} {} (budget {})", seconds(took), seconds(*budget))
+        })
+        .collect();
+    ensure!(
+        over.is_empty(),
+        "the boot took longer than its time budget: {}",
+        over.join(", ")
+    );
+    let budget = BOOT_BUDGET
+        .iter()
+        .map(|(phase, budget)| format!("{phase} {}", seconds(*budget)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    say!("  ok: within the time budget ({budget})");
+    Ok(())
+}
+
+/// µs as seconds, e.g. `0.61s`.
+fn seconds(us: u64) -> String {
+    format!("{:.2}s", us as f64 / 1e6)
 }
 
 /// After a change that must not be approved, boot `boot` opens with the
@@ -351,6 +408,28 @@ pub(super) fn check_blessed(disk: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boot_budget_names_every_phase_over_it() {
+        let line = |kernel: u64, initrd: u64, userspace: u64| {
+            format!(
+                "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=2 \
+                 machineid=x uptime=5.3s systemunlock=refused network=routable dns=none \
+                 lookup=none tz=none nts=0 clock=0 kernel={kernel} initrd={initrd} \
+                 userspace={userspace} chain=12 failed=none bootfailed=none"
+            )
+        };
+        let [(_, kernel), (_, initrd), (_, system)] = BOOT_BUDGET;
+        let within = BootReport::parse(&line(kernel, initrd, system)).unwrap();
+        assert!(check_boot_budget(&within).is_ok());
+        let over = BootReport::parse(&line(kernel + 1, initrd, system + 1)).unwrap();
+        let error = check_boot_budget(&over).unwrap_err().to_string();
+        assert!(
+            error.contains("kernel") && error.contains("system"),
+            "{error}"
+        );
+        assert!(!error.contains("initrd"), "{error}");
+    }
 
     #[test]
     fn detects_missing_partitions() {

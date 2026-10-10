@@ -68,6 +68,7 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 ./bz debug 'networkctl'     # Befehle in der VM ausführen und ihre Ausgabe zeigen
 ./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
 ./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
+./bz boot-times <journal>   # Wo ein Start Zeit verbraucht hat (docs/hardware.md)
 ./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen
 ```
 
@@ -75,7 +76,8 @@ Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`; `-v` zei
 
 `./bz smoke` installiert das Image wie auf einem PC mit gelöschten Secure-Boot-Schlüsseln,
 startet es zweimal und prüft dabei alles, was ein Start leisten muss (Secure Boot, dm-verity,
-Verschlüsselung, keine fehlgeschlagene Unit, Netz, Zeitzone, Recovery-Key genau einmal).
+Verschlüsselung, keine fehlgeschlagene Unit, Netz, Zeitzone, Recovery-Key genau einmal,
+Zeitbudget je Startphase).
 Danach laufen parallel, jeweils auf einer Kopie der Installation, die Gegentests: anderer TPM,
 Secure Boot aus, Secure-Boot-Update, fremdes db-Zertifikat, hinzugefügter Kernel-Parameter,
 unsigniertes Kernel-Image, verändertes `/usr`, und der Signier-Ablauf des Besitzers.
@@ -96,6 +98,7 @@ Logs in `build/work/logs/`.
 | `system/usr/`, `system/initrd/` | Eigene Dateien in `/usr` und in der initrd (Units, Skripte, Werkseinstellungen) |
 | `kernel/config/` | Kernel-Konfigurationsfragmente, nach dem Mergen verifiziert |
 | `docs/adr/` | Architekturentscheidungen mit Begründung |
+| `docs/hardware.md` | Rechner des Besitzers, Startzeit messen, Messwerte |
 
 ## Grundsätze
 

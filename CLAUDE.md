@@ -29,9 +29,7 @@ M5 Feinschliff. Stand im Detail: `README.md`.
   `bz secureboot new-keys`, `bz sign`, `bz install` nie aus (ADR 0010).
 - Die CI beobachtet der Besitzer selbst und meldet, wenn sie rot ist.
 - Der Besitzer leert den Chat zwischen größeren Schritten: vorher §12 aktuell halten.
-- Hardware des Besitzers: i7-13700K (Raptor Lake, x86-64-v3, kein AVX-512), ASUS ROG
-  STRIX Z790-F GAMING WIFI (BIOS 3201; Intel 2.5GbE, Wi-Fi 6E + BT, Realtek-USB-Audio),
-  RTX 3070 Ti, 32 GB RAM, Monitor 1440p @ 240 Hz.
+- Hardware des Besitzers, Journal von dort auslesen, Messwerte: `docs/hardware.md`.
 
 ## 3. Umgebung
 
@@ -73,7 +71,7 @@ Neubinden, echte Hardware).
 | Pfad | Inhalt |
 | --- | --- |
 | `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery), `beize-setup` (1. Start: Konto, Zeitzone) |
-| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
+| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert), `deps`, `stage`, `[build] script` |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/base.toml` | Pakete für `/usr` und für die initrd |
@@ -91,6 +89,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
 ./bz run             # interaktiv (Ctrl-A X); VM-Disk bleibt bis zum nächsten Image
+./bz boot-times ~/hw-logs/journal [--boot -1]   # Phasen, Kernel-Lücken, langsamste Units, Kette
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
 # nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys · ./bz sign · ./bz install
 ```
@@ -103,7 +102,9 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke.rs` (Modul-Doku) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
-- Start in der VM: 5,3 s Gast-Uptime, erster Start ~8 s.
+- Start in der VM: 5,3 s Gast-Uptime, erster Start ~8 s. Der zweite Start hat ein
+  Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~2× Messwert); bei Änderung neu
+  messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`, manuell
   und wöchentlich `ci/system.sh` im privilegierten `ubuntu:26.04`-Container
   (`public.ecr.aws`) mit KVM. Pakete, Toolchain, Sysroot, Stamps und Kernel-Objektbaum
@@ -183,31 +184,24 @@ in die Endfassung einarbeiten, keine Nachträge.
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-10)
 
-**Beize läuft auf dem Rechner des Besitzers** (Samsung SSD 860 EVO, Disk 0 in Windows; unter
-WSL wechselt der Buchstabe – mit `lsblk` an den Partitionen `esp`/`beize_*`/`root` erkennen;
-SanDisk 480 GB (E:, Daten) und Corsair (Windows) nie anfassen).
+**Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`).
 Neu installieren: `keys/secureboot/README.md` (`bz build`, `bz sign`, `wsl --mount`,
 `bz install /dev/sde --guid "{6265697a-6500-4000-8000-000000000001}" --reinstall`).
+Das installierte Image hat `beize-boot-chain` noch nicht – erst nach der nächsten Installation
+zeigt `bz boot-times` die kritische Kette der Hardware.
 
-**Frühjahrsputz erledigt** (Commits a3333f8…): knappe Ausgaben + Zusammenfassung;
-`qemu.rs` → `vm/`; `bz debug` ersetzt `~/probe`; Smoke-Szenarien parallel auf Kopien der
-Installation (217 s → 75 s, `--quick` 30 s); Stamps für Kernel/usr/initrd/image (No-op
-36 s → 0,1 s); drei Tests waren zu nachsichtig und sind korrigiert (Secure-Boot-aus-Test lief
-auf fremdem TPM; `systemunlock=refused` bei jedem „TPM2“-Fehler; fehlgeschlagene initrd-Units
-bei stummer Konsole unsichtbar – jetzt `bootfailed=` aus dem Journal), je mit Gegenprobe;
-ADR 0009/0010 als Endfassung.
-
-Gemessen auf Hardware (2026-10-10): Firmware 17–24 s + Loader 1 s + Kernel 11,7 s + initrd
-4 s + System 1,6 s (VM: Kernel 0,6 s). Windows einmalig auf UTC stellen (`keys/secureboot/README.md` Schritt 4).
-**Hardware-Journal auslesen** (ohne Neubau, Journal ist persistent): Besitzer `wsl --mount
-\\.\PHYSICALDRIVE0 --bare`, `sudo cryptsetup open --readonly /dev/sdX6 beize-root` (Recovery-Key,
-tippt nur er), dann `mount -o ro,noload`; Kernel-Zeiten aus `_SOURCE_MONOTONIC_TIMESTAMP`
-(die Eintrags-Monotonic zeigt nur, wann journald das kmsg las).
+**Offene Entscheidung des Besitzers (gefunden in Phase 1):** Beize liefert kein
+`99-default.preset` (`disable *`; upstream systemd überlässt das der Distribution). Darum ist
+jede Unit mit `[Install]` ohne Preset-Regel beim ersten Start aktiviert (z. B.
+`e2scrub_reap.service`), ohne dass Beize das entschieden hat. Vorschlag: `disable *` für
+System und Benutzer, alles Gewollte ausdrücklich in `10-beize.preset`, Smoke-Check der
+aktivierten Units.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
 nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
-1. **Messen als Werkzeug:** `bz boot-times <journal>` (Aufschlüsselung, Kernel-Lücken,
-   kritische Kette), Zeitbudget im Smoke-Test (mit Gegenprobe), `docs/hardware.md`.
+1. ✓ **Messen als Werkzeug** (2026-10-10): `bz boot-times`, `beize-boot-chain.service`,
+   Zeitbudget im Smoke-Test (Gegenproben: initrd +4 s → rot; keine Kette → rot),
+   `docs/hardware.md`.
 2. **Toolchain (ADR 0013):** x86-64-v3, `-mtune=generic`, Härtung (FORTIFY=3, stack-clash,
    CET, PIE, RELRO/now, Frame-Pointer); ELF-Guard in `bz`; Boot-Report meldet fehlendes v3.
 3. **Kernel (ADR 0014):** Gerätetreiber als signierte Module (Wegwerf-Schlüssel, zstd, unter

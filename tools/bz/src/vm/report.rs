@@ -33,6 +33,13 @@ pub(super) struct BootReport {
     pub(super) nts: String,
     /// The system clock when reporting, in seconds since 1970.
     pub(super) clock: u64,
+    /// How long the kernel, the initrd and the system took to start, in µs
+    /// (systemd's "Startup finished"); 0 = not measured.
+    pub(super) kernel: u64,
+    pub(super) initrd: u64,
+    pub(super) userspace: u64,
+    /// Lines of the critical chain beize-boot-chain wrote into the journal.
+    pub(super) chain: u32,
     /// Units that are failed now, in the running system.
     pub(super) failed: Vec<String>,
     /// Units whose start failed at any time in this boot, the initrd and
@@ -41,7 +48,7 @@ pub(super) struct BootReport {
 }
 
 impl BootReport {
-    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 clock=1791500000 failed=none bootfailed=none`.
+    /// Parses `BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 machineid=… uptime=2.95s systemunlock=refused network=routable dns=10.0.2.3 lookup=10.0.2.2 tz=Europe/Berlin nts=4 clock=1791500000 kernel=612000 initrd=2100000 userspace=1400000 chain=12 failed=none bootfailed=none`.
     pub(super) fn parse(line: &str) -> Option<Self> {
         let fields = &line[line.find(REPORT_MARKER)? + REPORT_MARKER.len()..];
         let field = |key: &str| {
@@ -71,6 +78,10 @@ impl BootReport {
             time_zone: field("tz")?,
             nts: field("nts")?,
             clock: field("clock")?.parse().ok()?,
+            kernel: field("kernel")?.parse().ok()?,
+            initrd: field("initrd")?.parse().ok()?,
+            userspace: field("userspace")?.parse().ok()?,
+            chain: field("chain")?.parse().ok()?,
             failed: list("failed")?,
             boot_failed: list("bootfailed")?,
         })
@@ -84,7 +95,8 @@ mod tests {
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
                          network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo nts=4 \
-                         clock=1791500000 failed=none bootfailed=none";
+                         clock=1791500000 kernel=612000 initrd=2100000 userspace=1400000 chain=12 \
+                         failed=none bootfailed=none";
 
     #[test]
     fn parses_clean_report() {
@@ -103,6 +115,10 @@ mod tests {
         assert_eq!(report.time_zone, "America/Sao_Paulo");
         assert_eq!(report.nts, "4");
         assert_eq!(report.clock, 1_791_500_000);
+        assert_eq!(report.kernel, 612_000);
+        assert_eq!(report.initrd, 2_100_000);
+        assert_eq!(report.userspace, 1_400_000);
+        assert_eq!(report.chain, 12);
         assert!(report.failed.is_empty());
         assert!(report.boot_failed.is_empty());
     }
@@ -112,7 +128,7 @@ mod tests {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
                     network=timeout dns=none lookup=none tz=none nts=0 \
-                    clock=946684800 failed=systemd-logind.service,systemd-logind-varlink.socket \
+                    clock=946684800 kernel=0 initrd=0 userspace=0 chain=0 failed=systemd-logind.service,systemd-logind-varlink.socket \
                     bootfailed=systemd-logind.service,beize-tpm.service";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");
@@ -141,5 +157,6 @@ mod tests {
         );
         assert_eq!(BootReport::parse("BEIZE-BOOT-REPORT state=running"), None);
         assert_eq!(BootReport::parse(&CLEAN.replace("boot=1", "boot=x")), None);
+        assert_eq!(BootReport::parse(&CLEAN.replace(" chain=12", "")), None);
     }
 }

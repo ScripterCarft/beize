@@ -1,0 +1,13 @@
+[Unit]
+Description=Log the critical chain of the boot
+Documentation=file:/usr/lib/beize/boot-chain
+
+[Service]
+# exec: counts as started immediately, so the script can wait for the end of
+# the boot transaction it is part of; it delays nothing.
+Type=exec
+ExecStart=/usr/lib/beize/boot-chain
+SyslogIdentifier=beize-boot-chain
+
+[Install]
+WantedBy=multi-user.target
