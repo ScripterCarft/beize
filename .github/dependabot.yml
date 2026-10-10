@@ -1,0 +1,18 @@
+# Actions are pinned to commit SHAs (ci.yml); Dependabot proposes updates,
+# grouped and monthly so they cost few Actions minutes.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      cargo:
+        patterns: ["*"]
