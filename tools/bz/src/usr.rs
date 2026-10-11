@@ -30,6 +30,9 @@ const USR_VERITY_UUID: &str = "6265697a-6500-4000-8000-000000000011";
 const UNIT_PRESET: &str = "images/base.preset";
 /// The only preset file the image ships, system and user: `disable *`.
 const SHIPPED_PRESET: &str = "99-beize.preset";
+/// The units every boot runs (ADR 0013); in `/usr` for beize-boot-health,
+/// which decides by them whether a boot succeeded (ADR 0020).
+const RUNNING_UNITS: &str = "images/running-units.txt";
 
 /// Where [`build`] assembles `/usr`, as a tree with `usr/` in it.
 pub fn tree_dir(paths: &Paths) -> PathBuf {
@@ -57,6 +60,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         STAMP,
         tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
             .file(&paths.root.join(UNIT_PRESET))?
+            .file(&paths.root.join(RUNNING_UNITS))?
             .tree(&kernel.modules)?,
         &[&root],
     );
@@ -94,6 +98,10 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(format!("{}/.", paths.root.join("system/usr").display()))
             .arg(&usr),
     )?;
+    fs::copy(
+        paths.root.join(RUNNING_UNITS),
+        usr.join("lib/beize/running-units.txt"),
+    )?;
     enable_units(paths, &root)?;
     compile_hwdb(paths, &root)?;
     install_modules(paths, &kernel, &root, |_| true)?;
@@ -116,11 +124,21 @@ pub const STAMP: &str = "usr";
 /// Where the public update key lies in `/usr` (ADR 0020).
 pub const UPDATE_KEY_PATH: &str = "lib/beize/update.pub.pem";
 
+/// Where the boot loader signed with the image's keys lies in `/usr`: bootctl
+/// installs it instead of the unsigned one beside it (ADR 0020).
+pub const SIGNED_BOOT_LOADER_PATH: &str = "lib/systemd/boot/efi/systemd-bootx64.efi.signed";
+
 /// Packs the `/usr` tree as `version` for `keys` into `out`: `usr.erofs`,
-/// `usr.verity` and `usr.roothash`. The version (os-release) and the public
-/// update key are what the images of one build differ in; the tree itself
-/// stays untouched.
-pub fn pack(paths: &Paths, keys: &Keys, version: &str, out: &Path) -> Result<Packed> {
+/// `usr.verity` and `usr.roothash`. The version (os-release), the public
+/// update key and `boot_loader`, signed with `keys`, are what the images of
+/// one build differ in; the tree itself stays untouched.
+pub fn pack(
+    paths: &Paths,
+    keys: &Keys,
+    version: &str,
+    boot_loader: &Path,
+    out: &Path,
+) -> Result<Packed> {
     let tree = tree_dir(paths);
     ensure!(tree.is_dir(), "{} is missing; run `bz usr`", tree.display());
     util::step(&format!("Writing /usr image {version}"));
@@ -139,6 +157,7 @@ pub fn pack(paths: &Paths, keys: &Keys, version: &str, out: &Path) -> Result<Pac
     let key = usr.join(UPDATE_KEY_PATH);
     fs::create_dir_all(key.parent().context("update key path")?)?;
     fs::copy(keys.update_public(), &key)?;
+    fs::copy(boot_loader, usr.join(SIGNED_BOOT_LOADER_PATH))?;
 
     let image = out.join("usr.erofs");
     let _ = fs::remove_file(&image);

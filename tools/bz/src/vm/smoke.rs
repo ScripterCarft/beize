@@ -44,7 +44,7 @@ use super::run::DEBUG_CONSOLE_CREDENTIALS;
 use super::serve::Server;
 use crate::paths::Paths;
 use crate::say;
-use crate::{image, layout, release, secureboot, util};
+use crate::{image, layout, release, secureboot, usr, util};
 
 /// A part of the smoke test, run on its own machine beside the others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -655,7 +655,9 @@ const NO_NEWER_UPDATE: &str = "There is no newer version.";
 /// update key signed – a changed list, another key's signature, a changed
 /// file – and an older version are refused, and nothing is written. The
 /// right one goes into slot B; the next boot starts it, the TPM unlocks as
-/// before, and boot counting marks it good.
+/// before, and boot counting marks it good – but not a boot in which a unit
+/// of `images/running-units.txt` failed. A successful boot replaces an older
+/// boot loader with the signed one from `/usr`.
 fn update(paths: &Paths, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
@@ -672,6 +674,11 @@ fn update(paths: &Paths, installed: &Installed) -> Result<()> {
     }
     built?;
     let refused = refused_releases(&releases, &good, &keys)?;
+    let older_loader = paths.work.join("smoke-update-loader.efi");
+    older_boot_loader(paths, &keys, &older_loader)?;
+    for path in BOOT_LOADER_ON_ESP {
+        put_on_esp(&machine.disk, &older_loader, path)?;
+    }
 
     let shell = Shell::boot(
         &machine,
@@ -679,6 +686,25 @@ fn update(paths: &Paths, installed: &Installed) -> Result<()> {
         &DEBUG_CONSOLE_CREDENTIALS,
         false,
     )?;
+    // The boot loader is updated at the end of the boot (beize-boot-update):
+    // the signed one from /usr over both copies of the older one.
+    let (_, lines) = shell.capture(
+        "systemctl is-system-running --wait; \
+         journalctl -b -o cat -u beize-boot-update.service",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l.trim() == "running"),
+        "the boot did not finish as running: {lines:?}"
+    );
+    let copied = format!("Copied \"/usr/{}\" to ", usr::SIGNED_BOOT_LOADER_PATH);
+    for path in BOOT_LOADER_ON_ESP {
+        ensure!(
+            lines
+                .iter()
+                .any(|l| l.contains(&copied) && l.trim_end().ends_with(&format!("{path}\"."))),
+            "bootctl did not install the signed boot loader from /usr as {path}: {lines:?}"
+        );
+    }
     for (what, dir, says) in &refused {
         let server = Server::start(dir)?;
         let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
@@ -723,14 +749,121 @@ fn update(paths: &Paths, installed: &Installed) -> Result<()> {
         "the update's UKI with boot counter is not on the ESP: {listing:?}"
     );
     say!("  ok: beize-update installed {version} into slot B ({install_s:.1}s)");
+    let signed_loader = fs::read(paths.out.join("systemd-bootx64.efi"))?;
+    for path in BOOT_LOADER_ON_ESP {
+        ensure!(
+            read_from_esp(&machine.disk, path, &paths.work)? == signed_loader,
+            "the boot did not replace the older boot loader {path} with the signed one from /usr"
+        );
+    }
+    fs::remove_file(&older_loader)?;
+    say!("  ok: the boot replaced an older boot loader with the signed one from /usr");
 
-    // Boot #3: the start with the root shell has no boot report.
+    // A unit every boot runs fails: the boot does not count as successful,
+    // and nothing of it is kept.
+    let credentials = [&DEBUG_CONSOLE_CREDENTIALS[..], &[FAILING_NTP_CREDENTIAL]].concat();
+    let shell = Shell::boot(&machine, &Answers::none(), &credentials, false)?;
+    let (_, lines) = shell.capture(
+        "echo \"state=$(systemctl is-system-running --wait) \
+         ntp=$(systemctl is-failed ntpd-rs.service) \
+         health=$(systemctl is-active beize-boot-health.service) \
+         loader=$(systemctl is-active beize-boot-update.service)\"",
+    )?;
+    let expected = "state=degraded ntp=failed health=failed loader=inactive";
+    ensure!(
+        lines.iter().any(|l| l.trim() == expected),
+        "a boot with a failed unit was not judged as failed (expected {expected}): {lines:?}"
+    );
+    shell.power_off()?;
+    let listing = checks::uki_listing(&machine.disk)?;
+    let tried_once = format!(
+        "{}+{}-1.efi",
+        layout::blessed_uki_name(&version).trim_end_matches(".efi"),
+        layout::BOOT_TRIES - 1
+    );
+    ensure!(
+        listing.contains(&tried_once),
+        "after a failed boot the update's UKI should be {tried_once}: {listing:?}"
+    );
+    say!("  ok: a boot with a failed unit was not marked good ({tried_once})");
+
+    // Boot #3: the starts with the root shell have no boot report.
     boot_healthy(&machine, 3, &Answers::none())?;
     check_blessed(&machine.disk, &version)?;
     say!("  ok: {version} started, the TPM unlocked the data as before");
     machine.remove()?;
     fs::remove_dir_all(&releases)?;
     Ok(())
+}
+
+/// Where the boot loader lies on the ESP: systemd-boot's own path and the
+/// removable-media path the firmware starts.
+const BOOT_LOADER_ON_ESP: [&str; 2] = ["/EFI/systemd/systemd-bootx64.efi", "/EFI/BOOT/BOOTX64.EFI"];
+
+/// Makes ntpd-rs, a unit every boot runs, fail: a drop-in as a credential
+/// (systemd-debug-generator), `[Service] ExecStartPre=/usr/bin/false`.
+const FAILING_NTP_CREDENTIAL: &str = "type=11,value=io.systemd.credential.binary:\
+     systemd.unit-dropin.ntpd-rs.service=W1NlcnZpY2VdCkV4ZWNTdGFydFByZT0vdXNyL2Jpbi9mYWxzZQo=";
+
+/// The image's boot loader as an older version, signed with `keys`, into
+/// `out`: its version (`#### LoaderInfo: systemd-boot 262 ####`, which
+/// bootctl compares) begins with 0 instead.
+fn older_boot_loader(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Result<()> {
+    const INFO: &[u8] = b"#### LoaderInfo: systemd-boot ";
+    let mut loader = fs::read(
+        paths
+            .sysroot
+            .join("usr/lib/systemd/boot/efi/systemd-bootx64.efi"),
+    )?;
+    let mut patched = 0;
+    let mut at = 0;
+    while let Some(found) = loader[at..].windows(INFO.len()).position(|w| w == INFO) {
+        let version = at + found + INFO.len();
+        ensure!(
+            matches!(loader[version], b'1'..=b'9'),
+            "unexpected boot loader version"
+        );
+        loader[version] = b'0';
+        patched += 1;
+        at = version;
+    }
+    ensure!(patched > 0, "the boot loader carries no version");
+    let unsigned = out.with_extension("unsigned");
+    fs::write(&unsigned, loader)?;
+    keys.sign(&unsigned, out)?;
+    fs::remove_file(&unsigned)?;
+    Ok(())
+}
+
+/// Writes `file` to `path` on the ESP of `disk`.
+fn put_on_esp(disk: &Path, file: &Path, path: &str) -> Result<()> {
+    util::run(
+        Command::new("mcopy")
+            .arg("-o")
+            .arg("-i")
+            .arg(format!("{}@@{}", disk.display(), image::ESP_OFFSET))
+            .arg(file)
+            .arg(format!("::{path}")),
+    )
+}
+
+/// The content of `path` on the ESP of `disk`, read through a file in `work`.
+fn read_from_esp(disk: &Path, path: &str, work: &Path) -> Result<Vec<u8>> {
+    let copy = work.join(format!(
+        "esp-{}",
+        path.rsplit('/').next().unwrap_or_default()
+    ));
+    util::run(
+        Command::new("mcopy")
+            .arg("-o")
+            .arg("-i")
+            .arg(format!("{}@@{}", disk.display(), image::ESP_OFFSET))
+            .arg(format!("::{path}"))
+            .arg(&copy),
+    )?;
+    let content = fs::read(&copy)?;
+    fs::remove_file(&copy)?;
+    Ok(content)
 }
 
 /// Releases next to `good` that beize-update must refuse: what each is, its

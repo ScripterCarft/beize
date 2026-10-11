@@ -30,8 +30,9 @@ hätte den Start unter Secure Boot verhindert.
   2. die Vorgaben von systemd (`90-systemd.preset`) – das, was die systemd-Entwickler
      testen; davon abzuweichen braucht einen konkreten Grund;
   3. `disable *` – alles andere ist aus.
-- Einzige Abweichung bisher: `systemd-boot-update.service` aus (siehe Kontext); der
-  Bootloader wird signiert mit dem Image aktualisiert.
+- Abweichungen stehen mit Grund in `images/base.preset`, z. B. `systemd-boot-update.service`
+  aus (siehe Kontext): Den signierten Bootloader aus `/usr` installiert Beizes
+  `beize-boot-update.service` nach einem gelungenen Start (ADR 0020).
 - Ausgeliefert wird nur `99-beize.preset` mit `disable *` (System und Benutzer): Der
   Preset-Durchlauf beim ersten Start schreibt nichts nach `/etc`. `/etc` enthält damit
   nur, was der Besitzer selbst ändert; abschalten kann er jede Unit mit `systemctl

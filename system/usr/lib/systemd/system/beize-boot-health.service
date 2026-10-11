@@ -1,0 +1,15 @@
+[Unit]
+Description=Check that this boot succeeded
+Documentation=file:/usr/lib/beize/boot-health
+# Like systemd-boot-check-no-failures.service, with Beize's list of units.
+After=default.target graphical.target multi-user.target
+Before=boot-complete.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/boot-health
+SyslogIdentifier=beize-boot-health
+
+[Install]
+RequiredBy=boot-complete.target

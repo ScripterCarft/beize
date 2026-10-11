@@ -203,6 +203,8 @@ in die Endfassung einarbeiten, keine Nachträge.
   dem Prompt auf der seriellen Konsole.
 - Gegenproben nur gezielt zurücksetzen (Backup der Datei), nie `git checkout` auf eine
   Datei mit noch nicht committeten Änderungen.
+- Rust `fs::copy` schreibt sparse Dateien voll aus (ext4: über den Page-Cache): Disks immer
+  mit `cp --sparse=always` kopieren (`vm::machine::copy_sparse`).
 - Rust `Command::output()` setzt stdin auf null: Programme, die am Terminal fragen sollen
   (systemd-ask-password), brauchen `.stdin(Stdio::inherit())`, sonst warten sie auf
   einen Passwort-Agenten.
@@ -316,14 +318,23 @@ systemd mit sysupdate (Socket und importd-Reste entfernt, Journal jetzt zstd); (
 4 GiB, `sysupdate.d` aus `layout.rs`, `bz usr` baut nur noch den Baum, `usr::pack` packt ihn je
 Version und Schlüsselsatz (öffentlicher Update-Schlüssel in `/usr`, daher packt `bz sign` neu),
 `bz release` + `release::write` (Test-Releases für den Smoke-Test), `bz secureboot
-new-update-key` (**Besitzer muss ihn vor dem nächsten `bz sign` erzeugen**); (4) `os/beize-update`;
+new-update-key` (**Besitzer muss ihn vor dem nächsten `bz sign` erzeugen**);
 (4) ✓ `os/beize-update` + Szenario „Update“ (A→B per HTTP aus `bz`, Ablehnung von geänderter Liste,
 fremdem Schlüssel, geänderter Datei, älterer Version; Start ohne Recovery-Key, Zähler entfernt).
 Funde: `systemd-sysupdate-notify-pcrlock.socket` aus (pcrlock-Credential auf der ESP veränderte
 PCR 12); `beize-keymap.service` ohne Startlimit (Flake beim ersten Start); beize-tpm nennt bei
-„Start verändert“ die PCR-12-Ereignisse. **Gepusht 2026-10-11, CI 38164107277 prüfen (`gh run view`).** **Offen:** (5) `beize-boot-health` + signiertes
-systemd-boot in `/usr` (`systemd-boot-update` nach `boot-complete.target`); (6) restliche
-Szenarien: zweites Update B→A, kaputtes Update (verity) → nach 3 Versuchen zurück.
+„Start verändert“ die PCR-12-Ereignisse. CI 38164107277 starb ohne Log: `Machine::install`
+kopierte das 4,6-GiB-Image mit `fs::copy` voll aus (Runner-Platte voll) – jetzt sparse + Prüfung.
+(5) ✓ `beize-boot-health.service` (Skript prüft die Units aus `running-units.txt`, das `bz` nach
+`/usr/lib/beize` legt) vor `boot-complete.target`, in jedem Start; signiertes systemd-boot als
+`.signed` in `/usr`, eigenes `beize-boot-update.service` nach `boot-complete.target` (systemds
+Unit läuft vor `sysinit.target`, ADR angepasst). Szenario „Update“ prüft: älterer Loader wird
+ersetzt (aus `.signed`), Start mit fehlgeschlagener Unit (ntpd-rs per Drop-in-Credential) wird
+nicht gezählt (`+2-1`), Gegenproben rot. **Offen:** CI des Pushs prüfen; (6) zweites Update B→A,
+kaputtes Update → nach 3 Versuchen zurück. Vorher klären: Scheitert die initrd (verity), wartet
+das Notfall-Tor auf den Recovery-Key und startet nie neu – braucht ein ungezählter Start dort
+einen automatischen Neustart? Mit dem Besitzer abstimmen. (Drei kranke Starts per Credential →
+systemd-boot wählt A wäre der einfache Teil.)
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;

@@ -1,0 +1,24 @@
+[Unit]
+Description=Update the boot loader from a successful boot
+Documentation=man:bootctl(1)
+# What systemd-boot-update.service does, but only once this boot succeeded
+# (ADR 0020): a new boot loader has no previous version to fall back to.
+# systemd's unit runs before sysinit.target, which boot-complete.target
+# follows. bootctl takes the signed systemd-bootx64.efi.signed from /usr
+# and replaces the one on the ESP only by a newer version.
+# No default dependencies: multi-user.target must not wait for it (it is
+# ordered after boot-complete.target, which is after multi-user.target).
+DefaultDependencies=no
+ConditionFirmware=uefi
+Requires=boot-complete.target
+After=local-fs.target boot-complete.target
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=bootctl --variables=no --graceful update
+
+[Install]
+WantedBy=multi-user.target

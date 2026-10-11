@@ -50,10 +50,15 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   drei gescheiterten Starts wählt systemd-boot die vorige Version. Nicht jede fehlgeschlagene
   Unit (`systemd-boot-check-no-failures`): Ein Fehler, den auch die alte Version hätte (z. B.
   Hardware), würde sonst jedes künftige Update zurückrollen.
-- **Bootloader:** Das signierte systemd-boot liegt als `systemd-bootx64.efi.signed` in `/usr`;
-  `systemd-boot-update.service` (wieder an, ADR 0013) kopiert es, aber erst nach
-  `boot-complete.target` – ein neuer Bootloader nur von einer bewährten Version. bootctl
-  ersetzt ihn atomar und nur durch eine neuere Version.
+  Die Prüfung läuft in jedem Start (`beize-boot-update.service` zieht `boot-complete.target`
+  hinzu), nicht nur nach einem Update.
+- **Bootloader:** Das signierte systemd-boot liegt als `systemd-bootx64.efi.signed` in `/usr`
+  (signiert mit den Schlüsseln des Images). `beize-boot-update.service` ruft dasselbe
+  `bootctl update` wie systemds `systemd-boot-update.service`, aber erst nach
+  `boot-complete.target`: ein neuer Bootloader nur von einer bewährten Version, denn für ihn
+  gibt es keine vorige. systemds Unit bleibt aus (ADR 0013), sie läuft vor `sysinit.target`
+  und damit vor jeder Prüfung. bootctl nimmt die `.signed`-Datei, ersetzt atomar und nur
+  durch eine neuere Version.
 - **Slot-Größe 4 GiB** je `/usr`-Slot (verity-Slot bleibt 64 MiB, der Baum braucht ~32 MiB).
   Heute 86 MB; Compositor, Mesa, NVIDIA-Firmware, Schriften und Audio kommen dazu. Vorbild
   ChromeOS: von 2 auf 4 GiB vergrößert, weil ältere Geräte Updates nicht mehr aufnehmen

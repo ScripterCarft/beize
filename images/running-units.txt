@@ -45,8 +45,10 @@ systemd-ask-password-console.path systemd-ask-password-wall.path
 # request.
 beize-accounts.socket
 
-# Updates (ADR 0020): the updater and its fetcher, one instance per request.
+# Updates (ADR 0020): the updater and its fetcher, one instance per request;
+# whether the boot succeeded, and the boot loader from such a boot.
 beize-update.socket beize-update-fetch.socket
+beize-boot-health.service beize-boot-update.service
 
 # Privileges (ADR 0018): polkit's password helper; polkitd itself starts on
 # demand over D-Bus (run0, localed, ...).

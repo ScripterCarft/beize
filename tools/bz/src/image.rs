@@ -235,9 +235,12 @@ pub fn boot_chain(
     }
     let release = fs::read_to_string(paths.out.join("kernel.release"))
         .context("reading kernel.release; run `bz kernel`")?;
-    let usr = usr::pack(paths, keys, version, out)?;
-    // Boot loader and UKI stub come from Beize's own systemd build.
+    // Boot loader and UKI stub come from Beize's own systemd build. The
+    // signed boot loader goes into /usr too, for its updates (ADR 0020).
     let efi_dir = paths.sysroot.join("usr/lib/systemd/boot/efi");
+    let boot_loader = out.join("systemd-bootx64.efi");
+    keys.sign(&efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
+    let usr = usr::pack(paths, keys, version, &boot_loader, out)?;
 
     util::step("Building Unified Kernel Image");
     let os_release = out.join("os-release");
@@ -291,11 +294,9 @@ pub fn boot_chain(
             .arg(&unsigned_uki),
     )?;
 
-    util::step("Signing boot chain");
+    util::step("Signing Unified Kernel Image");
     let uki = out.join("beize.efi");
     keys.sign(&unsigned_uki, &uki)?;
-    let boot_loader = out.join("systemd-bootx64.efi");
-    keys.sign(&efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
     Ok(BootChain {
         usr,
         uki,

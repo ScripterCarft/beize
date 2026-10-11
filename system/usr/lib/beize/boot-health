@@ -1,0 +1,29 @@
+#!/usr/bin/bash
+# Decides whether this boot succeeded (ADR 0020): none of the units every
+# boot of Beize runs (images/running-units.txt, the list the smoke test
+# requires) failed. Only then is boot-complete.target reached: systemd-bless-boot
+# marks a new version good and beize-boot-update installs its boot loader.
+# After three failed boots systemd-boot starts the previous version again.
+# Any failed unit would not do: a failure outside this list (hardware,
+# something the owner added) would recur with every version and roll back
+# each update.
+set -u
+
+units=()
+while read -r -a names; do
+    [[ ${names[0]:-#} == \#* ]] && continue
+    units+=("${names[@]}")
+done < /usr/lib/beize/running-units.txt
+
+# One state per unit, in order.
+mapfile -t states < <(systemctl is-failed "${units[@]}")
+failed=()
+for i in "${!units[@]}"; do
+    [[ ${states[i]:-} == failed ]] && failed+=("${units[i]}")
+done
+
+if (( ${#failed[@]} )); then
+    echo "This boot failed: ${failed[*]}"
+    exit 1
+fi
+echo "This boot succeeded: none of ${#units[@]} units failed."

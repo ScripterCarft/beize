@@ -15,6 +15,9 @@ enable beize-accounts.socket
 # Updates (ADR 0020): the updater and its fetcher, started per request.
 enable beize-update.socket
 enable beize-update-fetch.socket
+# Whether a boot succeeded, and the boot loader from such a boot (ADR 0020).
+enable beize-boot-health.service
+enable beize-boot-update.service
 # The console keymap also for the initrd (ADR 0017).
 enable beize-keymap.path
 # Privileges (ADR 0018): polkit checks passwords in this sandboxed helper,
@@ -24,10 +27,9 @@ enable polkit-agent-helper.socket
 # Time with NTS (ADR 0012).
 enable ntpd-rs.service
 
-# The boot loader on the ESP is signed with Beize's keys. This service copies
-# the unsigned one from /usr over it as soon as an update brings a newer
-# version, and Secure Boot then refuses to start. The boot loader is updated
-# signed, together with the image.
+# systemd's boot loader update runs before sysinit.target, before a boot
+# could prove itself; beize-boot-update.service does the same once it has
+# (ADR 0020).
 disable systemd-boot-update.service
 
 # After an update systemd-sysupdate notifies systemd-pcrlock, which then
