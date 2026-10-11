@@ -31,6 +31,7 @@ Prüfen aller Quellen: `./bz verify`
 | `kmod` | Lucas De Marchi | `EAB3 3C96 9001 3C73 3916 AC83 9BA2 A5A6 30CB EA53` | keyserver.ubuntu.com |
 | `libcap` | Andrew G. Morgan | `38A6 4469 8C69 7873 44E9 54CE 29EE 848A E2CC F3F4` | WKD kernel.org |
 | `libffi` | libffi signiert weder Archive noch Tags (geprüft 2026-10-11) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
+| `libseccomp` | Tom Hromatka (Oracle) | `47A6 8FCE 37C7 D702 4FD6 5E11 356C E62C 2B52 4099` | keyserver.ubuntu.com; Maintainer laut `SECURITY.md` des Projekts |
 | `libxcrypt` | Björn Esser | `678C E3FE E430 3115 96DB 8C16 F52E 9800 7594 C21D` | keyserver.ubuntu.com; deckungsgleich mit `libxcrypt-gpgkey.asc` im Release |
 | `libxkbcommon` | Upstream signiert weder Tags noch Commits und veröffentlicht keine signierten Archive (geprüft 2026-10-11) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
 | `linux` | Greg Kroah-Hartman | `647F 2865 4894 E3BD 4571 99BE 38DB BDC8 6092 693E` | WKD kernel.org |
