@@ -57,13 +57,51 @@ impl Profile {
     }
 }
 
-/// Whether nothing was added to this boot: PCR 12 holds what systemd-stub
-/// adds to the UKI's own measurements (kernel parameters from SMBIOS or the
-/// boot loader, credentials and add-ons from the ESP) – for Beize nothing –
-/// and systemd's OS separator.
-pub fn boot_unchanged(pcr12: [u8; 32]) -> bool {
-    let separated = eventlog::extend([0u8; 32], Sha256::digest(OS_SEPARATOR).into());
-    pcr12 == [0u8; 32] || pcr12 == separated
+/// What PCR 12 says about this boot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Boot {
+    /// Beize as signed: nothing added.
+    Unchanged,
+    /// The UKI's recovery profile (ADR 0018), nothing added. Its PCR 11 has
+    /// no signed policy: only the recovery key opens the data.
+    Recovery,
+    /// Something was added (kernel parameters, credentials, add-ons).
+    Changed,
+}
+
+/// The UKI profile of the recovery (image.rs builds it as profile 1).
+const RECOVERY_PROFILE: &str = "1";
+
+/// Reads PCR 12: what systemd-boot and systemd-stub add to the UKI's own
+/// measurements (kernel parameters from SMBIOS or the boot loader,
+/// credentials and add-ons from the ESP – for Beize nothing), then systemd's
+/// OS separator. Starting a profile other than the first, systemd-boot
+/// passes and measures "@<number>" as load options, and systemd-stub then
+/// measures the number.
+pub fn boot(pcr12: [u8; 32]) -> Boot {
+    let separator: [u8; 32] = Sha256::digest(OS_SEPARATOR).into();
+    let unchanged = [0u8; 32];
+    let options = format!("@{RECOVERY_PROFILE}");
+    let recovery = eventlog::extend(
+        eventlog::extend(unchanged, Sha256::digest(utf16z(&options)).into()),
+        Sha256::digest(utf16z(RECOVERY_PROFILE)).into(),
+    );
+    if pcr12 == unchanged || pcr12 == eventlog::extend(unchanged, separator) {
+        Boot::Unchanged
+    } else if pcr12 == recovery || pcr12 == eventlog::extend(recovery, separator) {
+        Boot::Recovery
+    } else {
+        Boot::Changed
+    }
+}
+
+/// UTF-16LE with the terminating NUL: how systemd-boot and systemd-stub
+/// measure strings (`strsize16`).
+fn utf16z(text: &str) -> Vec<u8> {
+    text.encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect()
 }
 
 /// Checks the event log against the TPM's PCR 7 and the profile. The error
@@ -253,15 +291,35 @@ mod tests {
 
     #[test]
     fn a_boot_is_unchanged_with_nothing_but_the_os_separator() {
-        let separated = eventlog::extend([0u8; 32], Sha256::digest(OS_SEPARATOR).into());
-        assert!(boot_unchanged(separated));
-        assert!(boot_unchanged([0u8; 32]));
+        let separator: [u8; 32] = Sha256::digest(OS_SEPARATOR).into();
+        let separated = eventlog::extend([0u8; 32], separator);
+        assert_eq!(boot(separated), Boot::Unchanged);
+        assert_eq!(boot([0u8; 32]), Boot::Unchanged);
         let added = eventlog::extend([0u8; 32], Sha256::digest(b"systemd.debug_shell").into());
-        assert!(!boot_unchanged(added));
-        assert!(!boot_unchanged(eventlog::extend(
-            added,
-            Sha256::digest(OS_SEPARATOR).into()
-        )));
+        assert_eq!(boot(added), Boot::Changed);
+        assert_eq!(boot(eventlog::extend(added, separator)), Boot::Changed);
+    }
+
+    #[test]
+    fn the_recovery_profile_is_known_and_nothing_else() {
+        let separator: [u8; 32] = Sha256::digest(OS_SEPARATOR).into();
+        // systemd-boot's load options "@1", then systemd-stub's profile
+        // number "1", each as UTF-16LE with NUL.
+        let profile = |options: &[u8], number: &[u8]| {
+            let loaded = eventlog::extend([0u8; 32], Sha256::digest(options).into());
+            eventlog::extend(loaded, Sha256::digest(number).into())
+        };
+        let recovery = profile(&[0x40, 0, 0x31, 0, 0, 0], &[0x31, 0, 0, 0]);
+        assert_eq!(boot(recovery), Boot::Recovery);
+        assert_eq!(boot(eventlog::extend(recovery, separator)), Boot::Recovery);
+        assert_eq!(
+            boot(profile(&[0x40, 0, 0x32, 0, 0, 0], &[0x32, 0, 0, 0])),
+            Boot::Changed
+        );
+        let without_options = eventlog::extend([0u8; 32], Sha256::digest([0x31, 0, 0, 0]).into());
+        assert_eq!(boot(without_options), Boot::Changed);
+        let added = eventlog::extend(recovery, Sha256::digest(b"systemd.debug_shell").into());
+        assert_eq!(boot(added), Boot::Changed);
     }
 
     #[test]

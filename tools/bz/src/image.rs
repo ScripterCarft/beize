@@ -42,6 +42,20 @@ const ESP_VOLUME_ID: &str = "42454953";
 /// reboot (ADR 0010).
 const LOADER_CONF: &str = "timeout 0\neditor no\nconsole-mode keep\nsecure-boot-enroll force\n";
 
+/// The UKI's profiles, entries of their own in systemd-boot's menu (ADR
+/// 0018). Only Beize's has a signed PCR 11 policy (`--sign-profile`). The
+/// recovery starts the emergency gate in the system (rescue.target); the
+/// TPM refuses it, so only the recovery key opens the data – also when the
+/// owner forgot their password and the start itself works.
+/// The menu shows the OS name, with the profile's title in parentheses.
+const MAIN_PROFILE: &str = "ID=beize";
+const RECOVERY_PROFILE: &str = "TITLE=Recovery\nID=recovery";
+/// systemd-boot's entry of the recovery profile.
+pub const RECOVERY_ENTRY: &str = "@recovery";
+/// Added to the recovery's command line; beize-tpm's gate looks for
+/// `beize.recovery`.
+const RECOVERY_PARAMETERS: &str = "systemd.unit=rescue.target beize.recovery";
+
 /// The trust profile every image is built for; selectable once there is a
 /// second one.
 const PROFILE: secureboot::Profile = secureboot::Profile::WithWindows;
@@ -215,6 +229,16 @@ pub fn assemble(
     let unsigned_uki = out.join(UNSIGNED_UKI);
     let (pcr_private, pcr_public) = keys.pcr_key();
     let profile = profile_initrd(keys, out)?;
+    let cmdline = kernel_cmdline(root_hash, target);
+    let recovery_profile = out.join("profile-recovery.efi");
+    util::run(
+        ukify(paths)?
+            .arg("build")
+            .arg(format!("--profile={RECOVERY_PROFILE}"))
+            .arg(format!("--cmdline={cmdline} {RECOVERY_PARAMETERS}"))
+            .arg("--output")
+            .arg(&recovery_profile),
+    )?;
     util::run(
         ukify(paths)?
             .arg("build")
@@ -230,7 +254,7 @@ pub fn assemble(
             .arg(&profile)
             .arg("--stub")
             .arg(efi_dir.join("linuxx64.efi.stub"))
-            .arg(format!("--cmdline={}", kernel_cmdline(root_hash, target)))
+            .arg(format!("--cmdline={cmdline}"))
             .arg(format!("--os-release=@{}", os_release.display()))
             .arg(format!("--uname={}", release.trim()))
             // Signed PCR 11 policies (.pcrsig) and their public key (.pcrpkey).
@@ -241,6 +265,12 @@ pub fn assemble(
             .arg("--pcr-public-key")
             .arg(&pcr_public)
             .arg("--sign-initrd-pcrs")
+            // Beize is the base profile (0), everything before it is shared;
+            // the recovery (1) overrides only the command line.
+            .arg(format!("--profile={MAIN_PROFILE}"))
+            .arg("--join-profile")
+            .arg(&recovery_profile)
+            .arg("--sign-profile=beize")
             .arg("--output")
             .arg(&unsigned_uki),
     )?;

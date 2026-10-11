@@ -31,16 +31,16 @@ use super::checks::{
 };
 use super::console::{
     Answers, ConsoleEvent, EMERGENCY_HEADLINE, EMERGENCY_SHELL_STARTS, EMERGENCY_WRONG_KEY,
-    LAST_CONSOLE, OWNER_CONSOLE_CREDENTIALS, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT,
-    SETUP_ANSWERS, SETUP_STARTS_OVER, SMOKE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, Session,
-    TAMPER_TIMEOUT, find_recovery_key, strip_ansi, watch_boot,
+    LAST_CONSOLE, OWNER_CONSOLE_CREDENTIALS, RECOVERY_HEADLINE, RECOVERY_KEY_SAVED_PROMPT,
+    REPORT_TIMEOUT, SETUP_ANSWERS, SETUP_STARTS_OVER, SMOKE_CREDENTIALS, SMOKE_PASSWORD,
+    SMOKE_USER, Session, TAMPER_TIMEOUT, find_recovery_key, strip_ansi, watch_boot,
 };
 use super::debug::Shell;
-use super::machine::{Machine, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
+use super::machine::{Machine, boot_once, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
 use super::report::{BootReport, REPORT_MARKER};
 use crate::paths::Paths;
 use crate::say;
-use crate::{image, secureboot, util};
+use crate::{image, layout, secureboot, util};
 
 /// A part of the smoke test, run on its own machine beside the others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,6 +56,7 @@ enum Scenario {
     OwnerKeys,
     EmergencyGate,
     Privileges,
+    Recovery,
 }
 
 use Scenario::*;
@@ -63,9 +64,10 @@ use Scenario::*;
 /// What starts right away; the longest first, so they finish together.
 const INDEPENDENT: [Scenario; 3] = [OwnerKeys, CorruptedUsr, UnsignedUki];
 /// What starts from a copy of the installation once [`Install`] passed.
-const ON_THE_INSTALLATION: [Scenario; 7] = [
+const ON_THE_INSTALLATION: [Scenario; 8] = [
     OtherTpm,
     EmergencyGate,
+    Recovery,
     Privileges,
     ForeignDb,
     SecureBootUpdate,
@@ -94,6 +96,9 @@ impl Scenario {
             EmergencyGate => {
                 "A failed start gives a shell only for the recovery key, and the TPM is locked then"
             }
+            Recovery => {
+                "The recovery in the boot menu opens a root shell with the recovery key only"
+            }
             Privileges => {
                 "The owner gets root with run0 and their password only; no file grants privileges"
             }
@@ -118,6 +123,7 @@ impl Scenario {
             OwnerKeys => owner_workflow(paths),
             EmergencyGate => emergency_gate(paths, smoke.installed()?),
             Privileges => privileges(paths, smoke.installed()?),
+            Recovery => recovery(paths, smoke.installed()?),
         }
     }
 }
@@ -603,6 +609,66 @@ fn emergency_gate(paths: &Paths, installed: &Installed) -> Result<()> {
              from which the TPM unlocks nothing"
         ),
     }
+    machine.remove()
+}
+
+/// The recovery (ADR 0018), chosen in the boot menu: the TPM refuses it, so
+/// the initrd asks for the recovery key; the gate takes that key instead of
+/// asking again and opens a root shell with the data unlocked. The next
+/// normal start unlocks by the TPM again: the recovery bound nothing to it.
+fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
+    let machine = installed.machine.copy_as(paths, "smoke-recovery")?;
+    boot_once(
+        &machine,
+        &format!("{}{}", layout::blessed_uki_name(), image::RECOVERY_ENTRY),
+    )?;
+    let session = Session::start(
+        &machine,
+        &Answers::recovery(&installed.recovery_key),
+        &SMOKE_CREDENTIALS,
+    )?;
+    let deadline = Instant::now() + GATE_TIMEOUT;
+    let (mut prompted, mut headline, mut shell) = (false, false, None);
+    let mut failed = Vec::new();
+    while let Some(event) = session.next(deadline) {
+        let ConsoleEvent::Line(line) = event else {
+            prompted = true;
+            continue;
+        };
+        let line = strip_ansi(&line);
+        if line.contains("[FAILED]") {
+            failed.push(line);
+        } else if line.contains(RECOVERY_HEADLINE) {
+            headline = true;
+        } else if line.contains(EMERGENCY_SHELL_STARTS) {
+            session.type_line("echo BEIZE-RECOVERY-$(id -u)-$(cat /etc/hostname)-$(ls /home)");
+        } else if let Some(found) = line.strip_prefix("BEIZE-RECOVERY-") {
+            shell = Some(found.to_owned());
+            break;
+        }
+    }
+    session.power_off_within(Duration::ZERO)?;
+    ensure!(
+        prompted,
+        "the recovery start did not ask for the recovery key"
+    );
+    ensure!(
+        headline,
+        "the recovery start did not reach the recovery gate"
+    );
+    let Some(shell) = shell else {
+        bail!(
+            "no root shell within {}s after the recovery key (did the gate ask for it again?)",
+            GATE_TIMEOUT.as_secs()
+        );
+    };
+    ensure!(
+        shell.starts_with("0-") && shell.ends_with(&format!("-{SMOKE_USER}")),
+        "the recovery shell is not root with the data unlocked: {shell}"
+    );
+    say!("  ok: the recovery asks for the recovery key once and opens a root shell with the data");
+    boot_healthy(&machine, 3, &Answers::none())?;
+    say!("  ok: after the recovery the TPM unlocks by itself again");
     machine.remove()
 }
 

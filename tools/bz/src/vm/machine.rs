@@ -308,6 +308,28 @@ pub(super) fn edit_firmware(machine: &Machine, options: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Makes systemd-boot start `entry` once on the next boot (its
+/// LoaderEntryOneShot variable), as `bootctl set-oneshot` would.
+pub(super) fn boot_once(machine: &Machine, entry: &str) -> Result<()> {
+    // UTF-16LE with the terminating NUL; non-volatile, boot and runtime access.
+    let data: String = entry
+        .encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let json = machine.vars.with_extension("oneshot.json");
+    fs::write(
+        &json,
+        format!(
+            r#"{{"version": 2, "variables": [{{"name": "LoaderEntryOneShot", "guid": "4a67b082-0a4c-41cf-b6c7-440b29bb8c4f", "attr": 7, "data": "{data}"}}]}}"#
+        ),
+    )?;
+    let edited = edit_firmware(machine, &["--set-json", &json.to_string_lossy()]);
+    fs::remove_file(&json)?;
+    edited
+}
+
 pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     if !Path::new(OVMF_CODE).exists() {
         bail!("{OVMF_CODE} is missing; install the `ovmf` package");

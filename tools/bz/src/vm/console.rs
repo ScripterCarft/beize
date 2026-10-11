@@ -124,6 +124,8 @@ pub(super) const SMOKE_KEYMAP: &str = "de-latin1-nodeadkeys";
 /// menu, its question for the recovery key, what it says to a wrong key and
 /// before the shell starts.
 pub(super) const EMERGENCY_HEADLINE: &str = "Beize could not start.";
+/// The same gate's headline in the recovery start (ADR 0018).
+pub(super) const RECOVERY_HEADLINE: &str = "Beize recovery.";
 const EMERGENCY_CHOICE: &str = "Choose:";
 const EMERGENCY_KEY_PROMPT: &str = "Recovery key of this computer:";
 pub(super) const EMERGENCY_WRONG_KEY: &str = "That is not the recovery key of this computer.";
@@ -149,6 +151,9 @@ pub(super) struct Answers {
     /// Typed, one after the other, when polkit asks for a password; set, the
     /// first-boot setup is over and its questions stay unanswered.
     passwords: Vec<&'static str>,
+    /// The recovery start: the gate's menu gets "s" once; its own question
+    /// for the key stays unanswered (it must take the initrd's).
+    recovery: bool,
 }
 
 impl Answers {
@@ -181,6 +186,16 @@ impl Answers {
     pub(super) fn emergency_gate(key: &str) -> Self {
         Self {
             emergency_key: Some(key.to_owned()),
+            ..Self::default()
+        }
+    }
+
+    /// The recovery start (ADR 0018): the recovery key where the initrd asks
+    /// for it, then the shell at the gate's menu.
+    pub(super) fn recovery(key: &str) -> Self {
+        Self {
+            recovery_key: Some(key.to_owned()),
+            recovery: true,
             ..Self::default()
         }
     }
@@ -224,6 +239,9 @@ impl Answers {
                 EMERGENCY_KEY_PROMPT,
                 vec![NOT_THE_RECOVERY_KEY.to_owned(), key.clone()],
             ));
+        }
+        if self.recovery {
+            replies.push((EMERGENCY_CHOICE, owned(&["s"])));
         }
         replies
     }

@@ -10,6 +10,13 @@
 //! shell. A wrong key, Ctrl+C or a crash never lead to a shell – systemd
 //! starts this again (`Restart=always` in the units' drop-ins).
 //!
+//! The same gate is the recovery (ADR 0018): the UKI's recovery profile
+//! starts rescue.target with `beize.recovery` on the command line. Its PCR 11
+//! has no signed TPM policy, so the initrd already asked for the recovery
+//! key; the gate takes that key from systemd-cryptsetup's cache in the kernel
+//! keyring – checked against the LUKS2 header like a typed one – instead of
+//! asking a second time.
+//!
 //! The key may be typed with or without its dashes – or with whatever the
 //! dash key gives on another keyboard: only its letters count (ADR 0017).
 
@@ -19,12 +26,16 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use crate::luks;
+use crate::{keyring, luks};
 
 /// The root partition's LUKS2 volume, linked by udev (90-image-dissect.rules).
 const ROOT_LUKS: &str = "/dev/gpt-auto-root-luks";
 /// Shown first; the smoke test waits for it (tools/bz/src/vm/smoke.rs).
 pub const HEADLINE: &str = "Beize could not start.";
+/// Shown first in the recovery instead.
+pub const RECOVERY_HEADLINE: &str = "Beize recovery.";
+/// On the command line of the UKI's recovery profile (bz, image.rs).
+const RECOVERY_PARAMETER: &str = "beize.recovery";
 /// systemd-ask-password's question for the key.
 const KEY_PROMPT: &str = "Recovery key of this computer:";
 /// Measured into PCR 11 before the shell starts.
@@ -34,8 +45,12 @@ const WRONG_KEY_DELAY: Duration = Duration::from_secs(3);
 
 pub fn run() -> Result<(), String> {
     println!();
-    println!("{HEADLINE}");
-    show_failed_units();
+    if recovery() {
+        println!("{RECOVERY_HEADLINE}");
+    } else {
+        println!("{HEADLINE}");
+        show_failed_units();
+    }
     loop {
         println!();
         println!("  r  restart");
@@ -62,6 +77,12 @@ pub fn run() -> Result<(), String> {
             _ => {}
         }
     }
+}
+
+/// Whether this is the recovery start (the UKI's recovery profile).
+fn recovery() -> bool {
+    std::fs::read_to_string("/proc/cmdline")
+        .is_ok_and(|line| line.split_whitespace().any(|p| p == RECOVERY_PARAMETER))
 }
 
 /// What failed, as systemd sees it.
@@ -98,11 +119,24 @@ fn shell() -> Result<(), String> {
                 .into(),
         );
     }
+    // A key the initrd took this start (the recovery, a Secure Boot update)
+    // proves as much as a typed one.
+    for cached in keyring::cached_passphrases("cryptsetup") {
+        let cached = normalized(&cached);
+        if luks::opens(device, &cached)? {
+            return open_shell();
+        }
+    }
     let key = ask_key()?;
     if !luks::opens(device, &normalized(&key))? {
         thread::sleep(WRONG_KEY_DELAY);
         return Err("That is not the recovery key of this computer.".into());
     }
+    open_shell()
+}
+
+/// Locks the TPM, then starts the shell; restarts the computer after it.
+fn open_shell() -> Result<(), String> {
     // Lock the TPM first; without a TPM (--graceful) there is nothing it
     // could unlock, and the key opens the data anyway.
     let locked = Command::new("/usr/lib/systemd/systemd-pcrextend")

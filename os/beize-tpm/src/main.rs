@@ -38,6 +38,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+use crate::policy::Boot;
+
 const EVENT_LOG: &str = "/sys/kernel/security/tpm0/binary_bios_measurements";
 const PCR7: &str = "/sys/class/tpm/tpm0/pcr-sha256/7";
 const PCR12: &str = "/sys/class/tpm/tpm0/pcr-sha256/12";
@@ -76,9 +78,14 @@ fn check_boot() -> Result<(), String> {
     // Anything but a clean PCR 12 – including one that cannot be read – stops
     // the boot here. This never returns then: systemd-cryptsetup@root is
     // ordered after this unit, so it never gets to unlock or to ask.
-    match read_pcr(PCR12) {
-        Ok(pcr12) if policy::boot_unchanged(pcr12) => return Ok(()),
-        Ok(_) => {
+    match read_pcr(PCR12).map(policy::boot) {
+        Ok(Boot::Unchanged) => return Ok(()),
+        Ok(Boot::Recovery) => {
+            println!();
+            println!("Beize recovery: enter the recovery key of this computer.");
+            return Ok(());
+        }
+        Ok(Boot::Changed) => {
             println!();
             println!("This start was changed: something was added to it (kernel parameters,");
             println!("credentials or add-ons, e.g. through the firmware). Beize does not open");
@@ -130,9 +137,15 @@ fn reseal() -> Result<(), String> {
         println!("Secure Boot is off: the TPM stays bound to the previous state.");
         return Ok(());
     }
-    if !policy::boot_unchanged(read_pcr(PCR12)?) {
-        println!("The data stays bound to the previous state: the boot was changed (PCR 12).");
-        return Ok(());
+    match policy::boot(read_pcr(PCR12)?) {
+        Boot::Unchanged => {}
+        // The TPM refuses the recovery profile by design; binding to it
+        // would let the TPM open the data in every recovery start.
+        Boot::Recovery => return Ok(()),
+        Boot::Changed => {
+            println!("The data stays bound to the previous state: the boot was changed (PCR 12).");
+            return Ok(());
+        }
     }
     let events = eventlog::parse(&read(EVENT_LOG)?)?;
     let profile = policy::Profile::load(Path::new(PROFILE))?;
