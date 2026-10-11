@@ -19,6 +19,7 @@ use crate::kernel::{self, Kernel};
 use crate::layout;
 use crate::packages::{self, TARGET};
 use crate::paths::Paths;
+use crate::privileges;
 use crate::say;
 use crate::select::{self, Pool};
 use crate::stamp::Stamp;
@@ -100,6 +101,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         }
     }
     elf::check_tree(paths, &root, "the initrd")?;
+    privileges::check_tree(&root, "the initrd")?;
     tree::normalize_mtimes(&root)?;
 
     util::step("Packing initrd");

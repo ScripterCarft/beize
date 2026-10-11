@@ -62,12 +62,14 @@ pub enum Target {
 /// `/usr` to exactly the slot whose content matches the root hash (systemd
 /// finds data and hash partition by the UUIDs derived from it) and makes the
 /// kernel verify every block read. The root partition is discovered on the
-/// boot disk (and created there on first boot). The last `console=` becomes
+/// boot disk (and created there on first boot). Both are mounted `nosuid`
+/// and `nodev`: no file on them grants privileges or opens a device, not
+/// even one placed there later (ADR 0018). The last `console=` becomes
 /// /dev/console; kernel messages go to both.
 fn kernel_cmdline(root_hash: &str, target: Target) -> String {
     let common = format!(
-        "usrhash={root_hash} mount.usr=/dev/mapper/usr mount.usrfstype=erofs mount.usrflags=ro \
-         rw loglevel=4"
+        "usrhash={root_hash} mount.usr=/dev/mapper/usr mount.usrfstype=erofs \
+         mount.usrflags=ro,nosuid,nodev rw rootflags=nosuid,nodev loglevel=4"
     );
     match target {
         Target::Vm => format!("{common} console=tty0 console=ttyS0,115200"),

@@ -77,6 +77,20 @@ pub(super) const RECOVERY_KEY_SAVED_PROMPT: &str =
 
 /// The owner's account the tests create on first boot (beize-setup).
 pub(super) const SMOKE_USER: &str = "smoke";
+pub(super) const SMOKE_PASSWORD: &str = "smoke-test-password";
+
+/// Credentials that log the owner in on the serial console without a
+/// password (as [`super::run::DEBUG_CONSOLE_CREDENTIALS`] do for root):
+/// the tests act as the owner would at a terminal.
+pub(super) const OWNER_CONSOLE_CREDENTIALS: [&str; 2] = [
+    "type=11,value=io.systemd.credential:tty.serial.ttyS0.agetty.autologin=smoke",
+    "type=11,value=io.systemd.credential:tty.serial.ttyS0.login.noauth=yes",
+];
+
+/// The password question of PAM, here asked by polkit's agent (run0).
+const PASSWORD_PROMPT: &str = "Password:";
+/// How long the owner takes to start typing a password.
+const PASSWORD_PAUSE: Duration = Duration::from_millis(500);
 
 /// Typed as an answer: Ctrl+C alone, without Enter.
 pub(super) const CTRL_C: &str = "\u{3}";
@@ -91,8 +105,8 @@ pub(super) const SETUP_ANSWERS: [(&str, &[&str]); 7] = [
     ("Your keyboard layout", &["German", "de(nodeadkeys)"]),
     ("Your login name", &[SMOKE_USER, SMOKE_USER]),
     ("Your full name", &["Smoke Test", "Smoke Test"]),
-    ("Password again:", &["smoke-test-password"]),
-    ("Password:", &[CTRL_C, "smoke-test-password"]),
+    ("Password again:", &[SMOKE_PASSWORD]),
+    (PASSWORD_PROMPT, &[CTRL_C, SMOKE_PASSWORD]),
     ("Your time zone", &["Brazil"]),
     ("Which one?", &["Sao Paulo"]),
 ];
@@ -132,6 +146,9 @@ pub(super) struct Answers {
     /// The recovery key for the emergency gate, typed after a wrong key and
     /// Ctrl+C were refused; unset: the gate's questions stay unanswered.
     emergency_key: Option<String>,
+    /// Typed, one after the other, when polkit asks for a password; set, the
+    /// first-boot setup is over and its questions stay unanswered.
+    passwords: Vec<&'static str>,
 }
 
 impl Answers {
@@ -168,6 +185,14 @@ impl Answers {
         }
     }
 
+    /// The passwords for polkit's questions (run0), in order.
+    pub(super) fn passwords(passwords: &[&'static str]) -> Self {
+        Self {
+            passwords: passwords.to_vec(),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn adopt_tpm(self, answer: &'static str) -> Self {
         Self {
             adopt_tpm: Some(answer),
@@ -184,11 +209,15 @@ impl Answers {
             (ADOPT_TPM_PROMPT, owned(&[self.adopt_tpm.unwrap_or("no")])),
             (RECOVERY_KEY_SAVED_PROMPT, owned(&["stored"])),
         ];
-        replies.extend(
-            SETUP_ANSWERS
-                .iter()
-                .map(|(prompt, typed)| (*prompt, owned(typed))),
-        );
+        if self.passwords.is_empty() {
+            replies.extend(
+                SETUP_ANSWERS
+                    .iter()
+                    .map(|(prompt, typed)| (*prompt, owned(typed))),
+            );
+        } else {
+            replies.push((PASSWORD_PROMPT, owned(&self.passwords)));
+        }
         if let Some(key) = &self.emergency_key {
             replies.push((EMERGENCY_CHOICE, owned(&["s", CTRL_C, "s"])));
             replies.push((
@@ -508,6 +537,13 @@ fn read_console(
                     let _ = stdin.write_all(CTRL_C.as_bytes());
                     let _ = stdin.flush();
                 }
+            } else if *prompt == PASSWORD_PROMPT && !answers.passwords.is_empty() {
+                // pkttyagent prints the question before it switches the
+                // terminal to hidden input, which discards what was typed
+                // already; a person never types that fast.
+                thread::sleep(PASSWORD_PAUSE);
+                echo(&mut log, &format!("(typing a password at \"{prompt}\")"));
+                answer(reply);
             } else if *prompt == EMERGENCY_KEY_PROMPT {
                 echo(&mut log, &format!("(typing a key at \"{prompt}\")"));
                 answer(reply);
@@ -581,14 +617,23 @@ fn is_unit_failure(line: &str) -> bool {
     line.contains("[FAILED]") || line.contains("[DEPEND]")
 }
 
+/// The line without terminal control sequences: CSI (`ESC [` ... letter) and
+/// OSC (`ESC ]` ... `ESC \` or BEL, e.g. run0's window title and context marks).
 pub(super) fn strip_ansi(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '' && chars.peek() == Some(&'[') {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
             chars.next();
             for c in chars.by_ref() {
                 if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else if c == '\u{1b}' && chars.peek() == Some(&']') {
+            chars.next();
+            while let Some(c) = chars.next() {
+                if c == '\u{7}' || (c == '\u{1b}' && chars.next_if_eq(&'\\').is_some()) {
                     break;
                 }
             }
@@ -602,6 +647,13 @@ pub(super) fn strip_ansi(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strip_ansi_removes_csi_and_osc() {
+        let line =
+            "\u{1b}]3008;end=ab\u{1b}\\BZ-DEBUG-rc0 \u{1b}[1;31mred\u{1b}[0m \u{1b}]2;title\u{7}x";
+        assert_eq!(strip_ansi(line), "BZ-DEBUG-rc0 red x");
+    }
 
     #[test]
     fn recognises_failed_units_on_the_console() {

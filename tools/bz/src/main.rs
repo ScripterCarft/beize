@@ -16,6 +16,7 @@ mod microcode;
 mod outdated;
 mod packages;
 mod paths;
+mod privileges;
 mod recipe;
 mod secureboot;
 mod select;

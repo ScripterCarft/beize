@@ -60,16 +60,12 @@ pub fn debug(
     let answers = recovery_key.map_or_else(Answers::none, Answers::recovery_key);
 
     util::step(&format!("Booting {}", machine.name()));
-    let shell = Shell {
-        session: Session::start(&machine, &answers, &DEBUG_CONSOLE_CREDENTIALS)?,
-        key_given: recovery_key.is_some(),
-    };
-    ensure!(
-        shell.wait_for(REPORT_TIMEOUT, false, |line| line.contains(BOOTED))?,
-        "the system did not finish booting within {}s",
-        REPORT_TIMEOUT.as_secs()
-    );
-    shell.wait_until_ready()?;
+    let shell = Shell::boot(
+        &machine,
+        &answers,
+        &DEBUG_CONSOLE_CREDENTIALS,
+        recovery_key.is_some(),
+    )?;
 
     util::step("Running the commands");
     for (number, command) in commands.iter().enumerate() {
@@ -106,10 +102,67 @@ fn marker_command(tag: &str) -> String {
     format!("printf '{MARKER}%s\\n' {tag}")
 }
 
-/// The root shell on the serial console of a booting machine.
-struct Shell {
+/// The shell on the serial console of a booting machine: root's for `bz
+/// debug`, the owner's in the smoke test (by the credentials it boots with).
+pub(super) struct Shell {
     session: Session,
     key_given: bool,
+}
+
+impl Shell {
+    /// Boots `machine` with `credentials` that log a user in on the serial
+    /// console, and waits until the shell answers.
+    pub(super) fn boot(
+        machine: &Machine,
+        answers: &Answers,
+        credentials: &[&str],
+        key_given: bool,
+    ) -> Result<Self> {
+        let shell = Self {
+            session: Session::start(machine, answers, credentials)?,
+            key_given,
+        };
+        ensure!(
+            shell.wait_for(REPORT_TIMEOUT, false, |line| line.contains(BOOTED))?,
+            "the system did not finish booting within {}s",
+            REPORT_TIMEOUT.as_secs()
+        );
+        shell.wait_until_ready()?;
+        Ok(shell)
+    }
+
+    /// Runs `command` and returns its exit status and the console lines it
+    /// printed (without the echo of the command line itself).
+    pub(super) fn capture(&self, command: &str) -> Result<(i32, Vec<String>)> {
+        self.session
+            .type_line(&format!("{command}; {}", marker_command("rc$?")));
+        let done = format!("{MARKER}rc");
+        let echo = format!("; printf '{MARKER}");
+        let deadline = Instant::now() + COMMAND_TIMEOUT;
+        let mut lines = Vec::new();
+        while let Some(event) = self.session.next(deadline) {
+            let ConsoleEvent::Line(line) = event else {
+                continue;
+            };
+            let line = strip_ansi(line.rsplit('\r').next().unwrap_or_default());
+            if let Some(status) = line.strip_prefix(&done) {
+                return Ok((status.parse()?, lines));
+            }
+            if !line.contains(&echo) {
+                lines.push(line);
+            }
+        }
+        bail!(
+            "`{command}` did not finish within {}s",
+            COMMAND_TIMEOUT.as_secs()
+        )
+    }
+
+    /// Stops the machine (the test needs no clean power-off).
+    pub(super) fn stop(self) -> Result<()> {
+        self.session.power_off_within(Duration::ZERO)?;
+        Ok(())
+    }
 }
 
 impl Shell {

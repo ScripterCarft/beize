@@ -15,6 +15,7 @@ use crate::kernel::{self, Kernel};
 use crate::layout;
 use crate::packages::{self, BUILD_EPOCH};
 use crate::paths::Paths;
+use crate::privileges;
 use crate::say;
 use crate::stamp::Stamp;
 use crate::tree;
@@ -87,6 +88,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     install_modules(paths, &kernel, &root, |_| true)?;
     ensure_no_firmware_needed(paths, &kernel)?;
     elf::check_tree(paths, &root, "/usr")?;
+    privileges::check_tree(&root, "/usr")?;
     fs::write(usr.join("lib/os-release"), layout::os_release())?;
     write_repart_definitions(&usr)?;
 
@@ -96,6 +98,9 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         Command::new("mkfs.erofs")
             .arg("-zlz4hc")
             .arg("--all-root")
+            // No extended attributes: nothing in /usr needs one, and without
+            // them no file can carry capabilities (ADR 0018).
+            .arg("-x-1")
             .arg(format!("-T{BUILD_EPOCH}"))
             .arg(format!("-U{USR_FS_UUID}"))
             .arg(format!("-L{}", layout::usr_label()))

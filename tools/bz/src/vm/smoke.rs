@@ -31,10 +31,11 @@ use super::checks::{
 };
 use super::console::{
     Answers, ConsoleEvent, EMERGENCY_HEADLINE, EMERGENCY_SHELL_STARTS, EMERGENCY_WRONG_KEY,
-    LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS, SETUP_STARTS_OVER,
-    SMOKE_CREDENTIALS, SMOKE_USER, Session, TAMPER_TIMEOUT, find_recovery_key, strip_ansi,
-    watch_boot,
+    LAST_CONSOLE, OWNER_CONSOLE_CREDENTIALS, RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT,
+    SETUP_ANSWERS, SETUP_STARTS_OVER, SMOKE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, Session,
+    TAMPER_TIMEOUT, find_recovery_key, strip_ansi, watch_boot,
 };
+use super::debug::Shell;
 use super::machine::{Machine, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
 use super::report::{BootReport, REPORT_MARKER};
 use crate::paths::Paths;
@@ -54,6 +55,7 @@ enum Scenario {
     CorruptedUsr,
     OwnerKeys,
     EmergencyGate,
+    Privileges,
 }
 
 use Scenario::*;
@@ -61,9 +63,10 @@ use Scenario::*;
 /// What starts right away; the longest first, so they finish together.
 const INDEPENDENT: [Scenario; 3] = [OwnerKeys, CorruptedUsr, UnsignedUki];
 /// What starts from a copy of the installation once [`Install`] passed.
-const ON_THE_INSTALLATION: [Scenario; 6] = [
+const ON_THE_INSTALLATION: [Scenario; 7] = [
     OtherTpm,
     EmergencyGate,
+    Privileges,
     ForeignDb,
     SecureBootUpdate,
     SecureBootOff,
@@ -91,6 +94,9 @@ impl Scenario {
             EmergencyGate => {
                 "A failed start gives a shell only for the recovery key, and the TPM is locked then"
             }
+            Privileges => {
+                "The owner gets root with run0 and their password only; no file grants privileges"
+            }
         }
     }
 
@@ -111,6 +117,7 @@ impl Scenario {
             CorruptedUsr => corrupted_usr(paths),
             OwnerKeys => owner_workflow(paths),
             EmergencyGate => emergency_gate(paths, smoke.installed()?),
+            Privileges => privileges(paths, smoke.installed()?),
         }
     }
 }
@@ -596,6 +603,85 @@ fn emergency_gate(paths: &Paths, installed: &Installed) -> Result<()> {
              from which the TPM unlocks nothing"
         ),
     }
+    machine.remove()
+}
+
+/// Privileges (ADR 0018), as the owner at a terminal: run0 refuses a wrong
+/// password and gives root for the right one; a file made setuid or given a
+/// capability grants nothing, because / and /usr are mounted nosuid.
+fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
+    let machine = installed.machine.copy_as(paths, "smoke-privileges")?;
+    // The serial console is no active session: polkit asks every time.
+    let answers = Answers::passwords(&["wrong-password", SMOKE_PASSWORD, SMOKE_PASSWORD]);
+    let shell = Shell::boot(&machine, &answers, &OWNER_CONSOLE_CREDENTIALS, false)?;
+
+    let (status, lines) = shell.capture("run0 id -u")?;
+    ensure!(
+        status != 0 && lines.iter().any(|l| l.contains("AUTHENTICATION FAILED")),
+        "run0 did not refuse a wrong password (exit status {status}): {lines:?}"
+    );
+    ensure!(
+        !lines.iter().any(|l| l.contains("wrong-password")),
+        "the password was shown while it was typed: {lines:?}"
+    );
+    ensure!(
+        !lines.iter().any(|l| l.contains("Unknown line")),
+        "polkit's agent got the helper's error messages: {lines:?}"
+    );
+    let (status, lines) = shell.capture("run0 bash -c 'echo BEIZE-UID-$(id -u)'")?;
+    ensure!(
+        status == 0 && lines.iter().any(|l| l.contains("BEIZE-UID-0")),
+        "run0 with the owner's password did not run as root (exit status {status}): {lines:?}"
+    );
+    ensure!(
+        lines
+            .iter()
+            .any(|l| l.contains(&format!("Authenticating as: Smoke Test ({SMOKE_USER})"))),
+        "polkit did not ask for the owner's own password: {lines:?}"
+    );
+    say!("  ok: run0 refuses a wrong password and runs as root with the owner's");
+
+    // Mount options of / and /usr (field 6 of mountinfo), without grep.
+    let (_, lines) = shell.capture(
+        "while read -r _ _ _ _ m o _; do case $m in /|/usr) echo \"BEIZE-MOUNT $m $o\";; esac; \
+         done < /proc/self/mountinfo",
+    )?;
+    for mount in ["/", "/usr"] {
+        let options = lines
+            .iter()
+            .find_map(|l| l.strip_prefix(&format!("BEIZE-MOUNT {mount} ")))
+            .with_context(|| format!("{mount} is not mounted: {lines:?}"))?;
+        let options: Vec<&str> = options.split(',').collect();
+        ensure!(
+            options.contains(&"nosuid") && options.contains(&"nodev"),
+            "{mount} is mounted without nosuid,nodev: {options:?}"
+        );
+    }
+    // The counter-check: as root, a setuid copy of id and a copy of cat with
+    // the capability to read any file, both in /var.
+    let (status, lines) = shell.capture(
+        "run0 bash -c 'cp /usr/bin/id /usr/bin/cat /var/tmp/ && chmod 4755 /var/tmp/id \
+         && setcap cap_dac_read_search=ep /var/tmp/cat && echo BEIZE-PREPARED'",
+    )?;
+    ensure!(
+        status == 0 && lines.iter().any(|l| l.contains("BEIZE-PREPARED")),
+        "could not prepare the setuid and capability files (exit status {status}): {lines:?}"
+    );
+    let (_, lines) = shell.capture("echo BEIZE-SETUID-$(/var/tmp/id -u)")?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-SETUID-1000"),
+        "a setuid-root file in /var ran with other rights than the owner's: {lines:?}"
+    );
+    let (status, _) = shell.capture("/var/tmp/cat /etc/shadow > /dev/null")?;
+    ensure!(
+        status != 0,
+        "a file with a capability in /var read /etc/shadow for the owner"
+    );
+    say!(
+        "  ok: / and /usr are mounted nosuid,nodev; a setuid file and a file capability \
+         in /var grant nothing"
+    );
+    shell.stop()?;
     machine.remove()
 }
 
