@@ -71,7 +71,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (die eine Konten-Schnittstelle, Modul homed über sd-bus; `beize-account passwd|reset`) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -103,7 +103,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   `build/work/logs/boot/NN-<maschine>.log` (gehört immer zum letzten smoke/debug/run),
   daneben das Journal jedes Starts mit Boot-Report als `.journal.json` (über eine leere virtio-Disk;
   `bz boot-times <datei>`). Smoke zeigt beim Start mit Zeitbudget die langsamsten Units.
-  `bz` beantwortet als Terminal der seriellen Konsole systemds Größenabfrage (sonst 2× 333 ms).
+  Die Konsolengröße der VM steht in der Kommandozeile (`systemd.tty.*`, sonst fragt PID 1 2× 333 ms).
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Rezeptänderung an systemd
   ~5 min (frisches Build-Verzeichnis, dazu dbus); voller Neubau ~10–15 min.
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke.rs` (Modul-Doku) und
@@ -125,7 +125,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (beize-accounts, homed, ein Recovery-Key, eigener homed-Patch). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -140,6 +140,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   nach Vorbild `recipes/beize-tpm.toml`. Crates mit Build-Skript meiden (laufen mit
   dem Host-cc). Krypto nie selbst schreiben.
 - Rezepte **ohne** `repo` behalten ihren Fingerprint (Test) – sonst baut alles neu.
+- **Eigene Patches** (`patches = [...]`, Dateien unter `recipes/patches/<paket>/`) nur als
+  begründete Ausnahme mit dem Besitzer und upstream vorgeschlagen; einzige bisher: homed
+  (ADR 0019). Gepatchte Quellen liegen in `build/work/src/<stem>+patched`.
 - **Ein Paket sieht beim Bauen nur seine (transitiven) `deps` im Sysroot.** Fehlt etwas,
   gehört es in `deps` – nicht die Sperre umgehen.
 - Build-Jobs nach RAM begrenzt (1,5 GiB/Job), parallele VMs nach CPUs/RAM (je 4 CPUs
@@ -278,9 +281,11 @@ initrd 4,80–5,58 s, System 3,50–4,04 s. initrd in der CI (2. Start): bis 5a 
 2,38–2,41 s. **Messwerkzeug fertig (`b898b9c`):** Smoke behält das Journal jedes Starts
 (`.journal.json`), zeigt die langsamsten Units. Erster Fund: PID 1 wartete in jedem VM-Start
 2× 333 ms auf eine Terminal-Antwort (CSI 18), `bz` antwortet jetzt → lokal Gast 5,0 → 3,7 s
-(initrd 1,70, System 1,61 s). **Offen:** CI-Lauf 38138839583 auswerten (Zeile „slowest units“
-im Log; bei rot: Artefakt `build-logs` mit `bz boot-times`), Ursache der langsameren
-CI-initrd finden, dann `BOOT_BUDGET` + Kommentar neu messen.
+(initrd 1,70, System 1,61 s). Journal über eine leere virtio-Disk (über die serielle Schnittstelle
+war es in der CI zu langsam). CI 38139971446 grün: 2. Start initrd 2,99–3,28 s (statt 4,8), System
+2,44–3,19 s; jede Unit dort 1,5–3× langsamer als lokal (cryptsetup, TPM) – verschachtelte
+Virtualisierung, keine einzelne Ursache. **Offen:** `BOOT_BUDGET` + Kommentar nach weiteren
+CI-Läufen neu festlegen.
 **Hardware-Test 5b (Besitzer, 2026-10-11):** Wer zum Abtippen des Recovery-Keys über 90 s brauchte,
 landete im Notfall-Tor – systemd-gpt-auto-generator hebt die Gerätefrist nur für
 `dev-mapper-root.device` auf, `sysroot.mount` wartet auf `/dev/gpt-auto-root` (upstream main
@@ -290,10 +295,18 @@ Zweiter Hardware-Fund: in der Wiederherstellung scheiterte „Early TPM SRK Setu
 dort nach, wenn die initrd sie übersprang) – Drop-in auch in `system/usr`, Smoke prüft
 `ConditionResult=no` (CI 38136757166 grün). Beides bei der nächsten Neuinstallation prüfen.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
-**ADR 0019 (Konten) als Entwurf in `docs/adr/0019-konten.md` (nicht committet) – wartet auf
-die Antwort des Besitzers zu den zwei offenen Punkten am Ende, dann 5d bauen.** Wichtig aus
-dem Quelltext (v262): homed ändert Passwörter nur mit altem Passwort oder hinterlegtem
-Recovery-Key, auch für root; beim Anlegen braucht es den Klartext jedes Keys.
+**Phase 5d abgeschlossen (ADR 0019, 2026-10-11, Smoke 3× grün):** Konten über `beize-accounts`
+(homed, Speicher „directory“), Setup legt das Konto mit dem Recovery-Key an, `beize-account
+passwd` (altes Passwort) und `reset` (in der Wiederherstellung, Key vom Notfall-Tor), PAM mit
+pam_systemd_home (`user_unknown=ignore default=die`). Eigener homed-Patch (Recovery-Key nicht bei
+jedem Passwortwechsel, systemd#25876) – Vorschlag für upstream: WSL
+`~/upstream/systemd-homed-recovery-key/` (sendet der Besitzer). Smoke meldet den Besitzer jetzt mit
+Passwort an (homed öffnet das Home nur so). VM-Konsolengröße per `systemd.tty.*` statt Antwort
+von `bz`: die Antwort kam unter Last zu spät und landete im getippten Recovery-Key (2× rot im
+Secure-Boot-Szenario). Admin setzt Passwort anderer zurück: später (ADR 0019, Konsequenzen).
+**Hardware-Check 5d (Besitzer, Neuinstallation):** Setup → Anmelden mit Passwort → `beize-account
+passwd` → Wiederherstellung → `beize-account reset <name>` → Anmelden mit dem neuen Passwort.
+**Nächster Schritt: Phase 6 (A/B-Updates, ADR 0020) entwerfen und abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
@@ -340,7 +353,7 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
    b) ✓ Rechte (ADR 0018): run0 + polkit, root gesperrt, kein setuid, Wiederherstellung.
    c) ✓ iputils `ping` + `tracepath` ohne Rechte (ping_group_range), Smoke-Check.
-   d) Konten (ADR 0019, vorab abstimmen): systemd-homed (Speicher „directory“, wie macOS
+   d) ✓ Konten (ADR 0019): systemd-homed (Speicher „directory“, wie macOS
       ohne Verschlüsselung je Benutzer), Passwort ändern, Zurücksetzen in der
       Wiederherstellung mit **einem** Recovery-Key; beize-setup legt das Konto über homed
       an. Besitzer (2026-10-11): nur, wenn es wirklich stabil läuft – bei merkwürdigen

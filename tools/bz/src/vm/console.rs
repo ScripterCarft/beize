@@ -95,13 +95,12 @@ pub(super) const RECOVERY_KEY_SAVED_PROMPT: &str =
 pub(super) const SMOKE_USER: &str = "smoke";
 pub(super) const SMOKE_PASSWORD: &str = "smoke-test-password";
 
-/// Credentials that log the owner in on the serial console without a
-/// password (as [`super::run::DEBUG_CONSOLE_CREDENTIALS`] do for root):
-/// the tests act as the owner would at a terminal.
-pub(super) const OWNER_CONSOLE_CREDENTIALS: [&str; 2] = [
-    "type=11,value=io.systemd.credential:tty.serial.ttyS0.agetty.autologin=smoke",
-    "type=11,value=io.systemd.credential:tty.serial.ttyS0.login.noauth=yes",
-];
+/// A credential that names the owner at the serial console's login; the
+/// password is asked as for a person – homed makes the home available only
+/// with it (ADR 0019), so it is the first answer at "Password:". The tests
+/// act as the owner would at a terminal.
+pub(super) const OWNER_CONSOLE_CREDENTIALS: [&str; 1] =
+    ["type=11,value=io.systemd.credential:tty.serial.ttyS0.agetty.autologin=smoke"];
 
 /// The password question of PAM, here asked by polkit's agent (run0).
 const PASSWORD_PROMPT: &str = "Password:";
@@ -170,9 +169,20 @@ pub(super) struct Answers {
     /// The recovery start: the gate's menu gets "s" once; its own question
     /// for the key stays unanswered (it must take the initrd's).
     recovery: bool,
+    /// Further questions and what is typed at them, one after the other
+    /// (see [`Answers::answering`]).
+    more: Vec<(&'static str, Vec<String>)>,
 }
 
 impl Answers {
+    /// Also types `typed`, one after the other, where the console asks
+    /// `prompt` – a question no other answer matches.
+    pub(super) fn answering(mut self, prompt: &'static str, typed: &[&str]) -> Self {
+        self.more
+            .push((prompt, typed.iter().map(|t| (*t).to_owned()).collect()));
+        self
+    }
+
     pub(super) fn none() -> Self {
         Self::default()
     }
@@ -259,6 +269,7 @@ impl Answers {
         if self.recovery {
             replies.push((EMERGENCY_CHOICE, owned(&["s"])));
         }
+        replies.extend(self.more.iter().cloned());
         replies
     }
 }
@@ -505,36 +516,6 @@ fn echo(log: &mut File, line: &str) {
     }
 }
 
-/// The console's size, as systemd asks it from a terminal (CSI 18 t) when PID
-/// 1 starts, in the initrd and again after switching root. bz is the
-/// terminal of the serial console: unanswered, PID 1 waits 333 ms each time
-/// (on a virtual console systemd no longer asks, upstream 4ca7ac0275).
-const SIZE_QUERY: &[u8] = b"\x1b[18t";
-/// 24 rows of 80 columns: what systemd assumes for a terminal that does not
-/// say, so the console's output stays the same.
-const SIZE_REPLY: &[u8] = b"\x1b[8;24;80t";
-
-/// Counts [`SIZE_QUERY`] in the console's output, also when a read splits it.
-#[derive(Default)]
-struct SizeQueries {
-    /// The end of the previous read, shorter than a query.
-    tail: Vec<u8>,
-}
-
-impl SizeQueries {
-    fn count(&mut self, chunk: &[u8]) -> usize {
-        let mut bytes = std::mem::take(&mut self.tail);
-        bytes.extend_from_slice(chunk);
-        let found = bytes
-            .windows(SIZE_QUERY.len())
-            .filter(|w| *w == SIZE_QUERY)
-            .count();
-        let keep = bytes.len().min(SIZE_QUERY.len() - 1);
-        self.tail = bytes.split_off(bytes.len() - keep);
-        found
-    }
-}
-
 /// The reader thread: logs every console line, answers the console's
 /// questions and passes the lines on until QEMU closes the console.
 fn read_console(
@@ -560,14 +541,8 @@ fn read_console(
     // keyboard ends without a newline on the serial console.
     let mut prompts_in_line = 0;
     let mut pending = Vec::new();
-    let mut size_queries = SizeQueries::default();
     let mut chunk = [0u8; 4096];
     while let Ok(n @ 1..) = stdout.read(&mut chunk) {
-        for _ in 0..size_queries.count(&chunk[..n]) {
-            if let Ok(mut stdin) = stdin.lock() {
-                let _ = stdin.write_all(SIZE_REPLY).and_then(|()| stdin.flush());
-            }
-        }
         pending.extend_from_slice(&chunk[..n]);
         while let Some(end) = pending.iter().position(|&b| b == b'\n') {
             line_answered = false;
@@ -642,6 +617,12 @@ fn read_console(
                 answer(reply);
             } else if *prompt == EMERGENCY_KEY_PROMPT {
                 echo(&mut log, &format!("(typing a key at \"{prompt}\")"));
+                answer(reply);
+            } else if answers.more.iter().any(|(more, _)| more == prompt) {
+                // Mostly passwords: hidden input begins only once the
+                // question is shown, and a person reads it first.
+                thread::sleep(PASSWORD_PAUSE);
+                echo(&mut log, &format!("(typing at \"{prompt}\")"));
                 answer(reply);
             } else {
                 echo(&mut log, &format!("(answering \"{prompt}\": {reply})"));
@@ -744,16 +725,6 @@ pub(super) fn strip_ansi(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn size_queries_are_found_across_reads() {
-        let mut queries = SizeQueries::default();
-        assert_eq!(queries.count(b"Welcome\x1b[18t\x1b"), 1);
-        assert_eq!(queries.count(b"[18"), 0);
-        assert_eq!(queries.count(b"t\x1b[6n"), 1, "split over three reads");
-        assert_eq!(queries.count(b"\x1b[18t\x1b[18t"), 2);
-        assert_eq!(queries.count(b"[18t"), 0, "not counted twice");
-    }
 
     #[test]
     fn journal_ends_where_the_empty_disk_begins() {

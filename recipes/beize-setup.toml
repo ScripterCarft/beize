@@ -3,9 +3,11 @@
 name = "beize-setup"
 version = "0.1.0"
 stage = "target"
-# libgcc_s for Rust's unwinding; libxcrypt for the password hash.
-deps = ["gcc", "glibc", "gcc-runtime", "libxcrypt"]
-repo = ["os/beize-setup", "Cargo.toml", "Cargo.lock"]
+# libgcc_s for Rust's unwinding. It creates the account through
+# beize-accounts: libxcrypt for the password hash, libsystemd (sd-bus) to talk
+# to homed.
+deps = ["gcc", "glibc", "gcc-runtime", "libxcrypt", "systemd"]
+repo = ["os/beize-setup", "os/beize-accounts", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''

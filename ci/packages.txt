@@ -35,6 +35,8 @@ python3-pyelftools
 ca-certificates
 curl
 git
+# Beize's own source patches (recipes/patches, bz)
+patch
 gpgv
 # ssh-keygen: SSH-signed sources (git's SSH signing, e.g. ntpd-rs)
 openssh-client
@@ -52,6 +54,8 @@ cryptsetup-bin
 libcrypt-dev
 # libcryptsetup to link beize-tpm on the build host (cargo test)
 libcryptsetup-dev
+# libsystemd (sd-bus) to link beize-accounts on the build host (cargo test)
+libsystemd-dev
 dosfstools
 erofs-utils
 fdisk

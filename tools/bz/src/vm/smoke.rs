@@ -550,6 +550,19 @@ fn unsigned_uki(paths: &Paths) -> Result<()> {
 /// restart after Ctrl+C and the shell.
 const GATE_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// beize-account's questions (os/beize-accounts/src/main.rs) and homectl's
+/// for a password; "New password:" is not part of "New password again:".
+const CURRENT_PASSWORD_PROMPT: &str = "Current password of";
+const NEW_PASSWORD_PROMPT: &str = "New password:";
+const NEW_PASSWORD_AGAIN_PROMPT: &str = "New password again:";
+const HOMECTL_PASSWORD_PROMPT: &str = "Please enter password for user";
+/// pam_systemd_home after a wrong password.
+const TRY_AGAIN_PROMPT: &str = "Sorry, try again:";
+/// The owner's password after changing it, and after resetting it.
+const CHANGED_PASSWORD: &str = "smoke-changed-password";
+const RESET_PASSWORD: &str = "smoke-reset-password";
+const WRONG_PASSWORD: &str = "wrong-password";
+
 /// Like a thief who damages the disk so that the start fails after the TPM
 /// unlocked the data (ADR 0016): the console must not hand out a shell – not
 /// for a wrong key, not after Ctrl+C. With the recovery key it does, and from
@@ -624,13 +637,15 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
         &machine,
         &format!("{}{}", layout::blessed_uki_name(), image::RECOVERY_ENTRY),
     )?;
-    let session = Session::start(
-        &machine,
-        &Answers::recovery(&installed.recovery_key),
-        &SMOKE_CREDENTIALS,
-    )?;
+    // A forgotten password (ADR 0019): reset with the recovery key the gate
+    // checked, then homed must take the new password.
+    let answers = Answers::recovery(&installed.recovery_key)
+        .answering(NEW_PASSWORD_PROMPT, &[RESET_PASSWORD])
+        .answering(NEW_PASSWORD_AGAIN_PROMPT, &[RESET_PASSWORD])
+        .answering(HOMECTL_PASSWORD_PROMPT, &[RESET_PASSWORD]);
+    let session = Session::start(&machine, &answers, &SMOKE_CREDENTIALS)?;
     let deadline = Instant::now() + GATE_TIMEOUT;
-    let (mut prompted, mut headline, mut shell) = (false, false, None);
+    let (mut prompted, mut headline, mut shell, mut reset) = (false, false, None, None);
     let mut failed = Vec::new();
     while let Some(event) = session.next(deadline) {
         let ConsoleEvent::Line(line) = event else {
@@ -649,6 +664,12 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
             );
         } else if let Some(found) = line.strip_prefix("BEIZE-RECOVERY-") {
             shell = Some(found.to_owned());
+            session.type_line(&format!(
+                "beize-account reset {SMOKE_USER} && homectl authenticate {SMOKE_USER}; \
+                 echo BEIZE-RESET-$?"
+            ));
+        } else if let Some(status) = line.strip_prefix("BEIZE-RESET-") {
+            reset = Some(status.to_owned());
             break;
         }
     }
@@ -667,8 +688,9 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
             GATE_TIMEOUT.as_secs()
         );
     };
+    // homed keeps the owner's home in /home/<name>.homedir.
     ensure!(
-        shell.starts_with("0-") && shell.ends_with(&format!("-{SMOKE_USER}")),
+        shell.starts_with("0-") && shell.ends_with(&format!("-{SMOKE_USER}.homedir")),
         "the recovery shell is not root with the data unlocked: {shell}"
     );
     // The NvPCR setup needs the signed initrd policy: skipped, not failed
@@ -678,6 +700,12 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
         "the recovery started the TPM's NvPCR setup in the system: {shell}"
     );
     say!("  ok: the recovery asks for the recovery key once and opens a root shell with the data");
+    ensure!(
+        reset.as_deref() == Some("0"),
+        "beize-account reset with the recovery key did not give the owner a new password \
+         that homed takes (status {reset:?})"
+    );
+    say!("  ok: in the recovery the recovery key sets a new password, without typing it again");
     boot_healthy(&machine, 3, &Answers::none())?;
     say!("  ok: after the recovery the TPM unlocks by itself again");
     machine.remove()
@@ -688,17 +716,31 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
 /// capability grants nothing, because / and /usr are mounted nosuid.
 fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-privileges")?;
-    // The serial console is no active session: polkit asks every time.
-    let answers = Answers::passwords(&[
-        "wrong-password",
+    // The login first, then polkit's questions: the serial console is no
+    // active session, so polkit asks every time. A wrong password comes
+    // last: pam_systemd_home asks again after one (up to five times, like
+    // sudo), and polkit's agent tries a second time – however often they
+    // ask, from there on only wrong passwords and empty answers are typed.
+    let mut passwords = vec![
         SMOKE_PASSWORD,
         SMOKE_PASSWORD,
         SMOKE_PASSWORD,
-    ]);
+        SMOKE_PASSWORD,
+        CHANGED_PASSWORD,
+    ];
+    passwords.extend([WRONG_PASSWORD; 10]);
+    let answers = Answers::passwords(&passwords)
+        .answering(TRY_AGAIN_PROMPT, &[WRONG_PASSWORD, ""].repeat(5))
+        // beize-account passwd twice: with a wrong current password, then
+        // with the right one.
+        .answering(CURRENT_PASSWORD_PROMPT, &[WRONG_PASSWORD, SMOKE_PASSWORD])
+        .answering(NEW_PASSWORD_PROMPT, &[CHANGED_PASSWORD; 2])
+        .answering(NEW_PASSWORD_AGAIN_PROMPT, &[CHANGED_PASSWORD; 2]);
     let shell = Shell::boot(&machine, &answers, &OWNER_CONSOLE_CREDENTIALS, false)?;
     // How long the login took, on the guest's clock: from the start of the
     // serial getty to the start of the owner's shell (field 22 of its stat,
-    // in clock ticks of 10 ms on x86).
+    // in clock ticks of 10 ms on x86), without the pause before typing the
+    // password.
     let (_, lines) = shell.capture(
         "read -r -a s < /proc/$$/stat; echo BEIZE-LOGIN \
          $(systemctl show -P ExecMainStartTimestampMonotonic serial-getty@ttyS0.service) ${s[21]}",
@@ -709,23 +751,10 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
             let mut fields = l.strip_prefix("BEIZE-LOGIN ")?.split(' ');
             let getty_us: u64 = fields.next()?.parse().ok()?;
             let shell_ticks: u64 = fields.next()?.parse().ok()?;
-            (shell_ticks * 10).checked_sub(getty_us / 1000)
+            (shell_ticks * 10).checked_sub(getty_us / 1000 + PASSWORD_PAUSE.as_millis() as u64)
         })
         .with_context(|| format!("could not measure the login: {lines:?}"))?;
 
-    let (status, lines) = shell.capture("run0 id -u")?;
-    ensure!(
-        status != 0 && lines.iter().any(|l| l.contains("AUTHENTICATION FAILED")),
-        "run0 did not refuse a wrong password (exit status {status}): {lines:?}"
-    );
-    ensure!(
-        !lines.iter().any(|l| l.contains("wrong-password")),
-        "the password was shown while it was typed: {lines:?}"
-    );
-    ensure!(
-        !lines.iter().any(|l| l.contains("Unknown line")),
-        "polkit's agent got the helper's error messages: {lines:?}"
-    );
     let started = Instant::now();
     let (status, lines) = shell.capture("run0 bash -c 'echo BEIZE-UID-$(id -u)'")?;
     let run0_ms = started.elapsed().saturating_sub(PASSWORD_PAUSE).as_millis();
@@ -739,7 +768,11 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
             .any(|l| l.contains(&format!("Authenticating as: Smoke Test ({SMOKE_USER})"))),
         "polkit did not ask for the owner's own password: {lines:?}"
     );
-    say!("  ok: run0 refuses a wrong password and runs as root with the owner's");
+    ensure!(
+        !lines.iter().any(|l| l.contains("Unknown line")),
+        "polkit's agent got the helper's error messages: {lines:?}"
+    );
+    say!("  ok: run0 runs as root with the owner's password");
     say!(
         "  measured: login {login_ms} ms (getty to shell), run0 with the password \
          {run0_ms} ms (without typing)"
@@ -778,9 +811,14 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         status == 0 && lines.iter().any(|l| l.contains("BEIZE-PREPARED")),
         "could not prepare the setuid and capability files (exit status {status}): {lines:?}"
     );
-    let (_, lines) = shell.capture("echo BEIZE-SETUID-$(/var/tmp/id -u)")?;
+    // The same as the owner's own (homed gives people IDs from 60001 on).
+    let (_, lines) = shell.capture("echo BEIZE-SETUID-$(/var/tmp/id -u)-$(id -u)")?;
     ensure!(
-        lines.iter().any(|l| l == "BEIZE-SETUID-1000"),
+        lines.iter().any(|l| {
+            l.strip_prefix("BEIZE-SETUID-")
+                .and_then(|ids| ids.split_once('-'))
+                .is_some_and(|(setuid, own)| setuid == own && own != "0")
+        }),
         "a setuid-root file in /var ran with other rights than the owner's: {lines:?}"
     );
     let (status, _) = shell.capture("/var/tmp/cat /etc/shadow > /dev/null")?;
@@ -819,6 +857,64 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         );
     }
     say!("  ok: the owner pings (IPv4, IPv6) and traces a path without privileges");
+
+    // Accounts (ADR 0019): the owner changes their own password through the
+    // one account interface – with the current password, not the recovery
+    // key (Beize's homed patch) – and a wrong one changes nothing.
+    let (status, lines) = shell.capture("beize-account passwd")?;
+    ensure!(
+        status != 0
+            && lines
+                .iter()
+                .any(|l| l.contains("That is not the current password.")),
+        "beize-account passwd changed the password with a wrong current one \
+         (exit status {status}): {lines:?}"
+    );
+    let started = Instant::now();
+    let (status, lines) = shell.capture("beize-account passwd")?;
+    let passwd_ms = started.elapsed().as_millis();
+    ensure!(
+        status == 0 && lines.iter().any(|l| l.contains("Password changed.")),
+        "beize-account passwd did not change the owner's password (exit status {status}): \
+         {lines:?}"
+    );
+    let (status, lines) = shell.capture("run0 bash -c 'echo BEIZE-NEW-$(id -u)'")?;
+    ensure!(
+        status == 0 && lines.iter().any(|l| l.contains("BEIZE-NEW-0")),
+        "run0 did not take the owner's new password (exit status {status}): {lines:?}"
+    );
+    say!("  ok: the owner changed their password with beize-account; run0 takes the new one");
+    // Last (see the answers above): a wrong password gives nothing.
+    let (status, lines) = shell.capture("run0 id -u")?;
+    ensure!(
+        status != 0
+            && lines
+                .iter()
+                .any(|l| l.contains("Password incorrect or not sufficient")),
+        "run0 did not refuse a wrong password (exit status {status}): {lines:?}"
+    );
+    ensure!(
+        !lines.iter().any(|l| l.contains(WRONG_PASSWORD)),
+        "the password was shown while it was typed: {lines:?}"
+    );
+    say!("  ok: run0 refuses a wrong password, however often it is asked");
+    // What homed costs while it waits: memory and CPU time since the boot.
+    let (_, lines) = shell.capture(
+        "echo BEIZE-HOMED $(systemctl show -P MemoryCurrent systemd-homed) \
+         $(systemctl show -P CPUUsageNSec systemd-homed)",
+    )?;
+    let homed = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-HOMED "))
+        .context("could not read homed's memory and CPU time")?;
+    let mut homed = homed.split(' ').map(|n| n.parse::<u64>().unwrap_or(0));
+    let (memory, cpu) = (homed.next().unwrap_or(0), homed.next().unwrap_or(0));
+    say!(
+        "  measured: password change {passwd_ms} ms (with typing); homed {:.1} MiB memory, \
+         {} ms CPU time in all",
+        memory as f64 / 1_048_576.0,
+        cpu / 1_000_000
+    );
     shell.stop()?;
     machine.remove()
 }

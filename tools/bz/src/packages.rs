@@ -56,7 +56,10 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
             visible.extend(closures[dep].iter().cloned());
         }
 
-        let fingerprint = fingerprint(recipe, &repo_digest(paths, recipe)?, &fingerprints);
+        // Beize's own files a build depends on: its code and its patches
+        // (both empty for an unchanged upstream package).
+        let local = repo_digest(paths, recipe)? + &recipe.patch_digest(paths)?;
+        let fingerprint = fingerprint(recipe, &local, &fingerprints);
         let stamp = stamps.join(&recipe.name);
         if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
             up_to_date += 1;

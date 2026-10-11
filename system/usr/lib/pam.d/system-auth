@@ -1,13 +1,26 @@
-# Beize's shared PAM stack: local accounts in /etc/passwd and /etc/shadow,
-# passwords hashed with yescrypt (libxcrypt). Included by the services below.
+# Beize's shared PAM stack. People's accounts come from systemd-homed
+# (ADR 0019): pam_systemd_home checks their passwords and makes their home
+# available for a session. For an account homed does not keep it says
+# user_unknown, and pam_unix takes over: /etc/passwd and /etc/shadow,
+# passwords hashed with yescrypt (libxcrypt). Any other failure of
+# pam_systemd_home ends the stack (die) – pam_unix cannot check a homed
+# account and would only ask for the password a second time. Included by the
+# services below.
 # Ships in /usr/lib/pam.d; a file of the same name in /etc/pam.d overrides it.
 auth      required  pam_faildelay.so delay=2000000
+auth      [success=done user_unknown=ignore default=die] pam_systemd_home.so
 auth      required  pam_unix.so
 
+# As systemd's own systemd-user stack.
+account   [success=done authtok_expired=bad new_authtok_reqd=bad maxtries=bad acct_expired=bad default=ignore] pam_systemd_home.so
 account   required  pam_unix.so
 
+password  [success=done user_unknown=ignore default=die] pam_systemd_home.so
 password  required  pam_unix.so yescrypt shadow
 
 session   required  pam_limits.so
+# Before pam_systemd (in the including service): the home must be there
+# when the user's service manager starts.
+session   optional  pam_systemd_home.so
 session   required  pam_unix.so
 session   optional  pam_umask.so silent

@@ -80,13 +80,24 @@ pub enum Target {
 /// and `nodev`: no file on them grants privileges or opens a device, not
 /// even one placed there later (ADR 0018). The last `console=` becomes
 /// /dev/console; kernel messages go to both.
+///
+/// In the VM the console is a serial port, which cannot tell its size: PID 1
+/// would ask the terminal at its other end (CSI 18 t) and wait 333 ms for an
+/// answer, in the initrd and after switching root – `bz` answers nothing,
+/// and an answer after that wait would end up as typed input. So the size
+/// is on the command line, as systemd-vmspawn passes it to its VMs: 80×24,
+/// what systemd assumes for a terminal that does not say.
 fn kernel_cmdline(root_hash: &str, target: Target) -> String {
     let common = format!(
         "usrhash={root_hash} mount.usr=/dev/mapper/usr mount.usrfstype=erofs \
          mount.usrflags=ro,nosuid,nodev rw rootflags=nosuid,nodev loglevel=4"
     );
     match target {
-        Target::Vm => format!("{common} console=tty0 console=ttyS0,115200"),
+        Target::Vm => format!(
+            "{common} console=tty0 console=ttyS0,115200 \
+             systemd.tty.columns.console=80 systemd.tty.rows.console=24 \
+             systemd.tty.columns.ttyS0=80 systemd.tty.rows.ttyS0=24"
+        ),
         Target::Hardware => {
             format!("{common} console=ttyS0,115200 console=tty0 systemd.import_credentials=no")
         }
@@ -419,12 +430,24 @@ mod tests {
         let hardware = kernel_cmdline("abc", Target::Hardware);
         let words = |line: &str| line.split(' ').map(str::to_owned).collect::<Vec<_>>();
         let strip = |mut w: Vec<String>| {
-            w.retain(|w| !w.starts_with("console=") && w != "systemd.import_credentials=no");
+            w.retain(|w| {
+                !w.starts_with("console=")
+                    && !w.starts_with("systemd.tty.")
+                    && w != "systemd.import_credentials=no"
+            });
             w
         };
         assert_eq!(strip(words(&vm)), strip(words(&hardware)));
         // The last console= is /dev/console: the serial port in the VM, the screen on hardware.
-        assert!(vm.ends_with("console=ttyS0,115200"));
+        fn consoles(line: &str) -> Vec<&str> {
+            line.split(' ')
+                .filter(|w| w.starts_with("console="))
+                .collect()
+        }
+        assert_eq!(consoles(&vm), ["console=tty0", "console=ttyS0,115200"]);
+        // Only the VM's serial console gets its size from the command line.
+        assert!(vm.contains(" systemd.tty.columns.console=80 systemd.tty.rows.console=24 "));
+        assert!(!hardware.contains("systemd.tty."));
         assert!(hardware.contains("console=ttyS0,115200 console=tty0 "));
         assert!(hardware.ends_with("systemd.import_credentials=no"));
         assert!(!vm.contains("import_credentials"));

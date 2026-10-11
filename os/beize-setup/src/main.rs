@@ -3,15 +3,14 @@
 //!
 //! `beize-setup owner` first asks for the keyboard layout and switches to it
 //! at once (ADR 0017), so that everything after it – the password above all –
-//! is typed with the owner's own keyboard. Then it creates the owner's
-//! account: asks for a login name
-//! and a password (twice), adds the user to /etc/passwd, /etc/group (own
-//! group, and wheel: administrator – run0 with their own password, ADR 0018)
-//! and /etc/shadow (yescrypt), locks root and creates the home directory. It also asks for the time zone
-//! (/etc/localtime). Runs once; afterwards /var/lib/beize/owner exists.
+//! is typed with the owner's own keyboard. Then it asks for a login name and
+//! a password (twice) and creates the owner's account through beize-accounts
+//! (ADR 0019): an administrator (wheel: run0 with their own password, ADR
+//! 0018), with the computer's recovery key to reset the password. It locks
+//! root and asks for the time zone (/etc/localtime). Runs once; afterwards
+//! /var/lib/beize/owner exists.
 
 mod accounts;
-mod crypt;
 mod keyboard;
 mod mute;
 mod timezone;
@@ -19,19 +18,21 @@ mod transaction;
 
 use std::ffi::c_int;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, chown, symlink};
+use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use beize_accounts::{Accounts, Homed, NewAccount, Secret};
 use transaction::write;
 
-const ETC: &str = "/etc";
+const SHADOW: &str = "/etc/shadow";
 /// Written last: the setup is done and never runs again.
 const DONE: &str = "/var/lib/beize/owner";
-/// The account databases as they were before the setup (see `transaction`).
-const SAVED: &str = "/var/lib/beize/setup-rollback";
+/// The account being created (see `transaction`).
+const PENDING: &str = "/var/lib/beize/setup-pending";
+/// The recovery key the initrd created and showed this boot (memory only).
+const RECOVERY_KEY: &str = "/run/beize/recovery-key";
 
 fn main() -> ExitCode {
     let result = match std::env::args().nth(1).as_deref() {
@@ -51,14 +52,25 @@ fn owner() -> Result<(), String> {
     if Path::new(DONE).exists() {
         return Ok(());
     }
-    // A setup cut off while writing (power cut, reset): back to before it.
-    let (etc, saved) = (Path::new(ETC), Path::new(SAVED));
-    if transaction::roll_back(etc, saved)? {
-        eprintln!("beize-setup: undid an account setup that did not finish");
+    let directory = Homed::connect()?;
+    // A setup cut off after creating the account (power cut, reset): back
+    // to before it.
+    let pending = Path::new(PENDING);
+    if let Some(name) = transaction::unfinished(pending)? {
+        if beize_accounts::exists(&name) {
+            directory.remove(&name)?;
+        }
+        transaction::finish(pending)?;
+        eprintln!("beize-setup: removed the account \"{name}\" of a setup that did not finish");
     }
-    let passwd = read(etc.join("passwd"))?;
-    let group = read(etc.join("group"))?;
-    let shadow = read(etc.join("shadow"))?;
+    // The key exists only until the first restart: a setup that did not
+    // finish then cannot give the account the recovery key any more.
+    let recovery_key = read(Path::new(RECOVERY_KEY))
+        .map(|key| Secret::new(key.trim().to_owned()))
+        .map_err(|e| {
+            format!("{e} – the recovery key is gone; reinstall Beize to set up an account")
+        })?;
+    let shadow = read(Path::new(SHADOW))?;
 
     // First mute, then clear: nothing the boot prints afterwards lands in
     // the middle of the questions. Unmuted when `_muted` goes out of scope.
@@ -66,16 +78,16 @@ fn owner() -> Result<(), String> {
     keyboard_signals();
     print!("\x1b[H\x1b[2J");
     println!();
-    println!("  Welcome to Beize. Create your account – you sign in with it, and its");
-    println!("  password also opens the emergency console. Ctrl+C starts over.");
+    println!("  Welcome to Beize. Create your account – you sign in with it and confirm");
+    println!("  changes to the system with its password. Ctrl+C starts over.");
     println!();
     let Owner {
         name,
         full_name,
-        hash,
+        password,
         zone,
     } = loop {
-        match questions(&passwd, &group)? {
+        match questions()? {
             Some(owner) => break owner,
             None => {
                 println!();
@@ -85,42 +97,20 @@ fn owner() -> Result<(), String> {
         }
     };
 
-    let id = accounts::free_id(&passwd, &group).ok_or("no free user ID")?;
-    let days = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs()
-        / 86_400;
     // Nothing is written before all answers are in; from here on, all of it
-    // or none (a cut-off setup is rolled back on the next boot).
-    transaction::save(etc, saved)?;
-    write(
-        &etc.join("shadow"),
-        &accounts::add_shadow(&shadow, &name, &hash, days)?,
-        0o000,
-    )?;
-    write(
-        &etc.join("group"),
-        &accounts::add_group(&group, &name, id)?,
-        0o644,
-    )?;
-    write(
-        &etc.join("passwd"),
-        &accounts::add_user(&passwd, &name, id, &full_name),
-        0o644,
-    )?;
-
-    let home = Path::new("/home").join(&name);
-    fs::create_dir_all(&home).map_err(|e| format!("creating {}: {e}", home.display()))?;
-    chown(&home, Some(id), Some(id)).map_err(|e| format!("owning {}: {e}", home.display()))?;
-    fs::set_permissions(&home, fs::Permissions::from_mode(0o700))
-        .map_err(|e| format!("protecting {}: {e}", home.display()))?;
+    // or none (a cut-off setup is undone on the next boot).
+    write(Path::new(SHADOW), &accounts::lock_root(&shadow)?, 0o000)?;
+    transaction::begin(pending, &name)?;
+    directory.create(&NewAccount {
+        name: &name,
+        real_name: &full_name,
+        password: password.expose(),
+        recovery_key: recovery_key.expose(),
+        administrator: true,
+    })?;
     set_time_zone(&zone)?;
-
     write(Path::new(DONE), &format!("{name}\n"), 0o644)?;
-    // After DONE: a copy left by a cut here is the state before the setup,
-    // which never runs again – harmless.
-    transaction::discard(saved)?;
+    transaction::finish(pending)?;
     println!();
     println!("  Account \"{name}\" created. Sign in below.");
     println!();
@@ -131,14 +121,13 @@ fn owner() -> Result<(), String> {
 struct Owner {
     name: String,
     full_name: String,
-    /// The password, hashed as soon as it is confirmed.
-    hash: String,
+    password: Secret,
     zone: String,
 }
 
 /// The setup's questions; `None` when the owner cancelled one (Ctrl+C,
 /// Ctrl+D) to start over.
-fn questions(passwd: &str, group: &str) -> Result<Option<Owner>, String> {
+fn questions() -> Result<Option<Owner>, String> {
     if !choose_keyboard()? {
         return Ok(None);
     }
@@ -152,8 +141,8 @@ fn questions(passwd: &str, group: &str) -> Result<Option<Owner>, String> {
     }
     let name = loop {
         let name = answer!("Your login name (e.g. joe):", true);
-        match accounts::validate_name(&name) {
-            Ok(()) if accounts::exists(passwd, &name) || accounts::exists(group, &name) => {
+        match beize_accounts::validate_name(&name) {
+            Ok(()) if beize_accounts::exists(&name) => {
                 println!("  \"{name}\" exists already.");
             }
             Ok(()) => break name,
@@ -162,25 +151,23 @@ fn questions(passwd: &str, group: &str) -> Result<Option<Owner>, String> {
     };
     let full_name = answer!("Your full name (optional):", true);
     let password = loop {
-        let first = answer!("Password:", false);
-        if first.chars().count() < 8 {
-            println!("  At least 8 characters, please.");
+        let first = Secret::new(answer!("Password:", false));
+        if let Err(reason) = beize_accounts::validate_password(first.expose()) {
+            println!("  {reason}");
             continue;
         }
-        if answer!("Password again:", false) == first {
+        if Secret::new(answer!("Password again:", false)).expose() == first.expose() {
             break first;
         }
         println!("  The passwords differ.");
     };
-    let hash = crypt::hash(&password)?;
-    drop(password);
     let Some(zone) = ask_time_zone()? else {
         return Ok(None);
     };
     Ok(Some(Owner {
         name,
         full_name,
-        hash,
+        password,
         zone,
     }))
 }

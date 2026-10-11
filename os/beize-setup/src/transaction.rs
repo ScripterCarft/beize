@@ -1,64 +1,38 @@
-//! The account setup changes three files – /etc/shadow, /etc/group and
-//! /etc/passwd – which cannot be replaced together in one step. A power cut
-//! between them would leave a half-made account: on the next boot the setup
-//! asks again, but the name "exists already" or gets a second entry.
+//! The setup is all or nothing. It creates the owner's account through homed
+//! and then writes /var/lib/beize/owner; a power cut in between would leave
+//! an account the next setup does not know – it asks again, and the name
+//! "exists already".
 //!
-//! So the setup is a transaction: before the first change, the three files
-//! are saved durably, completed by a marker. A setup that finds a complete
-//! copy without having finished (no /var/lib/beize/owner) puts the files
-//! back first and starts from the state before. Copies without the marker
-//! are from a save that never finished, before anything was changed.
+//! So the name is written durably before the account is created. A setup
+//! that finds such a name without having finished removes that account
+//! first and starts from the state before.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-/// The files the setup changes.
-pub const FILES: [&str; 3] = ["shadow", "group", "passwd"];
-/// Written last into the copy: it is complete.
-const COMPLETE: &str = "complete";
-
-/// Saves the files of `etc` into `saved`, durably, before they change.
-pub fn save(etc: &Path, saved: &Path) -> Result<(), String> {
-    discard(saved)?;
-    for name in FILES {
-        copy(&etc.join(name), &saved.join(name))?;
-    }
-    write(&saved.join(COMPLETE), "", 0o644)
+/// Notes that the account `name` is about to be created.
+pub fn begin(pending: &Path, name: &str) -> Result<(), String> {
+    write(pending, &format!("{name}\n"), 0o600)
 }
 
-/// Puts the files saved in `saved` back into `etc` if an earlier setup did
-/// not finish; returns whether it did.
-pub fn roll_back(etc: &Path, saved: &Path) -> Result<bool, String> {
-    if !saved.join(COMPLETE).exists() {
-        discard(saved)?;
-        return Ok(false);
+/// The account an earlier setup began to create and did not finish.
+pub fn unfinished(pending: &Path) -> Result<Option<String>, String> {
+    match fs::read_to_string(pending) {
+        Ok(name) => Ok(Some(name.trim().to_owned()).filter(|name| !name.is_empty())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("reading {}: {error}", pending.display())),
     }
-    for name in FILES {
-        copy(&saved.join(name), &etc.join(name))?;
-    }
-    discard(saved)?;
-    Ok(true)
 }
 
-/// Removes the copy once the setup has finished (or was never begun).
-pub fn discard(saved: &Path) -> Result<(), String> {
-    match fs::remove_dir_all(saved) {
+/// The account is made (or removed again): nothing to undo any more.
+pub fn finish(pending: &Path) -> Result<(), String> {
+    match fs::remove_file(pending) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            Err(format!("removing {}: {error}", saved.display()))
+            Err(format!("removing {}: {error}", pending.display()))
         }
-        _ => sync_parent(saved),
+        _ => sync_parent(pending),
     }
-}
-
-/// Copies `from` to `to` with its mode (shadow: 000), durably.
-fn copy(from: &Path, to: &Path) -> Result<(), String> {
-    let mode = fs::metadata(from)
-        .map_err(|e| format!("reading {}: {e}", from.display()))?
-        .permissions()
-        .mode()
-        & 0o7777;
-    write(to, &read(from)?, mode)
 }
 
 pub fn read(path: &Path) -> Result<String, String> {
@@ -96,50 +70,17 @@ fn sync_parent(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn system(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-        let root = std::env::temp_dir().join(format!("beize-setup-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        let etc = root.join("etc");
-        // Readable without root (the real shadow is 000; root reads it anyway).
-        for file in FILES {
-            write(&etc.join(file), &format!("{file} before\n"), 0o600).unwrap();
-        }
-        (etc, root.join("var/lib/beize/setup-rollback"))
-    }
-
     #[test]
-    fn a_setup_cut_off_halfway_is_undone() {
-        let (etc, saved) = system("cut");
-        save(&etc, &saved).unwrap();
-        // Power cut after shadow and group, before passwd.
-        write(&etc.join("shadow"), "shadow after\n", 0o600).unwrap();
-        write(&etc.join("group"), "group after\n", 0o644).unwrap();
-        assert!(roll_back(&etc, &saved).unwrap());
-        // The mode came back with the content (group was 644 after the cut).
-        for file in FILES {
-            assert_eq!(read(&etc.join(file)).unwrap(), format!("{file} before\n"));
-        }
-        assert!(!saved.exists());
-        assert_eq!(
-            fs::metadata(etc.join("group"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        fs::remove_dir_all(etc.parent().unwrap()).unwrap();
-    }
-
-    #[test]
-    fn an_unfinished_copy_restores_nothing() {
-        let (etc, saved) = system("unfinished");
-        // Power cut while saving: no marker, and nothing was changed yet.
-        write(&saved.join("shadow"), "half\n", 0o600).unwrap();
-        write(&etc.join("group"), "group now\n", 0o644).unwrap();
-        assert!(!roll_back(&etc, &saved).unwrap());
-        assert_eq!(read(&etc.join("group")).unwrap(), "group now\n");
-        assert!(!saved.exists());
-        fs::remove_dir_all(etc.parent().unwrap()).unwrap();
+    fn remembers_an_unfinished_account_until_finished() {
+        let dir = std::env::temp_dir().join(format!("beize-setup-pending-{}", std::process::id()));
+        let pending = dir.join("setup-pending");
+        assert_eq!(unfinished(&pending).unwrap(), None);
+        begin(&pending, "joe").unwrap();
+        assert_eq!(unfinished(&pending).unwrap().as_deref(), Some("joe"));
+        finish(&pending).unwrap();
+        assert_eq!(unfinished(&pending).unwrap(), None);
+        // Finishing twice (a cut right after finishing) is fine.
+        finish(&pending).unwrap();
+        fs::remove_dir_all(dir).unwrap();
     }
 }

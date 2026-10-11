@@ -8,5 +8,7 @@ packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash",
             "xkeyboard-config", "libxkbcommon", "kbd",
             # Privileges (ADR 0018): run0, authorized by polkit.
             "polkit",
+            # Accounts (ADR 0019): homed (in systemd) behind beize-accounts.
+            "beize-accounts",
             # Network diagnosis without privileges (ADR 0018): ping, tracepath.
             "iputils"]

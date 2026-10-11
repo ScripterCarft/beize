@@ -1,14 +1,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::paths::Paths;
 #[cfg(test)]
 use crate::source::Trust;
 use crate::source::{Extra, RawSource, Source};
-use crate::util;
+use crate::{say, util};
 
 /// Where a recipe installs its result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -36,6 +38,10 @@ pub struct Recipe {
     /// Paths in this repository the recipe builds from (Beize's own code);
     /// their content is part of the build fingerprint.
     pub repo: Vec<String>,
+    /// Beize's own changes to the source, applied in order after unpacking
+    /// (`patch -p1`): paths in this repository, under recipes/patches/<name>/.
+    /// Only with a reason in the recipe – upstream first.
+    pub patches: Vec<String>,
     pub build: Option<Build>,
     /// The recipe text, part of the build fingerprint – without the `latest`
     /// lines: where releases are announced does not change the build.
@@ -64,6 +70,8 @@ struct RawRecipe {
     extra: Vec<RawSource>,
     #[serde(default)]
     repo: Vec<String>,
+    #[serde(default)]
+    patches: Vec<String>,
     build: Option<Build>,
 }
 
@@ -91,6 +99,17 @@ impl Recipe {
         if raw.source.is_some() && raw.source_from.is_some() {
             bail!("source and source_from are mutually exclusive");
         }
+        if !raw.patches.is_empty() && raw.source.is_none() {
+            bail!("patches need a [source] of the recipe's own");
+        }
+        if let Some(patch) = raw.patches.iter().find(|p| {
+            !p.starts_with(&format!("recipes/patches/{}/", raw.name)) || !p.ends_with(".patch")
+        }) {
+            bail!(
+                "patch {patch:?} is not a .patch file under recipes/patches/{}/",
+                raw.name
+            );
+        }
         let source = raw
             .source
             .map(|s| s.into_source(&raw.version))
@@ -111,6 +130,7 @@ impl Recipe {
             source_from: raw.source_from,
             extra,
             repo: raw.repo,
+            patches: raw.patches,
             build: raw.build,
             text: text
                 .split_inclusive('\n')
@@ -126,20 +146,49 @@ impl Recipe {
             .chain(self.extra.iter().map(|e| &e.source))
     }
 
+    /// Digest over the paths and contents of the recipe's patches; empty
+    /// without any.
+    pub fn patch_digest(&self, paths: &Paths) -> Result<String> {
+        if self.patches.is_empty() {
+            return Ok(String::new());
+        }
+        let mut hasher = Sha256::new();
+        for patch in &self.patches {
+            let content = fs::read(paths.root.join(patch))
+                .with_context(|| format!("{}: reading patch {patch}", self.name))?;
+            hasher.update(format!("\npatch {patch} {}\n", content.len()));
+            hasher.update(content);
+        }
+        Ok(hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect())
+    }
+
     /// Unpacks the sources into `work/src/<stem>` and returns that directory.
-    /// Recipes sharing a source share the tree; builds always happen out of tree.
+    /// Recipes sharing a source share the tree; builds always happen out of
+    /// tree. A patched tree is the recipe's own (`<stem>+patched`).
     pub fn unpack(&self, paths: &Paths) -> Result<PathBuf> {
         let source = self
             .source
             .as_ref()
             .with_context(|| format!("{} has no source", self.name))?;
-        let dir = paths.work.join("src").join(source.stem()?);
+        let patches = self.patch_digest(paths)?;
+        let mut stem = source.stem()?;
+        if !patches.is_empty() {
+            stem.push_str("+patched");
+        }
+        let dir = paths.work.join("src").join(stem);
         let stamp = dir.join(".beize-unpacked");
-        let fingerprint = self
+        let mut fingerprint = self
             .sources()
             .map(Source::pin)
             .collect::<Vec<_>>()
             .join("\n");
+        if !patches.is_empty() {
+            fingerprint.push_str(&format!("\npatches {patches}"));
+        }
         if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
             return Ok(dir);
         }
@@ -151,6 +200,17 @@ impl Recipe {
         source.extract_into(paths, &dir)?;
         for extra in &self.extra {
             extra.source.extract_into(paths, &dir.join(&extra.dest))?;
+        }
+        for patch in &self.patches {
+            say!("  applying {patch}");
+            util::run(
+                Command::new("patch")
+                    .args(["-p1", "--batch", "--forward", "--quiet", "-d"])
+                    .arg(&dir)
+                    .arg("-i")
+                    .arg(paths.root.join(patch)),
+            )
+            .with_context(|| format!("{patch} does not apply to {} {}", self.name, self.version))?;
         }
         fs::write(&stamp, fingerprint)?;
         Ok(dir)
@@ -224,7 +284,28 @@ mod tests {
 
     #[test]
     fn rejects_unknown_fields() {
-        assert!(Recipe::parse("name = \"a\"\npatches = []\n").is_err());
+        assert!(Recipe::parse("name = \"a\"\npatchez = []\n").is_err());
+    }
+
+    #[test]
+    fn patches_live_under_the_recipes_own_directory() {
+        let source = format!(
+            "[source]\nurl = \"https://example.org/a.tar.xz\"\nsha256 = \"{}\"\nkeyring = \"a\"\n\
+             signature = \"https://example.org/a.tar.xz.asc\"\n",
+            "0".repeat(64)
+        );
+        let with = |patch: &str| {
+            Recipe::parse(&format!("name = \"a\"\npatches = [\"{patch}\"]\n{source}"))
+        };
+        assert!(with("recipes/patches/a/0001-x.patch").is_ok());
+        assert!(with("recipes/patches/b/0001-x.patch").is_err());
+        assert!(with("recipes/patches/a/0001-x.diff").is_err());
+        assert!(with("/tmp/0001-x.patch").is_err());
+        // Without a source of its own there is nothing to patch.
+        assert!(
+            Recipe::parse("name = \"a\"\npatches = [\"recipes/patches/a/0001-x.patch\"]\n")
+                .is_err()
+        );
     }
 
     #[test]
