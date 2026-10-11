@@ -641,7 +641,10 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
         } else if line.contains(RECOVERY_HEADLINE) {
             headline = true;
         } else if line.contains(EMERGENCY_SHELL_STARTS) {
-            session.type_line("echo BEIZE-RECOVERY-$(id -u)-$(cat /etc/hostname)-$(ls /home)");
+            session.type_line(
+                "echo BEIZE-RECOVERY-$(id -u)-$(systemctl show -P ConditionResult \
+                 systemd-tpm2-setup-early)-$(ls /home)",
+            );
         } else if let Some(found) = line.strip_prefix("BEIZE-RECOVERY-") {
             shell = Some(found.to_owned());
             break;
@@ -665,6 +668,12 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
     ensure!(
         shell.starts_with("0-") && shell.ends_with(&format!("-{SMOKE_USER}")),
         "the recovery shell is not root with the data unlocked: {shell}"
+    );
+    // The NvPCR setup needs the signed initrd policy: skipped, not failed
+    // (on real TPMs it fails rather than giving up quietly).
+    ensure!(
+        shell.starts_with("0-no-"),
+        "the recovery started the TPM's NvPCR setup in the system: {shell}"
     );
     say!("  ok: the recovery asks for the recovery key once and opens a root shell with the data");
     boot_healthy(&machine, 3, &Answers::none())?;
