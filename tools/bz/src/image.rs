@@ -17,7 +17,7 @@ use crate::layout::{
 use crate::paths::Paths;
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
-use crate::{initrd, microcode, secureboot, util};
+use crate::{initrd, microcode, secureboot, stamp, usr, util};
 
 const SECTOR: u64 = 512;
 /// The ESP starts at 1 MiB; 1 MiB at the end holds the backup GPT.
@@ -104,9 +104,9 @@ fn kernel_cmdline(root_hash: &str, target: Target) -> String {
     }
 }
 
-/// The UKI on the ESP, as an mtools path.
-pub fn uki_path_on_esp() -> String {
-    format!("::/EFI/Linux/{}", layout::uki_name())
+/// The UKI of `version` on the ESP, as an mtools path.
+pub fn uki_path_on_esp(version: &str) -> String {
+    format!("::/EFI/Linux/{}", layout::uki_name(version))
 }
 
 /// The UKI before signing; kept for the Secure Boot rejection test.
@@ -161,13 +161,12 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         "kernel.release",
         "microcode.cpio",
         "initrd.cpio.zst",
-        "usr.erofs",
-        "usr.verity",
-        "usr.roothash",
     ] {
         inputs = inputs.file(&paths.out.join(built))?;
     }
     inputs = inputs
+        // The /usr tree, by the fingerprint of the step that assembled it.
+        .file(&stamp::file(paths, usr::STAMP))?
         .tree(&paths.sysroot.join("usr/lib/systemd/boot/efi"))?
         .file(&paths.sysroot.join("usr/lib/beize-build/ukify"))?
         .tree(&secureboot::microsoft_dir(paths))?;
@@ -194,7 +193,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     }
     stamp.clear()?;
     let keys = secureboot::Keys::test(paths, PROFILE)?;
-    let disk = assemble(paths, &keys, &paths.out, Target::Vm)?;
+    let disk = assemble(paths, &keys, layout::OS_VERSION, &paths.out, Target::Vm)?;
     stamp.write()?;
     Ok(disk)
 }
@@ -205,42 +204,46 @@ pub fn sign(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
     let keys = secureboot::Keys::production(store, &secureboot::production_public_dir(paths))?;
     let out = production_dir(paths);
     fs::create_dir_all(&out)?;
-    assemble(paths, &keys, &out, Target::Hardware)
+    assemble(paths, &keys, layout::OS_VERSION, &out, Target::Hardware)
 }
 
-/// Builds the UKI for `target`, signs it and systemd-boot with `keys` and
-/// writes the disk image, all into `out`.
-pub fn assemble(
+/// What boots one version of Beize, signed with one set of keys: `/usr`
+/// packed for them, the UKI that pins it, and systemd-boot.
+pub struct BootChain {
+    pub usr: usr::Packed,
+    pub uki: PathBuf,
+    pub boot_loader: PathBuf,
+}
+
+/// Builds the boot chain of `version` for `target` with `keys` into `out`.
+pub fn boot_chain(
     paths: &Paths,
     keys: &secureboot::Keys,
-    out: &Path,
+    version: &str,
     target: Target,
-) -> Result<PathBuf> {
+    out: &Path,
+) -> Result<BootChain> {
     let kernel = paths.out.join("vmlinuz");
     let microcode = paths.out.join("microcode.cpio");
     let initrd = paths.out.join("initrd.cpio.zst");
-    let usr_image = paths.out.join("usr.erofs");
-    let usr_verity = paths.out.join("usr.verity");
-    for input in [&kernel, &microcode, &initrd, &usr_image, &usr_verity] {
+    for input in [&kernel, &microcode, &initrd] {
         if !input.exists() {
             bail!("{} is missing; run `bz build`", input.display());
         }
     }
     let release = fs::read_to_string(paths.out.join("kernel.release"))
         .context("reading kernel.release; run `bz kernel`")?;
-    let root_hash = fs::read_to_string(paths.out.join("usr.roothash"))
-        .context("reading usr.roothash; run `bz usr`")?;
-    let root_hash = root_hash.trim();
+    let usr = usr::pack(paths, keys, version, out)?;
     // Boot loader and UKI stub come from Beize's own systemd build.
     let efi_dir = paths.sysroot.join("usr/lib/systemd/boot/efi");
 
     util::step("Building Unified Kernel Image");
-    let os_release = paths.work.join("os-release");
-    fs::write(&os_release, layout::os_release())?;
+    let os_release = out.join("os-release");
+    fs::write(&os_release, layout::os_release(version))?;
     let unsigned_uki = out.join(UNSIGNED_UKI);
     let (pcr_private, pcr_public) = keys.pcr_key();
     let profile = profile_initrd(keys, out)?;
-    let cmdline = kernel_cmdline(root_hash, target);
+    let cmdline = kernel_cmdline(&usr.root_hash, target);
     let recovery_profile = out.join("profile-recovery.efi");
     util::run(
         ukify(paths)?
@@ -291,6 +294,27 @@ pub fn assemble(
     keys.sign(&unsigned_uki, &uki)?;
     let boot_loader = out.join("systemd-bootx64.efi");
     keys.sign(&efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
+    Ok(BootChain {
+        usr,
+        uki,
+        boot_loader,
+    })
+}
+
+/// Builds the boot chain of `version` for `target` with `keys` and writes
+/// the disk image, all into `out`.
+pub fn assemble(
+    paths: &Paths,
+    keys: &secureboot::Keys,
+    version: &str,
+    out: &Path,
+    target: Target,
+) -> Result<PathBuf> {
+    let BootChain {
+        usr,
+        uki,
+        boot_loader,
+    } = boot_chain(paths, keys, version, target, out)?;
 
     util::step("Writing disk image");
     let disk_size = USR_VERITY_START * SECTOR + USR_VERITY_SLOT_SIZE + MIB;
@@ -299,7 +323,7 @@ pub fn assemble(
     file.set_len(disk_size)?;
     drop(file);
 
-    partition(&disk, root_hash)?;
+    partition(&disk, &usr.root_hash, version)?;
     util::run(
         Command::new("mkfs.vfat")
             .args(["-F", "32", "-n", "BEIZE-ESP", "-i", ESP_VOLUME_ID])
@@ -319,7 +343,7 @@ pub fn assemble(
         "::/loader/keys",
         "::/loader/keys/auto",
     ]))?;
-    let loader_conf = paths.work.join("loader.conf");
+    let loader_conf = out.join("loader.conf");
     fs::write(&loader_conf, LOADER_CONF)?;
     for (file, dest) in [
         // Removable-media path: what firmware boots without NVRAM entries.
@@ -329,7 +353,7 @@ pub fn assemble(
             "::/EFI/systemd/systemd-bootx64.efi".to_owned(),
         ),
         // Type #2 entry with boot counter, discovered by systemd-boot.
-        (&uki, uki_path_on_esp()),
+        (&uki, uki_path_on_esp(version)),
         (&loader_conf, "::/loader/loader.conf".to_owned()),
     ] {
         util::run(Command::new("mcopy").args(["-i", &esp]).arg(file).arg(dest))?;
@@ -342,8 +366,8 @@ pub fn assemble(
                 .arg(format!("::/loader/keys/auto/{file}")),
         )?;
     }
-    write_at(&disk, USR_START * SECTOR, &usr_image)?;
-    write_at(&disk, USR_VERITY_START * SECTOR, &usr_verity)?;
+    write_at(&disk, USR_START * SECTOR, &usr.image)?;
+    write_at(&disk, USR_VERITY_START * SECTOR, &usr.verity)?;
 
     say!(
         "  disk image -> {} ({} MiB, sparse)",
@@ -373,16 +397,18 @@ fn profile_initrd(keys: &secureboot::Keys, out: &Path) -> Result<PathBuf> {
     Ok(archive)
 }
 
-fn partition(disk: &Path, root_hash: &str) -> Result<()> {
+fn partition(disk: &Path, root_hash: &str, version: &str) -> Result<()> {
     let (data_uuid, verity_uuid) = layout::verity_partition_uuids(root_hash)?;
-    let label = layout::usr_label();
+    let label = layout::usr_label(version);
+    // GUID:60 marks the slot read-only (UAPI.2), as sysupdate marks the slots
+    // it writes (ADR 0020).
     let layout = format!(
         "label: gpt
 label-id: {DISK_GUID}
 unit: sectors
          start={ESP_START}, size={}, type={ESP_TYPE}, uuid={ESP_GUID}, name=\"esp\"
-         start={USR_START}, size={}, type={USR_TYPE}, uuid={data_uuid}, name=\"{label}\"
-         start={USR_VERITY_START}, size={}, type={USR_VERITY_TYPE}, uuid={verity_uuid},          name=\"{label}\"
+         start={USR_START}, size={}, type={USR_TYPE}, uuid={data_uuid}, name=\"{label}\", attrs=\"GUID:60\"
+         start={USR_VERITY_START}, size={}, type={USR_VERITY_TYPE}, uuid={verity_uuid}, name=\"{label}\", attrs=\"GUID:60\"
 ",
         ESP_SIZE / SECTOR,
         USR_SLOT_SIZE / SECTOR,

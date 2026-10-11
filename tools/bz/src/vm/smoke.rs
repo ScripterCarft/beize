@@ -524,7 +524,7 @@ fn unsigned_uki(paths: &Paths) -> Result<()> {
             .arg("-i")
             .arg(format!("{}@@{}", machine.disk.display(), image::ESP_OFFSET))
             .arg(image::unsigned_uki(paths))
-            .arg(image::uki_path_on_esp()),
+            .arg(image::uki_path_on_esp(layout::OS_VERSION)),
     )?;
     let run = watch_boot(&machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
         if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
@@ -645,7 +645,11 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-recovery")?;
     boot_once(
         &machine,
-        &format!("{}{}", layout::blessed_uki_name(), image::RECOVERY_ENTRY),
+        &format!(
+            "{}{}",
+            layout::blessed_uki_name(layout::OS_VERSION),
+            image::RECOVERY_ENTRY
+        ),
     )?;
     // A forgotten password (ADR 0019): root in the recovery sets a new one
     // through the account service, and PAM's own check takes it.
@@ -1011,7 +1015,7 @@ fn owner_workflow(paths: &Paths) -> Result<()> {
         let keys = secureboot::Keys::production(&store, &public)?;
         let out = dir.join("out");
         fs::create_dir_all(&out)?;
-        image::assemble(paths, &keys, &out, image::Target::Vm)
+        image::assemble(paths, &keys, layout::OS_VERSION, &out, image::Target::Vm)
     });
     if disk.is_err() {
         said.into_iter().for_each(util::say_line);

@@ -17,6 +17,7 @@ use crate::packages::{self, BUILD_EPOCH};
 use crate::paths::Paths;
 use crate::privileges;
 use crate::say;
+use crate::secureboot::Keys;
 use crate::stamp::Stamp;
 use crate::tree;
 use crate::util;
@@ -30,28 +31,38 @@ const UNIT_PRESET: &str = "images/base.preset";
 /// The only preset file the image ships, system and user: `disable *`.
 const SHIPPED_PRESET: &str = "99-beize.preset";
 
-/// Builds the packages of `images/base.toml` and writes `out/usr.erofs`.
+/// Where [`build`] assembles `/usr`, as a tree with `usr/` in it.
+pub fn tree_dir(paths: &Paths) -> PathBuf {
+    paths.work.join("usr-tree")
+}
+
+/// A packed `/usr`: the EROFS image, its dm-verity hash tree and root hash.
+pub struct Packed {
+    pub image: PathBuf,
+    pub verity: PathBuf,
+    pub root_hash: String,
+}
+
+/// Builds the packages of `images/base.toml` and assembles and checks the
+/// `/usr` tree ([`tree_dir`]). What differs between images – the version
+/// and the keys – comes in with [`pack`].
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let definition = tree::image_definition(paths)?;
     let recipes = packages::build(paths, &definition.packages)?;
     let kernel = kernel::built(paths)?;
 
-    let image = paths.out.join("usr.erofs");
+    let root = tree_dir(paths);
     let stamp = Stamp::new(
         paths,
-        "usr",
+        STAMP,
         tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
             .file(&paths.root.join(UNIT_PRESET))?
             .tree(&kernel.modules)?,
-        &[
-            &image,
-            &paths.out.join("usr.verity"),
-            &paths.out.join("usr.roothash"),
-        ],
+        &[&root],
     );
     if stamp.is_current() {
-        say!("  /usr image is up to date");
-        return Ok(image);
+        say!("  /usr is up to date");
+        return Ok(root);
     }
     stamp.clear()?;
 
@@ -69,7 +80,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             );
         }
     }
-    let root = tree::recreate(&paths.work.join("usr-tree"))?;
+    tree::recreate(&root)?;
     // usr/sbin -> bin and usr/lib64 -> lib; the root-level links (/bin, /lib64,
     // ...) are created by systemd on first boot.
     install::prepare_layout(&root)?;
@@ -89,10 +100,47 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     ensure_no_firmware_needed(paths, &kernel)?;
     elf::check_tree(paths, &root, "/usr")?;
     privileges::check_tree(&root, "/usr")?;
-    fs::write(usr.join("lib/os-release"), layout::os_release())?;
     write_repart_definitions(&usr)?;
+    write_definitions(
+        &usr.join("lib/sysupdate.d"),
+        layout::sysupdate_definitions(),
+    )?;
+    stamp.write()?;
+    Ok(root)
+}
 
-    util::step("Writing /usr image");
+/// The stamp of [`build`]; later steps take it as their input instead of
+/// hashing the whole tree again.
+pub const STAMP: &str = "usr";
+
+/// Where the public update key lies in `/usr` (ADR 0020).
+pub const UPDATE_KEY_PATH: &str = "lib/beize/update.pub.pem";
+
+/// Packs the `/usr` tree as `version` for `keys` into `out`: `usr.erofs`,
+/// `usr.verity` and `usr.roothash`. The version (os-release) and the public
+/// update key are what the images of one build differ in; the tree itself
+/// stays untouched.
+pub fn pack(paths: &Paths, keys: &Keys, version: &str, out: &Path) -> Result<Packed> {
+    let tree = tree_dir(paths);
+    ensure!(tree.is_dir(), "{} is missing; run `bz usr`", tree.display());
+    util::step(&format!("Writing /usr image {version}"));
+    let staging = out.join("usr-staging");
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    util::run(
+        Command::new("cp")
+            .args(["--archive", "--reflink=auto"])
+            .arg(&tree)
+            .arg(&staging),
+    )?;
+    let usr = staging.join("usr");
+    fs::write(usr.join("lib/os-release"), layout::os_release(version))?;
+    let key = usr.join(UPDATE_KEY_PATH);
+    fs::create_dir_all(key.parent().context("update key path")?)?;
+    fs::copy(keys.update_public(), &key)?;
+
+    let image = out.join("usr.erofs");
     let _ = fs::remove_file(&image);
     util::run(
         Command::new("mkfs.erofs")
@@ -103,10 +151,11 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg("-x-1")
             .arg(format!("-T{BUILD_EPOCH}"))
             .arg(format!("-U{USR_FS_UUID}"))
-            .arg(format!("-L{}", layout::usr_label()))
+            .arg(format!("-L{}", layout::usr_label(version)))
             .arg(&image)
             .arg(&usr),
     )?;
+    fs::remove_dir_all(&staging)?;
     let size = fs::metadata(&image)?.len();
     if size > layout::USR_SLOT_SIZE {
         bail!("the /usr image ({size} bytes) does not fit into a /usr slot");
@@ -121,19 +170,22 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         size as f64 / layout::MIB as f64
     );
 
-    let root_hash = build_verity(paths, &image)?;
+    let verity = out.join("usr.verity");
+    let root_hash = build_verity(&image, &verity)?;
+    fs::write(out.join("usr.roothash"), &root_hash)?;
     say!("  dm-verity root hash {root_hash}");
-    stamp.write()?;
-    Ok(image)
+    Ok(Packed {
+        image,
+        verity,
+        root_hash,
+    })
 }
 
-/// Writes the dm-verity hash tree of the `/usr` image to `out/usr.verity` and
-/// its root hash to `out/usr.roothash`. The salt is derived from the image
-/// itself, so the same `/usr` always yields the same root hash.
-fn build_verity(paths: &Paths, image: &Path) -> Result<String> {
-    util::step("Computing dm-verity hash tree");
-    let hash_tree = paths.out.join("usr.verity");
-    let _ = fs::remove_file(&hash_tree);
+/// Writes the dm-verity hash tree of the `/usr` image to `hash_tree` and
+/// returns its root hash. The salt is derived from the image itself, so the
+/// same `/usr` always yields the same root hash.
+fn build_verity(image: &Path, hash_tree: &Path) -> Result<String> {
+    let _ = fs::remove_file(hash_tree);
     let block_size = layout::VERITY_BLOCK_SIZE.to_string();
     let report = util::output(
         Command::new("veritysetup")
@@ -143,7 +195,7 @@ fn build_verity(paths: &Paths, image: &Path) -> Result<String> {
             .arg(format!("--salt={}", util::sha256_file(image)?))
             .arg(format!("--uuid={USR_VERITY_UUID}"))
             .arg(image)
-            .arg(&hash_tree),
+            .arg(hash_tree),
     )?;
     let root_hash = report
         .lines()
@@ -152,10 +204,9 @@ fn build_verity(paths: &Paths, image: &Path) -> Result<String> {
         .context("veritysetup did not report a root hash")?;
     layout::verity_partition_uuids(&root_hash)?; // validates the format
     ensure!(
-        fs::metadata(&hash_tree)?.len() <= layout::USR_VERITY_SLOT_SIZE,
+        fs::metadata(hash_tree)?.len() <= layout::USR_VERITY_SLOT_SIZE,
         "the dm-verity hash tree does not fit into a verity slot"
     );
-    fs::write(paths.out.join("usr.roothash"), &root_hash)?;
     Ok(root_hash)
 }
 
@@ -342,9 +393,12 @@ fn ensure_no_files(dir: &Path) -> Result<()> {
 
 /// Installs the systemd-repart definitions into a `/usr` tree.
 pub fn write_repart_definitions(usr: &Path) -> Result<()> {
-    let dir = usr.join("lib/repart.d");
-    fs::create_dir_all(&dir)?;
-    for (name, content) in layout::repart_definitions() {
+    write_definitions(&usr.join("lib/repart.d"), layout::repart_definitions())
+}
+
+fn write_definitions(dir: &Path, definitions: Vec<(&str, String)>) -> Result<()> {
+    fs::create_dir_all(dir)?;
+    for (name, content) in definitions {
         fs::write(dir.join(name), content)?;
     }
     Ok(())

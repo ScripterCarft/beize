@@ -106,12 +106,16 @@ const DB_KEY: &str = "db.key";
 const DB_CERT: &str = "db.crt";
 const PCR_KEY: &str = "pcr.key";
 const PCR_PUBLIC: &str = "pcr.pub.pem";
+/// Signs the list of an update (ADR 0020); its public half goes into `/usr`.
+const UPDATE_KEY: &str = "update.key";
+pub const UPDATE_PUBLIC: &str = "update.pub.pem";
 
 /// The owner's private keys in their key store: title and file name.
 const PK_SECRET: (&str, &str) = ("Beize Secure Boot platform key (PK)", PK_KEY);
 const KEK_SECRET: (&str, &str) = ("Beize Secure Boot key exchange key (KEK)", KEK_KEY);
 const DB_SECRET: (&str, &str) = ("Beize Secure Boot signing key (db)", DB_KEY);
 const PCR_SECRET: (&str, &str) = ("Beize PCR policy signing key", PCR_KEY);
+const UPDATE_SECRET: (&str, &str) = ("Beize update signing key", UPDATE_KEY);
 /// The 1Password vault that holds them.
 const VAULT: &str = "Beize";
 
@@ -133,7 +137,8 @@ pub fn test_keys_dir(paths: &Paths) -> PathBuf {
 
 /// What signs a build: the db key for boot binaries, the PCR key for the
 /// expected PCR 11 values of a UKI, and the enrollment files that make the
-/// firmware trust them.
+/// firmware trust them; the update key's public half for `/usr`, and its
+/// private half for releases.
 pub struct Keys {
     dir: PathBuf,
     enroll: PathBuf,
@@ -158,6 +163,9 @@ impl Keys {
         if !dir.join(PCR_PUBLIC).exists() {
             generate_pcr_key(&dir)?;
         }
+        if !dir.join(UPDATE_PUBLIC).exists() {
+            generate_update_key(&dir)?;
+        }
         let enroll = dir.join("enroll");
         enrollment_files(&dir, &enroll, &microsoft_dir(paths), profile)?;
         Ok(Self {
@@ -181,11 +189,16 @@ impl Keys {
                 public.join(file).display()
             );
         }
+        ensure!(
+            public.join(UPDATE_PUBLIC).exists(),
+            "{} is missing; create the update key with `bz secureboot new-update-key`",
+            public.join(UPDATE_PUBLIC).display()
+        );
         let memory = MemoryDir::new()?;
         for (title, file) in [DB_SECRET, PCR_SECRET] {
             write_private(&memory.0.join(file), &store.get(title)?)?;
         }
-        for file in [DB_CERT, PCR_PUBLIC] {
+        for file in [DB_CERT, PCR_PUBLIC, UPDATE_PUBLIC] {
             fs::copy(public.join(file), memory.0.join(file))?;
         }
         ensure!(
@@ -204,6 +217,45 @@ impl Keys {
             enroll: public.to_owned(),
             _memory: Some(memory),
         })
+    }
+
+    /// Adds the private update key from `store`, for signing a release; fails
+    /// unless it matches the public half these keys were loaded with.
+    pub fn with_update_key(self, store: &Store) -> Result<Self> {
+        let key = self.dir.join(UPDATE_KEY);
+        write_private(&key, &store.get(UPDATE_SECRET.0)?)?;
+        ensure!(
+            public_key_of(&key)? == fs::read_to_string(self.update_public())?.trim(),
+            "the update key from the key store does not match {UPDATE_PUBLIC}"
+        );
+        Ok(self)
+    }
+
+    /// The public update key: beize-updated accepts only updates signed by
+    /// its private half (ADR 0020).
+    pub fn update_public(&self) -> PathBuf {
+        self.dir.join(UPDATE_PUBLIC)
+    }
+
+    /// Signs `file` with the update key into `signature` (a raw ML-DSA-65
+    /// signature over the whole file) and checks the signature.
+    pub fn sign_update(&self, file: &Path, signature: &Path) -> Result<()> {
+        let key = self.dir.join(UPDATE_KEY);
+        ensure!(
+            key.exists(),
+            "signing an update needs the private update key"
+        );
+        util::output(
+            Command::new("openssl")
+                .args(["pkeyutl", "-sign", "-rawin", "-inkey"])
+                .arg(&key)
+                .arg("-in")
+                .arg(file)
+                .arg("-out")
+                .arg(signature),
+        )
+        .with_context(|| format!("signing {}", file.display()))?;
+        verify_update(&self.update_public(), file, signature)
     }
 
     /// Key pair that signs the expected PCR 11 values of a UKI (`.pcrsig`).
@@ -449,15 +501,11 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
     enrollment_files(&memory.0, &enroll, microsoft, profile)?;
 
     util::step("Storing the private keys");
-    for (title, file) in [PK_SECRET, KEK_SECRET, DB_SECRET, PCR_SECRET] {
-        let secret = fs::read(memory.0.join(file))?;
-        store.put(title, file, &secret)?;
-        ensure!(
-            store.get(title)? == secret,
-            "\"{title}\" reads back differently from the key store; remove it there \
-             and run this again"
-        );
-    }
+    store_secrets(
+        store,
+        &memory.0,
+        &[PK_SECRET, KEK_SECRET, DB_SECRET, PCR_SECRET],
+    )?;
 
     util::step("Writing the public keys and enrollment files");
     fs::create_dir_all(public)?;
@@ -470,6 +518,54 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
         fs::copy(enroll.join(file), public.join(file))?;
         written.push(public.join(file));
     }
+    drop(memory);
+    if !public.join(UPDATE_PUBLIC).exists() {
+        written.push(create_update_key(store, public)?);
+    }
+    tell_to_commit(&written);
+    Ok(())
+}
+
+/// Creates the production update key (ADR 0020), for owners whose Secure
+/// Boot keys predate it: the private half into `store`, the public half to
+/// `public`. Refuses to replace an existing one.
+pub fn new_update_key(store: &Store, public: &Path) -> Result<()> {
+    ensure!(
+        !public.join(UPDATE_PUBLIC).exists(),
+        "the update key exists already ({}); replacing it is a deliberate key \
+         rotation, not something to do by accident",
+        public.join(UPDATE_PUBLIC).display()
+    );
+    let written = create_update_key(store, public)?;
+    tell_to_commit(&[written]);
+    Ok(())
+}
+
+fn create_update_key(store: &Store, public: &Path) -> Result<PathBuf> {
+    let memory = MemoryDir::new()?;
+    util::step("Generating the update key (in memory only)");
+    generate_update_key(&memory.0)?;
+    store_secrets(store, &memory.0, &[UPDATE_SECRET])?;
+    fs::create_dir_all(public)?;
+    fs::copy(memory.0.join(UPDATE_PUBLIC), public.join(UPDATE_PUBLIC))?;
+    Ok(public.join(UPDATE_PUBLIC))
+}
+
+/// Puts private keys from `dir` into `store` and reads them back for comparison.
+fn store_secrets(store: &Store, dir: &Path, secrets: &[(&str, &str)]) -> Result<()> {
+    for &(title, file) in secrets {
+        let secret = fs::read(dir.join(file))?;
+        store.put(title, file, &secret)?;
+        ensure!(
+            store.get(title)? == secret,
+            "\"{title}\" reads back differently from the key store; remove it there \
+             and run this again"
+        );
+    }
+    Ok(())
+}
+
+fn tell_to_commit(written: &[PathBuf]) {
     say!(
         "  {}\n  The private keys are in the key store only. Commit the files above \
          (see keys/secureboot/README.md).",
@@ -479,7 +575,21 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
             .collect::<Vec<_>>()
             .join("\n  ")
     );
-    Ok(())
+}
+
+/// Checks a raw ML-DSA signature of `file` against the public update key.
+pub fn verify_update(public: &Path, file: &Path, signature: &Path) -> Result<()> {
+    util::output(
+        Command::new("openssl")
+            .args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"])
+            .arg(public)
+            .arg("-in")
+            .arg(file)
+            .arg("-sigfile")
+            .arg(signature),
+    )
+    .with_context(|| format!("verifying the signature of {}", file.display()))
+    .map(drop)
 }
 
 /// Writes the signed variable updates systemd-boot enrolls into `out`: PK
@@ -699,6 +809,21 @@ fn generate_pcr_key(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Creates the ML-DSA-65 key pair that signs updates: post-quantum like the
+/// kernel's module signatures (ADR 0015), checked with OpenSSL on Beize.
+fn generate_update_key(dir: &Path) -> Result<()> {
+    let key = dir.join(UPDATE_KEY);
+    util::output(
+        Command::new("openssl")
+            .args(["genpkey", "-algorithm", "ML-DSA-65", "-out"])
+            .arg(&key),
+    )
+    .context("generating the update signing key")?;
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o600))?;
+    fs::write(dir.join(UPDATE_PUBLIC), public_key_of(&key)? + "\n")?;
+    Ok(())
+}
+
 /// Creates `name.key` and its self-signed certificate `name.crt`. RSA-2048 is
 /// what every UEFI implementation must accept; larger keys fail on some
 /// mainboards. Firmware does not check certificate expiry.
@@ -772,15 +897,40 @@ mod tests {
         let fresh_keys_load = Keys::production(&store, &public).is_ok();
         let second_run_refused =
             new_keys(&store, &public, &microsoft, Profile::WithWindows).is_err();
+        let second_update_key_refused = new_update_key(&store, &public).is_err();
         let enroll_files = ENROLL_FILES.map(|file| public.join(file).exists());
         let profile_files = PROFILE_FILES.map(|file| public.join(file).exists());
-        let private_halves_public = [PK_KEY, KEK_KEY, DB_KEY, PCR_KEY]
+        let private_halves_public = [PK_KEY, KEK_KEY, DB_KEY, PCR_KEY, UPDATE_KEY]
             .iter()
             .any(|file| public.join(file).exists());
 
-        // A PCR key that belongs to another key set must be rejected.
+        // The update key signs, and its signature checks against /usr's key.
+        let list = dir.join("SHA256SUMS");
+        fs::write(&list, "list\n").unwrap();
+        let signature = dir.join("SHA256SUMS.sig");
+        let keys = Keys::production(&store, &public)
+            .and_then(|keys| keys.with_update_key(&store))
+            .unwrap();
+        keys.sign_update(&list, &signature).unwrap();
+        let signed = verify_update(&public.join(UPDATE_PUBLIC), &list, &signature).is_ok();
+        fs::write(&list, "list!\n").unwrap();
+        let changed_accepted =
+            verify_update(&public.join(UPDATE_PUBLIC), &list, &signature).is_ok();
+        drop(keys);
+
+        // Keys that belong to another key set must be rejected.
         let other = dir.join("other");
         fs::create_dir_all(&other).unwrap();
+        generate_update_key(&other).unwrap();
+        fs::copy(
+            other.join(UPDATE_KEY),
+            dir.join("store").join(UPDATE_SECRET.0),
+        )
+        .unwrap();
+        let update_mismatch = Keys::production(&store, &public)
+            .and_then(|keys| keys.with_update_key(&store))
+            .err()
+            .map(|e| e.to_string());
         generate_pcr_key(&other).unwrap();
         fs::copy(other.join(PCR_KEY), dir.join("store").join(PCR_SECRET.0)).unwrap();
         let mismatch = Keys::production(&store, &public)
@@ -790,6 +940,13 @@ mod tests {
 
         assert!(fresh_keys_load);
         assert!(second_run_refused);
+        assert!(second_update_key_refused);
+        assert!(signed, "a signed list did not verify");
+        assert!(!changed_accepted, "a changed list verified");
+        assert!(
+            update_mismatch.is_some_and(|e| e.contains("update key")),
+            "a foreign update key was accepted"
+        );
         assert_eq!(enroll_files, [true; 4]);
         assert_eq!(profile_files, [true; 4]);
         assert!(

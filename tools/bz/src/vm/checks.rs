@@ -528,7 +528,7 @@ fn missing_partitions(sfdisk_dump: &str) -> Vec<String> {
             Some((field("type=")?, name))
         })
         .collect();
-    let usr = layout::usr_label();
+    let usr = layout::usr_label(layout::OS_VERSION);
     [
         ("esp", layout::ESP_TYPE, "esp"),
         ("/usr A", layout::USR_TYPE, usr.as_str()),
@@ -552,14 +552,14 @@ pub(super) fn check_blessed(disk: &Path) -> Result<()> {
             .arg(format!("{}@@{}", disk.display(), image::ESP_OFFSET))
             .arg("::/EFI/Linux"),
     )?;
-    let blessed = format!("/{}", layout::blessed_uki_name());
+    let blessed = format!("/{}", layout::blessed_uki_name(layout::OS_VERSION));
     ensure!(
         listing.lines().any(|line| line.ends_with(&blessed)),
         "the UKI was not marked as good after a successful boot; ESP holds:\n{listing}"
     );
     say!(
         "  ok: boot counting marked {} as good",
-        layout::blessed_uki_name()
+        layout::blessed_uki_name(layout::OS_VERSION)
     );
     Ok(())
 }
@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn detects_missing_partitions() {
-        let usr = layout::usr_label();
+        let usr = layout::usr_label(layout::OS_VERSION);
         let line = |n: u32, ty: &str, name: &str| {
             format!("disk.img{n} : start=1, size=1, type={ty}, uuid=X, name=\"{name}\"\n")
         };

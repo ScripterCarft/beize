@@ -9,6 +9,7 @@ braucht. Tests und CI benutzen eigene Wegwerf-Schlüssel und brauchen nichts von
 | --- | --- |
 | `PK.crt`, `KEK.crt`, `db.crt` | Zertifikate von Plattform-, Schlüsselaustausch- und Signaturschlüssel |
 | `pcr.pub.pem` | öffentlicher PCR-Schlüssel – steckt als `.pcrpkey` in jedem UKI |
+| `update.pub.pem` | öffentlicher Update-Schlüssel (ML-DSA-65) – liegt in `/usr`, beize-updated nimmt nur damit signierte Updates an (ADR 0020) |
 | `PK.auth`, `KEK.auth`, `db.auth`, `dbx.auth` | signierte Firmware-Updates, die systemd-boot einschreibt (Profil „Beize + Windows“: inklusive Microsofts Zertifikaten und Sperrliste) |
 
 Alle Befehle unten führt **nur der Besitzer** aus, in einem eigenen Terminal
@@ -39,6 +40,17 @@ Teile als vier Dokumente „Beize … key …“ im Tresor „Beize“ ab, liest
 Kontrolle zurück und schreibt Zertifikate und `.auth`-Dateien hierher. Gibt es
 sie schon, bricht `bz` ab – ein Schlüsselwechsel ist ein eigener, bewusster Schritt.
 
+## 1b. Update-Schlüssel erzeugen (einmalig, ADR 0020)
+
+```sh
+./bz secureboot new-update-key
+git add keys/secureboot/update.pub.pem && git commit -m "Add the production update key (public part)"
+```
+
+Für Schlüssel aus der Zeit vor ADR 0020 (`new-keys` legt ihn inzwischen mit an). Der
+private Teil liegt als „Beize update signing key“ im Tresor; ohne `update.pub.pem`
+verweigert `bz sign` das Signieren.
+
 ## 2. Image signieren (bei jeder Installation und jedem Update)
 
 ```sh
@@ -46,7 +58,8 @@ sie schon, bricht `bz` ab – ein Schlüsselwechsel ist ein eigener, bewusster S
 ./bz sign      # → build/out/production/disk.img
 ```
 
-Braucht nur db- und PCR-Schlüssel (1Password fragt per Windows Hello). `bz sign`
+Braucht nur db- und PCR-Schlüssel (1Password fragt per Windows Hello) und den
+öffentlichen Update-Schlüssel von hier. `bz sign`
 prüft, dass sie zu den Dateien hier passen, und löscht sie danach wieder aus dem
 Arbeitsspeicher. Dieses Image ist für echte Hardware gebaut: Konsole auf dem
 Bildschirm, keine Credentials aus der Firmware, keine Testhelfer.

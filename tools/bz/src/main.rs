@@ -18,6 +18,7 @@ mod packages;
 mod paths;
 mod privileges;
 mod recipe;
+mod release;
 mod secureboot;
 mod select;
 mod source;
@@ -125,6 +126,10 @@ enum Command {
     /// Sign the boot chain with the owner's keys from 1Password and write the
     /// disk image for real hardware to build/out/production (owner only)
     Sign,
+    /// Write the release of this version for real hardware to
+    /// build/out/release/<version>, signed with the owner's keys from
+    /// 1Password: what beize-update installs (owner only, ADR 0020)
+    Release,
     /// Write the signed image for real hardware onto an empty disk, named by
     /// its device and its GPT disk GUID (owner only, see keys/secureboot/README.md)
     Install {
@@ -144,6 +149,9 @@ enum SecurebootCommand {
     /// Create the production keys: private halves into 1Password, public
     /// halves into keys/secureboot
     NewKeys,
+    /// Create the update signing key (ADR 0020) for keys made before it:
+    /// private half into 1Password, public half into keys/secureboot
+    NewUpdateKey,
 }
 
 fn main() -> Result<()> {
@@ -189,6 +197,22 @@ fn main() -> Result<()> {
             &secureboot::microsoft_dir(&paths),
             secureboot::Profile::WithWindows,
         ),
+        Command::Secureboot {
+            command: SecurebootCommand::NewUpdateKey,
+        } => secureboot::new_update_key(
+            &secureboot::Store::one_password()?,
+            &secureboot::production_public_dir(&paths),
+        ),
+        Command::Release => {
+            let store = secureboot::Store::one_password()?;
+            let dir = release::release(&paths, &store)?;
+            say!(
+                "
+  ok: {} is signed with the production keys",
+                dir.display()
+            );
+            Ok(())
+        }
         Command::Install {
             disk,
             guid,

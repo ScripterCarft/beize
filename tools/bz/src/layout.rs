@@ -13,13 +13,33 @@ pub const MIB: u64 = 1024 * 1024;
 /// Version of the OS image; part of partition labels and UKI names.
 pub const OS_VERSION: &str = "0.1";
 
-/// Size of each `/usr` data slot. An update must fit into one slot.
-pub const USR_SLOT_SIZE: u64 = 1024 * MIB;
-/// Size of each `/usr` verity slot: the hash tree of a full 1 GiB data slot
-/// with 4 KiB blocks and SHA-256 takes about 8 MiB.
+/// Size of each `/usr` data slot. An update must fit into one slot, and the
+/// size is fixed for the life of an installation (ADR 0020): room for the
+/// graphics stack, firmware and fonts still to come, as ChromeOS learned when
+/// it had to grow its 2 GiB root slots to 4 GiB.
+pub const USR_SLOT_SIZE: u64 = 4096 * MIB;
+/// Size of each `/usr` verity slot: the hash tree of a full data slot
+/// ([`verity_tree_size`], ~32 MiB), with room to spare.
 pub const USR_VERITY_SLOT_SIZE: u64 = 64 * MIB;
 /// dm-verity data and hash block size (the EROFS block size, too).
 pub const VERITY_BLOCK_SIZE: u64 = 4096;
+const _: () = assert!(verity_tree_size(USR_SLOT_SIZE) <= USR_VERITY_SLOT_SIZE);
+
+/// Size of the dm-verity hash tree (SHA-256, [`VERITY_BLOCK_SIZE`]) of `data`
+/// bytes: every level hashes the blocks of the one below until one block
+/// remains, plus the superblock.
+pub const fn verity_tree_size(data: u64) -> u64 {
+    let per_block = VERITY_BLOCK_SIZE / 32;
+    let mut blocks = data.div_ceil(VERITY_BLOCK_SIZE);
+    let mut tree = 1;
+    loop {
+        blocks = blocks.div_ceil(per_block);
+        tree += blocks;
+        if blocks == 1 {
+            return tree * VERITY_BLOCK_SIZE;
+        }
+    }
+}
 /// Holds systemd-boot and the UKIs of both slots with room to spare.
 pub const ESP_SIZE: u64 = 512 * MIB;
 /// FAT cluster size of the ESP. FAT32 requires at least 65525 clusters;
@@ -30,6 +50,10 @@ const FAT32_MIN_CLUSTERS: u64 = 65525;
 const _: () = assert!(ESP_SIZE / ESP_CLUSTER_SIZE > FAT32_MIN_CLUSTERS + 1024);
 /// The root partition never gets smaller than this; it grows into free space.
 const ROOT_MIN_SIZE: u64 = 2048 * MIB;
+/// The smallest disk first boot can complete on: ESP, both `/usr` slots and
+/// the smallest root partition, plus 1 MiB alignment and the GPT at each end.
+pub const MIN_DISK_SIZE: u64 =
+    ESP_SIZE + 2 * (USR_SLOT_SIZE + USR_VERITY_SLOT_SIZE) + ROOT_MIN_SIZE + 2 * MIB;
 
 /// Boot attempts a new version gets before systemd-boot falls back to the
 /// previous one. Cleared by systemd-bless-boot once boot-complete.target is reached.
@@ -41,30 +65,95 @@ pub const USR_TYPE: &str = "8484680C-9521-48C6-9C11-B0720656F69E";
 pub const USR_VERITY_TYPE: &str = "77FF5F63-E7B6-4633-ACF4-1565B864C0E6";
 pub const ROOT_TYPE: &str = "4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709";
 
-/// GPT label of both partitions of the `/usr` slot holding this version, e.g. `beize_0.1`.
-pub fn usr_label() -> String {
-    format!("beize_{OS_VERSION}")
+/// GPT label of both partitions of the `/usr` slot holding `version`, e.g. `beize_0.1`.
+pub fn usr_label(version: &str) -> String {
+    format!("beize_{version}")
 }
 
 /// File name of the UKI on the ESP, with the boot counter, e.g. `beize_0.1+3.efi`.
-pub fn uki_name() -> String {
-    format!("beize_{OS_VERSION}+{BOOT_TRIES}.efi")
+pub fn uki_name(version: &str) -> String {
+    format!("beize_{version}+{BOOT_TRIES}.efi")
 }
 
 /// The UKI's name once systemd-bless-boot has marked it good.
-pub fn blessed_uki_name() -> String {
-    format!("beize_{OS_VERSION}.efi")
+pub fn blessed_uki_name(version: &str) -> String {
+    format!("beize_{version}.efi")
 }
 
-pub fn os_release() -> String {
+/// The os-release of `/usr` and of the UKI. systemd-sysupdate takes the
+/// running version from `IMAGE_VERSION` (ADR 0020).
+pub fn os_release(version: &str) -> String {
     format!(
-        "NAME=\"Beize\"\n\
-         ID=beize\n\
-         PRETTY_NAME=\"Beize {OS_VERSION} (Entwicklungsversion)\"\n\
-         VERSION_ID={OS_VERSION}\n\
-         IMAGE_ID=beize\n\
-         IMAGE_VERSION={OS_VERSION}\n"
+        "{}PRETTY_NAME=\"Beize {version} (Entwicklungsversion)\"\n\
+         VERSION_ID={version}\nIMAGE_VERSION={version}\n",
+        initrd_release()
     )
+}
+
+/// The os-release of the initrd: without a version, since one initrd goes
+/// into the UKIs of several versions (a release, `bz smoke`'s updates).
+pub fn initrd_release() -> String {
+    "NAME=\"Beize\"\nID=beize\nIMAGE_ID=beize\n".to_owned()
+}
+
+/// Where beize-updated puts the files of an update once it has verified
+/// them; the only source systemd-sysupdate installs from (ADR 0020).
+pub const UPDATE_SOURCE_DIR: &str = "/var/lib/beize-update/verified";
+
+/// Release file names as systemd-sysupdate patterns: `@v` the version, `@u`
+/// the partition UUID, derived from the root hash like in the image
+/// ([`verity_partition_uuids`]), so that `usrhash=` finds an updated slot.
+pub const RELEASE_USR: &str = "beize_@v_@u.usr.erofs";
+pub const RELEASE_USR_VERITY: &str = "beize_@v_@u.usr.verity";
+pub const RELEASE_UKI: &str = "beize_@v.efi";
+
+/// Fills a release file name pattern.
+pub fn release_file(pattern: &str, version: &str, uuid: &str) -> String {
+    pattern
+        .replace("@v", version)
+        .replace("@u", &uuid.to_lowercase())
+}
+
+/// systemd-sysupdate transfers (`/usr/lib/sysupdate.d/`), as file name and
+/// content. sysupdate writes them in this order: the UKI last, so a slot is
+/// never booted before it is complete. The running version is protected;
+/// two versions are kept, the running one and the other slot.
+pub fn sysupdate_definitions() -> Vec<(&'static str, String)> {
+    let source = |pattern: &str| {
+        format!(
+            "[Transfer]\nProtectVersion=%A\n\
+             # A local source: beize-updated verified the signature and every file.\n\
+             Verify=no\n\n\
+             [Source]\nType=regular-file\nPath={UPDATE_SOURCE_DIR}\nMatchPattern={pattern}\n\n"
+        )
+    };
+    let partition = |comment: &str, pattern: &str, ty: &str| {
+        format!(
+            "# {comment}\n{}[Target]\nType=partition\nPath=auto\nMatchPattern=beize_@v\n\
+             MatchPartitionType={ty}\nPartitionFlags=0\nReadOnly=1\nInstancesMax=2\n",
+            source(pattern)
+        )
+    };
+    vec![
+        (
+            "10-usr.transfer",
+            partition("The /usr data into the free slot.", RELEASE_USR, "usr"),
+        ),
+        (
+            "11-usr-verity.transfer",
+            partition("Its dm-verity hash tree.", RELEASE_USR_VERITY, "usr-verity"),
+        ),
+        (
+            "20-uki.transfer",
+            format!(
+                "# The UKI last, with the boot counter (ADR 0007).\n{}[Target]\n\
+                 Type=regular-file\nPath=/EFI/Linux\nPathRelativeTo=boot\n\
+                 MatchPattern=beize_@v+@l-@d.efi beize_@v+@l.efi beize_@v.efi\n\
+                 Mode=0644\nTriesLeft={BOOT_TRIES}\nTriesDone=0\nInstancesMax=2\n",
+                source(RELEASE_UKI)
+            ),
+        ),
+    ]
 }
 
 /// The partition UUIDs systemd derives from a dm-verity root hash (UAPI.2):
@@ -165,9 +254,46 @@ mod tests {
 
     #[test]
     fn names_carry_version_and_boot_counter() {
-        assert_eq!(usr_label(), format!("beize_{OS_VERSION}"));
-        assert_eq!(uki_name(), format!("beize_{OS_VERSION}+3.efi"));
-        assert_eq!(blessed_uki_name(), format!("beize_{OS_VERSION}.efi"));
+        assert_eq!(usr_label("0.2"), "beize_0.2");
+        assert_eq!(uki_name("0.2"), "beize_0.2+3.efi");
+        assert_eq!(blessed_uki_name("0.2"), "beize_0.2.efi");
+        assert!(os_release("0.2").contains("\nIMAGE_VERSION=0.2\n"));
+        assert!(!initrd_release().contains("VERSION"));
+    }
+
+    #[test]
+    fn verity_tree_size_matches_veritysetup() {
+        // veritysetup format of 4 GiB: 8192 + 64 + 1 hash blocks + superblock.
+        assert_eq!(verity_tree_size(4096 * MIB), (8192 + 64 + 1 + 1) * 4096);
+        assert_eq!(verity_tree_size(4096), 2 * 4096);
+    }
+
+    #[test]
+    fn sysupdate_writes_what_the_image_names() {
+        let defs = sysupdate_definitions();
+        let names: Vec<_> = defs.iter().map(|(name, _)| *name).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "sysupdate runs the transfers in name order");
+        assert!(names.last().unwrap().contains("uki"), "the UKI comes last");
+        let uki = &defs[2].1;
+        // The patterns name what the image ships, with and without counter.
+        for name in [uki_name("@v"), blessed_uki_name("@v")] {
+            let pattern = name.replace(&format!("+{BOOT_TRIES}"), "+@l");
+            assert!(uki.contains(&pattern), "{pattern}");
+        }
+        assert!(uki.contains(&format!("TriesLeft={BOOT_TRIES}\n")));
+        for (_, def) in &defs[..2] {
+            assert!(def.contains(&format!("MatchPattern={}\n", usr_label("@v"))));
+        }
+        for (_, def) in &defs {
+            assert!(def.contains(&format!("Path={UPDATE_SOURCE_DIR}\n")));
+            assert!(def.contains("ProtectVersion=%A\n"));
+        }
+        assert_eq!(
+            release_file(RELEASE_USR, "0.2", "ABCD-EF"),
+            "beize_0.2_abcd-ef.usr.erofs"
+        );
     }
 
     #[test]

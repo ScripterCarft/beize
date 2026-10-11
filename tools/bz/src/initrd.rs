@@ -80,7 +80,10 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     )?;
     // initrd-release tells systemd it runs in the initrd (initrd.target); it
     // is the os-release of the initrd as well (as dracut and mkosi lay it out).
-    fs::write(root.join("usr/lib/initrd-release"), layout::os_release())?;
+    fs::write(
+        root.join("usr/lib/initrd-release"),
+        layout::initrd_release(),
+    )?;
     symlink("../usr/lib/initrd-release", root.join("etc/initrd-release"))?;
     symlink("initrd-release", root.join("usr/lib/os-release"))?;
     symlink("usr/lib/systemd/systemd", root.join("init"))?;

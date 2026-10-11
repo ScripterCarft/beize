@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail, ensure};
 
 use super::console::{Answers, TAMPER_TIMEOUT, watch_boot};
-use crate::layout::MIB;
+use crate::layout::{self, MIB};
 use crate::paths::Paths;
 use crate::say;
 use crate::{secureboot, util};
@@ -19,8 +19,10 @@ use crate::{secureboot, util};
 const OVMF_CODE: &str = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd";
 
 /// Size of the virtual disk the image is installed on for tests: the shipped
-/// image is minimal, first boot grows into the remaining space.
-const TEST_DISK_SIZE: u64 = 8192 * MIB;
+/// image is minimal, first boot grows into the remaining space. Sparse: only
+/// what is written takes space on the host.
+const TEST_DISK_SIZE: u64 = 16384 * MIB;
+const _: () = assert!(TEST_DISK_SIZE >= layout::MIN_DISK_SIZE);
 
 /// QEMU user networking ("slirp"): its DHCP server hands out this gateway and
 /// this DNS server – the guest must learn both from the network (ADR 0011).
@@ -112,7 +114,7 @@ impl Machine {
         if copy.tpm.exists() {
             fs::remove_dir_all(&copy.tpm)?;
         }
-        // The disk is sparse (8 GiB, mostly unwritten): keep it that way.
+        // The disk is sparse (mostly unwritten): keep it that way.
         for (from, to) in [
             (&self.disk, &copy.disk),
             (&self.vars, &copy.vars),

@@ -97,7 +97,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz outdated        # neuere Upstream-Releases aller Quellen
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
 # --locked (CI): kernel/beize.config muss aktuell sein, statt neu geschrieben zu werden
-# nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys · ./bz sign · ./bz install
+# nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys|new-update-key ·
+#   ./bz sign · ./bz release (signiertes Update nach build/out/release/<ver>) · ./bz install
 ```
 
 - Ausgabe ist knapp: Befehle zeigen nur bei Fehler ihre letzten 40 Zeilen. Logs:
@@ -311,8 +312,12 @@ Wiederherstellung – alles wie erwartet; ebenso die offenen 5b-Punkte (Recovery
 unprivilegiert, prüft ML-DSA-Signatur mit libcrypto) + systemd-sysupdate als Werkzeug; Quelle
 vorerst lokal (Verzeichnis/URL), Server vor M5; Start gelungen = keine Unit aus
 `running-units.txt` fehlgeschlagen; Slots 4 GiB. **Umsetzung in Schritten:** (1) ✓ xz + curl,
-systemd mit sysupdate (Socket und importd-Reste entfernt, Journal jetzt zstd); (2) Slot-Größe, `sysupdate.d`, Versionen; (3) `bz release` + Test-Release;
-(4) `os/beize-update`; (5) Boot-Check + systemd-boot-update; (6) Smoke-Szenarien laut ADR.
+systemd mit sysupdate (Socket und importd-Reste entfernt, Journal jetzt zstd); (2+3) ✓ Slots
+4 GiB, `sysupdate.d` aus `layout.rs`, `bz usr` baut nur noch den Baum, `usr::pack` packt ihn je
+Version und Schlüsselsatz (öffentlicher Update-Schlüssel in `/usr`, daher packt `bz sign` neu),
+`bz release` + `release::write` (Test-Releases für den Smoke-Test), `bz secureboot
+new-update-key` (**Besitzer muss ihn vor dem nächsten `bz sign` erzeugen**); (4) `os/beize-update`;
+(5) `beize-boot-health` + signiertes systemd-boot in `/usr`; (6) Smoke-Szenarien laut ADR.
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;

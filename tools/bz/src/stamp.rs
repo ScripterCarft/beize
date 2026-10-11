@@ -84,6 +84,12 @@ pub fn hash_tree(hasher: &mut Sha256, root: &Path, entry: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Where the fingerprint of `step` is stored; a later step can take it as an
+/// input that stands for everything the earlier one was built from.
+pub fn file(paths: &Paths, step: &str) -> PathBuf {
+    paths.work.join("stamps").join(format!("step-{step}"))
+}
+
 /// The stored fingerprint of a build step and the files it produces.
 pub struct Stamp {
     path: PathBuf,
@@ -94,7 +100,7 @@ pub struct Stamp {
 impl Stamp {
     pub fn new(paths: &Paths, step: &str, fingerprint: Fingerprint, outputs: &[&Path]) -> Self {
         Self {
-            path: paths.work.join("stamps").join(format!("step-{step}")),
+            path: file(paths, step),
             fingerprint: fingerprint.finish(),
             outputs: outputs.iter().map(|p| p.to_path_buf()).collect(),
         }

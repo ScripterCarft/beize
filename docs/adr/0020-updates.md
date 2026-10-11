@@ -43,7 +43,7 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   Bis dahin startet der Besitzer ein Update: `run0 beize-update install <Quelle>`.
 - **Ein Update wird beim nächsten Neustart aktiv**, nie durch einen erzwungenen Neustart
   (Vorbild ChromeOS: „Neu starten, um zu aktualisieren“).
-- **Wann ein Start gelungen ist:** `beize-boot-check.service` vor `boot-complete.target`
+- **Wann ein Start gelungen ist:** `beize-boot-health.service` vor `boot-complete.target`
   prüft, dass keine Unit aus `images/running-units.txt` fehlgeschlagen ist – dieselbe Liste,
   die der Smoke-Test verlangt, mit dem Updater darin: Die neue Version muss sich selbst
   wieder aktualisieren können. Erst danach entfernt `systemd-bless-boot` den Zähler; nach
