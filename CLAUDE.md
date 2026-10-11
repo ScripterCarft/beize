@@ -239,11 +239,12 @@ der EFI-Variable `BeizeKeymap` (Vorbild macOS/FileVault), Notfall-Tor nimmt den 
 in jeder Schreibweise, Bestätigungswort `stored`, LANG bleibt C.UTF-8. Nebenbei behoben:
 `beize-tpm reseal` nach einem Vertipper am Recovery-Key. Smoke tippt den Key per QMP auf der
 Tastatur (US-Bindestrich abgelehnt, deutscher angenommen; Gegenproben rot).
-**Hardware-Check (Besitzer, nach `bz sign`/`bz install`):** Die Installation hat ihr Setup
-schon hinter sich, also einmal `localectl set-keymap --no-convert de-latin1-nodeadkeys` und
-`localectl set-x11-keymap --no-convert de pc105 nodeadkeys terminate:ctrl_alt_bksp` (oder
-`de`/`de` ohne Variante); danach `tail -c +5 /sys/firmware/efi/efivars/BeizeKeymap-*` und
-nach dem Neustart `journalctl -b -u beize-keymap` (initrd: „Console keymap: …“).
+**Hardware-Check 5a (Besitzer, offen):** Ohne Updater (Phase 6) heißt neues Image
+Neuinstallation (`bz build`, `bz sign`, `bz install … --reinstall`, README Schlüssel §2b) –
+neuer Recovery-Key, Setup läuft neu, also genau der zu prüfende Weg: `stored`, Layout als
+erste Frage, Name/Passwort mit y/z; danach `cat /etc/vconsole.conf`,
+`tail -c +5 /sys/firmware/efi/efivars/BeizeKeymap-*`, nach Neustart
+`journalctl -b -u beize-keymap` (initrd: „Console keymap: …“).
 **Nächster Schritt: Phase 5b (eigener Chat), ADR 0018 Rechte (run0 + polkit) vorab abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
