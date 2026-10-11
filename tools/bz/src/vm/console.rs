@@ -33,14 +33,18 @@ pub(super) const SMOKE_CREDENTIALS: [&str; 2] = [
     "type=11,value=io.systemd.credential:getty.auto=no",
 ];
 
-/// The line /usr/lib/beize/boot-report writes on the second serial port
-/// before the journal of the boot.
-const JOURNAL_MARKER: &[u8] = b"BEIZE-JOURNAL\n";
+/// The disk the boot report writes the journal of the boot to: empty (sparse)
+/// at power-on, the guest finds it by its serial number
+/// (/dev/disk/by-id/virtio-beize-journal). A disk, not a serial port: a
+/// serial port costs a VM exit per byte, on the nested CI runner more than
+/// the power-off allows for half a megabyte.
+const JOURNAL_DISK_SIZE: u64 = 16 << 20;
 
-/// What follows the last `marker` in `bytes`, if it appears.
-fn after_marker<'a>(bytes: &'a [u8], marker: &[u8]) -> Option<&'a [u8]> {
-    let start = bytes.windows(marker.len()).rposition(|w| w == marker)?;
-    Some(&bytes[start + marker.len()..])
+/// What the guest wrote to the journal disk: everything before the first
+/// zero byte, as the disk started out zeroed.
+fn written(disk: &[u8]) -> &[u8] {
+    let end = disk.iter().position(|&b| b == 0).unwrap_or(disk.len());
+    &disk[..end]
 }
 
 /// Numbers the boot logs in the order of the boots.
@@ -366,8 +370,7 @@ pub(super) struct Session {
     events: mpsc::Receiver<ConsoleEvent>,
     reader: Option<thread::JoinHandle<Seen>>,
     started: Instant,
-    /// What the guest wrote to its second serial port: the firmware's
-    /// console, then, after [`JOURNAL_MARKER`], the journal of the boot.
+    /// The journal disk (see [`JOURNAL_DISK_SIZE`]), later the journal.
     journal: PathBuf,
     /// Kept until QEMU is stopped.
     _tpm: Swtpm,
@@ -389,6 +392,7 @@ impl Session {
         ));
         let log = File::create(&log_path)?;
         let journal = log_path.with_extension("journal.json");
+        File::create(&journal)?.set_len(JOURNAL_DISK_SIZE)?;
         LAST_CONSOLE.set(Some(log_path));
         // Left by a QEMU that was killed; QEMU would refuse to start.
         let _ = fs::remove_file(machine.qmp());
@@ -399,9 +403,16 @@ impl Session {
         }
         let mut child = qemu
             .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
-            // ttyS1: a channel out of the guest that is not the console.
-            .arg("-serial")
-            .arg(format!("file:{}", journal.display()))
+            // Added last, so the other devices keep their PCI slots.
+            .arg("-drive")
+            .arg(format!(
+                "if=none,id=journal,format=raw,file={}",
+                journal.display()
+            ))
+            .args([
+                "-device",
+                "virtio-blk-pci,drive=journal,serial=beize-journal",
+            ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -455,12 +466,13 @@ impl Session {
             .and_then(|reader| reader.join().ok())
             .unwrap_or_default();
         // Only a boot that reported wrote its journal; keep just that.
-        let written = fs::read(&self.journal).unwrap_or_default();
-        if let Some(json) = after_marker(&written, JOURNAL_MARKER) {
+        let disk = fs::read(&self.journal).unwrap_or_default();
+        let json = written(&disk);
+        if json.is_empty() {
+            let _ = fs::remove_file(&self.journal);
+        } else {
             fs::write(&self.journal, json)?;
             seen.journal = Some(self.journal.clone());
-        } else {
-            let _ = fs::remove_file(&self.journal);
         }
         Ok((powered_off, seen))
     }
@@ -744,17 +756,14 @@ mod tests {
     }
 
     #[test]
-    fn journal_follows_the_firmware_console() {
-        let written = b"\x1b[2JBdsDxe: starting Boot0002\r\nBEIZE-JOURNAL\n{\"MESSAGE\":\"a\"}\n";
+    fn journal_ends_where_the_empty_disk_begins() {
         assert_eq!(
-            after_marker(written, JOURNAL_MARKER),
-            Some(&b"{\"MESSAGE\":\"a\"}\n"[..])
+            written(b"{\"MESSAGE\":\"a\"}\n\0\0\0"),
+            b"{\"MESSAGE\":\"a\"}\n"
         );
-        // A boot that did not report: the firmware's console only.
-        assert_eq!(
-            after_marker(b"BdsDxe: starting Boot0002\r\n", JOURNAL_MARKER),
-            None
-        );
+        // A boot that did not report left the disk empty.
+        assert_eq!(written(b"\0\0\0"), b"");
+        assert_eq!(written(b""), b"");
     }
 
     #[test]

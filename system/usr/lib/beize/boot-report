@@ -262,18 +262,16 @@ for unit in "${failed[@]}" "${boot_failed[@]}"; do
 done
 
 if [[ -e /run/credentials/@system/beize.smoke ]]; then
-    # The journal of this boot for `bz boot-times`, on the second serial port
-    # (`bz smoke` keeps what follows the marker – the firmware writes there,
-    # too – in a file next to the console log): only the fields it reads,
-    # from the system manager, the kernel and beize-boot-chain. raw: no CR
-    # before each newline; no colours, which journalctl adds on a terminal.
-    if stty -F /dev/ttyS1 raw 2> /dev/null; then
-        {
-            echo BEIZE-JOURNAL
-            SYSTEMD_COLORS=0 journalctl --boot --output=json --no-pager \
-                --output-fields=_SOURCE_MONOTONIC_TIMESTAMP,SYSLOG_IDENTIFIER,_TRANSPORT,_PID,SYSLOG_PID,MESSAGE,MESSAGE_ID,UNIT,KERNEL_USEC,INITRD_USEC,USERSPACE_USEC \
-                _PID=1 + _TRANSPORT=kernel + SYSLOG_IDENTIFIER=beize-boot-chain
-        } > /dev/ttyS1
+    # The journal of this boot for `bz boot-times`, on the empty disk `bz smoke`
+    # adds for it (it keeps what was written in a file next to the console
+    # log): only the fields it reads, from the system manager, the kernel and
+    # beize-boot-chain.
+    journal_disk=/dev/disk/by-id/virtio-beize-journal
+    if [[ -b $journal_disk ]]; then
+        journalctl --boot --output=json --no-pager \
+            --output-fields=_SOURCE_MONOTONIC_TIMESTAMP,SYSLOG_IDENTIFIER,_TRANSPORT,_PID,SYSLOG_PID,MESSAGE,MESSAGE_ID,UNIT,KERNEL_USEC,INITRD_USEC,USERSPACE_USEC \
+            _PID=1 + _TRANSPORT=kernel + SYSLOG_IDENTIFIER=beize-boot-chain > "$journal_disk"
+        sync "$journal_disk"
     fi
     systemctl poweroff --no-block
 fi

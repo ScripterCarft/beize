@@ -101,7 +101,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Ausgabe ist knapp: Befehle zeigen nur bei Fehler ihre letzten 40 Zeilen. Logs:
   `build/work/logs/<paket>.log`, `linux.log`, Konsole jedes Starts in
   `build/work/logs/boot/NN-<maschine>.log` (gehört immer zum letzten smoke/debug/run),
-  daneben das Journal jedes Starts mit Boot-Report als `.journal.json` (über ttyS1;
+  daneben das Journal jedes Starts mit Boot-Report als `.journal.json` (über eine leere virtio-Disk;
   `bz boot-times <datei>`). Smoke zeigt beim Start mit Zeitbudget die langsamsten Units.
   `bz` beantwortet als Terminal der seriellen Konsole systemds Größenabfrage (sonst 2× 333 ms).
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Rezeptänderung an systemd

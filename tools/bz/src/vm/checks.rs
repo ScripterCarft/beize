@@ -189,7 +189,7 @@ pub(super) fn boot_healthy(
     );
     let journal = run
         .journal
-        .context("the boot report wrote no journal to the second serial port")?;
+        .context("the boot report wrote no journal to its disk")?;
     Ok(HealthyBoot {
         report,
         console: run.console,
