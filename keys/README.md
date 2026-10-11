@@ -26,6 +26,7 @@ Prüfen aller Quellen: `./bz verify`
 | `glibc` | Andreas K. Hüttel | `35B1 7DF5 7525 77CA 0C54 1CEB 94BF DF44 84AD 142F` | keys.openpgp.org (GNU-Keyring enthält eine abgelaufene Fassung) |
 | `gmp` | Niels Möller | `343C 2FF0 FBEE 5EC2 EDBE F399 F359 9FF8 28C6 7298` | GNU-Keyring |
 | `intel-microcode` | Intel signiert weder Archive noch Tags oder Commits (geprüft 2026-10-10) | Archiv per SHA-256 gepinnt; jedes Microcode-Update trägt Intels Signatur, die die CPU vor dem Einspielen prüft |
+| `iputils` | Petr Vorel (SUSE) | `2016 FEA4 858B 1C36 B32E 833A C0DE C2EE 72F3 3A5F` | keyserver.ubuntu.com; signiert die Release-Archive und die Tags auf GitHub |
 | `json-c` | Upstream signiert weder Release-Archive noch Tags (geprüft 2026-10-07) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
 | `kbd` | Alexey Gladkov | `7F2A 3D07 2981 49A0 793C 9A4E A45A BA54 4CFF D434` | keyserver.ubuntu.com; deckungsgleich mit WKD kernel.org |
 | `kmod` | Lucas De Marchi | `EAB3 3C96 9001 3C73 3916 AC83 9BA2 A5A6 30CB EA53` | keyserver.ubuntu.com |
