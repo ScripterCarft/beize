@@ -16,8 +16,12 @@ unsafe extern "C" {
     fn syscall(number: c_long, ...) -> c_long;
 }
 
-/// The first passphrase cached under `name`, if any.
-pub fn cached_passphrase(name: &str) -> Option<String> {
+/// The passphrases cached under `name`: every one typed, a mistyped one too.
+pub fn cached_passphrases(name: &str) -> Vec<String> {
+    read_key(name).unwrap_or_default()
+}
+
+fn read_key(name: &str) -> Option<Vec<String>> {
     let kind = CString::new("user").ok()?;
     let description = CString::new(name).ok()?;
     // SAFETY: both strings are NUL-terminated and outlive the call; no
@@ -48,8 +52,11 @@ pub fn cached_passphrase(name: &str) -> Option<String> {
     };
     let length = usize::try_from(length).ok()?.min(buffer.len());
     buffer.truncate(length);
-    let first = buffer.split(|&b| b == 0).next()?;
-    let passphrase = String::from_utf8(first.to_vec()).ok()?;
+    let passphrases = buffer
+        .split(|&b| b == 0)
+        .filter(|passphrase| !passphrase.is_empty())
+        .filter_map(|passphrase| String::from_utf8(passphrase.to_vec()).ok())
+        .collect();
     buffer.fill(0);
-    (!passphrase.is_empty()).then_some(passphrase)
+    Some(passphrases)
 }

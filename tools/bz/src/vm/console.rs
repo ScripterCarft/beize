@@ -3,15 +3,16 @@
 
 use std::cell::RefCell;
 use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use super::machine::{Machine, Swtpm, qemu};
 use crate::say;
@@ -50,24 +51,29 @@ pub(super) struct BootRun<T> {
     pub(super) failures: Vec<String>,
     /// Whether the boot asked for a passphrase (the TPM did not unlock).
     pub(super) prompted: bool,
+    /// How often it asked.
+    pub(super) prompts: u32,
     /// Every console line, without terminal control sequences.
     pub(super) console: Vec<String>,
 }
 
-/// systemd's prompt for a disk passphrase or recovery key ("Please enter
-/// recovery key for disk root: ..."). It does not end with a newline, so it
-/// is looked for in incomplete lines, too.
-fn is_passphrase_prompt(text: &str) -> bool {
-    text.contains("Please enter") && text.contains(" for disk ")
+/// How many of systemd's prompts for a disk passphrase or recovery key
+/// ("Please enter recovery key for disk root: ...") `text` holds. They do not
+/// end with a newline, so they are looked for in incomplete lines, too.
+fn passphrase_prompts(text: &str) -> usize {
+    text.split("Please enter")
+        .skip(1)
+        .filter(|rest| rest.contains(" for disk "))
+        .count()
 }
 
 /// beize-tpm's question whether to adopt a different TPM (beize-tpm/src/main.rs).
 const ADOPT_TPM_PROMPT: &str = "Type yes to bind the data to it";
 
 /// The first boot waits for the owner to confirm the recovery key is saved
-/// (system/initrd/usr/lib/beize/recovery-key); the tests answer "saved".
+/// (system/initrd/usr/lib/beize/recovery-key); the tests answer "stored".
 pub(super) const RECOVERY_KEY_SAVED_PROMPT: &str =
-    "Type saved once the recovery key is written down";
+    "Type stored once the recovery key is written down";
 
 /// The owner's account the tests create on first boot (beize-setup).
 pub(super) const SMOKE_USER: &str = "smoke";
@@ -118,6 +124,9 @@ pub(super) struct Answers {
     /// Typed when the boot asks for the recovery key; without one, that
     /// question ends the boot.
     recovery_key: Option<String>,
+    /// The recovery key typed on the machine's keyboard, as a German keyboard
+    /// sends it (see [`Answers::recovery_key_on_german_keyboard`]).
+    german_keyboard_key: Option<String>,
     /// Typed when beize-tpm asks whether to adopt a new TPM ("no" if unset).
     adopt_tpm: Option<&'static str>,
     /// The recovery key for the emergency gate, typed after a wrong key and
@@ -133,6 +142,19 @@ impl Answers {
     pub(super) fn recovery_key(key: &str) -> Self {
         Self {
             recovery_key: Some(key.to_owned()),
+            ..Self::default()
+        }
+    }
+
+    /// The recovery key typed on the keyboard, not the serial console – key
+    /// by key, as scan codes, so the console keymap decides what arrives
+    /// (ADR 0017). The machine's keymap is German: first the key goes in with
+    /// the dash where a US keyboard has it, which gives "ß" and must be
+    /// refused; then with the dash key of a German keyboard.
+    pub(super) fn recovery_key_on_german_keyboard(key: &str) -> Self {
+        Self {
+            recovery_key: Some(key.to_owned()),
+            german_keyboard_key: Some(key.to_owned()),
             ..Self::default()
         }
     }
@@ -160,7 +182,7 @@ impl Answers {
         let owned = |typed: &[&str]| typed.iter().map(|t| (*t).to_owned()).collect();
         let mut replies = vec![
             (ADOPT_TPM_PROMPT, owned(&[self.adopt_tpm.unwrap_or("no")])),
-            (RECOVERY_KEY_SAVED_PROMPT, owned(&["saved"])),
+            (RECOVERY_KEY_SAVED_PROMPT, owned(&["stored"])),
         ];
         replies.extend(
             SETUP_ANSWERS
@@ -176,6 +198,79 @@ impl Answers {
         }
         replies
     }
+}
+
+/// The keyboard of a running machine, through QEMU's control socket (QMP).
+struct Keyboard {
+    commands: UnixStream,
+    replies: BufReader<UnixStream>,
+}
+
+impl Keyboard {
+    fn connect(socket: &Path) -> Result<Self> {
+        let commands = UnixStream::connect(socket)
+            .with_context(|| format!("connecting to {}", socket.display()))?;
+        commands.set_read_timeout(Some(Duration::from_secs(10)))?;
+        let mut keyboard = Self {
+            replies: BufReader::new(commands.try_clone()?),
+            commands,
+        };
+        keyboard.reply()?; // QEMU's greeting
+        keyboard.execute(r#"{"execute": "qmp_capabilities"}"#)?;
+        Ok(keyboard)
+    }
+
+    /// Presses the keys one after the other, by QEMU key name ("c", "minus").
+    fn press(&mut self, keys: &[&str]) -> Result<()> {
+        for key in keys {
+            self.execute(&format!(
+                r#"{{"execute": "send-key", "arguments": {{"keys": [{{"type": "qcode", "data": "{key}"}}], "hold-time": 20}}}}"#
+            ))?;
+            // Released before the next one is pressed.
+            thread::sleep(Duration::from_millis(40));
+        }
+        Ok(())
+    }
+
+    fn execute(&mut self, command: &str) -> Result<()> {
+        writeln!(self.commands, "{command}")?;
+        loop {
+            let reply = self.reply()?;
+            if reply.contains(r#""return""#) {
+                return Ok(());
+            }
+            if reply.contains(r#""error""#) {
+                bail!("QEMU refused {command}: {}", reply.trim());
+            }
+            // Anything else is an event; the reply follows.
+        }
+    }
+
+    fn reply(&mut self) -> Result<String> {
+        let mut reply = String::new();
+        if self.replies.read_line(&mut reply)? == 0 {
+            bail!("QEMU closed its control socket");
+        }
+        Ok(reply)
+    }
+}
+
+/// The keys for a recovery key (modhex letters and dashes), then Enter;
+/// `dash` is the key that gives "-". The modhex letters are where a US
+/// keyboard has them on German and French keyboards, too.
+fn recovery_key_presses(key: &str, dash: &'static str) -> Vec<&'static str> {
+    const LETTERS: [&str; 26] = [
+        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r",
+        "s", "t", "u", "v", "w", "x", "y", "z",
+    ];
+    key.chars()
+        .filter_map(|c| match c {
+            '-' => Some(dash),
+            'a'..='z' => Some(LETTERS[c as usize - 'a' as usize]),
+            _ => None,
+        })
+        .chain(["ret"])
+        .collect()
 }
 
 /// Types a line at the console.
@@ -198,6 +293,7 @@ struct Seen {
     failures: Vec<String>,
     console: Vec<String>,
     prompted: bool,
+    prompts: u32,
 }
 
 /// A headless boot in progress: QEMU with the serial console on a pipe. A
@@ -229,6 +325,8 @@ impl Session {
         ));
         let log = File::create(&log_path)?;
         LAST_CONSOLE.set(Some(log_path));
+        // Left by a QEMU that was killed; QEMU would refuse to start.
+        let _ = fs::remove_file(machine.qmp());
         let started = Instant::now();
         let mut qemu = qemu(machine, &tpm)?;
         for credential in credentials {
@@ -246,7 +344,8 @@ impl Session {
         let reader = {
             let stdin = Arc::clone(&stdin);
             let answers = answers.clone();
-            thread::spawn(move || read_console(stdout, log, &stdin, &answers, &tx))
+            let qmp = machine.qmp();
+            thread::spawn(move || read_console(stdout, log, &stdin, &answers, &qmp, &tx))
         };
         Ok(Self {
             child,
@@ -324,6 +423,7 @@ fn read_console(
     mut log: File,
     stdin: &Mutex<ChildStdin>,
     answers: &Answers,
+    qmp: &Path,
     events: &mpsc::Sender<ConsoleEvent>,
 ) -> Seen {
     let answer = |text: &str| {
@@ -337,12 +437,16 @@ fn read_console(
     // (a question waiting for its answer) has been answered already.
     let mut replied = vec![0; replies.len()];
     let mut line_answered = false;
+    // Passphrase prompts in the unfinished line: a prompt answered on the
+    // keyboard ends without a newline on the serial console.
+    let mut prompts_in_line = 0;
     let mut pending = Vec::new();
     let mut chunk = [0u8; 4096];
     while let Ok(n @ 1..) = stdout.read(&mut chunk) {
         pending.extend_from_slice(&chunk[..n]);
         while let Some(end) = pending.iter().position(|&b| b == b'\n') {
             line_answered = false;
+            prompts_in_line = 0;
             let raw: Vec<u8> = pending.drain(..=end).collect();
             let line = String::from_utf8_lossy(&raw);
             let line = line.trim_end_matches(['\r', '\n']);
@@ -354,13 +458,40 @@ fn read_console(
             let _ = events.send(ConsoleEvent::Line(line.to_owned()));
         }
         let shown = strip_ansi(&String::from_utf8_lossy(&pending));
-        if !seen.prompted && is_passphrase_prompt(&shown) {
-            seen.prompted = true;
-            if let Some(key) = &answers.recovery_key {
+        let prompts = passphrase_prompts(&shown);
+        if prompts > prompts_in_line {
+            prompts_in_line = prompts;
+            seen.prompts += 1;
+            if let Some(key) = &answers.german_keyboard_key {
+                let (dash, how) = match seen.prompts {
+                    1 => ("minus", "with the dash of a US keyboard"),
+                    2 => ("slash", "with the dash key of a German keyboard"),
+                    _ => ("", ""),
+                };
+                if !dash.is_empty() {
+                    echo(
+                        &mut log,
+                        &format!("(typing the recovery key on the keyboard, {how})"),
+                    );
+                    let typed = Keyboard::connect(qmp)
+                        .and_then(|mut keyboard| keyboard.press(&recovery_key_presses(key, dash)));
+                    if let Err(error) = typed {
+                        echo(
+                            &mut log,
+                            &format!("(typing on the keyboard failed: {error:#})"),
+                        );
+                    }
+                }
+            } else if seen.prompts == 1
+                && let Some(key) = &answers.recovery_key
+            {
                 echo(&mut log, "(typing the recovery key)");
                 answer(key);
             }
-            let _ = events.send(ConsoleEvent::Prompted);
+            if !seen.prompted {
+                seen.prompted = true;
+                let _ = events.send(ConsoleEvent::Prompted);
+            }
         }
         for ((prompt, typed), replied) in replies.iter().zip(&mut replied) {
             if line_answered || !shown.contains(prompt) {
@@ -422,6 +553,7 @@ pub(super) fn watch_boot<T>(
         powered_off,
         failures: seen.failures,
         prompted: seen.prompted,
+        prompts: seen.prompts,
         console: seen.console,
     })
 }
@@ -483,15 +615,26 @@ mod tests {
         ));
         assert!(!is_unit_failure("[  OK  ] Reached target Basic System."));
         assert_eq!(strip_ansi("[[0;32m  OK  [0m] x"), "[  OK  ] x");
-        assert!(is_passphrase_prompt(
-            "Please enter recovery key for disk root: (press TAB for no echo) "
-        ));
-        assert!(is_passphrase_prompt(
-            "Please enter passphrase for disk root (root): "
-        ));
-        assert!(!is_passphrase_prompt(
-            "Starting Cryptography Setup for root..."
-        ));
+        let prompt = "Please enter recovery key for disk root: (press TAB for no echo) ";
+        assert_eq!(passphrase_prompts(prompt), 1);
+        assert_eq!(
+            passphrase_prompts("Please enter passphrase for disk root (root): "),
+            1
+        );
+        // A prompt answered on the keyboard ends without a newline here.
+        assert_eq!(passphrase_prompts(&format!("{prompt}{prompt}")), 2);
+        assert_eq!(
+            passphrase_prompts("Starting Cryptography Setup for root..."),
+            0
+        );
+    }
+
+    #[test]
+    fn types_a_recovery_key_with_the_given_dash_key() {
+        assert_eq!(
+            recovery_key_presses("cb-du", "slash"),
+            ["c", "b", "slash", "d", "u", "ret"]
+        );
     }
 
     #[test]

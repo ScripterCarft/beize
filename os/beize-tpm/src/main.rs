@@ -18,11 +18,16 @@
 //! initrd and in the system: an emergency shell only with the recovery key
 //! (see `emergency`, ADR 0016).
 //!
+//! `beize-tpm keymap save|load` keeps the owner's console keymap in an EFI
+//! variable for the initrd, where the recovery key is typed (see `keymap`,
+//! ADR 0017).
+//!
 //! Everything it prints goes to the console; the recovery key never does.
 
 mod efi;
 mod emergency;
 mod eventlog;
+mod keymap;
 mod keyring;
 mod luks;
 mod policy;
@@ -49,7 +54,8 @@ fn main() -> ExitCode {
         Some("reseal") => reseal(),
         Some("check-boot") => check_boot(),
         Some("emergency") => emergency::run(),
-        _ => Err("usage: beize-tpm reseal | check-boot | emergency".into()),
+        Some("keymap") => keymap::run(std::env::args().nth(2).as_deref()),
+        _ => Err("usage: beize-tpm reseal | check-boot | emergency | keymap save|load".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -110,13 +116,14 @@ fn reseal() -> Result<(), String> {
     let current_srk = read(CURRENT_SRK)?;
     let bound_srk = fs::read(BOUND_SRK).ok();
 
-    let Some(recovery_key) = keyring::cached_passphrase("cryptsetup") else {
+    let typed = keyring::cached_passphrases("cryptsetup");
+    if typed.is_empty() {
         // The TPM unlocked: it is the one the data is bound to.
         if bound_srk.as_deref() != Some(current_srk.as_slice()) {
             record_srk(&current_srk)?;
         }
         return Ok(());
-    };
+    }
 
     // Unlocked with the recovery key: the TPM refused this boot's state.
     if !secure_boot_on() {
@@ -141,6 +148,17 @@ fn reseal() -> Result<(), String> {
     }
 
     let device = root_luks_device()?;
+    // Every key typed in this boot is cached, a mistyped one too: the one that
+    // opened the data. Before anything is wiped – wiping a slot needs no key.
+    let mut recovery_key = None;
+    for passphrase in typed {
+        if luks::opens(&device, &passphrase)? {
+            recovery_key = Some(passphrase);
+            break;
+        }
+    }
+    let recovery_key =
+        recovery_key.ok_or("none of the keys typed in this boot opens the root partition")?;
     println!("The security chip did not recognise this computer's state (firmware or");
     println!("Secure Boot changed); binding the data to the current state.");
     // Wipe first, then enroll: on a new TPM the PCR values match the old slot

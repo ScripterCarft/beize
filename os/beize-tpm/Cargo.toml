@@ -1,6 +1,6 @@
 [package]
 name = "beize-tpm"
-description = "Checks the measured boot state, re-binds the encrypted root partition to the TPM and guards the emergency shell (ADR 0010, ADR 0016)"
+description = "Checks the measured boot state, re-binds the encrypted root partition to the TPM, guards the emergency shell and keeps the console keymap for the initrd (ADR 0010, 0016, 0017)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

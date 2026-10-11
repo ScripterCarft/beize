@@ -168,6 +168,11 @@ yzkey=unknown
 while read -r word number equals symbol _; do
     [[ $word == keycode && $number == 21 && $equals == "=" ]] && yzkey=${symbol#+}
 done < <(dumpkeys --console=/dev/tty1 --keys-only 2>/dev/null)
+# The keymap kept for the initrd (beize-tpm keymap): 4 attribute bytes, then
+# the name.
+efikeymap=none
+efikeymap_var=/sys/firmware/efi/efivars/BeizeKeymap-e6e221d0-db73-4fa8-99da-ba41e1b78888
+[[ -r $efikeymap_var ]] && efikeymap=$(tail -c +5 "$efikeymap_var")
 # The system clock (seconds since 1970): `bz smoke` checks it after a reset
 # hardware clock.
 printf -v clock '%(%s)T' -1
@@ -243,7 +248,7 @@ echo "BEIZE-UNITS etc=$(IFS=,; echo "${etc_links[*]:-none}") active=$(IFS=,; ech
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
-     "tz=${tz:-none} keymap=${keymap} yzkey=${yzkey} nts=${nts} clock=${clock}" \
+     "tz=${tz:-none} keymap=${keymap} yzkey=${yzkey} efikeymap=${efikeymap:-none} nts=${nts} clock=${clock}" \
      "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain} shstk=${shstk}" \
      "lockdown=${lockdown} unsigned=${unsigned} signed=${signed}" \
      "nodriver=$(IFS=,; echo "${nodriver[*]:-none}")" \

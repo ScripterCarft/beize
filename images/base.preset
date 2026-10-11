@@ -10,6 +10,8 @@ enable beize-boot-chain.service
 enable beize-boot-report.service
 enable beize-save-clock.timer
 enable beize-setup.service
+# The console keymap also for the initrd (ADR 0017).
+enable beize-keymap.path
 # Time with NTS (ADR 0012).
 enable ntpd-rs.service
 

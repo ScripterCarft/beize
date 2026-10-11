@@ -1,6 +1,7 @@
 # Beize's own TPM helper (os/beize-tpm, ADR 0010, ADR 0016): checks the
 # measured Secure Boot state, re-binds the root partition after a
-# recovery-key unlock, and guards the emergency shell (initrd and system).
+# recovery-key unlock, guards the emergency shell (initrd and system) and
+# keeps the console keymap for the initrd (ADR 0017).
 name = "beize-tpm"
 version = "0.1.0"
 stage = "target"

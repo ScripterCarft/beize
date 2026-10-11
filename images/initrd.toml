@@ -10,7 +10,7 @@
 # found.
 
 # Where the files come from.
-packages = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm", "kmod"]
+packages = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm", "kmod", "kbd"]
 
 # Kernel modules: the disk controllers (ADR 0015); udev loads the one the
 # machine has. Everything else needed before the root is built in.
@@ -103,6 +103,20 @@ files = [
     "usr/lib/tmpfiles.d/20-systemd-stub.conf",
 ]
 dlopen = ["tpm", "libcrypto"]
+
+[functions.keyboard]
+why = "the owner's console keymap, for the recovery key (ADR 0017): stored in an EFI variable, loaded by systemd-vconsole-setup"
+units = ["systemd-vconsole-setup.service"]
+# Restarts systemd-vconsole-setup when the console appears.
+rules = ["90-vconsole.rules"]
+files = [
+    "usr/bin/loadkeys",
+    # The PC keymaps – every name in systemd's kbd-model-map is one of them –
+    # and what they include.
+    "usr/share/keymaps/i386", "usr/share/keymaps/include",
+    # The firmware's keyboard layout to a keymap, when no keymap is stored.
+    "usr/share/systemd/kbd-model-map",
+]
 
 [functions.beize]
 why = "Beize's own checks (system/initrd): boot check, recovery key, TPM re-binding"

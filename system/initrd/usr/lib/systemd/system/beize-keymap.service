@@ -1,0 +1,15 @@
+[Unit]
+Description=Use the owner's console keymap
+Documentation=file:/usr/lib/beize/beize-tpm
+# The initrd is the same on every computer; the owner's console keymap comes
+# from the EFI variable the system keeps (beize-tpm keymap, ADR 0017), so the
+# recovery key is typed with the owner's keyboard. Without it, or with a
+# keymap the initrd does not have, the kernel's US keymap stays.
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+Before=systemd-vconsole-setup.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/beize-tpm keymap load

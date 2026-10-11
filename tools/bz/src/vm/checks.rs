@@ -22,6 +22,8 @@ pub(super) struct HealthyBoot {
     pub(super) console: Vec<String>,
     /// Whether the root partition had to be unlocked with a passphrase.
     pub(super) prompted: bool,
+    /// How often the boot asked for it.
+    pub(super) prompts: u32,
 }
 
 /// Boots once and requires a fully healthy system: Secure Boot on, state
@@ -113,6 +115,11 @@ pub(super) fn boot_healthy(
         report.yz_key
     );
     ensure!(
+        report.efi_keymap == SMOKE_KEYMAP,
+        "the console keymap is not kept for the initrd: the EFI variable holds {}",
+        report.efi_keymap
+    );
+    ensure!(
         run.powered_off,
         "the system did not power off cleanly after reporting"
     );
@@ -182,6 +189,7 @@ pub(super) fn boot_healthy(
         report,
         console: run.console,
         prompted: run.prompted,
+        prompts: run.prompts,
     })
 }
 
@@ -319,13 +327,13 @@ pub(super) fn expect_refused(
 
 /// After a change the TPM refuses (PCR 7 or the TPM itself), boot `boot`
 /// must ask for the recovery key and re-bind the TPM slot; boot `boot + 1`
-/// must unlock by itself again (ADR 0010).
+/// must unlock by itself again (ADR 0010). Returns boot `boot`.
 pub(super) fn expect_rebound(
     machine: &Machine,
     boot: u32,
     answers: &Answers,
     change: &str,
-) -> Result<()> {
+) -> Result<HealthyBoot> {
     let first = boot_healthy(machine, boot, answers)?;
     ensure!(
         first.prompted,
@@ -344,7 +352,7 @@ pub(super) fn expect_rebound(
         "after re-binding the TPM still did not unlock"
     );
     say!("  ok: after {change} the recovery key was needed once, then the TPM unlocked again");
-    Ok(())
+    Ok(first)
 }
 
 /// Boots an installed disk under a changed condition (another TPM, other
@@ -547,7 +555,7 @@ mod tests {
             format!(
                 "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=2 \
                  machineid=x uptime=5.3s systemunlock=refused network=routable dns=none \
-                 lookup=none tz=none keymap=none yzkey=y nts=0 clock=0 kernel={kernel} initrd={initrd} \
+                 lookup=none tz=none keymap=none yzkey=y efikeymap=none nts=0 clock=0 kernel={kernel} initrd={initrd} \
                  userspace={userspace} chain=12 shstk=on lockdown=integrity \
                  unsigned=refused signed=loaded nodriver=none failed=none bootfailed=none"
             )

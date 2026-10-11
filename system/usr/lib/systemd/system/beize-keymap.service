@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep the console keymap for the initrd
+Documentation=file:/usr/lib/beize/beize-tpm
+# Copies KEYMAP= of /etc/vconsole.conf into the EFI variable the initrd reads
+# (beize-tpm keymap, ADR 0017); written only when it differs.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/beize/beize-tpm keymap save

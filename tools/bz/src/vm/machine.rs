@@ -60,6 +60,12 @@ impl Machine {
         }
     }
 
+    /// QEMU's control socket (QMP) while the machine runs: the tests type on
+    /// its keyboard through it.
+    pub(super) fn qmp(&self) -> PathBuf {
+        self.vars.with_extension("qmp")
+    }
+
     /// The machine's name, as in its file names.
     pub(super) fn name(&self) -> String {
         self.disk
@@ -339,6 +345,11 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
             machine.disk.display()
         ))
         .args(tpm.qemu_args())
+        .arg("-qmp")
+        .arg(format!(
+            "unix:{},server=on,wait=off",
+            machine.qmp().display()
+        ))
         // One wired port behind QEMU's NAT with DHCP; virtio like the disk.
         .args(["-nic", "user,model=virtio-net-pci"]);
     for value in &machine.smbios {

@@ -9,6 +9,9 @@
 //! no signed TPM policy matches any more, the TPM unlocks nothing from that
 //! shell. A wrong key, Ctrl+C or a crash never lead to a shell – systemd
 //! starts this again (`Restart=always` in the units' drop-ins).
+//!
+//! The key may be typed with or without its dashes – or with whatever the
+//! dash key gives on another keyboard: only its letters count (ADR 0017).
 
 use std::io::{self, Write};
 use std::path::Path;
@@ -96,7 +99,7 @@ fn shell() -> Result<(), String> {
         );
     }
     let key = ask_key()?;
-    if !luks::opens(device, key.trim())? {
+    if !luks::opens(device, &normalized(&key))? {
         thread::sleep(WRONG_KEY_DELAY);
         return Err("That is not the recovery key of this computer.".into());
     }
@@ -131,6 +134,26 @@ fn ask_key() -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|_| "The key is not text.".into())
 }
 
+/// The recovery key as systemd-cryptenroll formatted it – 8 groups of 8
+/// modhex letters, joined by dashes – if `typed` holds exactly its 64 letters,
+/// whatever else is between them; otherwise `typed` as it is.
+fn normalized(typed: &str) -> String {
+    const MODHEX: &str = "cbdefghijklnrtuv";
+    let letters: Vec<char> = typed
+        .chars()
+        .filter(char::is_ascii_alphabetic)
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    if letters.len() != 64 || !letters.iter().all(|c| MODHEX.contains(*c)) {
+        return typed.trim().to_owned();
+    }
+    letters
+        .chunks(8)
+        .map(|group| group.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 fn systemctl(verb: &str) -> Result<(), String> {
     let status = Command::new("systemctl")
         .arg(verb)
@@ -142,5 +165,37 @@ fn systemctl(verb: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("systemctl {verb} failed with {status}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KEY: &str = "iefgcelh-biduvkjv-cjvuncnk-vlfchdid-jhtuhhde-urkllkeg-ilkjgbrt-hjkbgktj";
+
+    #[test]
+    fn only_the_letters_of_a_recovery_key_count() {
+        for typed in [
+            KEY,
+            "iefgcelhbiduvkjvcjvuncnkvlfchdidjhtuhhdeurkllkegilkjgbrthjkbgktj",
+            "IEFGCELH-BIDUVKJV-CJVUNCNK-VLFCHDID-JHTUHHDE-URKLLKEG-ILKJGBRT-HJKBGKTJ",
+            // The dash key of a German (/) and a French keyboard (6) with the US keymap.
+            "iefgcelh/biduvkjv/cjvuncnk/vlfchdid/jhtuhhde/urkllkeg/ilkjgbrt/hjkbgktj",
+            "iefgcelh6biduvkjv6cjvuncnk6vlfchdid6jhtuhhde6urkllkeg6ilkjgbrt6hjkbgktj",
+            " iefgcelh biduvkjv cjvuncnk vlfchdid jhtuhhde urkllkeg ilkjgbrt hjkbgktj\n",
+        ] {
+            assert_eq!(normalized(typed), KEY, "{typed}");
+        }
+    }
+
+    #[test]
+    fn anything_else_stays_as_typed() {
+        // One letter short, one letter outside modhex.
+        let short = &KEY[..KEY.len() - 1];
+        assert_eq!(normalized(short), short);
+        let foreign = KEY.replacen('i', "a", 1);
+        assert_eq!(normalized(&foreign), foreign);
+        assert_eq!(normalized(" a passphrase \n"), "a passphrase");
     }
 }

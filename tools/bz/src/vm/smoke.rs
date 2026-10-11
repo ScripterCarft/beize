@@ -408,8 +408,22 @@ fn secure_boot_update(paths: &Paths, installed: &Installed) -> Result<()> {
         &machine,
         &["--add-dbx-hash", secureboot::OWNER_GUID, SMOKE_REVOKED_HASH],
     )?;
-    let with_key = Answers::recovery_key(&installed.recovery_key);
-    expect_rebound(&machine, 3, &with_key, "the Secure Boot update")?;
+    // Typed on the keyboard (ADR 0017): with the dash where a US keyboard has
+    // it, the German keymap the setup chose gives "ß" and the key is refused;
+    // with the dash key of a German keyboard it opens.
+    let on_keyboard = Answers::recovery_key_on_german_keyboard(&installed.recovery_key);
+    let first = expect_rebound(&machine, 3, &on_keyboard, "the Secure Boot update")?;
+    ensure!(
+        first.prompts == 2,
+        "the recovery key typed on the keyboard was not refused with a US dash and \
+         accepted with a German one (asked {} times): the initrd did not use the \
+         owner's keymap",
+        first.prompts
+    );
+    say!(
+        "  ok: in the initrd the keyboard typed with the owner's keymap (US dash key: refused, \
+         German dash key: accepted)"
+    );
     machine.remove()
 }
 
@@ -528,9 +542,12 @@ const GATE_TIMEOUT: Duration = Duration::from_secs(90);
 fn emergency_gate(paths: &Paths, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-emergency")?;
     damage_root_file_system(&machine.disk, &paths.work)?;
+    // The key as a German keyboard types it with the US keymap: "/" for each
+    // dash. Only its letters count (ADR 0017).
+    let as_typed = installed.recovery_key.replace('-', "/");
     let session = Session::start(
         &machine,
-        &Answers::emergency_gate(&installed.recovery_key),
+        &Answers::emergency_gate(&as_typed),
         &SMOKE_CREDENTIALS,
     )?;
     let deadline = Instant::now() + GATE_TIMEOUT;

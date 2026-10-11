@@ -65,6 +65,8 @@ pub(super) struct BootReport {
     /// What the key between T and U gives on the console (`z` with a German
     /// keymap loaded, `y` with the kernel's US one).
     pub(super) yz_key: String,
+    /// The console keymap kept in the EFI variable for the initrd, or `none`.
+    pub(super) efi_keymap: String,
     /// How many time servers completed the NTS key exchange. Needs the
     /// internet, so reported, not required.
     pub(super) nts: String,
@@ -127,6 +129,7 @@ impl BootReport {
             time_zone: field("tz")?,
             keymap: field("keymap")?,
             yz_key: field("yzkey")?,
+            efi_keymap: field("efikeymap")?,
             nts: field("nts")?,
             clock: field("clock")?.parse().ok()?,
             kernel: field("kernel")?.parse().ok()?,
@@ -150,7 +153,7 @@ mod tests {
 
     const CLEAN: &str = "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=1 \
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
-                         network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo keymap=de-latin1-nodeadkeys yzkey=z nts=4 \
+                         network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo keymap=de-latin1-nodeadkeys yzkey=z efikeymap=de-latin1-nodeadkeys nts=4 \
                          clock=1791500000 kernel=612000 initrd=2100000 userspace=1400000 chain=12 \
                          shstk=on lockdown=integrity unsigned=refused signed=loaded nodriver=none \
                          failed=none bootfailed=none";
@@ -172,6 +175,7 @@ mod tests {
         assert_eq!(report.time_zone, "America/Sao_Paulo");
         assert_eq!(report.keymap, "de-latin1-nodeadkeys");
         assert_eq!(report.yz_key, "z");
+        assert_eq!(report.efi_keymap, "de-latin1-nodeadkeys");
         assert_eq!(report.nts, "4");
         assert_eq!(report.clock, 1_791_500_000);
         assert_eq!(report.kernel, 612_000);
@@ -191,7 +195,7 @@ mod tests {
     fn parses_degraded_report_behind_console_noise() {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
-                    network=timeout dns=none lookup=none tz=none keymap=none yzkey=y nts=0 \
+                    network=timeout dns=none lookup=none tz=none keymap=none yzkey=y efikeymap=none nts=0 \
                     clock=946684800 kernel=0 initrd=0 userspace=0 chain=0 shstk=nohw lockdown=none unsigned=none signed=none nodriver=1af4:1041,8086:2918 failed=systemd-logind.service,systemd-logind-varlink.socket \
                     bootfailed=systemd-logind.service,beize-tpm.service";
         let report = BootReport::parse(line).unwrap();

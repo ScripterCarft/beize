@@ -5,8 +5,9 @@
 # enable or disable it in images/base.preset with the reason, then update
 # this list. Sockets are listening only; their service starts on demand.
 
-# Beize: the boot report (only with the test credential), time with NTS.
-beize-boot-report.service beize-save-clock.timer ntpd-rs.service
+# Beize: the boot report (only with the test credential), time with NTS, the
+# console keymap for the initrd.
+beize-boot-report.service beize-save-clock.timer ntpd-rs.service beize-keymap.path
 
 # Verified /usr, measured boot and the TPM (ADR 0008–0010).
 systemd-veritysetup@usr.service systemd-tpm2-setup.service

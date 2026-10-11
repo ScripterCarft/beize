@@ -64,8 +64,10 @@ MESSAGE
 
 # The boot waits until the owner confirms: on real hardware the login prompt
 # would otherwise clear the screen a moment later (BitLocker asks the same).
-# A plain Enter is not enough, so nobody skips it by accident.
-question="Type saved once the recovery key is written down:"
-until [[ $(systemd-ask-password --echo=yes --timeout=0 --id=beize-recovery-key "$question") == saved ]]; do
+# A plain Enter is not enough, so nobody skips it by accident. The word has
+# only letters at the same place on QWERTY, QWERTZ and AZERTY keyboards:
+# this is the first boot, the owner's keymap is not known yet (ADR 0017).
+question="Type stored once the recovery key is written down:"
+until [[ $(systemd-ask-password --echo=yes --timeout=0 --id=beize-recovery-key "$question") == stored ]]; do
     :
 done

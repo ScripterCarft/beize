@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep the console keymap for the initrd
+Documentation=file:/usr/lib/beize/beize-tpm
+# Whenever the console keymap changes (beize-setup, localectl), the initrd
+# gets it too: the recovery key is typed there with the owner's keyboard
+# (ADR 0017).
+
+[Path]
+PathChanged=/etc/vconsole.conf
+
+[Install]
+WantedBy=paths.target
