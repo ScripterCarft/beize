@@ -122,7 +122,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -242,7 +242,7 @@ Tastatur (US-Bindestrich abgelehnt, deutscher angenommen; Gegenproben rot).
 **Auf der Hardware bestätigt (2026-10-11, Neuinstallation, Code-Stand `b3bda29`):** Layout „German“
 → `KEYMAP=de`, EFI-Variable `de`, initrd meldet „Console keymap: de.“. Ohne Updater
 (Phase 6) heißt neues Image Neuinstallation (`bz install … --reinstall`, neuer Recovery-Key).
-**Nächster Schritt: Phase 5b (eigener Chat), ADR 0018 Rechte (run0 + polkit) vorab abstimmen.**
+**Nächster Schritt: Phase 5b umsetzen (ADR 0018 angenommen), Stand im Fahrplan unten.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
@@ -287,9 +287,18 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    (udev → Kernel-Patch, NvPCR → by design, ntpd-rs → Upstream-Issue), BIOS-Empfehlungen.
    Gemessen: ab Loader 13,5 s; initrd bleibt 4,0 s bis zum USB-Patch.
 5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
-   b) Rechte (ADR 0018): run0 + polkit (duktape), kein setuid in `/usr` (Test).
-   c) iputils `ping` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
-6. **A/B-Updates (ADR 0019) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
+   b) **In Arbeit:** Rechte (ADR 0018, angenommen 2026-10-11): run0 + polkit 127 (duktape,
+      Helfer socket-aktiviert ohne setuid, kein pkexec), Profil „Wiederherstellung“ im UKI
+      (Notfall-Tor, TPM gibt nicht frei) **vor** dem Sperren von root, `nosuid,nodev` auf
+      `/usr` und `/`, Bau-Prüfung ohne setuid/setgid/Capabilities. Neue Pakete: polkit,
+      duktape, glib, pcre2, libffi, zlib.
+   c) iputils `ping` + `tracepath` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
+   d) Konten (ADR 0019, vorab abstimmen): systemd-homed (Speicher „directory“, wie macOS
+      ohne Verschlüsselung je Benutzer), Passwort ändern, Zurücksetzen in der
+      Wiederherstellung mit **einem** Recovery-Key; beize-setup legt das Konto über homed
+      an. Besitzer (2026-10-11): nur, wenn es wirklich stabil läuft – bei merkwürdigen
+      Problemen anhalten und neu besprechen. UI später frei gestaltbar (homed = API).
+6. **A/B-Updates (ADR 0020) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
    systemd-sysupdate (usr, verity, UKI, signierter Bootloader – `systemd-boot-update` ist
    deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:
    zählt ein Start mit fehlgeschlagener Unit als gescheitert?); Smoke: Update A→B mit TPM,
