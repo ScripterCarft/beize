@@ -3,4 +3,6 @@
 
 # The /usr image. All kernel modules go in (/usr/lib/modules).
 packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils", "beize-setup",
-            "tzdata", "ca-certificates", "ntpd-rs", "kmod", "beize-tpm"]
+            "tzdata", "ca-certificates", "ntpd-rs", "kmod", "beize-tpm",
+            # Keyboard (ADR 0017): layouts, localed's check of them, console keymaps.
+            "xkeyboard-config", "libxkbcommon", "kbd"]

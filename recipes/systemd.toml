@@ -12,9 +12,10 @@ version = "262"
 stage = "target"
 # linux-pam: user sessions (pam_systemd, user@.service). kmod: udev loads
 # drivers (ADR 0015). acl: device access for the logged-in user (uaccess),
-# users reading their own journal.
+# users reading their own journal. libxkbcommon: localed checks a keyboard
+# layout against XKB before accepting it (dlopen, ADR 0017).
 deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam",
-        "kmod", "acl"]
+        "kmod", "acl", "libxkbcommon"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -32,7 +33,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \
   -Dlibcryptsetup=enabled \
   -Dopenssl=enabled -Dtpm2=enabled \
-  -Dkmod=enabled -Dacl=enabled \
+  -Dkmod=enabled -Dacl=enabled -Dxkbcommon=enabled \
   -Dpam=enabled -Dpamconfdir=/usr/lib/pam.d -Dpamlibdir=/usr/lib/security \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \

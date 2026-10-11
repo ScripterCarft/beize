@@ -1,0 +1,23 @@
+# Keyboard layouts (XKB): the one description of every layout, for the
+# console (kbd converts it, ADR 0017), localed and later the compositor.
+# Data only. No translations of the layout names (Beize's interface is
+# English until onboarding), no man page.
+name = "xkeyboard-config"
+version = "2.48"
+stage = "target"
+
+[source]
+latest = { release-monitoring = 5191 }
+url = "https://www.x.org/releases/individual/data/xkeyboard-config/xkeyboard-config-{version}.tar.xz"
+sha256 = "b77041324f0109f77161ee43743fe04baa485866af8460d31e476ad3f7648fd5"
+signature = "https://www.x.org/releases/individual/data/xkeyboard-config/xkeyboard-config-{version}.tar.xz.sig"
+keyring = "xkeyboard-config"
+
+[build]
+script = '''
+meson setup . "$SRC" --prefix=/usr --buildtype=release \
+  -Dnls=false -Dcompat-rules=true -Dxorg-rules-symlinks=false
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+rm -rf "$PKG/usr/share/man"
+'''

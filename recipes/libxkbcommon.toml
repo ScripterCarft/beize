@@ -1,0 +1,26 @@
+# XKB keymap library: compiles a layout from xkeyboard-config. localed checks
+# layouts with it (dlopen), kbd converts them for the console (ADR 0017);
+# later the compositor. Only the core library: no X11, Wayland or registry
+# (libxml2) parts, no tools.
+name = "libxkbcommon"
+version = "1.13.2"
+stage = "target"
+deps = ["gcc", "glibc", "xkeyboard-config"]
+
+[source]
+latest = { release-monitoring = 1780 }
+git = "https://github.com/xkbcommon/libxkbcommon.git"
+tag = "xkbcommon-{version}"
+commit = "d1442aaa6b635551182e83c3b55037f4c118c962"
+unsigned = "libxkbcommon signs neither release tags nor commits and publishes no signed archives (checked 2026-10-11); pinned to the commit of the release tag, the same one Arch Linux builds"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release \
+  -Dxkb-config-root=/usr/share/xkeyboard-config-2 -Dx-locale-root=/usr/share/X11/locale \
+  -Denable-x11=false -Denable-wayland=false -Denable-xkbregistry=false \
+  -Denable-tools=false -Denable-docs=false -Denable-bash-completion=false
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''

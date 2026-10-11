@@ -5,7 +5,7 @@ stage = "target"
 deps = ["gcc", "glibc"]
 
 # json-c publishes no signatures at all (neither release archives nor tags,
-# checked 2026-10-07), so this is the one source that is only pinned.
+# checked 2026-10-07), so it is only pinned.
 [source]
 latest = { release-monitoring = 1477 }
 git = "https://github.com/json-c/json-c.git"

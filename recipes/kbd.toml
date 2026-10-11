@@ -1,0 +1,34 @@
+# Console keyboard tools and keymaps (ADR 0017): systemd-vconsole-setup loads
+# the keymap with loadkeys. The owner chooses an XKB layout; localed picks
+# the console keymap for it from systemd's kbd-model-map, whose names are
+# kbd's own keymaps (as on Arch Linux). Uncompressed: the EROFS image and
+# the initrd compress themselves, and Beize has no zlib.
+# kbd's XKB conversion (loadkeys --xkb-*) stays off: in 2.10.0 it puts the
+# AltGr level on the Alt key (fixed upstream after the release, 0bb93f7).
+name = "kbd"
+version = "2.10.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 1492 }
+url = "https://cdn.kernel.org/pub/linux/utils/kbd/kbd-{version}.tar.xz"
+sha256 = "6e5ca4f8d76ee9e3a8db700b667f13e12aac9933828a64e1aaad93d26be9b479"
+signature = "https://cdn.kernel.org/pub/linux/utils/kbd/kbd-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "kbd"
+
+[build]
+script = '''
+# In the source tree: with --disable-compress, kbd's install copies its data
+# from the build directory.
+cp -a "$SRC"/. .
+./configure \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib --bindir=/usr/bin --sbindir=/usr/bin \
+  --datadir=/usr/share --disable-xkb --disable-vlock --disable-tests --disable-nls \
+  --disable-compress --without-zlib --without-bzip2 --without-lzma --without-zstd \
+  --disable-libkeymap --disable-libkfont
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+rm -rf "$PKG/usr/share/man"
+'''
