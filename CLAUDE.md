@@ -266,8 +266,15 @@ RAM (`INIT_ON_FREE`, ADR 0015); in der VM stellte der Host jede Seite dabei erst
 verschachtelten CI-Runner 0,6–4 s je nach Speicherzustand (vorher 1. = 2. Start, ~0,8 s). Fix:
 QEMU belegt den Gast-RAM vorab (`memory-backend-ram,prealloc=on`, `machine.rs`), lokal Kernel
 0,36 s in jedem Start. CI 38131390634 grün: Kernel 0,42–1,06 s (1. Start 0,8–0,9 statt 2,4–4 s),
-initrd 4,80–5,58 s (vorher 4,1–4,2 – Anstieg seit libseccomp/5c prüfen, Budget 6,0), System
-3,50–4,04 s. Zuerst im nächsten Chat: diese Werte in den `BOOT_BUDGET`-Kommentar, initrd-Anstieg klären.
+initrd 4,80–5,58 s, System 3,50–4,04 s. initrd in der CI (2. Start): bis 5a 3,40–3,48 s, mit
+5b+libseccomp (`8b71ff9`) 4,07–4,19, mit RAM-Vorbelegung (`f189912`) 4,80–4,87; lokal unverändert
+2,38–2,41 s. Ursache offen – **zuerst im nächsten Chat:** Boot-Report um die langsamsten
+initrd-Units erweitern (Messwerkzeug), CI-Werte ablesen, dann `BOOT_BUDGET`-Kommentar aktualisieren.
+**Hardware-Test 5b (Besitzer, 2026-10-11):** Wer zum Abtippen des Recovery-Keys über 90 s brauchte,
+landete im Notfall-Tor – systemd-gpt-auto-generator hebt die Gerätefrist nur für
+`dev-mapper-root.device` auf, `sysroot.mount` wartet auf `/dev/gpt-auto-root` (upstream main
+genauso). Behoben per initrd-Drop-in (Smoke-Test dafür vom Besitzer verworfen: 100 s je Lauf); Upstream-Bericht
+(Entwurf, sendet der Besitzer): WSL `~/upstream/systemd-gpt-auto-timeout/ISSUE.md`.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
 **Nächster Schritt: ADR 0019 (Konten, homed hinter Beize-Schnittstelle) entwerfen und mit dem
 Besitzer abstimmen, dann 5d.**

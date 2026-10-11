@@ -79,10 +79,13 @@ pub fn run() -> Result<(), String> {
     }
 }
 
-/// Whether this is the recovery start (the UKI's recovery profile).
+/// Whether this is the recovery start (the UKI's recovery profile) and it
+/// reached the system. A recovery start that fails in the initrd is a failed
+/// start like any other: it shows what failed.
 fn recovery() -> bool {
-    std::fs::read_to_string("/proc/cmdline")
-        .is_ok_and(|line| line.split_whitespace().any(|p| p == RECOVERY_PARAMETER))
+    let recovery_profile = std::fs::read_to_string("/proc/cmdline")
+        .is_ok_and(|line| line.split_whitespace().any(|p| p == RECOVERY_PARAMETER));
+    recovery_profile && !Path::new("/etc/initrd-release").exists()
 }
 
 /// What failed, as systemd sees it.
