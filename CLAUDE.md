@@ -73,7 +73,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -88,7 +88,7 @@ Neubinden, echte Hardware).
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ./bz build           # kernel → Pakete → usr → initrd → image; jeder Schritt nur, wenn sich seine Eingaben ändern
 ./bz smoke --quick   # Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
-./bz smoke           # DER Abnahmetest (~75 s, Szenarien parallel), vor jedem Commit grün
+./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
 ./bz run             # interaktiv (Ctrl-A X); VM-Disk bleibt bis zum nächsten Image
@@ -330,11 +330,20 @@ kopierte das 4,6-GiB-Image mit `fs::copy` voll aus (Runner-Platte voll) – jetz
 `.signed` in `/usr`, eigenes `beize-boot-update.service` nach `boot-complete.target` (systemds
 Unit läuft vor `sysinit.target`, ADR angepasst). Szenario „Update“ prüft: älterer Loader wird
 ersetzt (aus `.signed`), Start mit fehlgeschlagener Unit (ntpd-rs per Drop-in-Credential) wird
-nicht gezählt (`+2-1`), Gegenproben rot. **Offen:** CI des Pushs prüfen; (6) zweites Update B→A,
-kaputtes Update → nach 3 Versuchen zurück. Vorher klären: Scheitert die initrd (verity), wartet
-das Notfall-Tor auf den Recovery-Key und startet nie neu – braucht ein ungezählter Start dort
-einen automatischen Neustart? Mit dem Besitzer abstimmen. (Drei kranke Starts per Credential →
-systemd-boot wählt A wäre der einfache Teil.)
+nicht gezählt (`+2-1`), Gegenproben rot. CI 38165560259 grün (Sparse-Fix bestätigt).
+(6) ✓ (mit dem Besitzer abgestimmt): Notfall-Tor startet eine Version auf Probe selbst neu
+(`os/beize-tpm/src/trial.rs`: gezählt + nicht gesegnet, keine Wiederherstellung, andere
+Beize-Version in `LoaderEntries`; Schleifensperre: systemd-boot zählt auch `+0-3` → `+0-4`
+weiter, ein ohne Versuche gewählter Eintrag wartet). Fund: veritysetup-Generator verknüpft
+`/dev/mapper/usr` bei `usrhash=` nicht mit dem Dienst (90 s Warten trotz Fehlschlag) →
+initrd-Drop-in + Upstream-Bericht/Patch WSL `~/upstream/systemd-veritysetup-cmdline-device/`
+(Patch noch nicht kompiliert). Smoke-Szenario „kaputtes Update“ (3× Neustart → A; A kaputt →
+Tor), „dm-verity“ prüft Tor ohne andere Version (wartet 90 s, upstream-Gerätefrist), „Update“
+mit zweitem Update in Slot A. Testschlüssel lädt der Smoke-Test einmal (`Keys::test` schreibt
+die Enrollment-Dateien neu – Wettlauf zwischen Szenarien). **Phase 6 ist im Code fertig.**
+**Offen für M2 (Besitzer):** `bz secureboot new-update-key`, Neuinstallation (letzte, 4-GiB-Slots),
+dann ein echtes Update auf der Hardware (`bz release` mit höherer `OS_VERSION`, `run0
+beize-update install <Quelle>`). Danach Phase 7 (Umfang vorab abstimmen).
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;

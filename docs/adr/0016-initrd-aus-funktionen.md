@@ -44,7 +44,8 @@ Mäuse) liegt nur als Quelltext in `/usr/lib/udev/hwdb.d`; ohne die kompilierte
   Ausschalten oder Notfall-Shell. Die Shell gibt es erst, wenn der Recovery-Key gegen
   den LUKS-Header der Root-Partition geprüft ist (libcryptsetup im Prüfmodus, ohne
   etwas zu öffnen). Ein falscher Key, Ctrl+C oder ein Absturz der Abfrage führen nie in
-  eine Shell, sondern zurück zur Auswahl.
+  eine Shell, sondern zurück zur Auswahl. Eine neue Version auf Probe wartet hier nicht,
+  sondern startet neu, bis systemd-boot die vorige wählt (ADR 0020).
   - **Warum der Recovery-Key:** Er ist das einzige Merkmal, das der Besitzer immer hat
     und das auch dann gilt, wenn das System nicht startet (das Benutzerpasswort liegt
     in der verschlüsselten Root-Partition). Mit ihm käme er ohnehin an alle Daten; die

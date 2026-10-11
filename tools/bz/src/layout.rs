@@ -261,6 +261,16 @@ mod tests {
         assert!(!initrd_release().contains("VERSION"));
     }
 
+    /// The emergency gate decides by tries and entry names whether a new
+    /// version restarts (ADR 0020).
+    #[test]
+    fn beize_tpm_knows_tries_and_names() {
+        let trial = include_str!("../../../os/beize-tpm/src/trial.rs");
+        assert!(trial.contains(&format!("pub const BOOT_TRIES: u32 = {BOOT_TRIES};")));
+        assert!(trial.contains("const ENTRY_PREFIX: &str = \"beize_\";"));
+        assert!(blessed_uki_name("0.2").starts_with("beize_"));
+    }
+
     #[test]
     fn verity_tree_size_matches_veritysetup() {
         // veritysetup format of 4 GiB: 8192 + 64 + 1 hash blocks + superblock.

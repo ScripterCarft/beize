@@ -52,6 +52,22 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   Hardware), würde sonst jedes künftige Update zurückrollen.
   Die Prüfung läuft in jedem Start (`beize-boot-update.service` zieht `boot-complete.target`
   hinzu), nicht nur nach einem Update.
+- **Scheitert ein Start, startet eine neue Version selbst neu** (Vorbild ChromeOS/Android
+  A/B): Landet ein Start im Notfall-Tor, startet `beize-tpm` nach 5 s neu, statt auf den
+  Besitzer zu warten – aber nur, wenn (1) der Start auf Probe läuft (systemd-boot hat ihn
+  gezählt, `LoaderBootCountPath`, und er ist noch nicht als gut markiert), (2) es nicht die
+  Wiederherstellung ist und (3) systemd-boot eine andere Beize-Version hat (`LoaderEntries`).
+  Nach dem letzten Versuch startet systemd-boot die vorige Version. Sonst wartet das Tor wie
+  bisher: eine Version, die schon einmal gelang, eine frische Installation ohne vorige
+  Version, und ein Eintrag, den systemd-boot ohne verbliebene Versuche wählte (`+0-4`: alle
+  Versionen scheiterten) – so kann keine Neustart-Schleife entstehen. Gilt in initrd und
+  System gleichermaßen.
+- **Ein kaputtes `/usr` scheitert sofort:** Für `usrhash=` verknüpft systemds
+  veritysetup-Generator `/dev/mapper/usr` nicht mit seinem Dienst (anders als für
+  veritytab-Einträge); scheiterte das Einrichten, wartete die initrd trotzdem 90 s. Ein
+  initrd-Drop-in stellt die Verknüpfung her (Upstream-Bericht mit Patch: WSL `~/upstream`).
+  Ist `/usr` eingerichtet, aber unlesbar (beschädigte Daten), wartet die initrd weiter die
+  Gerätefrist von 90 s wie upstream, dann folgt dasselbe Tor.
 - **Bootloader:** Das signierte systemd-boot liegt als `systemd-bootx64.efi.signed` in `/usr`
   (signiert mit den Schlüsseln des Images). `beize-boot-update.service` ruft dasselbe
   `bootctl update` wie systemds `systemd-boot-update.service`, aber erst nach
@@ -86,8 +102,12 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
 
 ## Abnahme
 
-Smoke-Test: Update A → B aus einem Test-Release mit Test-Schlüsseln, Start ohne Recovery-Key,
-Zähler entfernt; zweites Update B → A (überschreibt die älteste Version); kaputtes Update
-(verity passt nicht) → nach drei Versuchen wieder die vorige Version; Gegenproben: veränderte
+Smoke-Test (Szenarien „Update“, „kaputtes Update“, „dm-verity“): Update A → B aus einem
+Test-Release mit Test-Schlüsseln, Start ohne Recovery-Key, Zähler entfernt; ein Start mit
+fehlgeschlagener Unit wird nicht gezählt; älterer Bootloader wird ersetzt; zweites Update
+überschreibt die älteste Version; kaputtes Update (verity-Baum beschädigt) startet nach jedem
+der drei Versuche selbst neu, danach läuft die vorige Version; scheitert auch sie, wartet das
+Notfall-Tor, ebenso eine frische Installation mit kaputtem `/usr`. Gegenproben: veränderte
 Liste, falsche Signatur, ältere Version und veränderte Datei werden abgelehnt, nichts wird
-geschrieben.
+geschrieben; ohne Neustart-Regel, ohne die Bedingungen „auf Probe“ und „andere Version“ und
+ohne das verity-Drop-in wird der Test rot.

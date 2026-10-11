@@ -26,6 +26,7 @@ const USR_START: u64 = ESP_START + ESP_SIZE / SECTOR;
 /// Byte offset of /usr slot A (its EROFS data) inside the disk image.
 pub const USR_OFFSET: u64 = USR_START * SECTOR;
 const USR_VERITY_START: u64 = USR_START + USR_SLOT_SIZE / SECTOR;
+pub const USR_VERITY_OFFSET: u64 = USR_VERITY_START * SECTOR;
 /// Byte offset of the ESP inside the disk image (for mtools `-i disk@@offset`).
 pub const ESP_OFFSET: u64 = ESP_START * SECTOR;
 

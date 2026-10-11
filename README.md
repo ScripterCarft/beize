@@ -50,7 +50,9 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
       `ping` und `tracepath` ohne Sonderrechte; Dienste mit Systemaufruf-Filtern (seccomp)
 - [x] Wiederherstellung im Startmenü: Root-Shell nur mit dem Wiederherstellungsschlüssel
 - [ ] Startzeit auf echter Hardware
-- [ ] Updater (systemd-sysupdate)
+- [x] A/B-Updates: signiert (ML-DSA), aktiv beim nächsten Start; ein Update, das nicht
+      startet, fällt nach drei Versuchen von selbst auf die vorige Version zurück
+      (in der VM getestet, auf der Hardware noch offen)
 - [ ] NVIDIA, WLAN, Bluetooth, Ton
 - [ ] Start von der zweiten SSD
 
@@ -74,7 +76,7 @@ bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
 
 ```sh
 ./bz build                  # Toolchain, Kernel, Pakete, /usr-Image, initrd und Disk bauen (nur Geändertes)
-./bz smoke                  # Installieren, booten und alles prüfen, inkl. Gegentests (~75 s)
+./bz smoke                  # Installieren, booten und alles prüfen, inkl. Gegentests (~2 min)
 ./bz smoke --quick          # Nur Installation und zwei Starts (~30 s)
 ./bz run                    # In QEMU starten; der Zustand bleibt bis zum nächsten Build erhalten
 ./bz debug 'networkctl'     # Befehle in der VM ausführen und ihre Ausgabe zeigen
@@ -94,7 +96,8 @@ Verschlüsselung, keine fehlgeschlagene Unit, Netz, Zeitzone, Recovery-Key genau
 Zeitbudget je Startphase).
 Danach laufen parallel, jeweils auf einer Kopie der Installation, die Gegentests: anderer TPM,
 Secure Boot aus, Secure-Boot-Update, fremdes db-Zertifikat, hinzugefügter Kernel-Parameter,
-unsigniertes Kernel-Image, verändertes `/usr`, und der Signier-Ablauf des Besitzers.
+unsigniertes Kernel-Image, verändertes `/usr`, der Signier-Ablauf des Besitzers, Updates
+(abgewiesene, gelungene, kaputte mit Rückfall auf die vorige Version).
 Einzelheiten: `tools/bz/src/vm/smoke.rs`.
 Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden;
 Logs in `build/work/logs/`.

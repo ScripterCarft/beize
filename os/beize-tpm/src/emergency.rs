@@ -17,6 +17,10 @@
 //! keyring – checked against the LUKS2 header like a typed one – instead of
 //! asking a second time.
 //!
+//! A new version on trial whose start fails does not wait here: it restarts,
+//! and after its last try systemd-boot starts the previous version (see
+//! `trial`, ADR 0020).
+//!
 //! The key may be typed with or without its dashes – or with whatever the
 //! dash key gives on another keyboard: only its letters count (ADR 0017).
 
@@ -26,7 +30,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use crate::{keyring, luks};
+use crate::{keyring, luks, trial};
 
 /// The root partition's LUKS2 volume, linked by udev (90-image-dissect.rules).
 const ROOT_LUKS: &str = "/dev/gpt-auto-root-luks";
@@ -42,6 +46,9 @@ const KEY_PROMPT: &str = "Recovery key of this computer:";
 const PCR11_WORD: &str = "beize-emergency-shell";
 /// After a wrong key: slows down guessing at the console.
 const WRONG_KEY_DELAY: Duration = Duration::from_secs(3);
+/// Time to read what failed before a new version restarts (systemd-boot
+/// waits as long after a failed start).
+const TRIAL_RESTART_DELAY: Duration = Duration::from_secs(5);
 
 pub fn run() -> Result<(), String> {
     println!();
@@ -50,6 +57,17 @@ pub fn run() -> Result<(), String> {
     } else {
         println!("{HEADLINE}");
         show_failed_units();
+        // A new version on trial falls back by itself (ADR 0020).
+        if let Some(attempt) = trial::restart() {
+            println!();
+            println!(
+                "{} (try {attempt} of {}); after the last one the previous version starts.",
+                trial::RESTARTING,
+                trial::BOOT_TRIES
+            );
+            thread::sleep(TRIAL_RESTART_DELAY);
+            return systemctl("reboot");
+        }
     }
     loop {
         println!();

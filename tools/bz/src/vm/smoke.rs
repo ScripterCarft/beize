@@ -62,14 +62,16 @@ enum Scenario {
     Privileges,
     Recovery,
     Update,
+    BrokenUpdate,
 }
 
 use Scenario::*;
 
 /// What starts right away; the longest first, so they finish together.
-const INDEPENDENT: [Scenario; 3] = [OwnerKeys, CorruptedUsr, UnsignedUki];
+const INDEPENDENT: [Scenario; 3] = [CorruptedUsr, OwnerKeys, UnsignedUki];
 /// What starts from a copy of the installation once [`Install`] passed.
-const ON_THE_INSTALLATION: [Scenario; 9] = [
+const ON_THE_INSTALLATION: [Scenario; 10] = [
+    BrokenUpdate,
     Update,
     OtherTpm,
     EmergencyGate,
@@ -97,7 +99,9 @@ impl Scenario {
             OtherTpm => "Another TPM (new mainboard) is adopted only when the owner confirms it",
             SecureBootOff => "The root partition must stay locked with Secure Boot disabled",
             UnsignedUki => "Secure Boot must refuse an unsigned kernel image",
-            CorruptedUsr => "dm-verity must detect a modified /usr",
+            CorruptedUsr => {
+                "dm-verity must detect a modified /usr; with no other version the start waits"
+            }
             OwnerKeys => "The owner's signing workflow must yield an image that boots",
             EmergencyGate => {
                 "A failed start gives a shell only for the recovery key, and the TPM is locked then"
@@ -110,6 +114,9 @@ impl Scenario {
             }
             Update => {
                 "An update signed with the update key starts with the next boot; others are refused"
+            }
+            BrokenUpdate => {
+                "An update that does not start falls back to the previous version after its last try"
             }
         }
     }
@@ -133,7 +140,8 @@ impl Scenario {
             EmergencyGate => emergency_gate(paths, smoke.installed()?),
             Privileges => privileges(paths, smoke.installed()?),
             Recovery => recovery(paths, smoke.installed()?),
-            Update => update(paths, smoke.installed()?),
+            Update => update(paths, &smoke.test_keys, smoke.installed()?),
+            BrokenUpdate => broken_update(paths, &smoke.test_keys, smoke.installed()?),
         }
     }
 }
@@ -150,6 +158,7 @@ pub fn smoke(paths: &Paths, quick: bool) -> Result<()> {
         paths,
         quick,
         installed: OnceLock::new(),
+        test_keys: secureboot::Keys::test(paths, secureboot::Profile::WithWindows)?,
         state: Mutex::new(State {
             waiting,
             running: 0,
@@ -188,6 +197,9 @@ struct Smoke<'a> {
     paths: &'a Paths,
     quick: bool,
     installed: OnceLock<Installed>,
+    /// The test keys, loaded once: loading them writes their enrollment
+    /// files anew, which scenarios building releases read meanwhile.
+    test_keys: secureboot::Keys,
     state: Mutex<State>,
     /// Signalled whenever a scenario ends (new ones may be waiting).
     changed: Condvar,
@@ -658,24 +670,18 @@ const NO_NEWER_UPDATE: &str = "There is no newer version.";
 /// before, and boot counting marks it good – but not a boot in which a unit
 /// of `images/running-units.txt` failed. A successful boot replaces an older
 /// boot loader with the signed one from `/usr`.
-fn update(paths: &Paths, installed: &Installed) -> Result<()> {
+fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
     let releases = paths.work.join("smoke-releases");
     if releases.exists() {
         fs::remove_dir_all(&releases)?;
     }
-    let keys = secureboot::Keys::test(paths, secureboot::Profile::WithWindows)?;
     let good = releases.join(&version);
-    let (built, said) =
-        util::capture(|| release::write(paths, &keys, &version, image::Target::Vm, &good));
-    if built.is_err() {
-        said.into_iter().for_each(util::say_line);
-    }
-    built?;
-    let refused = refused_releases(&releases, &good, &keys)?;
+    test_release(paths, keys, &version, &good)?;
+    let refused = refused_releases(&releases, &good, keys)?;
     let older_loader = paths.work.join("smoke-update-loader.efi");
-    older_boot_loader(paths, &keys, &older_loader)?;
+    older_boot_loader(paths, keys, &older_loader)?;
     for path in BOOT_LOADER_ON_ESP {
         put_on_esp(&machine.disk, &older_loader, path)?;
     }
@@ -791,9 +797,171 @@ fn update(paths: &Paths, installed: &Installed) -> Result<()> {
     boot_healthy(&machine, 3, &Answers::none())?;
     check_blessed(&machine.disk, &version)?;
     say!("  ok: {version} started, the TPM unlocked the data as before");
+
+    // The next update replaces the oldest version, never the running one.
+    let next = format!("{}.2", layout::OS_VERSION);
+    test_release(paths, keys, &next, &releases.join(&next))?;
+    install_update(&machine, &releases.join(&next), &next)?;
+    let labels = usr_labels(&machine.disk)?;
+    let expected = [&next, &next, &version, &version].map(|v| layout::usr_label(v));
+    ensure!(
+        labels == expected,
+        "the second update did not replace slot A ({}): /usr slots are {labels:?}",
+        layout::usr_label(layout::OS_VERSION)
+    );
+    let listing = checks::uki_listing(&machine.disk)?;
+    ensure!(
+        !listing.contains(&layout::blessed_uki_name(layout::OS_VERSION)),
+        "the UKI of the replaced version is still on the ESP: {listing:?}"
+    );
+    boot_healthy(&machine, 4, &Answers::none())?;
+    check_blessed(&machine.disk, &next)?;
+    say!(
+        "  ok: the second update {next} replaced {} in slot A",
+        layout::OS_VERSION
+    );
     machine.remove()?;
     fs::remove_dir_all(&releases)?;
     Ok(())
+}
+
+/// An update that is signed but does not start: the header of its /usr
+/// hash tree is damaged, as from a broken build. Each of its tries fails in
+/// the initrd and restarts by itself; then the previous version starts
+/// again. That version started once: when it fails too, the start waits at
+/// the emergency gate instead of restarting.
+///
+/// A damaged hash tree header fails at once (dm-verity is not set up); with
+/// damaged data /usr is set up but unreadable, and the initrd waits for it
+/// as long as for any device (90 s) – `corrupted_usr` shows that.
+fn broken_update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
+    let machine = installed.machine.copy_as(paths, "smoke-broken-update")?;
+    let version = format!("{}.1", layout::OS_VERSION);
+    let releases = paths.work.join("smoke-broken-releases");
+    if releases.exists() {
+        fs::remove_dir_all(&releases)?;
+    }
+    let broken = releases.join(&version);
+    test_release(paths, keys, &version, &broken)?;
+    // Damage the hash tree, then sign the list of the damaged files.
+    let list = fs::read_to_string(broken.join(release::LIST))?;
+    let mut signed = String::new();
+    for line in list.lines() {
+        let (_, name) = line.split_once("  ").context("release list line")?;
+        if name.ends_with(".usr.verity") {
+            damage_verity(&broken.join(name), 0)?;
+        }
+        signed += &format!("{}  {name}\n", util::sha256_file(&broken.join(name))?);
+    }
+    fs::write(broken.join(release::LIST), signed)?;
+    keys.sign_update(
+        &broken.join(release::LIST),
+        &broken.join(release::SIGNATURE),
+    )?;
+    install_update(&machine, &broken, &version)?;
+
+    for attempt in 1..=layout::BOOT_TRIES {
+        let start = failed_start(&machine)?;
+        let try_n = format!("(try {attempt} of {})", layout::BOOT_TRIES);
+        ensure!(
+            start.verity_setup_failed()
+                && start
+                    .restarted
+                    .as_ref()
+                    .is_some_and(|line| line.contains(&try_n)),
+            "the broken update did not restart after try {attempt}: {start:?}"
+        );
+        // It fails at once, not after the device timeout (see
+        // system/initrd/.../dev-mapper-usr.device.d).
+        ensure!(
+            !start.failed.iter().any(|line| line.contains("Timed out")),
+            "try {attempt} waited for /dev/mapper/usr until the device timeout: {start:?}"
+        );
+    }
+    say!(
+        "  ok: the broken update {version} restarted by itself after each of its {} tries",
+        layout::BOOT_TRIES
+    );
+
+    // Boot #3: the starts with the root shell and the broken ones have no
+    // boot report.
+    boot_healthy(&machine, 3, &Answers::none())?;
+    let listing = checks::uki_listing(&machine.disk)?;
+    let used_up = format!(
+        "{}+0-{}.efi",
+        layout::blessed_uki_name(&version).trim_end_matches(".efi"),
+        layout::BOOT_TRIES
+    );
+    ensure!(
+        listing.contains(&layout::blessed_uki_name(layout::OS_VERSION))
+            && listing.contains(&used_up),
+        "expected {} and {used_up} on the ESP: {listing:?}",
+        layout::blessed_uki_name(layout::OS_VERSION)
+    );
+    say!(
+        "  ok: then the previous version {} started again; {used_up} has no tries left",
+        layout::OS_VERSION
+    );
+
+    damage_verity(&machine.disk, image::USR_VERITY_OFFSET)?;
+    let start = failed_start(&machine)?;
+    ensure!(
+        start.verity_setup_failed() && start.restarted.is_none(),
+        "the previous version, which started before, did not wait at the emergency gate \
+         when it failed: {start:?}"
+    );
+    say!(
+        "  ok: when the previous version fails too, the start waits at the emergency gate \
+         (it started once, so it is not on trial)"
+    );
+    machine.remove()?;
+    fs::remove_dir_all(&releases)?;
+    Ok(())
+}
+
+/// Writes the release of `version`, signed with the test keys `keys`, into
+/// `dir`; its output only if it fails.
+fn test_release(paths: &Paths, keys: &secureboot::Keys, version: &str, dir: &Path) -> Result<()> {
+    let (built, said) =
+        util::capture(|| release::write(paths, keys, version, image::Target::Vm, dir));
+    if built.is_err() {
+        said.into_iter().for_each(util::say_line);
+    }
+    built
+}
+
+/// Installs the release in `dir` as the owner would, from a root shell over
+/// HTTP, and powers off.
+fn install_update(machine: &Machine, dir: &Path, version: &str) -> Result<()> {
+    let shell = Shell::boot(machine, &Answers::none(), &DEBUG_CONSOLE_CREDENTIALS, false)?;
+    let server = Server::start(dir)?;
+    let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
+    ensure!(
+        status == 0
+            && lines
+                .iter()
+                .any(|l| l.contains(&format!("Beize {version} is installed"))),
+        "beize-update did not install {version} (exit status {status}): {lines:?}"
+    );
+    drop(server);
+    shell.power_off()
+}
+
+/// The GPT labels of the /usr partitions of `disk`, in partition order:
+/// slot A data and verity, then slot B.
+fn usr_labels(disk: &Path) -> Result<Vec<String>> {
+    let dump = util::output(Command::new("sfdisk").arg("--dump").arg(disk))?;
+    Ok(dump
+        .lines()
+        .filter(|line| {
+            let line = line.to_uppercase();
+            line.contains(&format!("TYPE={}", layout::USR_TYPE))
+                || line.contains(&format!("TYPE={}", layout::USR_VERITY_TYPE))
+        })
+        .filter_map(|line| line.split("name=\"").nth(1))
+        .filter_map(|rest| rest.split('"').next())
+        .map(str::to_owned)
+        .collect())
 }
 
 /// Where the boot loader lies on the ESP: systemd-boot's own path and the
@@ -1271,39 +1439,124 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
     machine.remove()
 }
 
+/// A modified /usr is detected and not used. The fresh installation is on
+/// trial too (its UKI counts its starts), but there is no other version to
+/// fall back to: the start waits at the emergency gate.
 fn corrupted_usr(paths: &Paths) -> Result<()> {
     let machine = Machine::install(paths, "corrupted")?;
-    // Flip one byte of the EROFS superblock (at 1 KiB) in /usr slot A.
-    {
-        let mut disk = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&machine.disk)?;
-        let offset = image::USR_OFFSET + 1024;
-        let mut byte = [0u8; 1];
-        disk.seek(SeekFrom::Start(offset))?;
-        disk.read_exact(&mut byte)?;
-        disk.seek(SeekFrom::Start(offset))?;
-        disk.write_all(&[byte[0] ^ 0xff])?;
-    }
-    let run = watch_boot(&machine, TAMPER_TIMEOUT, &Answers::none(), |line| {
-        if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
-            Some(false)
-        } else if line.contains("verity") && line.contains("is corrupted") {
-            Some(true)
-        } else {
-            None
-        }
-    })?;
-    match run.answer {
-        Some((true, _)) => say!("  ok: the modified /usr was detected and not used"),
-        Some((false, _)) => bail!("the system booted from a modified /usr"),
-        None => bail!(
-            "no verdict on the modified /usr within {}s",
-            TAMPER_TIMEOUT.as_secs()
-        ),
-    }
+    damage_usr(&machine.disk, image::USR_OFFSET)?;
+    let start = failed_start(&machine)?;
+    ensure!(
+        start.verity_corrupted,
+        "dm-verity did not report the modified /usr"
+    );
+    ensure!(
+        start.restarted.is_none(),
+        "with no other version the start restarted instead of waiting at the emergency gate: {:?}",
+        start.restarted
+    );
+    say!(
+        "  ok: the modified /usr was detected and not used; with no other version the start \
+         waits at the emergency gate"
+    );
     machine.remove()
+}
+
+/// Flips one byte of the EROFS superblock (at 1 KiB) of the /usr image at
+/// `offset` – in a disk or in a release file.
+fn damage_usr(file: &Path, offset: u64) -> Result<()> {
+    flip_byte(file, offset + 1024)
+}
+
+/// Flips the first byte of the magic of the dm-verity superblock at
+/// `offset`: the hash tree's header – in a disk or in a release file.
+fn damage_verity(file: &Path, offset: u64) -> Result<()> {
+    flip_byte(file, offset)
+}
+
+fn flip_byte(file: &Path, offset: u64) -> Result<()> {
+    let mut file = fs::OpenOptions::new().read(true).write(true).open(file)?;
+    let mut byte = [0u8; 1];
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut byte)?;
+    file.seek(SeekFrom::Start(offset))?;
+    file.write_all(&[byte[0] ^ 0xff])?;
+    Ok(())
+}
+
+/// Shown by the emergency gate (os/beize-tpm/src/emergency.rs) as one of its
+/// choices: it waits for the owner.
+const GATE_MENU: &str = "emergency shell (needs the recovery key)";
+/// Shown by the emergency gate before a new version restarts by itself
+/// (os/beize-tpm/src/trial.rs).
+const TRIAL_RESTARTING: &str = "This version of Beize is new and did not start. Restarting";
+/// How long a failed start may take to restart or reach the gate: with an
+/// unreadable /usr the initrd waits 90 s for it, like for any device
+/// (systemd's DefaultDeviceTimeoutSec).
+const FAILED_START_TIMEOUT: Duration = Duration::from_secs(150);
+/// systemd's description of systemd-veritysetup@usr.service.
+const VERITY_SETUP: &str = "Integrity Protection Setup for usr";
+
+/// How a start that must fail ended.
+#[derive(Debug)]
+struct FailedStart {
+    /// The gate's line if it restarted the computer by itself; `None`: it
+    /// waits for the owner.
+    restarted: Option<String>,
+    /// dm-verity reported a modified /usr.
+    verity_corrupted: bool,
+    /// systemd's lines about failed units and devices that timed out.
+    failed: Vec<String>,
+}
+
+impl FailedStart {
+    /// dm-verity could not be set up for /usr.
+    fn verity_setup_failed(&self) -> bool {
+        self.failed.iter().any(|line| line.contains(VERITY_SETUP))
+    }
+}
+
+/// Starts `machine` once, expecting the start to fail: it either restarts
+/// by itself (QEMU ends, `-no-reboot`) or waits at the emergency gate.
+fn failed_start(machine: &Machine) -> Result<FailedStart> {
+    let session = Session::start(machine, &Answers::none(), &SMOKE_CREDENTIALS)?;
+    let deadline = Instant::now() + FAILED_START_TIMEOUT;
+    let mut start = FailedStart {
+        restarted: None,
+        verity_corrupted: false,
+        failed: Vec::new(),
+    };
+    while let Some(event) = session.next(deadline) {
+        let ConsoleEvent::Line(line) = event else {
+            continue;
+        };
+        let line = strip_ansi(&line);
+        if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
+            bail!("the system started from a modified /usr");
+        } else if line.contains("verity") && line.contains("is corrupted") {
+            start.verity_corrupted = true;
+        } else if line.contains(TRIAL_RESTARTING) {
+            start.restarted = Some(line.trim().to_owned());
+        } else if line.contains("[FAILED]") || line.contains("[ TIME ]") {
+            start.failed.push(line.trim().to_owned());
+        } else if line.contains(GATE_MENU) {
+            ensure!(
+                start.restarted.is_none(),
+                "the gate both restarted and waited"
+            );
+            session.power_off_within(Duration::ZERO)?;
+            return Ok(start);
+        }
+    }
+    // The guest ended QEMU by restarting, or the deadline passed. The console
+    // closes a moment before QEMU has exited.
+    let ended = session.power_off_within(Duration::from_secs(5))?;
+    ensure!(
+        ended && start.restarted.is_some(),
+        "the failed start neither restarted nor reached the emergency gate within {}s",
+        FAILED_START_TIMEOUT.as_secs()
+    );
+    Ok(start)
 }
 
 /// Runs the owner's workflow end to end – `bz secureboot new-keys`, then

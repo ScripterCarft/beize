@@ -31,6 +31,7 @@ mod keymap;
 mod keyring;
 mod luks;
 mod policy;
+mod trial;
 
 use std::ffi::c_int;
 use std::fs;
