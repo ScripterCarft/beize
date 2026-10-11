@@ -292,7 +292,7 @@ genauso). Behoben per initrd-Drop-in (Smoke-Test dafür vom Besitzer verworfen: 
 (Entwurf, sendet der Besitzer): WSL `~/upstream/systemd-gpt-auto-timeout/ISSUE.md`.
 Zweiter Hardware-Fund: in der Wiederherstellung scheiterte „Early TPM SRK Setup“ im System (läuft
 dort nach, wenn die initrd sie übersprang) – Drop-in auch in `system/usr`, Smoke prüft
-`ConditionResult=no` (CI 38136757166 grün). Beides bei der nächsten Neuinstallation prüfen.
+`ConditionResult=no` (CI 38136757166 grün). Beides auf der Hardware bestätigt (2026-10-11).
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
 **Phase 5d abgeschlossen (ADR 0019, 2026-10-11):** Konten über Beizes eigenen Dienst
 `beize-accountsd` (Socket je Anfrage, abgeschottet), gespeichert als systemd-Benutzerdatensätze in
@@ -303,9 +303,10 @@ Recovery-Key bei jedem Passwortwechsel, systemd#25876), Ballast. Vorschlag für 
 WSL `~/upstream/systemd-homed-recovery-key/` (für Beize nicht mehr nötig; Senden nach Wahl des
 Besitzers). VM-Konsolengröße per `systemd.tty.*` in der Kommandozeile (eine Antwort von `bz` kam
 unter Last zu spät und landete im getippten Recovery-Key).
-**Hardware-Check 5d (Besitzer, Neuinstallation):** Setup → anmelden → `beize-account passwd` →
-`beize-account add guest` → Wiederherstellung → `beize-account reset <name>` → anmelden mit dem
-neuen Passwort.
+**Auf der Hardware bestätigt (Besitzer, 2026-10-11, Neuinstallation, CI 38147548274 grün):** Setup,
+Anmelden, `beize-account passwd|add|reset`, Gast ohne Admin-Rechte, Zurücksetzen in der
+Wiederherstellung – alles wie erwartet; ebenso die offenen 5b-Punkte (Recovery-Key nach >90 s,
+„Early TPM SRK Setup“ in der Wiederherstellung).
 **Nächster Schritt: Phase 6 (A/B-Updates, ADR 0020) entwerfen und abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
