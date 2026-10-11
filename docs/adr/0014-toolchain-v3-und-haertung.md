@@ -44,6 +44,11 @@ Relokationstabelle (`-z now`) und Frame-Pointer. Ob ein Paket die Flags überhau
 - **Shadow Stacks im Kernel** (`CONFIG_X86_USER_SHADOW_STACK`, wie Fedora und Ubuntu):
   Erst damit wirkt CET für Programme. Der Boot-Report meldet, ob PID 1 mit Shadow Stack
   läuft; `bz smoke` verlangt es, wo die CPU ihn hat.
+- **systemd mit libseccomp** (wie Fedora und Arch): Erst damit wirken die
+  Abschottungen der Units, die über Systemaufruf-Filter laufen (`SystemCallFilter=`,
+  `RestrictAddressFamilies=`, `MemoryDenyWriteExecute=` …) – ohne sie ignoriert systemd
+  sie still; so war es bis 2026-10-11. Auch in der initrd. `bz smoke` prüft, dass
+  journald und ntpd-rs im Filtermodus laufen (`Seccomp: 2`).
 
 ## Konsequenzen
 

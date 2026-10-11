@@ -1,0 +1,26 @@
+# System call filters: systemd applies SystemCallFilter=,
+# RestrictAddressFamilies=, MemoryDenyWriteExecute= and similar sandboxing
+# of units with it. Without it these settings are silently ignored. Only the
+# shared library; no tools, no Python bindings.
+name = "libseccomp"
+version = "2.6.1"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 13823 }
+url = "https://github.com/seccomp/libseccomp/releases/download/v{version}/libseccomp-{version}.tar.gz"
+sha256 = "501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be"
+signature = "https://github.com/seccomp/libseccomp/releases/download/v{version}/libseccomp-{version}.tar.gz.asc"
+keyring = "libseccomp"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --disable-static --disable-python
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+rm -f "$PKG/usr/bin/scmp_sys_resolver"
+rm -rf "$PKG/usr/share/man"
+'''

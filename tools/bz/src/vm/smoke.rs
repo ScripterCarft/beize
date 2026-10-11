@@ -759,6 +759,19 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: / and /usr are mounted nosuid,nodev; a setuid file and a file capability \
          in /var grant nothing"
     );
+    // Units' system call filters are in force (systemd with libseccomp):
+    // mode 2 is "filter" in /proc/<pid>/status.
+    for unit in ["systemd-journald", "ntpd-rs"] {
+        let (_, lines) = shell.capture(&format!(
+            "while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
+             done < /proc/$(systemctl show -P MainPID {unit})/status"
+        ))?;
+        ensure!(
+            lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
+            "{unit} runs without its system call filter: {lines:?}"
+        );
+    }
+    say!("  ok: units run with their system call filters (seccomp)");
     shell.stop()?;
     machine.remove()
 }

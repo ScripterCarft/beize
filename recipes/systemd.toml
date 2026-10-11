@@ -16,8 +16,11 @@ stage = "target"
 # layout against XKB before accepting it (dlopen, ADR 0017). polkit: systemd
 # asks polkitd over D-Bus whether a user may act (run0, ADR 0018); without
 # the option it refuses everyone but root. It needs no polkit library.
-deps =["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam",
-        "kmod", "acl", "libxkbcommon"]
+# libseccomp: units' system call filters and related sandboxing
+# (SystemCallFilter=, RestrictAddressFamilies=, ...) – without it systemd
+# ignores them silently.
+deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam",
+        "kmod", "acl", "libxkbcommon", "libseccomp"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -35,7 +38,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \
   -Dlibcryptsetup=enabled \
   -Dopenssl=enabled -Dtpm2=enabled \
-  -Dkmod=enabled -Dacl=enabled -Dxkbcommon=enabled -Dpolkit=enabled \
+  -Dkmod=enabled -Dacl=enabled -Dxkbcommon=enabled -Dpolkit=enabled -Dseccomp=enabled \
   -Dpam=enabled -Dpamconfdir=/usr/lib/pam.d -Dpamlibdir=/usr/lib/security \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \

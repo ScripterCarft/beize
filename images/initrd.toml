@@ -10,7 +10,8 @@
 # found.
 
 # Where the files come from.
-packages = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm", "kmod", "kbd"]
+packages = ["gcc-runtime", "systemd", "util-linux", "e2fsprogs", "bash", "beize-tpm", "kmod", "kbd",
+            "libseccomp"]
 
 # Kernel modules: the disk controllers (ADR 0015); udev loads the one the
 # machine has. Everything else needed before the root is built in.
@@ -40,7 +41,8 @@ files = [
     # glibc unwinds through libgcc_s when a thread is cancelled (dlopen, no note).
     "usr/lib/libgcc_s.so.1",
 ]
-dlopen = ["acl", "mount"]
+# seccomp: the units' system call filters apply in the initrd, too.
+dlopen = ["acl", "mount", "seccomp"]
 
 [functions.devices]
 why = "udev finds the disks, loads their drivers and names the partitions"

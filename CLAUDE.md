@@ -221,10 +221,6 @@ in die Endfassung einarbeiten, keine Nachträge.
   `kbd-model-map` nennt für ko-KR/km-KH/ar-SA Keymaps, die kbd nicht hat
   (vconsole-setup scheitert vor dem Setup) – Upstream-Bericht vorbereiten;
   Konsolenschrift (HiDPI) noch nicht gesetzt.
-- **systemd ohne seccomp** (gefunden 2026-10-11, `-Dauto_features=disabled`, libseccomp
-  fehlt): `SystemCallFilter=`, `RestrictAddressFamilies=` u. a. in allen Units (auch
-  polkit, systemds eigene) werden still ignoriert. Härtungslücke – mit dem Besitzer
-  entscheiden (libseccomp als Paket, signiert; Fedora/Arch bauen mit).
 - polkit: Drop-in `polkit-agent-helper@.service.d/beize-stderr.conf` mit polkit 128
   entfernen (upstream 3d07db95a4). FIDO/pam_u2f im socket-aktivierten Helfer ist in 127
   kaputt (upstream #622) – erst relevant mit Sicherheitsschlüsseln.
@@ -259,6 +255,11 @@ kann Submodule. Smoke-Szenarien „Privileges“ (Besitzer per Autologin-Credent
 seriellen Konsole, `debug::Shell::capture`) und „Recovery“ (`boot_once`).
 **Hardware-Check 5b (Besitzer, Neuinstallation):** `run0 id -u` mit eigenem Passwort → 0;
 Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s` → Shell.
+**Danach (2026-10-11, Wunsch des Besitzers vor 5c): systemd mit libseccomp** – Filter waren
+vorher still wirkungslos; ntpd-rs-Unit fehlte AF_NETLINK (jetzt wie upstreams
+`ntpd-rs.strict.service`, mit dessen SystemCallFilter); Smoke prüft `Seccomp: 2`. CI-Fund:
+polkits `meson_post_install.py` macht den Helfer als root setuid – Rezept nimmt das Bit weg
+(die Bau-Prüfung hat es gefunden). Gepusht wird erst nach grüner CI (Besitzer).
 **Nächster Schritt: Phase 5c (ping/tracepath), dann ADR 0019 (Konten) vorab abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
