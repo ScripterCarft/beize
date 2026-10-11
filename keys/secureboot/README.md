@@ -98,13 +98,20 @@ Beize schreibt die Schlüssel **selbst** ein – im BIOS werden sie nur gelösch
 4. Wieder `F8` → Samsung-SSD. Erster Start von Beize: Es legt die Partitionen an,
    verschlüsselt sie und zeigt den **Wiederherstellungsschlüssel** auf dem
    Bildschirm – abschreiben bzw. in 1Password ablegen. Er wird nur dieses eine Mal
-   angezeigt; der Start wartet, bis `saved` eingetippt ist.
+   angezeigt; der Start wartet, bis `stored` eingetippt ist.
 5. Prüfen: Beize startet ein zweites Mal ohne Eingabe; Windows startet (ohne `F8`)
    weiterhin mit Secure Boot.
 
 **Notausgang:** BIOS → Key Management → „Load Default Secure Boot Keys“ stellt den
 Werkszustand wieder her. Windows startet dann wie vorher; Beize startet nicht mehr
 unter Secure Boot, seine Daten bleiben verschlossen, bis Schritt 3 wiederholt wird.
+
+**Wiederherstellung** (Passwort vergessen, Anmelden klappt nicht): Beim Start von
+Beize – nach `F8` und der Samsung-SSD – die Leertaste gedrückt halten, bis das Menü
+von systemd-boot erscheint, und „… (Recovery)“ wählen. Beize fragt nach dem
+Wiederherstellungsschlüssel und zeigt dann „Beize recovery.“: `s` öffnet eine
+Root-Shell mit den Daten, `r` startet neu. Der nächste normale Start entsperrt wieder
+ohne Eingabe (ADR 0018).
 
 **Wenn Beize meldet „This start was changed“:** Es wurde etwas zum Start hinzugefügt
 (Kernel-Parameter, Credentials oder Add-ons, z. B. über die Firmware). Beize öffnet

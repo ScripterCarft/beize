@@ -45,7 +45,10 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
       der Boot-Test prüft, dass ein unsigniertes Modul abgewiesen wird
 - [x] Tastaturlayout: beim ersten Start gewählt (XKB), auf der Konsole und in der initrd –
       der Recovery-Key wird mit der eigenen Tastatur getippt
-- [ ] Startzeit auf echter Hardware, Administratorrechte
+- [x] Administratorrechte mit run0 und dem eigenen Passwort (polkit), root ohne Passwort;
+      keine Datei mit setuid oder Capabilities, `/` und `/usr` mit `nosuid` eingehängt
+- [x] Wiederherstellung im Startmenü: Root-Shell nur mit dem Wiederherstellungsschlüssel
+- [ ] Startzeit auf echter Hardware
 - [ ] Updater (systemd-sysupdate)
 - [ ] NVIDIA, WLAN, Bluetooth, Ton
 - [ ] Start von der zweiten SSD
