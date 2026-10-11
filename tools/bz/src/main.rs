@@ -91,7 +91,8 @@ enum Command {
     /// Show where a boot spent its time, from its journal (e.g. one copied
     /// from real hardware, see docs/hardware.md)
     BootTimes {
-        /// A journal directory or file
+        /// A journal directory or file, or a boot's `.json` journal kept by
+        /// `bz smoke` in build/work/logs/boot/
         journal: std::path::PathBuf,
         /// Which boot, as `journalctl --boot` takes it: 0 the last, -1 the
         /// one before, or a boot ID

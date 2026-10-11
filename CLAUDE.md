@@ -100,7 +100,10 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 
 - Ausgabe ist knapp: Befehle zeigen nur bei Fehler ihre letzten 40 Zeilen. Logs:
   `build/work/logs/<paket>.log`, `linux.log`, Konsole jedes Starts in
-  `build/work/logs/boot/NN-<maschine>.log` (gehört immer zum letzten smoke/debug/run).
+  `build/work/logs/boot/NN-<maschine>.log` (gehört immer zum letzten smoke/debug/run),
+  daneben das Journal jedes Starts mit Boot-Report als `.journal.json` (über ttyS1;
+  `bz boot-times <datei>`). Smoke zeigt beim Start mit Zeitbudget die langsamsten Units.
+  `bz` beantwortet als Terminal der seriellen Konsole systemds Größenabfrage (sonst 2× 333 ms).
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Rezeptänderung an systemd
   ~5 min (frisches Build-Verzeichnis, dazu dbus); voller Neubau ~10–15 min.
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke.rs` (Modul-Doku) und
@@ -216,6 +219,10 @@ in die Endfassung einarbeiten, keine Nachträge.
   (frisches Build-Verzeichnis = kein veralteter Zustand; meson-Optionen landen in
   `config.h`, inkrementell würde ohnehin fast alles neu übersetzt).
 - CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`).
+- systemd 263: PID 1 fragt einen VT nicht mehr per CSI 18 nach seiner Größe (upstream
+  4ca7ac0275, nach v262) – auf der Hardware (`/dev/console` = tty0) wartet 262 in initrd
+  und System je 333 ms auf eine Antwort, die der VT nie gibt. Mit dem Update auf der
+  Hardware nachmessen; kein eigener Patch vorher.
 - Tastatur (ADR 0017): auf aus XKB umgewandelte Keymaps umstellen, sobald ein
   kbd-Release die XKB-Korrekturen nach 2.10.0 enthält (AltGr: 0bb93f7); systemds
   `kbd-model-map` nennt für ko-KR/km-KH/ar-SA Keymaps, die kbd nicht hat

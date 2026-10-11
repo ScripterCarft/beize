@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -14,7 +14,7 @@ use super::machine::{Machine, SLIRP_DNS, SLIRP_GATEWAY};
 use super::report::{BootReport, REPORT_MARKER, Units};
 use crate::layout::{self, MIB};
 use crate::say;
-use crate::{image, util};
+use crate::{boottimes, image, util};
 
 /// A healthy boot: its report and what appeared on the console.
 pub(super) struct HealthyBoot {
@@ -24,6 +24,8 @@ pub(super) struct HealthyBoot {
     pub(super) prompted: bool,
     /// How often the boot asked for it.
     pub(super) prompts: u32,
+    /// The journal of the boot, for `bz boot-times`.
+    pub(super) journal: PathBuf,
 }
 
 /// Boots once and requires a fully healthy system: Secure Boot on, state
@@ -185,11 +187,15 @@ pub(super) fn boot_healthy(
             "not in this CPU"
         }
     );
+    let journal = run
+        .journal
+        .context("the boot report wrote no journal to the second serial port")?;
     Ok(HealthyBoot {
         report,
         console: run.console,
         prompted: run.prompted,
         prompts: run.prompts,
+        journal,
     })
 }
 
@@ -230,6 +236,19 @@ pub(super) fn check_boot_budget(report: &BootReport) -> Result<()> {
         .collect::<Vec<_>>()
         .join(", ");
     say!("  ok: within the time budget ({budget})");
+    Ok(())
+}
+
+/// Shows where the initrd and the system spent their time (the slowest
+/// units): next to the phases, so a CI run's log explains its numbers.
+pub(super) fn show_slowest_units(boot: &HealthyBoot) -> Result<()> {
+    let [initrd, system] = boottimes::slowest_units(&boot.journal, 5)?;
+    say!(
+        "  slowest units – initrd: {}; system: {} (all: bz boot-times {})",
+        initrd.join(", "),
+        system.join(", "),
+        boot.journal.display()
+    );
     Ok(())
 }
 

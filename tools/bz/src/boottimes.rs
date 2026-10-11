@@ -12,6 +12,7 @@
 //! through the kernel's ring buffer, where only the text survives.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -29,34 +30,50 @@ const SLOWEST: usize = 10;
 
 /// Prints where boot `boot` (as `journalctl --boot` takes it: `0` the last,
 /// `-1` the one before, or a boot ID) in the journal at `journal` (a
-/// directory or a file) spent its time; kernel gaps from `gap_ms` up.
+/// directory or a file) spent its time; kernel gaps from `gap_ms` up. A
+/// `.json` file is one boot as `bz smoke` keeps it next to the console log
+/// (`journalctl --output=json`); `boot` does not apply to it.
 pub fn show(journal: &Path, boot: &str, gap_ms: u64) -> Result<()> {
-    let source = if journal.is_dir() {
-        "--directory"
+    let json = if journal.extension().is_some_and(|e| e == "json") {
+        fs::read_to_string(journal).with_context(|| format!("reading {}", journal.display()))?
     } else {
-        "--file"
+        let source = if journal.is_dir() {
+            "--directory"
+        } else {
+            "--file"
+        };
+        util::output(Command::new("journalctl").arg(source).arg(journal).args([
+            "--boot",
+            boot,
+            "--output=json",
+            "--no-pager",
+            "--quiet",
+        ]))?
     };
-    let json = util::output(Command::new("journalctl").arg(source).arg(journal).args([
-        "--boot",
-        boot,
-        "--output=json",
-        "--no-pager",
-        "--quiet",
-    ]))?;
-    let entries = json
-        .lines()
-        .map(Entry::parse)
-        .collect::<Result<Vec<_>>>()
-        .context("reading the journal's JSON output")?;
-    let report = Report::new(&entries, gap_ms * 1000).with_context(|| {
-        format!(
-            "boot {boot} in {} has no \"Startup finished\" message: it did not finish \
-             booting, or the journal ends before",
-            journal.display()
-        )
-    })?;
+    let report = Report::from_json(&json, gap_ms * 1000)
+        .with_context(|| format!("boot {boot} in {}", journal.display()))?;
     print!("{}", report.render());
     Ok(())
+}
+
+/// The `count` slowest units of the initrd and of the system, as "unit
+/// time", in a boot's journal as `bz smoke` keeps it (see [`show`]).
+pub fn slowest_units(journal: &Path, count: usize) -> Result<[Vec<String>; 2]> {
+    let json =
+        fs::read_to_string(journal).with_context(|| format!("reading {}", journal.display()))?;
+    let report = Report::from_json(&json, u64::MAX)
+        .with_context(|| format!("the boot in {}", journal.display()))?;
+    let slowest = |units: &[UnitTime]| {
+        units
+            .iter()
+            .take(count)
+            .map(|u| {
+                let name = u.unit.as_deref().unwrap_or(&u.description);
+                format!("{name} {}", seconds(u.took))
+            })
+            .collect()
+    };
+    Ok([slowest(&report.initrd_units), slowest(&report.system_units)])
 }
 
 /// One journal entry, with what the analysis needs.
@@ -165,6 +182,19 @@ struct Report {
 }
 
 impl Report {
+    /// From the output of `journalctl --output=json` for one boot.
+    fn from_json(json: &str, gap_min: u64) -> Result<Self> {
+        let entries = json
+            .lines()
+            .map(Entry::parse)
+            .collect::<Result<Vec<_>>>()
+            .context("reading the journal's JSON output")?;
+        Self::new(&entries, gap_min).context(
+            "no \"Startup finished\" message: the boot did not finish, \
+             or the journal ends before",
+        )
+    }
+
     /// `None` without a "Startup finished" message from PID 1.
     fn new(entries: &[Entry], gap_min: u64) -> Option<Self> {
         let finished = entries

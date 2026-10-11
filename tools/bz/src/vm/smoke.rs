@@ -28,6 +28,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use super::checks::{
     boot_healthy, check_blessed, check_boot_budget, check_partitions, check_root_binding,
     check_units, damage_root_file_system, expect_rebound, expect_refused, expect_root_locked,
+    show_slowest_units,
 };
 use super::console::{
     Answers, ConsoleEvent, EMERGENCY_HEADLINE, EMERGENCY_SHELL_STARTS, EMERGENCY_WRONG_KEY,
@@ -355,6 +356,7 @@ fn install(paths: &Paths) -> Result<Installed> {
     let second = boot_healthy(&machine, 2, &Answers::none())?;
     // The first boot creates partitions and asks questions: the second is
     // the one every later boot is like.
+    show_slowest_units(&second)?;
     check_boot_budget(&second.report)?;
     check_units(&second.console)?;
     ensure!(

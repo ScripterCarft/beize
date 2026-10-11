@@ -33,6 +33,16 @@ pub(super) const SMOKE_CREDENTIALS: [&str; 2] = [
     "type=11,value=io.systemd.credential:getty.auto=no",
 ];
 
+/// The line /usr/lib/beize/boot-report writes on the second serial port
+/// before the journal of the boot.
+const JOURNAL_MARKER: &[u8] = b"BEIZE-JOURNAL\n";
+
+/// What follows the last `marker` in `bytes`, if it appears.
+fn after_marker<'a>(bytes: &'a [u8], marker: &[u8]) -> Option<&'a [u8]> {
+    let start = bytes.windows(marker.len()).rposition(|w| w == marker)?;
+    Some(&bytes[start + marker.len()..])
+}
+
 /// Numbers the boot logs in the order of the boots.
 static BOOTS: AtomicUsize = AtomicUsize::new(0);
 
@@ -55,6 +65,8 @@ pub(super) struct BootRun<T> {
     pub(super) prompts: u32,
     /// Every console line, without terminal control sequences.
     pub(super) console: Vec<String>,
+    /// The journal of the boot as `journalctl --output=json`, if it wrote one.
+    pub(super) journal: Option<PathBuf>,
 }
 
 /// How many of systemd's prompts for a disk passphrase or recovery key
@@ -341,6 +353,8 @@ struct Seen {
     console: Vec<String>,
     prompted: bool,
     prompts: u32,
+    /// Set by [`Session::finish`].
+    journal: Option<PathBuf>,
 }
 
 /// A headless boot in progress: QEMU with the serial console on a pipe. A
@@ -352,6 +366,9 @@ pub(super) struct Session {
     events: mpsc::Receiver<ConsoleEvent>,
     reader: Option<thread::JoinHandle<Seen>>,
     started: Instant,
+    /// What the guest wrote to its second serial port: the firmware's
+    /// console, then, after [`JOURNAL_MARKER`], the journal of the boot.
+    journal: PathBuf,
     /// Kept until QEMU is stopped.
     _tpm: Swtpm,
 }
@@ -371,6 +388,7 @@ impl Session {
             machine.name()
         ));
         let log = File::create(&log_path)?;
+        let journal = log_path.with_extension("journal.json");
         LAST_CONSOLE.set(Some(log_path));
         // Left by a QEMU that was killed; QEMU would refuse to start.
         let _ = fs::remove_file(machine.qmp());
@@ -381,6 +399,9 @@ impl Session {
         }
         let mut child = qemu
             .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
+            // ttyS1: a channel out of the guest that is not the console.
+            .arg("-serial")
+            .arg(format!("file:{}", journal.display()))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -400,6 +421,7 @@ impl Session {
             events,
             reader: Some(reader),
             started,
+            journal,
             _tpm: tpm,
         })
     }
@@ -427,11 +449,19 @@ impl Session {
         }
         let powered_off = self.child.try_wait()?.is_some();
         self.stop();
-        let seen = self
+        let mut seen = self
             .reader
             .take()
             .and_then(|reader| reader.join().ok())
             .unwrap_or_default();
+        // Only a boot that reported wrote its journal; keep just that.
+        let written = fs::read(&self.journal).unwrap_or_default();
+        if let Some(json) = after_marker(&written, JOURNAL_MARKER) {
+            fs::write(&self.journal, json)?;
+            seen.journal = Some(self.journal.clone());
+        } else {
+            let _ = fs::remove_file(&self.journal);
+        }
         Ok((powered_off, seen))
     }
 
@@ -463,6 +493,36 @@ fn echo(log: &mut File, line: &str) {
     }
 }
 
+/// The console's size, as systemd asks it from a terminal (CSI 18 t) when PID
+/// 1 starts, in the initrd and again after switching root. bz is the
+/// terminal of the serial console: unanswered, PID 1 waits 333 ms each time
+/// (on a virtual console systemd no longer asks, upstream 4ca7ac0275).
+const SIZE_QUERY: &[u8] = b"\x1b[18t";
+/// 24 rows of 80 columns: what systemd assumes for a terminal that does not
+/// say, so the console's output stays the same.
+const SIZE_REPLY: &[u8] = b"\x1b[8;24;80t";
+
+/// Counts [`SIZE_QUERY`] in the console's output, also when a read splits it.
+#[derive(Default)]
+struct SizeQueries {
+    /// The end of the previous read, shorter than a query.
+    tail: Vec<u8>,
+}
+
+impl SizeQueries {
+    fn count(&mut self, chunk: &[u8]) -> usize {
+        let mut bytes = std::mem::take(&mut self.tail);
+        bytes.extend_from_slice(chunk);
+        let found = bytes
+            .windows(SIZE_QUERY.len())
+            .filter(|w| *w == SIZE_QUERY)
+            .count();
+        let keep = bytes.len().min(SIZE_QUERY.len() - 1);
+        self.tail = bytes.split_off(bytes.len() - keep);
+        found
+    }
+}
+
 /// The reader thread: logs every console line, answers the console's
 /// questions and passes the lines on until QEMU closes the console.
 fn read_console(
@@ -488,8 +548,14 @@ fn read_console(
     // keyboard ends without a newline on the serial console.
     let mut prompts_in_line = 0;
     let mut pending = Vec::new();
+    let mut size_queries = SizeQueries::default();
     let mut chunk = [0u8; 4096];
     while let Ok(n @ 1..) = stdout.read(&mut chunk) {
+        for _ in 0..size_queries.count(&chunk[..n]) {
+            if let Ok(mut stdin) = stdin.lock() {
+                let _ = stdin.write_all(SIZE_REPLY).and_then(|()| stdin.flush());
+            }
+        }
         pending.extend_from_slice(&chunk[..n]);
         while let Some(end) = pending.iter().position(|&b| b == b'\n') {
             line_answered = false;
@@ -609,6 +675,7 @@ pub(super) fn watch_boot<T>(
         prompted: seen.prompted,
         prompts: seen.prompts,
         console: seen.console,
+        journal: seen.journal,
     })
 }
 
@@ -665,6 +732,30 @@ pub(super) fn strip_ansi(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn size_queries_are_found_across_reads() {
+        let mut queries = SizeQueries::default();
+        assert_eq!(queries.count(b"Welcome\x1b[18t\x1b"), 1);
+        assert_eq!(queries.count(b"[18"), 0);
+        assert_eq!(queries.count(b"t\x1b[6n"), 1, "split over three reads");
+        assert_eq!(queries.count(b"\x1b[18t\x1b[18t"), 2);
+        assert_eq!(queries.count(b"[18t"), 0, "not counted twice");
+    }
+
+    #[test]
+    fn journal_follows_the_firmware_console() {
+        let written = b"\x1b[2JBdsDxe: starting Boot0002\r\nBEIZE-JOURNAL\n{\"MESSAGE\":\"a\"}\n";
+        assert_eq!(
+            after_marker(written, JOURNAL_MARKER),
+            Some(&b"{\"MESSAGE\":\"a\"}\n"[..])
+        );
+        // A boot that did not report: the firmware's console only.
+        assert_eq!(
+            after_marker(b"BdsDxe: starting Boot0002\r\n", JOURNAL_MARKER),
+            None
+        );
+    }
 
     #[test]
     fn strip_ansi_removes_csi_and_osc() {
