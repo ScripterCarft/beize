@@ -72,6 +72,10 @@ pub enum Origin {
         url: String,
         tag: String,
         commit: String,
+        /// The tree has git submodules (`submodules = true`). Their commits
+        /// are part of the pinned, signed tree, so they need no pin of their
+        /// own; they are fetched by exactly that commit.
+        submodules: bool,
     },
 }
 
@@ -110,6 +114,8 @@ pub struct RawSource {
     git: Option<String>,
     tag: Option<String>,
     commit: Option<String>,
+    #[serde(default)]
+    submodules: bool,
     keyring: Option<String>,
     unsigned: Option<String>,
     dest: Option<String>,
@@ -148,8 +154,8 @@ impl RawSource {
         let origin = match (self.url, self.git) {
             (Some(url), None) => {
                 ensure!(
-                    self.tag.is_none() && self.commit.is_none(),
-                    "tag and commit belong to git sources"
+                    self.tag.is_none() && self.commit.is_none() && !self.submodules,
+                    "tag, commit and submodules belong to git sources"
                 );
                 let sha256 = self.sha256.context("archive sources need sha256")?;
                 ensure!(is_hex(&sha256, 64), "sha256 must be 64 hex characters");
@@ -180,6 +186,7 @@ impl RawSource {
                     url,
                     tag: expand(self.tag.context("git sources need tag")?),
                     commit,
+                    submodules: self.submodules,
                 }
             }
             _ => bail!("a source needs exactly one of url or git"),
@@ -249,22 +256,17 @@ impl Source {
                         .arg(format!("--strip-components={}", u8::from(!flat))),
                 )
             }
-            Origin::Git { commit, .. } => {
+            Origin::Git {
+                commit, submodules, ..
+            } => {
                 let clone = self.fetch(paths, false)?;
-                let tar = Command::new("git")
-                    .arg("-C")
-                    .arg(&clone)
-                    .args(["archive", "--format=tar", commit])
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .context("starting git archive")?;
-                pipe_into(
-                    tar,
-                    Command::new("tar")
-                        .arg("--extract")
-                        .arg("--directory")
-                        .arg(dir),
-                )
+                extract_commit(&clone, commit, dir)?;
+                if *submodules {
+                    for (path, sub) in gitlinks(&clone, commit)? {
+                        extract_commit(&clone, &sub, &dir.join(&path))?;
+                    }
+                }
+                Ok(())
             }
         }
     }
@@ -315,7 +317,12 @@ impl Source {
                 }
                 Ok(archive)
             }
-            Origin::Git { url, tag, commit } => {
+            Origin::Git {
+                url,
+                tag,
+                commit,
+                submodules,
+            } => {
                 let clone = paths.cache.join("git").join(self.stem()?);
                 let marker = with_suffix(&clone, "verified");
                 if !clone.exists() {
@@ -339,6 +346,9 @@ impl Source {
                             .args(["fetch", "--quiet", "--depth=1", "--no-tags", url])
                             .arg(format!("refs/tags/{tag}:refs/tags/{tag}")),
                     )?;
+                    if *submodules {
+                        fetch_submodules(&partial, url, commit)?;
+                    }
                     fs::rename(&partial, &clone)?;
                 }
                 if force || fs::read_to_string(&marker).ok().as_deref() != Some(&verified_marker) {
@@ -350,6 +360,113 @@ impl Source {
             }
         }
     }
+}
+
+/// Extracts the tree of `commit` in the clone into `dir`.
+fn extract_commit(clone: &Path, commit: &str, dir: &Path) -> Result<()> {
+    fs::create_dir_all(dir)?;
+    let tar = Command::new("git")
+        .arg("-C")
+        .arg(clone)
+        .args(["archive", "--format=tar", commit])
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("starting git archive")?;
+    pipe_into(
+        tar,
+        Command::new("tar")
+            .arg("--extract")
+            .arg("--directory")
+            .arg(dir),
+    )
+}
+
+/// The submodules of `commit`: path and the commit the tree records for it.
+fn gitlinks(clone: &Path, commit: &str) -> Result<Vec<(String, String)>> {
+    let tree = util::output(
+        Command::new("git")
+            .arg("-C")
+            .arg(clone)
+            .args(["ls-tree", "-r", commit]),
+    )?;
+    let links: Vec<_> = tree
+        .lines()
+        .filter_map(|line| {
+            let (meta, path) = line.split_once('\t')?;
+            let mut meta = meta.split(' ');
+            if meta.next() != Some("160000") {
+                return None;
+            }
+            Some((path.to_owned(), meta.nth(1)?.to_owned()))
+        })
+        .collect();
+    ensure!(!links.is_empty(), "{commit} has no submodules");
+    Ok(links)
+}
+
+/// Fetches every submodule of `commit` into the clone, each by the exact
+/// commit the (signed) tree records. Nested submodules are refused: they
+/// would silently be missing from the extracted tree.
+fn fetch_submodules(clone: &Path, url: &str, commit: &str) -> Result<()> {
+    let git = || {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(clone);
+        cmd
+    };
+    let gitmodules = format!("{commit}:.gitmodules");
+    for (path, sub) in gitlinks(clone, commit)? {
+        let names = util::output(git().args([
+            "config",
+            "--blob",
+            &gitmodules,
+            "--get-regexp",
+            r"^submodule\..*\.path$",
+        ]))?;
+        let name = names
+            .lines()
+            .find_map(|line| {
+                let (key, value) = line.split_once(' ')?;
+                (value == path).then(|| key.strip_prefix("submodule.")?.strip_suffix(".path"))?
+            })
+            .with_context(|| format!("submodule {path} is not in .gitmodules"))?;
+        let sub_url = util::output(git().args([
+            "config",
+            "--blob",
+            &gitmodules,
+            "--get",
+            &format!("submodule.{name}.url"),
+        ]))?;
+        let sub_url = resolve_submodule_url(url, &sub_url);
+        util::step(&format!("Fetching submodule {path} ({sub_url} {sub})"));
+        util::run(git().args(["fetch", "--quiet", "--depth=1", "--no-tags", &sub_url, &sub]))?;
+        let nested = util::output(git().args(["ls-tree", "-r", &sub]))?;
+        ensure!(
+            !nested.lines().any(|line| line.starts_with("160000 ")),
+            "submodule {path} has submodules of its own"
+        );
+    }
+    Ok(())
+}
+
+/// A submodule URL as git resolves it: `../x` and `./x` are relative to the
+/// superproject's URL, each `../` dropping one path component of it.
+fn resolve_submodule_url(base: &str, url: &str) -> String {
+    if !url.starts_with("../") && !url.starts_with("./") {
+        return url.to_owned();
+    }
+    let mut base = base.trim_end_matches('/').to_owned();
+    let mut rest = url;
+    loop {
+        if let Some(r) = rest.strip_prefix("./") {
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("../") {
+            rest = r;
+            base.truncate(base.rfind('/').unwrap_or(0));
+        } else {
+            break;
+        }
+    }
+    format!("{base}/{rest}")
 }
 
 fn download(url: &str, dest: &Path) -> Result<()> {
@@ -675,6 +792,33 @@ mod tests {
         .unwrap();
         assert_eq!(source.stem().unwrap(), "systemd-v262");
         assert_eq!(source.pin(), COMMIT);
+    }
+
+    #[test]
+    fn submodule_urls_resolve_like_git() {
+        let glib = "https://gitlab.gnome.org/GNOME/glib.git";
+        assert_eq!(
+            resolve_submodule_url(glib, "../../GNOME/gvdb.git"),
+            "https://gitlab.gnome.org/GNOME/gvdb.git"
+        );
+        assert_eq!(
+            resolve_submodule_url(glib, "../gvdb.git"),
+            "https://gitlab.gnome.org/GNOME/gvdb.git"
+        );
+        assert_eq!(
+            resolve_submodule_url(glib, "https://example.org/x.git"),
+            "https://example.org/x.git"
+        );
+    }
+
+    #[test]
+    fn submodules_belong_to_git_sources() {
+        let err = raw(&format!(
+            "url = \"https://x/a.tar.xz\"\nsha256 = \"{DIGEST}\"\nsubmodules = true\nunsigned = \"r\"\n"
+        ))
+        .into_source("1")
+        .unwrap_err();
+        assert!(err.to_string().contains("submodules"));
     }
 
     #[test]
