@@ -1,5 +1,5 @@
 [Unit]
-Description=Create the owner's account
+Description=Set up the keyboard and the owner's account
 Documentation=file:/usr/lib/beize/beize-setup
 # Once per installation, before anyone can log in. Replaced by the graphical
 # onboarding later.

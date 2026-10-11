@@ -8,7 +8,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 
 use super::console::{
-    Answers, REPORT_TIMEOUT, SMOKE_TIME_ZONE, TAMPER_TIMEOUT, strip_ansi, watch_boot,
+    Answers, REPORT_TIMEOUT, SMOKE_KEYMAP, SMOKE_TIME_ZONE, TAMPER_TIMEOUT, strip_ansi, watch_boot,
 };
 use super::machine::{Machine, SLIRP_DNS, SLIRP_GATEWAY};
 use super::report::{BootReport, REPORT_MARKER, Units};
@@ -103,6 +103,14 @@ pub(super) fn boot_healthy(
         report.time_zone == SMOKE_TIME_ZONE,
         "the time zone chosen in the setup is not set: expected {SMOKE_TIME_ZONE}, got {}",
         report.time_zone
+    );
+    // The key between T and U gives z only with the German keymap loaded.
+    ensure!(
+        report.keymap == SMOKE_KEYMAP && report.yz_key == "z",
+        "the keyboard chosen in the setup is not in use: expected keymap {SMOKE_KEYMAP} \
+         (y/z key: z), got {} (y/z key: {})",
+        report.keymap,
+        report.yz_key
     );
     ensure!(
         run.powered_off,
@@ -539,7 +547,7 @@ mod tests {
             format!(
                 "BEIZE-BOOT-REPORT state=running secureboot=on usr=verity root=encrypted boot=2 \
                  machineid=x uptime=5.3s systemunlock=refused network=routable dns=none \
-                 lookup=none tz=none nts=0 clock=0 kernel={kernel} initrd={initrd} \
+                 lookup=none tz=none keymap=none yzkey=y nts=0 clock=0 kernel={kernel} initrd={initrd} \
                  userspace={userspace} chain=12 shstk=on lockdown=integrity \
                  unsigned=refused signed=loaded nodriver=none failed=none bootfailed=none"
             )

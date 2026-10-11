@@ -155,6 +155,19 @@ lookup_list=$(IFS=,; echo "${lookup[*]}")
 # source), too long to wait for here. Needs the internet: waits a little.
 tz=$(readlink /etc/localtime)
 tz=${tz#*/zoneinfo/}
+# Keyboard (ADR 0017): the console keymap the setup chose, and what the key
+# between T and U gives on the console – z with a German keymap, y with the
+# kernel's US one – so the keymap is not only configured but loaded.
+keymap=none
+if [[ -r /etc/vconsole.conf ]]; then
+    while IFS= read -r line; do
+        [[ $line == KEYMAP=* ]] && keymap=${line#KEYMAP=}
+    done < /etc/vconsole.conf
+fi
+yzkey=unknown
+while read -r word number equals symbol _; do
+    [[ $word == keycode && $number == 21 && $equals == "=" ]] && yzkey=${symbol#+}
+done < <(dumpkeys --console=/dev/tty1 --keys-only 2>/dev/null)
 # The system clock (seconds since 1970): `bz smoke` checks it after a reset
 # hardware clock.
 printf -v clock '%(%s)T' -1
@@ -230,7 +243,7 @@ echo "BEIZE-UNITS etc=$(IFS=,; echo "${etc_links[*]:-none}") active=$(IFS=,; ech
 echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=${root} boot=${boot}" \
      "machineid=${machineid} uptime=${uptime}s systemunlock=${systemunlock}" \
      "network=${network} dns=${dns_list:-none} lookup=${lookup_list:-none}" \
-     "tz=${tz:-none} nts=${nts} clock=${clock}" \
+     "tz=${tz:-none} keymap=${keymap} yzkey=${yzkey} nts=${nts} clock=${clock}" \
      "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain} shstk=${shstk}" \
      "lockdown=${lockdown} unsigned=${unsigned} signed=${signed}" \
      "nodriver=$(IFS=,; echo "${nodriver[*]:-none}")" \

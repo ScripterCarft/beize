@@ -1,5 +1,5 @@
-# Beize's first-boot setup on the console (os/beize-setup): creates the
-# owner's account, until the graphical onboarding replaces it.
+# Beize's first-boot setup on the console (os/beize-setup): keyboard layout,
+# the owner's account; until the graphical onboarding replaces it.
 name = "beize-setup"
 version = "0.1.0"
 stage = "target"

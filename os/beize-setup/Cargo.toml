@@ -1,6 +1,6 @@
 [package]
 name = "beize-setup"
-description = "First-boot setup on the console: the owner's account (until Beize's graphical onboarding)"
+description = "First-boot setup on the console: keyboard layout and the owner's account (until Beize's graphical onboarding)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

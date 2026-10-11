@@ -1,7 +1,10 @@
 //! `beize-setup` – Beize's first-boot setup on the text console, until the
 //! graphical onboarding (M5) replaces it.
 //!
-//! `beize-setup owner` creates the owner's account: asks for a login name
+//! `beize-setup owner` first asks for the keyboard layout and switches to it
+//! at once (ADR 0017), so that everything after it – the password above all –
+//! is typed with the owner's own keyboard. Then it creates the owner's
+//! account: asks for a login name
 //! and a password (twice), adds the user to /etc/passwd, /etc/group (own
 //! group, and wheel: administrator) and /etc/shadow (yescrypt), gives root
 //! the same password hash – root logs in at the console until run0 replaces
@@ -11,6 +14,7 @@
 
 mod accounts;
 mod crypt;
+mod keyboard;
 mod mute;
 mod timezone;
 mod transaction;
@@ -137,6 +141,9 @@ struct Owner {
 /// The setup's questions; `None` when the owner cancelled one (Ctrl+C,
 /// Ctrl+D) to start over.
 fn questions(passwd: &str, group: &str) -> Result<Option<Owner>, String> {
+    if !choose_keyboard()? {
+        return Ok(None);
+    }
     macro_rules! answer {
         ($question:expr, $echo:expr) => {
             match ask($question, $echo)? {
@@ -258,6 +265,94 @@ fn ask_time_zone() -> Result<Option<String>, String> {
             }
         }
     }
+}
+
+/// Asks for the keyboard layout and switches to it; `false` if cancelled.
+/// Offered is what the console can load (see `keyboard`); the firmware's
+/// layout, if it reports one, is the suggestion. Unlike the other answers it
+/// takes effect at once: the questions after it are typed with it. A setup
+/// cut off later leaves only the keyboard set – asked again next time.
+fn choose_keyboard() -> Result<bool, String> {
+    let model_map = read(keyboard::MODEL_MAP)?;
+    let xkb_names = read(keyboard::XKB_NAMES)?;
+    let keymaps = keyboard::keymap_names(Path::new(keyboard::KEYMAPS));
+    let layouts = keyboard::offered(&model_map, &xkb_names, |name| keymaps.contains(name));
+    let suggested = keyboard::firmware_tag().and_then(|tag| keyboard::for_tag(&tag, &layouts));
+    let first = match suggested {
+        Some(layout) => format!(
+            "Your keyboard layout – Enter for {} ({}), or a language, country or code:",
+            layout.description,
+            layout.code()
+        ),
+        None => "Your keyboard layout – a language, country or code (e.g. German, de):".to_owned(),
+    };
+    let mut question = first.clone();
+    loop {
+        let Some(answer) = ask(&question, true)? else {
+            return Ok(false);
+        };
+        let layout = match (answer.trim().is_empty(), suggested) {
+            (true, Some(layout)) => layout.clone(),
+            (true, None) => continue,
+            (false, _) => match keyboard::find(&answer, &layouts) {
+                keyboard::Found::Layout(layout) => layout,
+                keyboard::Found::Several(layouts) => {
+                    println!("  Several layouts fit:");
+                    for layout in layouts {
+                        println!("    {:<22} {}", layout.code(), layout.description);
+                    }
+                    question = "Which one?".to_owned();
+                    continue;
+                }
+                keyboard::Found::None => {
+                    println!("  Not found. A language, a country or a code like de or fr, please.");
+                    continue;
+                }
+            },
+        };
+        match set_keyboard(&layout) {
+            Ok(()) => {
+                println!("  Keyboard: {} ({}).", layout.description, layout.code());
+                return Ok(true);
+            }
+            Err(error) => {
+                println!("  The layout could not be set ({error}). Another one, please.");
+                question = first.clone();
+            }
+        }
+    }
+}
+
+/// Sets the layout through localed – both halves of the row, as chosen, not
+/// converted – and waits until the console uses it: localed only asks for
+/// systemd-vconsole-setup to be restarted, `systemctl restart` returns once
+/// the keymap is loaded (and fails if it is not).
+fn set_keyboard(layout: &keyboard::Layout) -> Result<(), String> {
+    run(Command::new("localectl").args(["set-keymap", "--no-convert", &layout.keymap]))?;
+    run(Command::new("localectl").args([
+        "set-x11-keymap",
+        "--no-convert",
+        &layout.layout,
+        &layout.model,
+        &layout.variant,
+        &layout.options,
+    ]))?;
+    run(Command::new("systemctl").args(["restart", "systemd-vconsole-setup.service"]))
+}
+
+/// Runs a command, its output to the journal only (the console is the
+/// setup's).
+fn run(command: &mut Command) -> Result<(), String> {
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("starting {:?}: {e}", command.get_program()))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let error = String::from_utf8_lossy(&output.stderr);
+    eprintln!("beize-setup: {:?}: {}", command.get_program(), error.trim());
+    Err(format!("{:?} failed", command.get_program()))
 }
 
 /// Points /etc/localtime at the zone, as systemd expects (a relative link

@@ -78,9 +78,11 @@ pub(super) const CTRL_C: &str = "\u{3}";
 /// beize-setup's questions and the tests' answers, in the order typed ("Password:"
 /// is not part of "Password again:", each matches only its own question). The
 /// first password question gets Ctrl+C: the setup must start over instead of
-/// ending, so the owner's name is asked twice. The time zone: a country with
+/// ending, so the keyboard and the owner's name are asked twice – the
+/// keyboard by name first, then by code. The time zone: a country with
 /// several zones, so the setup asks back.
-pub(super) const SETUP_ANSWERS: [(&str, &[&str]); 6] = [
+pub(super) const SETUP_ANSWERS: [(&str, &[&str]); 7] = [
+    ("Your keyboard layout", &["German", "de(nodeadkeys)"]),
     ("Your login name", &[SMOKE_USER, SMOKE_USER]),
     ("Your full name", &["Smoke Test", "Smoke Test"]),
     ("Password again:", &["smoke-test-password"]),
@@ -94,6 +96,9 @@ pub(super) const SETUP_STARTS_OVER: &str = "Starting over.";
 
 /// The zone the answers above must lead to.
 pub(super) const SMOKE_TIME_ZONE: &str = "America/Sao_Paulo";
+/// The console keymap the keyboard answers must lead to (systemd's
+/// kbd-model-map: de(nodeadkeys)).
+pub(super) const SMOKE_KEYMAP: &str = "de-latin1-nodeadkeys";
 
 /// The emergency gate (os/beize-tpm/src/emergency.rs): its headline, its
 /// menu, its question for the recovery key, what it says to a wrong key and
