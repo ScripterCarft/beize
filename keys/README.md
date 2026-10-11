@@ -25,9 +25,11 @@ Prüfen aller Quellen: `./bz verify`
 | `gmp` | Niels Möller | `343C 2FF0 FBEE 5EC2 EDBE F399 F359 9FF8 28C6 7298` | GNU-Keyring |
 | `intel-microcode` | Intel signiert weder Archive noch Tags oder Commits (geprüft 2026-10-10) | Archiv per SHA-256 gepinnt; jedes Microcode-Update trägt Intels Signatur, die die CPU vor dem Einspielen prüft |
 | `json-c` | Upstream signiert weder Release-Archive noch Tags (geprüft 2026-10-07) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
+| `kbd` | Alexey Gladkov | `7F2A 3D07 2981 49A0 793C 9A4E A45A BA54 4CFF D434` | keyserver.ubuntu.com; deckungsgleich mit WKD kernel.org |
 | `kmod` | Lucas De Marchi | `EAB3 3C96 9001 3C73 3916 AC83 9BA2 A5A6 30CB EA53` | keyserver.ubuntu.com |
 | `libcap` | Andrew G. Morgan | `38A6 4469 8C69 7873 44E9 54CE 29EE 848A E2CC F3F4` | WKD kernel.org |
 | `libxcrypt` | Björn Esser | `678C E3FE E430 3115 96DB 8C16 F52E 9800 7594 C21D` | keyserver.ubuntu.com; deckungsgleich mit `libxcrypt-gpgkey.asc` im Release |
+| `libxkbcommon` | Upstream signiert weder Tags noch Commits und veröffentlicht keine signierten Archive (geprüft 2026-10-11) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
 | `linux` | Greg Kroah-Hartman | `647F 2865 4894 E3BD 4571 99BE 38DB BDC8 6092 693E` | WKD kernel.org |
 | `linux-firmware` | Josh Boyer | `4CDE 8575 E547 BF83 5FE1 5807 A31B 6BD7 2486 CFD6` | keyserver.ubuntu.com |
 | `linux-pam` | Dmitry V. Levin | `7BEC FE3A F7B2 80BB 52FF 77F1 04BA 4521 C996 DDE1` | keyserver.ubuntu.com; signiert mit Unterschlüssel `FB3D CD19 FF87 4735 E4F6 1CE6 4E9F E852 2F16 0EC2` |
@@ -40,6 +42,7 @@ Prüfen aller Quellen: `./bz verify`
 | `tpm2-tss` | Andreas Fuchs (Infineon) | `D533 275B 0123 D0A6 79F5  1FF4 8F4F 9A45 D7FF EE74` | keys.openpgp.org; deckungsgleich mit `MAINTAINERS.md` im Release und dem GitHub-Konto des Maintainers |
 | `tzdata` | Paul Eggert | `7E37 92A9 D8AC F7D6 33BC 1588 ED97 E90E 62AA 7E34` | keys.openpgp.org; derselbe Schlüssel steht (abgelaufen) im GNU-Keyring |
 | `util-linux` | Karel Zak | `B0C6 4D14 301C C6EF AEDF 60E4 E4B7 1D5E EC39 C284` | keyserver.ubuntu.com |
+| `xkeyboard-config` | Sergey Udaltsov | `FFB4 CCD2 75AA A422 F5F9 808E 0661 D98F C933 A145` | keyserver.ubuntu.com |
 | `zstd` | Zstandard Release Signing Key | `4EF4 AC63 455F C9F4 545D 9B7D EF8F E995 28B5 2FFD` (DSA) | keyserver.ubuntu.com; signiert die Release-Archive auf GitHub |
 
 Eine solche Ausnahme muss im Rezept mit `unsigned = "<Grund>"` stehen; `bz verify`
