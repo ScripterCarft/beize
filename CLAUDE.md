@@ -260,11 +260,12 @@ vorher still wirkungslos; ntpd-rs-Unit fehlte AF_NETLINK (jetzt wie upstreams
 `ntpd-rs.strict.service`, mit dessen SystemCallFilter); Smoke prüft `Seccomp: 2`. CI-Fund:
 polkits `meson_post_install.py` macht den Helfer als root setuid – Rezept nimmt das Bit weg
 (die Bau-Prüfung hat es gefunden). Gepusht wird erst nach grüner CI (Besitzer).
-**ZUERST im nächsten Chat: CI-Lauf 38129740661 (5c, `ffdb720`) rot** – nur das Zeitbudget:
-Kernel-Phase im zweiten Start des Install-Szenarios 1,41 s (Budget 1,40 s, `BOOT_BUDGET` in
-`vm/checks.rs`); vorher grün mit 1,31 s. Im selben Lauf hat OwnerKeys 0,62–0,68 s, lokal
-0,45 s. Ursache klären (parallele VMs auf dem 2-vCPU-KVM-Runner? andere Maschine?), nicht
-einfach das Budget erhöhen; dann pushen und erst bei grüner CI weiter.
+**CI-Zeitbudget (2026-10-11 geklärt):** Lauf 38129740661 scheiterte an der Kernel-Phase (1,41 s >
+1,40 s). Ursache: Seit `e9353d2` (eigene Kernel-Konfiguration) löscht der Kernel beim Start den ganzen
+RAM (`INIT_ON_FREE`, ADR 0015); in der VM stellte der Host jede Seite dabei erst bereit – auf dem
+verschachtelten CI-Runner 0,6–4 s je nach Speicherzustand (vorher 1. = 2. Start, ~0,8 s). Fix:
+QEMU belegt den Gast-RAM vorab (`memory-backend-ram,prealloc=on`, `machine.rs`), lokal Kernel
+0,36 s in jedem Start. Nach grüner CI die neuen CI-Werte in den `BOOT_BUDGET`-Kommentar.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
 **Nächster Schritt: ADR 0019 (Konten, homed hinter Beize-Schnittstelle) entwerfen und mit dem
 Besitzer abstimmen, dann 5d.**

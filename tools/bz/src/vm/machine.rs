@@ -352,6 +352,13 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     }
     cmd.args(["-global", "driver=cfi.pflash01,property=secure,value=on"])
         .args(["-smp", "4", "-m", "2G", "-no-reboot"])
+        // The RAM exists before the guest starts, as on a real PC. Beize's
+        // kernel clears all memory at boot (INIT_ON_FREE, ADR 0015); without
+        // this the host would only then provide each page, and the kernel
+        // phase would measure the host's paging – on the nested CI runner
+        // 0.6–4 s depending on what the job touched before.
+        .args(["-object", "memory-backend-ram,id=ram,size=2G,prealloc=on"])
+        .args(["-machine", "memory-backend=ram"])
         .arg("-drive")
         .arg(format!(
             "if=pflash,format=raw,unit=0,readonly=on,file={OVMF_CODE}"
