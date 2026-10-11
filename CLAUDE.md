@@ -310,8 +310,8 @@ Wiederherstellung – alles wie erwartet; ebenso die offenen 5b-Punkte (Recovery
 **Phase 6: ADR 0020 mit dem Besitzer abgestimmt (2026-10-11):** eigener `beize-updated` (holt
 unprivilegiert, prüft ML-DSA-Signatur mit libcrypto) + systemd-sysupdate als Werkzeug; Quelle
 vorerst lokal (Verzeichnis/URL), Server vor M5; Start gelungen = keine Unit aus
-`running-units.txt` fehlgeschlagen; Slots 4 GiB. **Umsetzung in Schritten:** (1) xz + curl,
-systemd mit sysupdate; (2) Slot-Größe, `sysupdate.d`, Versionen; (3) `bz release` + Test-Release;
+`running-units.txt` fehlgeschlagen; Slots 4 GiB. **Umsetzung in Schritten:** (1) ✓ xz + curl,
+systemd mit sysupdate (Socket und importd-Reste entfernt, Journal jetzt zstd); (2) Slot-Größe, `sysupdate.d`, Versionen; (3) `bz release` + Test-Release;
 (4) `os/beize-update`; (5) Boot-Check + systemd-boot-update; (6) Smoke-Szenarien laut ADR.
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,

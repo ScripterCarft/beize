@@ -17,6 +17,7 @@ Prüfen aller Quellen: `./bz verify`
 | `ca-certificates` | Weder Mozillas `certdata.txt` noch curls PEM-Auszug daraus sind signiert (geprüft 2026-10-09) | Datei per SHA-256 gepinnt, über HTTPS von curl.se, Prüfsumme deckungsgleich mit der veröffentlichten `.sha256` |
 | `coreutils` | Pádraig Brady | `6C37 DC12 121A 5006 BC1D B804 DF6F D971 3060 37D9` | GNU-Keyring |
 | `cryptsetup` | Milan Broz | `2A29 1824 3FDE 4664 8D06 86F9 D9B0 577B D93E 98FC` | kernel.org pgpkeys-Repository |
+| `curl` | Daniel Stenberg | `27ED EAF2 2F3A BCEB 50DB 9A12 5CC9 08FD B71E 12C2` | keyserver.ubuntu.com; deckungsgleich mit `daniel.haxx.se/mykey.asc` |
 | `dbus` | Simon McVittie | `7A07 3AD1 AE69 4FA2 5BFF 62E5 235C 099D 3EB3 3076` | keyserver.ubuntu.com |
 | `duktape` | duktape signiert weder Archive noch Tags (geprüft 2026-10-11) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
 | `e2fsprogs` | Theodore Ts'o | `2B69 B954 DBFE 0879 2881 37C9 F2F9 5956 950D 81A3` | keys.openpgp.org |
@@ -50,6 +51,7 @@ Prüfen aller Quellen: `./bz verify`
 | `tzdata` | Paul Eggert | `7E37 92A9 D8AC F7D6 33BC 1588 ED97 E90E 62AA 7E34` | keys.openpgp.org; derselbe Schlüssel steht (abgelaufen) im GNU-Keyring |
 | `util-linux` | Karel Zak | `B0C6 4D14 301C C6EF AEDF 60E4 E4B7 1D5E EC39 C284` | keyserver.ubuntu.com |
 | `xkeyboard-config` | Sergey Udaltsov | `FFB4 CCD2 75AA A422 F5F9 808E 0661 D98F C933 A145` | keyserver.ubuntu.com |
+| `xz` | Lasse Collin | `3690 C240 CE51 B467 0D30 AD1C 38EE 757D 6918 4620` | keyserver.ubuntu.com; deckungsgleich mit `tukaani.org/misc/lasse_collin_pubkey.txt` |
 | `zlib` | Mark Adler | `5ED4 6A67 21D3 6558 7791 E2AA 783F CD8E 58BC AFBA` (DSA) | keyserver.ubuntu.com; signiert die Archive auf zlib.net |
 | `zstd` | Zstandard Release Signing Key | `4EF4 AC63 455F C9F4 545D 9B7D EF8F E995 28B5 2FFD` (DSA) | keyserver.ubuntu.com; signiert die Release-Archive auf GitHub |
 

@@ -1,0 +1,36 @@
+# HTTP(S) client library: beize-updated fetches updates with it, and systemd
+# builds systemd-sysupdate only together with importd, which requires it
+# (ADR 0020). Only the library, only HTTP, HTTPS and file; TLS through
+# OpenSSL and its trust store (ca-certificates). No HTTP/2: updates are a few
+# large files.
+name = "curl"
+version = "8.22.0"
+stage = "target"
+deps = ["gcc", "glibc", "openssl"]
+
+[source]
+latest = { release-monitoring = 381 }
+url = "https://curl.se/download/curl-{version}.tar.xz"
+sha256 = "f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7"
+signature = "https://curl.se/download/curl-{version}.tar.xz.asc"
+keyring = "curl"
+
+[build]
+script = '''
+# --build: otherwise configure runs a test program against the sysroot's
+# libraries on the host and fails.
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config.guess")" --prefix=/usr --libdir=/usr/lib --disable-static \
+  --with-openssl --without-ca-bundle --without-ca-path --with-ca-fallback \
+  --without-zlib --without-zstd --without-brotli --without-libpsl \
+  --without-libidn2 --without-nghttp2 \
+  --disable-ftp --disable-ipfs --disable-ldap --disable-ldaps --disable-rtsp \
+  --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
+  --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-websockets \
+  --disable-manual --disable-docs
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+# The library only: no curl command, no curl-config (pkg-config suffices).
+rm -f "$PKG/usr/bin/curl" "$PKG/usr/bin/wcurl" "$PKG/usr/bin/curl-config"
+rm -rf "$PKG/usr/share/man" "$PKG/usr/share/aclocal"
+'''

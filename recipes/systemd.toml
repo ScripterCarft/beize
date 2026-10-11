@@ -19,8 +19,13 @@ stage = "target"
 # libseccomp: units' system call filters and related sandboxing
 # (SystemCallFilter=, RestrictAddressFamilies=, ...) – without it systemd
 # ignores them silently.
+# curl, xz, zlib: systemd builds systemd-sysupdate, which writes updates into
+# the free /usr slot (ADR 0020), only together with importd, which requires
+# them. Of importd only systemd-import stays (sysupdate writes a partition
+# with it). zstd: with xz present, systemd would compress the journal and
+# core dumps with xz by default; zstd is far faster and what Fedora uses.
 deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam",
-        "kmod", "acl", "libxkbcommon", "libseccomp"]
+        "kmod", "acl", "libxkbcommon", "libseccomp", "curl", "xz", "zlib", "zstd"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -48,11 +53,40 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dinstall-sysconfdir=false -Dfallback-hostname=beize \
   -Dfirstboot=false \
   -Dbootloader=enabled \
+  -Dsysupdate=enabled -Dsysupdated=disabled -Dimportd=enabled \
+  -Dlibcurl=enabled -Dxz=enabled -Dzlib=enabled -Dzstd=enabled -Ddefault-compression=zstd \
   -Dsbat-distro=beize -Dsbat-distro-summary=Beize \
   -Dsbat-distro-pkgname=systemd -Dsbat-distro-version="$VERSION" \
   -Dsbat-distro-url=https://github.com/ScripterCarft/beize
 meson compile -j "$JOBS"
 DESTDIR="$PKG" meson install --no-rebuild --quiet
+# importd comes only because sysupdate requires it (ADR 0020): sysupdate runs
+# systemd-import to write a partition, beize-updated fetches and verifies.
+# Downloading machine and OCI images, and the OpenPGP keyring sysupdate's own
+# verification would use, are not part of Beize.
+(
+  cd "$PKG/usr"
+  rm bin/importctl share/bash-completion/completions/importctl \
+    lib/systemd/systemd-importd lib/systemd/systemd-pull lib/systemd/systemd-export \
+    lib/systemd/systemd-import-fs lib/systemd/system-generators/systemd-import-generator \
+    lib/systemd/import-pubring.pgp \
+    lib/systemd/system/imports.target lib/systemd/system/imports-pre.target \
+    lib/systemd/system/sysinit.target.wants/imports.target \
+    share/dbus-1/services/org.freedesktop.import1.service \
+    share/dbus-1/system-services/org.freedesktop.import1.service \
+    share/dbus-1/system.d/org.freedesktop.import1.conf \
+    share/polkit-1/actions/org.freedesktop.import1.policy
+  for dir in system user; do
+    rm lib/systemd/$dir/systemd-importd.service lib/systemd/$dir/systemd-importd.socket \
+      lib/systemd/$dir/sockets.target.wants/systemd-importd.socket \
+      lib/systemd/$dir/dbus-org.freedesktop.import1.service
+  done
+  rm -r lib/systemd/oci-registry
+  # sysupdate's Varlink interface is enabled statically (a link, no preset
+  # can disable it). beize-updated is the one way to update the system; a
+  # second interface around it would bypass its checks.
+  rm lib/systemd/system/sockets.target.wants/systemd-sysupdate.socket
+)
 # ukify builds the UKI on the build host. It must be the same version as the
 # stub and as systemd in the image (e.g. the signed PCR policies systemd 262
 # expects), so it comes from here, into a directory that is never shipped.
