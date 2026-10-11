@@ -2,6 +2,7 @@
 //! variable store, a software TPM, a virtio disk and a network card.
 
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -87,8 +88,20 @@ impl Machine {
     /// hardware after clearing its Secure Boot keys (ADR 0010).
     pub(super) fn install_from(paths: &Paths, name: &str, image: &Path) -> Result<Self> {
         let machine = Self::named(paths, name);
-        fs::copy(image, &machine.disk)
-            .with_context(|| format!("copying {}; run `bz build`", image.display()))?;
+        ensure!(
+            image.exists(),
+            "{} is missing; run `bz build`",
+            image.display()
+        );
+        copy_sparse(image, &machine.disk)?;
+        // The image is a few GiB, of which ~100 MiB are written. A dense copy
+        // filled the CI runner's disk until the runner died without a log.
+        let allocated = |path: &Path| -> Result<u64> { Ok(fs::metadata(path)?.blocks() * 512) };
+        ensure!(
+            allocated(&machine.disk)? <= allocated(image)? + MIB,
+            "the copy of {} is not sparse",
+            image.display()
+        );
         fs::OpenOptions::new()
             .write(true)
             .open(&machine.disk)?
@@ -114,18 +127,12 @@ impl Machine {
         if copy.tpm.exists() {
             fs::remove_dir_all(&copy.tpm)?;
         }
-        // The disk is sparse (mostly unwritten): keep it that way.
         for (from, to) in [
             (&self.disk, &copy.disk),
             (&self.vars, &copy.vars),
             (&self.tpm, &copy.tpm),
         ] {
-            util::run(
-                Command::new("cp")
-                    .args(["--archive", "--sparse=always", "--reflink=auto"])
-                    .arg(from)
-                    .arg(to),
-            )?;
+            copy_sparse(from, to)?;
         }
         Ok(copy)
     }
@@ -136,6 +143,18 @@ impl Machine {
         fs::remove_dir_all(&self.tpm)?;
         Ok(())
     }
+}
+
+/// Copies `from` (a file or directory) to `to`, keeping disks sparse (mostly
+/// unwritten). `fs::copy` writes the holes out: on ext4 it copies through the
+/// page cache.
+fn copy_sparse(from: &Path, to: &Path) -> Result<()> {
+    util::run(
+        Command::new("cp")
+            .args(["--archive", "--sparse=always", "--reflink=auto"])
+            .arg(from)
+            .arg(to),
+    )
 }
 
 /// How many VMs run side by side: each has 4 CPUs and 2 GiB (`qemu`), plus
