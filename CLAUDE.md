@@ -260,7 +260,9 @@ vorher still wirkungslos; ntpd-rs-Unit fehlte AF_NETLINK (jetzt wie upstreams
 `ntpd-rs.strict.service`, mit dessen SystemCallFilter); Smoke prüft `Seccomp: 2`. CI-Fund:
 polkits `meson_post_install.py` macht den Helfer als root setuid – Rezept nimmt das Bit weg
 (die Bau-Prüfung hat es gefunden). Gepusht wird erst nach grüner CI (Besitzer).
-**Nächster Schritt: Phase 5c (ping/tracepath), dann ADR 0019 (Konten) vorab abstimmen.**
+**Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
+**Nächster Schritt: ADR 0019 (Konten, homed hinter Beize-Schnittstelle) entwerfen und mit dem
+Besitzer abstimmen, dann 5d.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
@@ -306,7 +308,7 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    Gemessen: ab Loader 13,5 s; initrd bleibt 4,0 s bis zum USB-Patch.
 5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
    b) ✓ Rechte (ADR 0018): run0 + polkit, root gesperrt, kein setuid, Wiederherstellung.
-   c) iputils `ping` + `tracepath` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
+   c) ✓ iputils `ping` + `tracepath` ohne Rechte (ping_group_range), Smoke-Check.
    d) Konten (ADR 0019, vorab abstimmen): systemd-homed (Speicher „directory“, wie macOS
       ohne Verschlüsselung je Benutzer), Passwort ändern, Zurücksetzen in der
       Wiederherstellung mit **einem** Recovery-Key; beize-setup legt das Konto über homed

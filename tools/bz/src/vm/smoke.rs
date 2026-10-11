@@ -772,6 +772,20 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         );
     }
     say!("  ok: units run with their system call filters (seccomp)");
+    // ping and tracepath as the owner, with neither setuid nor capabilities:
+    // ICMP datagram sockets (net.ipv4.ping_group_range).
+    for command in [
+        "ping -c 1 -W 2 127.0.0.1",
+        "ping -c 1 -W 2 ::1",
+        "tracepath -n -m 2 127.0.0.1",
+    ] {
+        let (status, lines) = shell.capture(&format!("{command} > /dev/null"))?;
+        ensure!(
+            status == 0,
+            "`{command}` failed for the owner (exit status {status}): {lines:?}"
+        );
+    }
+    say!("  ok: the owner pings (IPv4, IPv6) and traces a path without privileges");
     shell.stop()?;
     machine.remove()
 }

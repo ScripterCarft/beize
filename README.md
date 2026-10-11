@@ -46,7 +46,8 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] Tastaturlayout: beim ersten Start gewählt (XKB), auf der Konsole und in der initrd –
       der Recovery-Key wird mit der eigenen Tastatur getippt
 - [x] Administratorrechte mit run0 und dem eigenen Passwort (polkit), root ohne Passwort;
-      keine Datei mit setuid oder Capabilities, `/` und `/usr` mit `nosuid` eingehängt
+      keine Datei mit setuid oder Capabilities, `/` und `/usr` mit `nosuid` eingehängt;
+      `ping` und `tracepath` ohne Sonderrechte; Dienste mit Systemaufruf-Filtern (seccomp)
 - [x] Wiederherstellung im Startmenü: Root-Shell nur mit dem Wiederherstellungsschlüssel
 - [ ] Startzeit auf echter Hardware
 - [ ] Updater (systemd-sysupdate)

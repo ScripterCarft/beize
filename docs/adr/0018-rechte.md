@@ -73,7 +73,7 @@ Rezepte (`--disable-makeinstall-setuid`, Installation ohne root), nicht abgesich
     lesen dürfen.
 - **Programme, die klassisch Sonderrechte brauchen, bekommen den Weg ohne:** `ping` und
   `tracepath` über ICMP-Datagramm-Sockets (`net.ipv4.ping_group_range`, systemds
-  `50-default.conf`; Phase 5c), `arping` und `clockdiff` nicht. Neue Fälle werden über
+  `50-default.conf`), `arping` und `clockdiff` nicht. Neue Fälle werden über
   einen Dienst gelöst (Muster: run0, polkit-Helfer), nicht über eine Ausnahme.
 - **Quellen:** glib (signierter Tag, Submodul gvdb über den signierten Baum), pcre2 und
   zlib signiert; polkit, duktape und libffi signieren nichts – gepinnt, als begründete
@@ -87,6 +87,7 @@ Rezepte (`--disable-makeinstall-setuid`, Installation ohne root), nicht abgesich
   - Die Wiederherstellung (per `LoaderEntryOneShot` gewählt) fragt einmal nach dem
     Recovery-Key, öffnet eine Root-Shell mit den Daten, keine Unit scheitert; der
     nächste normale Start entsperrt wieder per TPM.
+  - Der Besitzer pingt `127.0.0.1` und `::1` und ruft `tracepath` auf, ohne Rechte.
   - Alle übrigen Szenarien – erster Start, Recovery-Key auf der Tastatur, Notfall-Tor,
     Neubinden – laufen mit den neuen Einhängeoptionen.
 
