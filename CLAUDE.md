@@ -22,6 +22,8 @@ M5 Feinschliff. Stand im Detail: `README.md`.
   in `bz`). Wenig eigener Code: Upstream + Standardkonfiguration, Eigenes nur mit
   Begründung. Fehlt dem Besitzer Fachwissen: recherchieren, die moderne beste Lösung
   empfehlen und erklären. Doku schlank halten (ersetzen statt anhängen).
+- Bei Problemen nicht stur am gewählten Weg festhalten: einen Schritt zurück, Alternativen breit
+  abwägen („gehen wir das falsch an?“) und mit Empfehlung vorlegen (Beispiel: homed → eigener Kontodienst).
 - Commits und Pushes auf `main` sind freigegeben. Commit-Nachrichten englisch,
   aussagekräftiger Body, Abschluss `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   Ein neuer Signaturschlüssel kommt in einen **eigenen** Commit.
