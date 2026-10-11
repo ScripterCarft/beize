@@ -24,23 +24,30 @@ jobs:
   check:
     name: Format, lint, test
     runs-on: ubuntu-latest
+    # The build host's Ubuntu (ADR 0004), as for the build below: the tests
+    # link the host's libraries, and libsystemd's sd-json (beize-accounts)
+    # needs systemd 257 – the runner image has 255.
+    container:
+      image: public.ecr.aws/docker/library/ubuntu:26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The build host's packages (ci/packages.txt, as ci/system.sh installs
+      # them): the tests link its libraries and run its tools. curl for
+      # rustup; zstd before any cache is restored (see the build job).
+      - name: Install build host packages
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates curl zstd >/dev/null
+          grep -vE '^\s*(#|$)' ci/packages.txt \
+            | xargs apt-get install -y -qq --no-install-recommends >/dev/null
       # Same version and components as rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # beize-tpm links libcryptsetup, beize-accounts libsystemd
-      # (ci/packages.txt); the runner image has libcrypt-dev for beize-setup,
-      # but not these.
-      - name: Install libcryptsetup-dev and libsystemd-dev
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends libcryptsetup-dev libsystemd-dev >/dev/null
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
