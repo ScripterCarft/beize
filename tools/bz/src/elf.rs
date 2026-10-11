@@ -13,12 +13,15 @@ use crate::paths::Paths;
 use crate::{say, tree, util};
 
 /// Files that cannot carry the CET properties, with the reason.
-const NO_CET: [(&str, &str); 6] = [
+const NO_CET: [(&str, &str); 9] = [
     // Stable Rust cannot generate CET code yet (ADR 0014).
     ("usr/lib/beize/beize-setup", "Rust"),
     ("usr/lib/beize/beize-tpm", "Rust"),
     ("usr/bin/beize-account", "Rust"),
     ("usr/lib/beize/beize-accountsd", "Rust"),
+    ("usr/bin/beize-update", "Rust"),
+    ("usr/lib/beize/beize-updated", "Rust"),
+    ("usr/lib/beize/beize-update-fetch", "Rust"),
     ("usr/bin/ntp-daemon", "Rust"),
     ("usr/bin/ntp-ctl", "Rust"),
 ];

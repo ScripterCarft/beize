@@ -8,14 +8,12 @@
 //! The rules both sides share are here: what a name and a password must be.
 
 pub mod crypt;
-pub mod json;
 pub mod protocol;
-mod secret;
 
 use std::ffi::{CString, c_char, c_void};
 use std::os::unix::net::UnixStream;
 
-pub use secret::Secret;
+pub use beize_varlink::{Secret, json};
 
 use protocol::error;
 

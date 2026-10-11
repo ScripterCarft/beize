@@ -12,6 +12,9 @@ enable beize-save-clock.timer
 enable beize-setup.service
 # Accounts (ADR 0019): the account service, started per request.
 enable beize-accounts.socket
+# Updates (ADR 0020): the updater and its fetcher, started per request.
+enable beize-update.socket
+enable beize-update-fetch.socket
 # The console keymap also for the initrd (ADR 0017).
 enable beize-keymap.path
 # Privileges (ADR 0018): polkit checks passwords in this sandboxed helper,
@@ -26,3 +29,10 @@ enable ntpd-rs.service
 # version, and Secure Boot then refuses to start. The boot loader is updated
 # signed, together with the image.
 disable systemd-boot-update.service
+
+# After an update systemd-sysupdate notifies systemd-pcrlock, which then
+# writes a pcrlock policy as a credential onto the ESP. Beize seals the data
+# with the signed PCR 11 policy instead (ADR 0009); systemd-stub measures
+# that credential into PCR 12, so the next boot counted as changed and the
+# data stayed locked (found by the update test, ADR 0020).
+disable systemd-sysupdate-notify-pcrlock.socket

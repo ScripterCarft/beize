@@ -7,7 +7,7 @@ stage = "target"
 # libgcc_s for Rust's unwinding; libxcrypt hashes and checks passwords;
 # libsystemd (sd-json) reads the JSON of requests and user records.
 deps = ["gcc", "glibc", "gcc-runtime", "libxcrypt", "systemd"]
-repo = ["os/beize-accounts", "Cargo.toml", "Cargo.lock"]
+repo = ["os/beize-accounts", "os/beize-varlink", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''

@@ -7,7 +7,7 @@ stage = "target"
 # account service (beize-accounts): libsystemd (sd-json) for the replies,
 # libxcrypt linked by the same library.
 deps = ["gcc", "glibc", "gcc-runtime", "libxcrypt", "systemd"]
-repo = ["os/beize-setup", "os/beize-accounts", "Cargo.toml", "Cargo.lock"]
+repo = ["os/beize-setup", "os/beize-accounts", "os/beize-varlink", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''

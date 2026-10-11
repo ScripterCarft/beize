@@ -1,0 +1,13 @@
+[Unit]
+Description=Beize's updater (io.beize.Update)
+Documentation=file:/usr/lib/beize/beize-updated
+
+[Socket]
+ListenStream=/run/beize-update/io.beize.Update
+# Root only: an administrator installs updates with run0 (ADR 0020).
+SocketMode=0600
+# One process per request, nothing waits in the background.
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

@@ -7,6 +7,7 @@ mod debug;
 mod machine;
 mod report;
 mod run;
+mod serve;
 mod smoke;
 
 pub use debug::debug;

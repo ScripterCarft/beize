@@ -1,0 +1,29 @@
+[Unit]
+Description=Beize's update fetcher, one request
+Documentation=file:/usr/lib/beize/beize-update-fetch
+
+[Service]
+ExecStart=/usr/lib/beize/beize-update-fetch
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+# A user without privileges, with the network and its cache only
+# (/var/cache/beize-update); it reads sources, writes nothing else.
+DynamicUser=yes
+CacheDirectory=beize-update
+CapabilityBoundingSet=
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources

@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::panic::{self, AssertUnwindSafe};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
+use super::checks;
 use super::checks::{
     boot_healthy, check_blessed, check_boot_budget, check_partitions, check_root_binding,
     check_units, damage_root_file_system, expect_rebound, expect_refused, expect_root_locked,
@@ -39,9 +40,11 @@ use super::console::{
 use super::debug::Shell;
 use super::machine::{Machine, boot_once, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
 use super::report::{BootReport, REPORT_MARKER};
+use super::run::DEBUG_CONSOLE_CREDENTIALS;
+use super::serve::Server;
 use crate::paths::Paths;
 use crate::say;
-use crate::{image, layout, secureboot, util};
+use crate::{image, layout, release, secureboot, util};
 
 /// A part of the smoke test, run on its own machine beside the others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,6 +61,7 @@ enum Scenario {
     EmergencyGate,
     Privileges,
     Recovery,
+    Update,
 }
 
 use Scenario::*;
@@ -65,7 +69,8 @@ use Scenario::*;
 /// What starts right away; the longest first, so they finish together.
 const INDEPENDENT: [Scenario; 3] = [OwnerKeys, CorruptedUsr, UnsignedUki];
 /// What starts from a copy of the installation once [`Install`] passed.
-const ON_THE_INSTALLATION: [Scenario; 8] = [
+const ON_THE_INSTALLATION: [Scenario; 9] = [
+    Update,
     OtherTpm,
     EmergencyGate,
     Recovery,
@@ -103,6 +108,9 @@ impl Scenario {
             Privileges => {
                 "The owner gets root with run0 and their password only; no file grants privileges"
             }
+            Update => {
+                "An update signed with the update key starts with the next boot; others are refused"
+            }
         }
     }
 
@@ -125,6 +133,7 @@ impl Scenario {
             EmergencyGate => emergency_gate(paths, smoke.installed()?),
             Privileges => privileges(paths, smoke.installed()?),
             Recovery => recovery(paths, smoke.installed()?),
+            Update => update(paths, smoke.installed()?),
         }
     }
 }
@@ -296,7 +305,7 @@ fn install(paths: &Paths) -> Result<Installed> {
 
     let first = boot_healthy(&machine, 1, &Answers::none())?;
     check_partitions(&machine.disk)?;
-    check_blessed(&machine.disk)?;
+    check_blessed(&machine.disk, layout::OS_VERSION)?;
     check_root_binding(&machine.disk, &paths.work)?;
     let recovery_key = find_recovery_key(&first.console)
         .context("first boot did not show a recovery key for the root partition")?;
@@ -635,6 +644,179 @@ fn emergency_gate(paths: &Paths, installed: &Installed) -> Result<()> {
         ),
     }
     machine.remove()
+}
+
+/// What `beize-update` says when it refuses a release, by the reason.
+const UNTRUSTED_UPDATE: &str = "The update is not from Beize or was changed";
+const NO_NEWER_UPDATE: &str = "There is no newer version.";
+
+/// An update as the owner installs it (ADR 0020): a release of the next
+/// version, fetched over HTTP from the host. Releases that are not what the
+/// update key signed – a changed list, another key's signature, a changed
+/// file – and an older version are refused, and nothing is written. The
+/// right one goes into slot B; the next boot starts it, the TPM unlocks as
+/// before, and boot counting marks it good.
+fn update(paths: &Paths, installed: &Installed) -> Result<()> {
+    let machine = installed.machine.copy_as(paths, "smoke-update")?;
+    let version = format!("{}.1", layout::OS_VERSION);
+    let releases = paths.work.join("smoke-releases");
+    if releases.exists() {
+        fs::remove_dir_all(&releases)?;
+    }
+    let keys = secureboot::Keys::test(paths, secureboot::Profile::WithWindows)?;
+    let good = releases.join(&version);
+    let (built, said) =
+        util::capture(|| release::write(paths, &keys, &version, image::Target::Vm, &good));
+    if built.is_err() {
+        said.into_iter().for_each(util::say_line);
+    }
+    built?;
+    let refused = refused_releases(&releases, &good, &keys)?;
+
+    let shell = Shell::boot(
+        &machine,
+        &Answers::none(),
+        &DEBUG_CONSOLE_CREDENTIALS,
+        false,
+    )?;
+    for (what, dir, says) in &refused {
+        let server = Server::start(dir)?;
+        let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
+        ensure!(
+            status != 0 && lines.iter().any(|l| l.contains(says)),
+            "beize-update did not refuse {what} (exit status {status}): {lines:?}"
+        );
+    }
+    let (_, lines) = shell.capture("ls /boot/EFI/Linux")?;
+    ensure!(
+        !lines.iter().any(|l| l.contains(&version)),
+        "a refused release was written: {lines:?}"
+    );
+    say!(
+        "  ok: refused {}, nothing written",
+        refused
+            .iter()
+            .map(|(what, _, _)| *what)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let server = Server::start(&good)?;
+    let started = Instant::now();
+    let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
+    let install_s = started.elapsed().as_secs_f64();
+    ensure!(
+        status == 0
+            && lines
+                .iter()
+                .any(|l| l.contains(&format!("Beize {version} is installed"))),
+        "beize-update did not install {version} (exit status {status}): {lines:?}"
+    );
+    drop(server);
+    shell.power_off()?;
+    let listing = checks::uki_listing(&machine.disk)?;
+    ensure!(
+        // sysupdate writes the tries done as well: `+3-0`, the same count.
+        listing
+            .iter()
+            .any(|name| name.starts_with(layout::uki_name(&version).trim_end_matches(".efi"))),
+        "the update's UKI with boot counter is not on the ESP: {listing:?}"
+    );
+    say!("  ok: beize-update installed {version} into slot B ({install_s:.1}s)");
+
+    // Boot #3: the start with the root shell has no boot report.
+    boot_healthy(&machine, 3, &Answers::none())?;
+    check_blessed(&machine.disk, &version)?;
+    say!("  ok: {version} started, the TPM unlocked the data as before");
+    machine.remove()?;
+    fs::remove_dir_all(&releases)?;
+    Ok(())
+}
+
+/// Releases next to `good` that beize-update must refuse: what each is, its
+/// directory and what beize-update says.
+fn refused_releases(
+    releases: &Path,
+    good: &Path,
+    keys: &secureboot::Keys,
+) -> Result<Vec<(&'static str, PathBuf, &'static str)>> {
+    let copy = |name: &str, all: bool| -> Result<PathBuf> {
+        let dir = releases.join(name);
+        fs::create_dir_all(&dir)?;
+        for entry in fs::read_dir(good)? {
+            let path = entry?.path();
+            let file = path.file_name().context("file name")?;
+            if all || [release::LIST, release::SIGNATURE].contains(&file.to_str().unwrap_or("")) {
+                fs::copy(&path, dir.join(file))?;
+            }
+        }
+        Ok(dir)
+    };
+    let list = fs::read_to_string(good.join(release::LIST))?;
+
+    // The list changed after signing: another sum for the first file.
+    let changed_list = copy("changed-list", false)?;
+    let flipped = if list.starts_with('0') { "1" } else { "0" };
+    fs::write(
+        changed_list.join(release::LIST),
+        format!("{flipped}{}", &list[1..]),
+    )?;
+
+    // The list signed with another ML-DSA-65 key.
+    let other_key = copy("other-key", false)?;
+    util::output(
+        Command::new("openssl")
+            .args(["genpkey", "-algorithm", "ML-DSA-65", "-out"])
+            .arg(other_key.join("key")),
+    )?;
+    util::output(
+        Command::new("openssl")
+            .args(["pkeyutl", "-sign", "-rawin", "-inkey"])
+            .arg(other_key.join("key"))
+            .arg("-in")
+            .arg(other_key.join(release::LIST))
+            .arg("-out")
+            .arg(other_key.join(release::SIGNATURE)),
+    )?;
+    fs::remove_file(other_key.join("key"))?;
+
+    // A file changed after signing: one byte of the UKI.
+    let changed_file = copy("changed-file", true)?;
+    let uki = list
+        .lines()
+        .filter_map(|line| line.split_once("  ").map(|(_, name)| name))
+        .find(|name| name.ends_with(".efi"))
+        .context("the release has no UKI")?
+        .to_owned();
+    let mut bytes = fs::read(changed_file.join(&uki))?;
+    bytes[4096] ^= 1;
+    fs::write(changed_file.join(&uki), bytes)?;
+
+    // Correctly signed, but older than the running version.
+    let older = releases.join("older");
+    fs::create_dir_all(&older)?;
+    fs::write(
+        older.join(release::LIST),
+        list.lines()
+            .map(|line| {
+                let (sum, name) = line.split_once("  ").unwrap_or_default();
+                let version = name
+                    .strip_prefix("beize_")
+                    .and_then(|rest| rest.split(['_']).next())
+                    .map(|v| v.trim_end_matches(".efi"))
+                    .unwrap_or_default();
+                format!("{sum}  {}\n", name.replacen(version, "0.0.9", 1))
+            })
+            .collect::<String>(),
+    )?;
+    keys.sign_update(&older.join(release::LIST), &older.join(release::SIGNATURE))?;
+
+    Ok(vec![
+        ("a changed list", changed_list, UNTRUSTED_UPDATE),
+        ("another key's signature", other_key, UNTRUSTED_UPDATE),
+        ("a changed file", changed_file, UNTRUSTED_UPDATE),
+        ("an older version", older, NO_NEWER_UPDATE),
+    ])
 }
 
 /// The recovery (ADR 0018), chosen in the boot menu: the TPM refuses it, so

@@ -78,6 +78,34 @@ pub fn parse(log: &[u8]) -> Result<Vec<Event>, String> {
     Ok(events)
 }
 
+/// An event's data as text for people: systemd logs UTF-16 descriptions
+/// (and tagged events with one inside); anything else as its printable
+/// characters. At most 120 characters.
+pub fn describe(data: &[u8]) -> String {
+    let utf16: String = char::decode_utf16(
+        data.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair)),
+    )
+    .map(|c| c.unwrap_or('?'))
+    .filter(|c| !c.is_control())
+    .collect();
+    let ascii: String = data
+        .iter()
+        .map(|&b| b as char)
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .collect();
+    // The reading with more readable letters is the right one.
+    let readable = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+    let text = if readable(&utf16) >= readable(&ascii) {
+        utf16
+    } else {
+        ascii
+    };
+    text.chars().take(120).collect()
+}
+
 /// The value `pcr` must have after all logged measurements into it.
 pub fn replay(events: &[Event], pcr: u32) -> [u8; 32] {
     events
@@ -143,6 +171,16 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    #[test]
+    fn describes_events_for_people() {
+        let utf16: Vec<u8> = "Global credentials initrd\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert_eq!(describe(&utf16), "Global credentials initrd");
+        assert_eq!(describe(b"console=ttyS0\0"), "console=ttyS0");
+    }
 
     /// Builds a crypto-agile log with SHA-256 only.
     pub fn log(events: &[(u32, u32, &[u8])]) -> Vec<u8> {

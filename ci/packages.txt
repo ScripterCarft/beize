@@ -54,6 +54,8 @@ libcrypt-dev
 libcryptsetup-dev
 # libsystemd (sd-bus) to link beize-accounts on the build host (cargo test)
 libsystemd-dev
+# libcurl to link beize-update's fetcher on the build host (cargo test)
+libcurl4-openssl-dev
 dosfstools
 erofs-utils
 fdisk

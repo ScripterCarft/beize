@@ -543,8 +543,21 @@ fn missing_partitions(sfdisk_dump: &str) -> Vec<String> {
     .collect()
 }
 
-/// systemd-bless-boot must have dropped the boot counter from the UKI name.
-pub(super) fn check_blessed(disk: &Path) -> Result<()> {
+/// systemd-bless-boot must have dropped the boot counter from the name of
+/// the UKI of `version`.
+pub(super) fn check_blessed(disk: &Path, version: &str) -> Result<()> {
+    let listing = uki_listing(disk)?;
+    let blessed = layout::blessed_uki_name(version);
+    ensure!(
+        listing.contains(&blessed),
+        "the UKI was not marked as good after a successful boot; ESP holds: {listing:?}"
+    );
+    say!("  ok: boot counting marked {blessed} as good");
+    Ok(())
+}
+
+/// The file names in the ESP's /EFI/Linux of `disk`.
+pub(super) fn uki_listing(disk: &Path) -> Result<Vec<String>> {
     let listing = util::output(
         Command::new("mdir")
             .arg("-b")
@@ -552,16 +565,12 @@ pub(super) fn check_blessed(disk: &Path) -> Result<()> {
             .arg(format!("{}@@{}", disk.display(), image::ESP_OFFSET))
             .arg("::/EFI/Linux"),
     )?;
-    let blessed = format!("/{}", layout::blessed_uki_name(layout::OS_VERSION));
-    ensure!(
-        listing.lines().any(|line| line.ends_with(&blessed)),
-        "the UKI was not marked as good after a successful boot; ESP holds:\n{listing}"
-    );
-    say!(
-        "  ok: boot counting marked {} as good",
-        layout::blessed_uki_name(layout::OS_VERSION)
-    );
-    Ok(())
+    Ok(listing
+        .lines()
+        .filter_map(|line| line.rsplit('/').next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect())
 }
 
 #[cfg(test)]

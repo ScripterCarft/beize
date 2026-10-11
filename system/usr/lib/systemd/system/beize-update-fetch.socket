@@ -1,0 +1,12 @@
+[Unit]
+Description=Beize's update fetcher (io.beize.UpdateFetch)
+Documentation=file:/usr/lib/beize/beize-update-fetch
+
+[Socket]
+ListenStream=/run/beize-update-fetch/io.beize.UpdateFetch
+# Only for beize-updated.
+SocketMode=0600
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

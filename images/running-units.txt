@@ -45,6 +45,9 @@ systemd-ask-password-console.path systemd-ask-password-wall.path
 # request.
 beize-accounts.socket
 
+# Updates (ADR 0020): the updater and its fetcher, one instance per request.
+beize-update.socket beize-update-fetch.socket
+
 # Privileges (ADR 0018): polkit's password helper; polkitd itself starts on
 # demand over D-Bus (run0, localed, ...).
 polkit-agent-helper.socket
@@ -66,7 +69,7 @@ systemd-resolved.service systemd-resolved-monitor.socket systemd-resolved-varlin
 systemd-machined.socket systemd-mountfsd.socket systemd-nsresourced.socket
 systemd-nsresourced.service systemd-sysext.socket systemd-storage-block.socket
 systemd-storage-fs.socket systemd-sysupdate-notify-bootctl.socket
-systemd-sysupdate-notify-pcrlock.socket systemd-sysupdate-notify-sysext.socket
+systemd-sysupdate-notify-sysext.socket
 systemd-report.socket systemd-report-basic.socket systemd-report-cgroup.socket
 systemd-report-files.socket systemd-report-sign-plain.socket
 systemd-report-sign-tpm2.socket

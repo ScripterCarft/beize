@@ -17,8 +17,8 @@
 
 mod store;
 
-use std::ffi::{CStr, c_char, c_int, c_void};
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::ffi::{CStr, c_char, c_int};
+use std::os::fd::FromRawFd;
 use std::os::unix::net::UnixStream;
 use std::process::ExitCode;
 use std::thread;
@@ -234,17 +234,6 @@ fn prove(store: &Store, name: &str, password: &str) -> Result<(), Refused> {
 
 // The caller, from the kernel and NSS.
 
-const SOL_SOCKET: c_int = 1;
-const SO_PEERCRED: c_int = 17;
-
-#[repr(C)]
-#[derive(Default)]
-struct Ucred {
-    pid: i32,
-    uid: u32,
-    gid: u32,
-}
-
 #[repr(C)]
 pub(crate) struct Passwd {
     name: *const c_char,
@@ -261,8 +250,6 @@ struct Group {
 }
 
 unsafe extern "C" {
-    fn getsockopt(fd: c_int, level: c_int, name: c_int, value: *mut c_void, len: *mut u32)
-    -> c_int;
     fn getpwuid(uid: u32) -> *const Passwd;
     fn getgrnam(name: *const c_char) -> *const Group;
     fn getgrouplist(user: *const c_char, group: u32, groups: *mut u32, count: *mut c_int) -> c_int;
@@ -270,25 +257,11 @@ unsafe extern "C" {
 
 impl Caller {
     fn of(stream: &UnixStream) -> Result<Self, String> {
-        let mut cred = Ucred::default();
-        let mut len = size_of::<Ucred>() as u32;
-        // SAFETY: a valid socket and an out buffer of the given size.
-        let r = unsafe {
-            getsockopt(
-                stream.as_raw_fd(),
-                SOL_SOCKET,
-                SO_PEERCRED,
-                (&raw mut cred).cast(),
-                &mut len,
-            )
-        };
-        if r != 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
+        let uid = beize_varlink::peer_uid(stream).map_err(|e| e.to_string())?;
         // SAFETY: getpwuid returns a static record or null; its name and
         // primary group are copied at once.
         let (name, gid) = unsafe {
-            let record = getpwuid(cred.uid);
+            let record = getpwuid(uid);
             if record.is_null() || (*record).name.is_null() {
                 (None, 0)
             } else {
@@ -302,7 +275,7 @@ impl Caller {
             .as_deref()
             .is_some_and(|name| in_group(name, gid, ADMIN_GROUP));
         Ok(Self {
-            uid: cred.uid,
+            uid,
             name,
             administrator,
         })

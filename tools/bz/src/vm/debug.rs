@@ -163,6 +163,18 @@ impl Shell {
         self.session.power_off_within(Duration::ZERO)?;
         Ok(())
     }
+
+    /// Powers the machine off cleanly, so everything written reaches the disk.
+    pub(super) fn power_off(self) -> Result<()> {
+        // `exec`: see `debug`.
+        self.session.type_line("exec systemctl poweroff");
+        ensure!(
+            self.session.power_off_within(POWER_OFF_TIMEOUT)?,
+            "the machine did not power off within {}s",
+            POWER_OFF_TIMEOUT.as_secs()
+        );
+        Ok(())
+    }
 }
 
 impl Shell {

@@ -136,16 +136,18 @@ fn ukify(paths: &Paths) -> Result<Command> {
     fs::create_dir_all(&tools)?;
     let measure = tools.join("systemd-measure");
     let sysroot = paths.sysroot.display();
-    fs::write(
-        &measure,
-        format!(
-            "#!/bin/sh\n\
-             exec '{sysroot}/usr/lib/ld-linux-x86-64.so.2' \
-             --library-path '{sysroot}/usr/lib:{sysroot}/usr/lib/systemd' \
-             '{sysroot}/usr/lib/systemd/systemd-measure' \"$@\"\n"
-        ),
-    )?;
-    fs::set_permissions(&measure, fs::Permissions::from_mode(0o755))?;
+    let script = format!(
+        "#!/bin/sh\n\
+         exec '{sysroot}/usr/lib/ld-linux-x86-64.so.2' \
+         --library-path '{sysroot}/usr/lib:{sysroot}/usr/lib/systemd' \
+         '{sysroot}/usr/lib/systemd/systemd-measure' \"$@\"\n"
+    );
+    // Written only when it differs: `bz smoke` builds images side by side,
+    // and rewriting a script another build is running fails (ETXTBSY).
+    if fs::read_to_string(&measure).ok().as_deref() != Some(script.as_str()) {
+        fs::write(&measure, script)?;
+        fs::set_permissions(&measure, fs::Permissions::from_mode(0o755))?;
+    }
     let mut cmd = Command::new("python3");
     cmd.arg(ukify).arg("--tools").arg(&tools);
     Ok(cmd)

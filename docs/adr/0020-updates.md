@@ -71,6 +71,10 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   PCR 7 ändert sich nicht. Weiter offen (ADR 0009): Jedes ältere signierte UKI tut das auch.
 - Eine zurückgespielte alte Liste kann ein Update nur verhindern, nicht ein altes System
   installieren.
+- systemds Benachrichtigung an `systemd-pcrlock` nach einem Update ist aus: pcrlock legte ein
+  Credential auf die ESP, das systemd-stub in PCR 12 misst – der nächste Start galt als verändert
+  und die Daten blieben zu (vom Update-Test gefunden). Beize versiegelt mit der signierten
+  PCR-11-Richtlinie, nicht mit pcrlock.
 - `/etc` bleibt beim Update unberührt; neue Vorgaben gehören nach `/usr` (systemds
   Vorrangregeln), nicht nach `/usr/share/factory/etc`.
 - Image und `bz install` schreiben einen 4-GiB-Slot (das Image bleibt sparse).

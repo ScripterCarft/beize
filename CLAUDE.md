@@ -73,7 +73,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -317,7 +317,13 @@ systemd mit sysupdate (Socket und importd-Reste entfernt, Journal jetzt zstd); (
 Version und Schlüsselsatz (öffentlicher Update-Schlüssel in `/usr`, daher packt `bz sign` neu),
 `bz release` + `release::write` (Test-Releases für den Smoke-Test), `bz secureboot
 new-update-key` (**Besitzer muss ihn vor dem nächsten `bz sign` erzeugen**); (4) `os/beize-update`;
-(5) `beize-boot-health` + signiertes systemd-boot in `/usr`; (6) Smoke-Szenarien laut ADR.
+(4) ✓ `os/beize-update` + Szenario „Update“ (A→B per HTTP aus `bz`, Ablehnung von geänderter Liste,
+fremdem Schlüssel, geänderter Datei, älterer Version; Start ohne Recovery-Key, Zähler entfernt).
+Funde: `systemd-sysupdate-notify-pcrlock.socket` aus (pcrlock-Credential auf der ESP veränderte
+PCR 12); `beize-keymap.service` ohne Startlimit (Flake beim ersten Start); beize-tpm nennt bei
+„Start verändert“ die PCR-12-Ereignisse. **Offen:** (5) `beize-boot-health` + signiertes
+systemd-boot in `/usr` (`systemd-boot-update` nach `boot-complete.target`); (6) restliche
+Szenarien: zweites Update B→A, kaputtes Update (verity) → nach 3 Versuchen zurück.
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;

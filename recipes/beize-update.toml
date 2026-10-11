@@ -1,0 +1,21 @@
+# Beize's updater (os/beize-update, ADR 0020): beize-updated checks and
+# installs releases through systemd-sysupdate, beize-update-fetch fetches
+# them without privileges, `beize-update` on the console.
+name = "beize-update"
+version = "0.1.0"
+stage = "target"
+# libgcc_s for Rust's unwinding; libsystemd (sd-json) reads the requests;
+# libcrypto checks the update key's signature; libcurl fetches.
+deps = ["gcc", "glibc", "gcc-runtime", "systemd", "openssl", "curl"]
+repo = ["os/beize-update", "os/beize-varlink", "Cargo.toml", "Cargo.lock"]
+
+[build]
+script = '''
+"$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
+"$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
+  -p beize-update --target x86_64-unknown-linux-gnu
+release="$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release"
+install -D -m 755 "$release/beize-update" "$PKG/usr/bin/beize-update"
+install -D -m 755 "$release/beize-updated" "$PKG/usr/lib/beize/beize-updated"
+install -D -m 755 "$release/beize-update-fetch" "$PKG/usr/lib/beize/beize-update-fetch"
+'''

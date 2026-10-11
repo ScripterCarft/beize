@@ -90,6 +90,12 @@ fn check_boot() -> Result<(), String> {
             println!("This start was changed: something was added to it (kernel parameters,");
             println!("credentials or add-ons, e.g. through the firmware). Beize does not open");
             println!("your data in a changed start. Do not enter the recovery key.");
+            // What was added, as the event log names it.
+            if let Ok(events) = read(EVENT_LOG).and_then(|log| eventlog::parse(&log)) {
+                for event in events.iter().filter(|e| e.pcr == 12) {
+                    println!("  added: {}", eventlog::describe(&event.data));
+                }
+            }
         }
         Err(error) => {
             println!();
