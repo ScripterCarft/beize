@@ -1,0 +1,36 @@
+[Unit]
+Description=Beize's account service, one request
+Documentation=file:/usr/lib/beize/beize-accountsd
+
+[Service]
+ExecStart=/usr/lib/beize/beize-accountsd
+StandardInput=socket
+# Not inherited from stdin: the connection carries only the protocol.
+StandardOutput=journal
+StandardError=journal
+# It writes the accounts (/etc/userdb, from beize-accounts.conf in
+# tmpfiles.d) and creates and removes homes – nothing else.
+ProtectSystem=strict
+ReadWritePaths=/etc/userdb /home
+UMask=0022
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallFilter=chown fchown fchownat

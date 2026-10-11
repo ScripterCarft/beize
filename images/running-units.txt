@@ -41,9 +41,9 @@ systemd-userdb-load-credentials.service getty@tty1.service systemd-vconsole-setu
 systemd-mute-console.socket systemd-ask-password.socket
 systemd-ask-password-console.path systemd-ask-password-wall.path
 
-# People's accounts (ADR 0019): homed keeps them and answers for them in
-# userdb, so it runs; homed-activate deactivates homes at shutdown.
-systemd-homed.service systemd-homed-activate.service
+# People's accounts (ADR 0019): Beize's account service, one instance per
+# request.
+beize-accounts.socket
 
 # Privileges (ADR 0018): polkit's password helper; polkitd itself starts on
 # demand over D-Bus (run0, localed, ...).

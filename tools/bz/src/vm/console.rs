@@ -95,12 +95,13 @@ pub(super) const RECOVERY_KEY_SAVED_PROMPT: &str =
 pub(super) const SMOKE_USER: &str = "smoke";
 pub(super) const SMOKE_PASSWORD: &str = "smoke-test-password";
 
-/// A credential that names the owner at the serial console's login; the
-/// password is asked as for a person – homed makes the home available only
-/// with it (ADR 0019), so it is the first answer at "Password:". The tests
-/// act as the owner would at a terminal.
-pub(super) const OWNER_CONSOLE_CREDENTIALS: [&str; 1] =
-    ["type=11,value=io.systemd.credential:tty.serial.ttyS0.agetty.autologin=smoke"];
+/// Credentials that log the owner in on the serial console without a
+/// password (as [`super::run::DEBUG_CONSOLE_CREDENTIALS`] do for root):
+/// the tests act as the owner would at a terminal.
+pub(super) const OWNER_CONSOLE_CREDENTIALS: [&str; 2] = [
+    "type=11,value=io.systemd.credential:tty.serial.ttyS0.agetty.autologin=smoke",
+    "type=11,value=io.systemd.credential:tty.serial.ttyS0.login.noauth=yes",
+];
 
 /// The password question of PAM, here asked by polkit's agent (run0).
 const PASSWORD_PROMPT: &str = "Password:";

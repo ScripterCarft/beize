@@ -5,9 +5,9 @@ Documentation=file:/usr/lib/beize/beize-setup
 # onboarding later.
 ConditionPathExists=!/var/lib/beize/owner
 After=systemd-sysusers.service local-fs.target systemd-mute-console.socket
-# The account is created through homed (ADR 0019).
-Wants=systemd-homed.service
-After=systemd-homed.service
+# The account is created by Beize's account service (ADR 0019).
+Requires=beize-accounts.socket
+After=beize-accounts.socket systemd-tmpfiles-setup.service
 Before=systemd-user-sessions.service getty@tty1.service serial-getty@ttyS0.service
 # Should the setup still fail, it starts again: the start job stays pending
 # meanwhile, so no login appears without an account.

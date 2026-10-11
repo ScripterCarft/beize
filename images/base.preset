@@ -10,6 +10,8 @@ enable beize-boot-chain.service
 enable beize-boot-report.service
 enable beize-save-clock.timer
 enable beize-setup.service
+# Accounts (ADR 0019): the account service, started per request.
+enable beize-accounts.socket
 # The console keymap also for the initrd (ADR 0017).
 enable beize-keymap.path
 # Privileges (ADR 0018): polkit checks passwords in this sandboxed helper,

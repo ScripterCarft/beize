@@ -18,17 +18,9 @@ stage = "target"
 # the option it refuses everyone but root. It needs no polkit library.
 # libseccomp: units' system call filters and related sandboxing
 # (SystemCallFilter=, RestrictAddressFamilies=, ...) – without it systemd
-# ignores them silently. homed: people's accounts (ADR 0019); libxcrypt
-# hashes their passwords. Without libpwquality (no password rules), FIDO2 or
-# PKCS#11 (security keys later).
+# ignores them silently.
 deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam",
-        "kmod", "acl", "libxkbcommon", "libseccomp", "libxcrypt"]
-# Beize's own change (ADR 0019, the one exception to "no own patches"): homed
-# asked for the recovery key at every password change of an account that has
-# one, also where nothing needs it (homes stored as a directory) – open
-# upstream since 2022 (systemd#25876), proposed there. Drop it once upstream
-# solves it.
-patches = ["recipes/patches/systemd/0001-homework-require-plaintext-recovery-keys-only-for-LU.patch"]
+        "kmod", "acl", "libxkbcommon", "libseccomp"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -47,7 +39,6 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dlibcryptsetup=enabled \
   -Dopenssl=enabled -Dtpm2=enabled \
   -Dkmod=enabled -Dacl=enabled -Dxkbcommon=enabled -Dpolkit=enabled -Dseccomp=enabled \
-  -Dhomed=enabled -Dlibcrypt=enabled \
   -Dpam=enabled -Dpamconfdir=/usr/lib/pam.d -Dpamlibdir=/usr/lib/security \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \

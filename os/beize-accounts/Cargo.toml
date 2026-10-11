@@ -1,14 +1,10 @@
 [package]
 name = "beize-accounts"
-description = "The one interface through which Beize changes people's accounts – create, change and reset passwords – with systemd-homed behind it (ADR 0019)"
+description = "Beize's account service (beize-accountsd), the one way people's accounts change, and its clients (ADR 0019)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-
-[[bin]]
-name = "beize-account"
-path = "src/main.rs"
 
 [lints]
 workspace = true

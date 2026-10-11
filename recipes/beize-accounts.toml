@@ -1,11 +1,11 @@
-# The one interface for people's accounts (os/beize-accounts, ADR 0019), and
-# `beize-account` on the console: change your password, reset a forgotten
-# one in the recovery. beize-setup links the same library.
+# Beize's account service, the one authority over people's accounts
+# (os/beize-accounts, ADR 0019), and `beize-account` on the console. beize-setup
+# links the same library as a client.
 name = "beize-accounts"
 version = "0.1.0"
 stage = "target"
-# libgcc_s for Rust's unwinding; libxcrypt hashes passwords; libsystemd
-# (sd-bus) talks to homed.
+# libgcc_s for Rust's unwinding; libxcrypt hashes and checks passwords;
+# libsystemd (sd-json) reads the JSON of requests and user records.
 deps = ["gcc", "glibc", "gcc-runtime", "libxcrypt", "systemd"]
 repo = ["os/beize-accounts", "Cargo.toml", "Cargo.lock"]
 
@@ -16,4 +16,6 @@ script = '''
   -p beize-accounts --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-account" \
   "$PKG/usr/bin/beize-account"
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-accountsd" \
+  "$PKG/usr/lib/beize/beize-accountsd"
 '''

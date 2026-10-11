@@ -72,9 +72,53 @@ pub fn hash(password: &str) -> Result<String, String> {
     Ok(hash)
 }
 
+/// Whether `password` matches `hash` (any method libxcrypt knows; a locked
+/// field such as "!*" matches nothing). Compared in constant time.
+pub fn verify(password: &str, hash: &str) -> bool {
+    let (Ok(phrase), Ok(setting)) = (CString::new(password), CString::new(hash)) else {
+        return false;
+    };
+    let mut data = vec![0u8; 32 * 1024];
+    // SAFETY: both strings are NUL-terminated; data is a zeroed buffer of
+    // the given size, which crypt_rn requires.
+    let result = unsafe {
+        crypt_rn(
+            phrase.as_ptr(),
+            setting.as_ptr(),
+            data.as_mut_ptr(),
+            data.len() as c_int,
+        )
+    };
+    // SAFETY: on success crypt_rn returns a NUL-terminated string in data.
+    let matches = !result.is_null()
+        && same(
+            unsafe { CStr::from_ptr(result) }.to_bytes(),
+            hash.as_bytes(),
+        );
+    data.fill(0);
+    let mut phrase = phrase.into_bytes();
+    phrase.fill(0);
+    matches
+}
+
+/// Equal bytes, compared without stopping at the first difference.
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verifies_against_the_hash() {
+        let hash = hash("correct horse").unwrap();
+        assert!(verify("correct horse", &hash));
+        assert!(!verify("correct horsf", &hash));
+        assert!(!verify("", &hash));
+        assert!(!verify("anything", "!*"), "a locked field matches nothing");
+        assert!(!verify("anything", ""));
+    }
 
     #[test]
     fn hashes_with_yescrypt_and_a_fresh_salt() {

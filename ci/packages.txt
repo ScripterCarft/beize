@@ -35,8 +35,6 @@ python3-pyelftools
 ca-certificates
 curl
 git
-# Beize's own source patches (recipes/patches, bz)
-patch
 gpgv
 # ssh-keygen: SSH-signed sources (git's SSH signing, e.g. ntpd-rs)
 openssh-client

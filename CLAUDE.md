@@ -71,7 +71,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (die eine Konten-Schnittstelle, Modul homed über sd-bus; `beize-account passwd|reset`) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -125,7 +125,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (beize-accounts, homed, ein Recovery-Key, eigener homed-Patch). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -140,9 +140,6 @@ in die Endfassung einarbeiten, keine Nachträge.
   nach Vorbild `recipes/beize-tpm.toml`. Crates mit Build-Skript meiden (laufen mit
   dem Host-cc). Krypto nie selbst schreiben.
 - Rezepte **ohne** `repo` behalten ihren Fingerprint (Test) – sonst baut alles neu.
-- **Eigene Patches** (`patches = [...]`, Dateien unter `recipes/patches/<paket>/`) nur als
-  begründete Ausnahme mit dem Besitzer und upstream vorgeschlagen; einzige bisher: homed
-  (ADR 0019). Gepatchte Quellen liegen in `build/work/src/<stem>+patched`.
 - **Ein Paket sieht beim Bauen nur seine (transitiven) `deps` im Sysroot.** Fehlt etwas,
   gehört es in `deps` – nicht die Sperre umgehen.
 - Build-Jobs nach RAM begrenzt (1,5 GiB/Job), parallele VMs nach CPUs/RAM (je 4 CPUs
@@ -295,17 +292,18 @@ Zweiter Hardware-Fund: in der Wiederherstellung scheiterte „Early TPM SRK Setu
 dort nach, wenn die initrd sie übersprang) – Drop-in auch in `system/usr`, Smoke prüft
 `ConditionResult=no` (CI 38136757166 grün). Beides bei der nächsten Neuinstallation prüfen.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
-**Phase 5d abgeschlossen (ADR 0019, 2026-10-11, Smoke 3× grün):** Konten über `beize-accounts`
-(homed, Speicher „directory“), Setup legt das Konto mit dem Recovery-Key an, `beize-account
-passwd` (altes Passwort) und `reset` (in der Wiederherstellung, Key vom Notfall-Tor), PAM mit
-pam_systemd_home (`user_unknown=ignore default=die`). Eigener homed-Patch (Recovery-Key nicht bei
-jedem Passwortwechsel, systemd#25876) – Vorschlag für upstream: WSL
-`~/upstream/systemd-homed-recovery-key/` (sendet der Besitzer). Smoke meldet den Besitzer jetzt mit
-Passwort an (homed öffnet das Home nur so). VM-Konsolengröße per `systemd.tty.*` statt Antwort
-von `bz`: die Antwort kam unter Last zu spät und landete im getippten Recovery-Key (2× rot im
-Secure-Boot-Szenario). Admin setzt Passwort anderer zurück: später (ADR 0019, Konsequenzen).
-**Hardware-Check 5d (Besitzer, Neuinstallation):** Setup → Anmelden mit Passwort → `beize-account
-passwd` → Wiederherstellung → `beize-account reset <name>` → Anmelden mit dem neuen Passwort.
+**Phase 5d abgeschlossen (ADR 0019, 2026-10-11):** Konten über Beizes eigenen Dienst
+`beize-accountsd` (Socket je Anfrage, abgeschottet), gespeichert als systemd-Benutzerdatensätze in
+`/etc/userdb`, Anmeldung/run0 über pam_unix + nss-systemd. Rechte durch Beweis (eigenes Passwort;
+Administrator mit eigenem Passwort; root ohne). `beize-account passwd|reset|add`. Erst homed gebaut
+(`e22cc2a`) und mit dem Besitzer verworfen: homed will selbst Instanz sein (kein Admin-Reset,
+Recovery-Key bei jedem Passwortwechsel, systemd#25876), Ballast. Vorschlag für #25876 trotzdem in
+WSL `~/upstream/systemd-homed-recovery-key/` (für Beize nicht mehr nötig; Senden nach Wahl des
+Besitzers). VM-Konsolengröße per `systemd.tty.*` in der Kommandozeile (eine Antwort von `bz` kam
+unter Last zu spät und landete im getippten Recovery-Key).
+**Hardware-Check 5d (Besitzer, Neuinstallation):** Setup → anmelden → `beize-account passwd` →
+`beize-account add guest` → Wiederherstellung → `beize-account reset <name>` → anmelden mit dem
+neuen Passwort.
 **Nächster Schritt: Phase 6 (A/B-Updates, ADR 0020) entwerfen und abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
@@ -353,16 +351,10 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
    b) ✓ Rechte (ADR 0018): run0 + polkit, root gesperrt, kein setuid, Wiederherstellung.
    c) ✓ iputils `ping` + `tracepath` ohne Rechte (ping_group_range), Smoke-Check.
-   d) ✓ Konten (ADR 0019): systemd-homed (Speicher „directory“, wie macOS
-      ohne Verschlüsselung je Benutzer), Passwort ändern, Zurücksetzen in der
-      Wiederherstellung mit **einem** Recovery-Key; beize-setup legt das Konto über homed
-      an. Besitzer (2026-10-11): nur, wenn es wirklich stabil läuft – bei merkwürdigen
-      Problemen anhalten und neu besprechen. UI später frei gestaltbar (homed = API).
-      Besitzer-Wunsch: **eine Beize-Schnittstelle für Konten** (Vorbild macOS Open Directory),
-      dahinter austauschbar homed oder klassisch `/etc/shadow`; Setup, Einstellungen,
-      Anmeldung und Wiederherstellung sprechen nur sie. Lesen und Anmelden sind schon
-      neutral (userdb/NSS, PAM) – die Schnittstelle deckt die Schreibvorgänge ab (anlegen,
-      Passwort ändern/zurücksetzen, Name, Bild), mit polkit; ein Vertragstest gilt für jedes Modul.
+   d) ✓ Konten (ADR 0019): Beizes Kontodienst ist die einzige Instanz (Vorbild macOS
+      opendirectoryd), Konten in systemds Standardformat, Rechte durch Beweis, ein
+      Recovery-Key über die Wiederherstellung. Besitzer-Wunsch: Beize hat die Macht, wenig
+      Ballast; Name und Bild mit den Einstellungen (M3).
 6. **A/B-Updates (ADR 0020) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
    systemd-sysupdate (usr, verity, UKI, signierter Bootloader – `systemd-boot-update` ist
    deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:

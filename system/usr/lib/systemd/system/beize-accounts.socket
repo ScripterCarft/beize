@@ -1,0 +1,19 @@
+[Unit]
+Description=Beize's account service (io.beize.Accounts)
+Documentation=file:/usr/lib/beize/beize-accountsd
+
+[Socket]
+# Its own directory: /run/beize is root's only (the recovery key on first
+# boot), and anyone may ask here.
+ListenStream=/run/beize-accounts/io.beize.Accounts
+DirectoryMode=0755
+# One service process per connection: no daemon waits in the background,
+# and a request never sees another's memory.
+Accept=yes
+# Everyone may ask; the service decides with proof (ADR 0019).
+SocketMode=0666
+
+[Install]
+WantedBy=sockets.target
+# The recovery (ADR 0018) resets forgotten passwords through it.
+WantedBy=rescue.target

@@ -1,4 +1,4 @@
-//! The setup is all or nothing. It creates the owner's account through homed
+//! The setup is all or nothing. It has the account service create the owner's account
 //! and then writes /var/lib/beize/owner; a power cut in between would leave
 //! an account the next setup does not know – it asks again, and the name
 //! "exists already".

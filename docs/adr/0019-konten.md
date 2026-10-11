@@ -1,4 +1,4 @@
-# 0019 – Konten: eine Beize-Schnittstelle, dahinter systemd-homed
+# 0019 – Konten: Beizes Kontodienst
 
 Status: angenommen · 2026-10-11
 
@@ -6,81 +6,72 @@ Status: angenommen · 2026-10-11
 
 beize-setup schrieb das Konto des Besitzers selbst in `/etc/passwd`, `group` und `shadow`.
 Ein Passwort ändern oder ein vergessenes zurücksetzen konnte niemand – root ist gesperrt
-(ADR 0018), die Wiederherstellung öffnete nur eine Shell. Später brauchen Einstellungen
-(Name, Bild, Passwort), Anmeldung und Sperrbildschirm dieselben Vorgänge.
+(ADR 0018). Später brauchen Einstellungen (Name, Bild, Passwort), Anmeldung und
+Sperrbildschirm dieselben Vorgänge. Lesen und Anmelden sind schon neutral: Programme fragen
+Konten über NSS/userdb ab, Passwörter prüft PAM. Offen waren die **Schreibvorgänge** – und
+wer über sie entscheidet.
 
-Lesen und Anmelden sind schon neutral: Programme fragen Konten über NSS/userdb ab,
-Passwörter prüft PAM. Offen waren die **Schreibvorgänge**.
-
-systemd-homed verwaltet Konten als signierte JSON-Datensätze (`/var/lib/systemd/home/`,
-dazu eine Kopie im Home selbst), mit Polkit-Prüfung für jeden Vorgang, Kontobild und
-PAM-Modul. Ein Passwort ersetzt homed nur, wenn das alte Passwort oder ein **im Konto
-hinterlegter Recovery-Key** (modhex64, dasselbe Format wie der LUKS-Recovery-Key) den
-bisherigen Datensatz öffnet – auch für root nicht anders, weil das Home mit dem Passwort
-verschlüsselt sein kann.
+Erst gebaut und wieder verworfen: systemd-homed hinter einer Beize-Bibliothek. homed will
+selbst die Instanz sein: Es ersetzt ein Passwort nur mit dem alten oder einem im Konto
+hinterlegten Recovery-Key, auch für root und Administratoren, und verlangte den Klartext
+jedes Recovery-Keys sogar beim normalen Passwortwechsel (systemd#25876, seit 2022 offen) –
+nur mit einem eigenen Patch zu umgehen. Sein Mehrwert (Verschlüsselung je Benutzer,
+mitnehmbare Homes) bringt Beize nichts: Die ganze Root-Partition ist verschlüsselt (ADR 0009),
+wie FileVault. Dazu Ballast: ein ständig laufender Dienst, `homectl` an Beize vorbei,
+`/home/<name>.homedir`, UIDs ab 60001, keine Anmeldung ohne Passwort.
 
 ## Entscheidung
 
-- **Eine Schnittstelle für Konten: `beize-accounts`** (`os/beize-accounts`, Vorbild macOS
-  Open Directory: ein API, dahinter austauschbare Module). Setup, Einstellungen und
-  Wiederherstellung sprechen nur sie. Heute: anlegen, entfernen, Passwort ändern, Passwort
-  mit dem Recovery-Key zurücksetzen; Name und Bild kommen mit den Einstellungen (M3). Den
-  Vertrag prüft der Smoke-Test im echten System; jedes Modul muss ihn erfüllen.
-- **Modul homed, Speicher „directory“.** Das Home ist ein Verzeichnis auf der
-  LUKS2-Root-Partition (ADR 0009): eine Verschlüsselung für alle, wie FileVault – keine
-  zweite je Benutzer. homed bindet es beim Anmelden unter `/home/<name>` ein. GNOME OS plant
-  denselben Weg (gnome-build-meta #655); als Standard liefert ihn noch keine große
-  Distribution aus. Die Bibliothek ruft homeds D-Bus-API über libsystemd (sd-bus, im Image
-  ohnehin) als der aufrufende Benutzer auf; homed prüft Polkit selbst, Beize braucht keinen
-  eigenen Dienst mit Rechten. Geheimnisse werden nach Gebrauch genullt, sd-bus löscht die
-  Nachrichten (`sd_bus_message_sensitive`).
-- **Ein Recovery-Key für alles.** Das Setup hinterlegt den LUKS-Recovery-Key aus
-  `/run/beize/recovery-key` (nur im RAM, bis zum Neustart) als homed-Recovery-Key des Kontos.
-  Er entsperrt die Daten, öffnet die Wiederherstellung und setzt ein vergessenes Passwort
-  zurück, wie der FileVault-Key auf dem Mac. Für den Alltag braucht das Konto ihn nicht.
-- **Beizes eigener Patch an homed** (die einzige Ausnahme von „keine eigenen Patches“,
-  bewusst mit dem Besitzer): homed verlangte bei *jeder* Passwortänderung den Klartext jedes
-  hinterlegten Recovery-Keys – Passwort ändern hätte das Eintippen des Recovery-Keys
-  bedeutet. Nötig ist der Klartext nur, um Schlüsselplätze von LUKS und fscrypt nachzuziehen;
-  `recipes/patches/systemd/0001-…` verlangt ihn nur noch dort. Die Prüfung, ob altes
-  Passwort oder Key stimmt, bleibt unverändert (`home_load_embedded_identity`). Upstream seit
-  2022 offen (systemd#25876, wartet auf den Umbau der Schlüsselhaltung, #31741); der Patch
-  ist dort vorgeschlagen und fällt weg, sobald upstream es löst. `bz` wendet Patches aus
-  `recipes/patches/<paket>/` beim Auspacken an, ihr Inhalt zählt zum Fingerabdruck.
-- **Zurücksetzen in der Wiederherstellung** (ADR 0018): Recovery-Key → Notfall-Tor → Root-Shell
-  → `beize-account reset <name>`. Das Tor legt den geprüften Key für die Shell nach
-  `/run/beize/recovery-key` und löscht ihn vor dem Neustart; niemand tippt ihn zweimal.
-- **Passwort ändern:** `beize-account passwd` mit dem alten Passwort (bis M3 auf der Konsole).
-- **Anmelden:** `pam_systemd_home` in `system-auth`, wie Fedoras authselect-Profil
-  „with-systemd-homed“ – aber nur bei `user_unknown` (kein homed-Konto) weiter zu pam_unix;
-  jeder andere Fehlschlag endet dort (`default=die`), sonst fragte pam_unix ein zweites Mal
-  nach einem Passwort, das es für homed-Konten nie prüfen kann. Nach einem falschen Passwort
-  fragt pam_systemd_home bis zu fünfmal nach, eine leere Eingabe bricht ab (wie sudo).
-  Administrator bleibt, wer in `wheel` ist (`memberOf`).
-- **Systembenutzer bleiben in `/etc/passwd`** (systemd-sysusers), root bleibt gesperrt.
-- **Bau:** systemd mit `-Dhomed=enabled -Dlibcrypt=enabled`, ohne libpwquality (keine
-  Passwortregeln außer 8 Zeichen in `beize-accounts`), ohne FIDO2/PKCS#11.
+- **Beize ist die Instanz: `beize-accountsd`** (`os/beize-accounts`), wie `opendirectoryd` auf
+  dem Mac. Nur er schreibt Konten; Setup, `beize-account` und später die Einstellungen sind
+  seine Clients. Schnittstelle `io.beize.Accounts` über Varlink (systemds eigenes IPC: JSON
+  mit NUL-Ende über einen Unix-Socket): `Create`, `ChangePassword`, `ResetPassword`, `Remove`;
+  Name und Bild kommen mit den Einstellungen (M3).
+- **Gespeichert als systemd-Benutzerdatensätze in `/etc/userdb`** (`<name>.user`, der Hash in
+  `<name>.user-privileged` nur für root, eigene Gruppe, `<name>:wheel.membership` für
+  Administratoren, Links je ID) – systemds Standardformat, wie macOS lokale Konten als Dateien
+  in `/var/db/dslocal` hält. nss-systemd gibt sie an alle Programme und an PAM; Anmeldung,
+  run0, polkit und `wheel` laufen unverändert über pam_unix (Prototyp und Smoke-Test). Konten
+  ohne Datei dort (root, Systembenutzer in `/etc/passwd`) fasst der Dienst nicht an.
+- **Rechte durch Beweis, nicht durch Nachfrage** (der Kernel nennt den Aufrufer,
+  `SO_PEERCRED`):
+  - eigenes Passwort ändern – mit dem aktuellen;
+  - Konto anlegen, Passwort eines anderen zurücksetzen – ein Administrator mit seinem eigenen
+    Passwort, wie auf dem Mac;
+  - root darf alles ohne Passwort; root erreicht man nur mit dem Passwort eines Administrators
+    (run0) oder dem Recovery-Key (Wiederherstellung). Konto entfernen: nur root.
+  - Ein falscher Beweis kostet 2 s wie an der Anmeldung (`pam_faildelay`): Der Dienst ist
+    kein schnellerer Weg zum Raten.
+- **Ein Recovery-Key für alles, ohne ihn weiterzureichen:** Vergessenes Passwort →
+  Wiederherstellung (ADR 0018) mit dem Recovery-Key → Root-Shell → `beize-account reset
+  <name>`. Der Key steckt in keinem Konto.
+- **Abgeschottet und ohne Dauerläufer:** `beize-accounts.socket` startet je Verbindung einen
+  eigenen Prozess (Accept=yes, wie systemds userdb-Dienst und polkits Passwort-Helfer). Er darf
+  nur `/etc/userdb` und `/home` schreiben, hat kein Netz, nur `CAP_CHOWN`, `CAP_FOWNER`,
+  `CAP_DAC_OVERRIDE` und systemds Systemaufruf-Filter. Der Socket gehört auch zur
+  Wiederherstellung (`rescue.target`).
+- **Ohne neue Abhängigkeiten:** JSON liest libsystemd (sd-json), Passwörter hasht und prüft
+  libxcrypt (yescrypt, Vergleich in konstanter Zeit); Geheimnisse werden nach Gebrauch
+  genullt.
+- **Regeln an einer Stelle:** Namen (klein, portabel, keine Systemnamen) und Passwörter
+  (mindestens 8 Zeichen) prüft die Bibliothek, für Clients und Dienst gleich.
 
 ## Konsequenzen
 
-- Konten der Personen bekommen UIDs 60001–60513 (homeds fester Bereich) statt 1000.
-- Ohne Anmeldung ist das Home nicht eingehängt; eine Anmeldung ohne Passwort gibt es nicht
-  (homed öffnet das Home nur mit ihm, wie FileVault). Dienste des Benutzers laufen nur
-  angemeldet oder mit homeds „Linger“.
-- Ein später angelegtes Konto (Einstellungen, M3+) bekommt denselben Recovery-Key: Wer es
-  anlegt, tippt ihn einmal ein – homed verlangt beim Anlegen den Klartext.
-- **Ein Administrator setzt das Passwort eines anderen Kontos zurück** (wie auf dem Mac):
-  heute nur mit dem Recovery-Key, den jedes Konto trägt. Ohne Key bräuchte es eine weitere
-  Änderung an homed (Zurücksetzen durch einen Administrator bei Speicher „directory“) –
-  möglich, wird mit mehreren Konten (M3+) entschieden.
-- Wer den Recovery-Key hat, kann sich auch direkt mit ihm anmelden – er öffnet ohnehin die
-  Daten und eine Root-Shell.
-- Ein Modul `/etc/shadow` kommt erst, wenn es gebraucht wird.
+- systemd ohne homed; Personen bekommen UIDs ab 1000, das Home ist `/home/<name>`.
+- Das Konto des Besitzers ist Administrator; `beize-account add [--administrator] NAME` legt
+  weitere an (bis M3 auf der Konsole).
+- Verschlüsselung je Benutzer gibt es nicht – bewusst: eine für die ganze Platte, an TPM und
+  Secure Boot gebunden. Wäre sie je nötig, wäre sie ein Modul hinter derselben Schnittstelle.
+- Der Dienst ist eigener Code mit Rechten: klein, abgeschottet, jede Regel mit Gegenprobe
+  getestet (Unit-Tests der Regeln, Smoke-Test im echten System).
 - Bestehende Installationen: neu installieren (ohne Updater ohnehin der Weg, Phase 6).
 
-## Abnahme: schnell und sparsam (erfüllt)
+## Abnahme
 
-Gemessen in der VM gegen den Stand mit `/etc/shadow` (2026-10-11, lokal): homed im Leerlauf
-2,6–3,5 MiB und 13 ms CPU seit dem Start; System-Phase 1,66–1,72 s statt 1,61 s;
-Passwortprüfung von run0 0,62–0,72 s statt 0,51 s (yescrypt in homework); Passwort ändern
-~0,1 s; Anmeldung getty → Shell 0,62–0,70 s (mit Passwort).
+Smoke-Test: Setup legt das Konto über den Dienst an; falsches aktuelles Passwort ändert
+nichts, das richtige schon, run0 nimmt das neue; ein Administrator legt `guest` an (nicht mit
+falschem eigenen Passwort) und setzt dessen Passwort zurück, PAM nimmt es; root setzt in der
+Wiederherstellung ein vergessenes Passwort; run0 lehnt ein falsches ab. Gemessen in der VM:
+System-Phase unverändert (1,63 s), kein Dienst im Leerlauf, run0 0,59 s, Passwort ändern
+~0,1 s.

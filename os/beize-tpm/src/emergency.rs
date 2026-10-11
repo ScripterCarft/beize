@@ -40,9 +40,6 @@ const RECOVERY_PARAMETER: &str = "beize.recovery";
 const KEY_PROMPT: &str = "Recovery key of this computer:";
 /// Measured into PCR 11 before the shell starts.
 const PCR11_WORD: &str = "beize-emergency-shell";
-/// Where the shell finds the checked recovery key – the same place the
-/// first boot leaves it (system/initrd/usr/lib/beize/recovery-key).
-const KEY_FOR_SHELL: &str = "/run/beize/recovery-key";
 /// After a wrong key: slows down guessing at the console.
 const WRONG_KEY_DELAY: Duration = Duration::from_secs(3);
 
@@ -130,20 +127,19 @@ fn shell() -> Result<(), String> {
     for cached in keyring::cached_passphrases("cryptsetup") {
         let cached = normalized(&cached);
         if luks::opens(device, &cached)? {
-            return open_shell(&cached);
+            return open_shell();
         }
     }
-    let key = normalized(&ask_key()?);
-    if !luks::opens(device, &key)? {
+    let key = ask_key()?;
+    if !luks::opens(device, &normalized(&key))? {
         thread::sleep(WRONG_KEY_DELAY);
         return Err("That is not the recovery key of this computer.".into());
     }
-    open_shell(&key)
+    open_shell()
 }
 
-/// Locks the TPM, then starts the shell with the checked `key` in
-/// [`KEY_FOR_SHELL`]; restarts the computer after it.
-fn open_shell(key: &str) -> Result<(), String> {
+/// Locks the TPM, then starts the shell; restarts the computer after it.
+fn open_shell() -> Result<(), String> {
     // Lock the TPM first; without a TPM (--graceful) there is nothing it
     // could unlock, and the key opens the data anyway.
     let locked = Command::new("/usr/lib/systemd/systemd-pcrextend")
@@ -154,36 +150,9 @@ fn open_shell(key: &str) -> Result<(), String> {
         return Err("The security chip (TPM) could not be locked: no emergency shell.".into());
     }
     println!("The security chip (TPM) is locked until the next start.");
-    // The key proves as much in the shell: `beize-account reset` takes it
-    // from there instead of asking again (ADR 0019). Memory only, root only,
-    // removed before the restart.
-    let kept = keep_key(key);
-    if kept.is_ok() && recovery() {
-        println!("A forgotten password: beize-account reset NAME");
-    }
     println!("Leaving the shell restarts the computer.");
     let _ = Command::new("/usr/bin/bash").arg("--login").status();
-    let _ = std::fs::remove_file(KEY_FOR_SHELL);
     systemctl("reboot")
-}
-
-/// Writes `key` to [`KEY_FOR_SHELL`], readable by root only.
-fn keep_key(key: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-    let dir = Path::new(KEY_FOR_SHELL)
-        .parent()
-        .unwrap_or(Path::new("/run"));
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)?;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(KEY_FOR_SHELL)?;
-    writeln!(file, "{key}")
 }
 
 /// Asks for the recovery key on the console: with the terminal as its stdin,

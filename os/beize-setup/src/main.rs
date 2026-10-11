@@ -4,11 +4,10 @@
 //! `beize-setup owner` first asks for the keyboard layout and switches to it
 //! at once (ADR 0017), so that everything after it – the password above all –
 //! is typed with the owner's own keyboard. Then it asks for a login name and
-//! a password (twice) and creates the owner's account through beize-accounts
-//! (ADR 0019): an administrator (wheel: run0 with their own password, ADR
-//! 0018), with the computer's recovery key to reset the password. It locks
-//! root and asks for the time zone (/etc/localtime). Runs once; afterwards
-//! /var/lib/beize/owner exists.
+//! a password (twice) and has Beize's account service create the owner's
+//! account (ADR 0019): an administrator (wheel: run0 with their own password,
+//! ADR 0018). It locks root and asks for the time zone (/etc/localtime). Runs
+//! once; afterwards /var/lib/beize/owner exists.
 
 mod accounts;
 mod keyboard;
@@ -23,7 +22,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
-use beize_accounts::{Accounts, Homed, NewAccount, Secret};
+use beize_accounts::{Client, NewAccount, Secret};
 use transaction::write;
 
 const SHADOW: &str = "/etc/shadow";
@@ -31,8 +30,6 @@ const SHADOW: &str = "/etc/shadow";
 const DONE: &str = "/var/lib/beize/owner";
 /// The account being created (see `transaction`).
 const PENDING: &str = "/var/lib/beize/setup-pending";
-/// The recovery key the initrd created and showed this boot (memory only).
-const RECOVERY_KEY: &str = "/run/beize/recovery-key";
 
 fn main() -> ExitCode {
     let result = match std::env::args().nth(1).as_deref() {
@@ -52,24 +49,18 @@ fn owner() -> Result<(), String> {
     if Path::new(DONE).exists() {
         return Ok(());
     }
-    let directory = Homed::connect()?;
+    // The setup runs as root: the account service asks it for no password.
+    let mut accounts = Client::connect()?;
     // A setup cut off after creating the account (power cut, reset): back
     // to before it.
     let pending = Path::new(PENDING);
     if let Some(name) = transaction::unfinished(pending)? {
         if beize_accounts::exists(&name) {
-            directory.remove(&name)?;
+            accounts.remove(&name)?;
         }
         transaction::finish(pending)?;
         eprintln!("beize-setup: removed the account \"{name}\" of a setup that did not finish");
     }
-    // The key exists only until the first restart: a setup that did not
-    // finish then cannot give the account the recovery key any more.
-    let recovery_key = read(Path::new(RECOVERY_KEY))
-        .map(|key| Secret::new(key.trim().to_owned()))
-        .map_err(|e| {
-            format!("{e} – the recovery key is gone; reinstall Beize to set up an account")
-        })?;
     let shadow = read(Path::new(SHADOW))?;
 
     // First mute, then clear: nothing the boot prints afterwards lands in
@@ -101,13 +92,15 @@ fn owner() -> Result<(), String> {
     // or none (a cut-off setup is undone on the next boot).
     write(Path::new(SHADOW), &accounts::lock_root(&shadow)?, 0o000)?;
     transaction::begin(pending, &name)?;
-    directory.create(&NewAccount {
-        name: &name,
-        real_name: &full_name,
-        password: password.expose(),
-        recovery_key: recovery_key.expose(),
-        administrator: true,
-    })?;
+    accounts.create(
+        &NewAccount {
+            name: &name,
+            real_name: &full_name,
+            password: password.expose(),
+            administrator: true,
+        },
+        None,
+    )?;
     set_time_zone(&zone)?;
     write(Path::new(DONE), &format!("{name}\n"), 0o644)?;
     transaction::finish(pending)?;
