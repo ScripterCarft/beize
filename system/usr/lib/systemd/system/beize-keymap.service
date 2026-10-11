@@ -3,6 +3,11 @@ Description=Keep the console keymap for the initrd
 Documentation=file:/usr/lib/beize/beize-tpm
 # Copies KEYMAP= of /etc/vconsole.conf into the EFI variable the initrd reads
 # (beize-tpm keymap, ADR 0017); written only when it differs.
+# No start limit: the first boot's setup writes vconsole.conf several times
+# within seconds (localed), and five triggers in 10 s failed the default
+# limit. Nothing can loop – this never writes vconsole.conf – and the path
+# unit keeps its own trigger limit.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
