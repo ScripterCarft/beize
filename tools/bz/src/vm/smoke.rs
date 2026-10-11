@@ -32,9 +32,9 @@ use super::checks::{
 };
 use super::console::{
     Answers, ConsoleEvent, EMERGENCY_HEADLINE, EMERGENCY_SHELL_STARTS, EMERGENCY_WRONG_KEY,
-    LAST_CONSOLE, OWNER_CONSOLE_CREDENTIALS, RECOVERY_HEADLINE, RECOVERY_KEY_SAVED_PROMPT,
-    REPORT_TIMEOUT, SETUP_ANSWERS, SETUP_STARTS_OVER, SMOKE_CREDENTIALS, SMOKE_PASSWORD,
-    SMOKE_USER, Session, TAMPER_TIMEOUT, find_recovery_key, strip_ansi, watch_boot,
+    LAST_CONSOLE, OWNER_CONSOLE_CREDENTIALS, PASSWORD_PAUSE, RECOVERY_HEADLINE,
+    RECOVERY_KEY_SAVED_PROMPT, REPORT_TIMEOUT, SETUP_ANSWERS, SETUP_STARTS_OVER, SMOKE_CREDENTIALS,
+    SMOKE_PASSWORD, SMOKE_USER, Session, TAMPER_TIMEOUT, find_recovery_key, strip_ansi, watch_boot,
 };
 use super::debug::Shell;
 use super::machine::{Machine, boot_once, clear_boot_logs, edit_firmware, new_tpm, parallel_vms};
@@ -696,6 +696,22 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         SMOKE_PASSWORD,
     ]);
     let shell = Shell::boot(&machine, &answers, &OWNER_CONSOLE_CREDENTIALS, false)?;
+    // How long the login took, on the guest's clock: from the start of the
+    // serial getty to the start of the owner's shell (field 22 of its stat,
+    // in clock ticks of 10 ms on x86).
+    let (_, lines) = shell.capture(
+        "read -r -a s < /proc/$$/stat; echo BEIZE-LOGIN \
+         $(systemctl show -P ExecMainStartTimestampMonotonic serial-getty@ttyS0.service) ${s[21]}",
+    )?;
+    let login_ms = lines
+        .iter()
+        .find_map(|l| {
+            let mut fields = l.strip_prefix("BEIZE-LOGIN ")?.split(' ');
+            let getty_us: u64 = fields.next()?.parse().ok()?;
+            let shell_ticks: u64 = fields.next()?.parse().ok()?;
+            (shell_ticks * 10).checked_sub(getty_us / 1000)
+        })
+        .with_context(|| format!("could not measure the login: {lines:?}"))?;
 
     let (status, lines) = shell.capture("run0 id -u")?;
     ensure!(
@@ -710,7 +726,9 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         !lines.iter().any(|l| l.contains("Unknown line")),
         "polkit's agent got the helper's error messages: {lines:?}"
     );
+    let started = Instant::now();
     let (status, lines) = shell.capture("run0 bash -c 'echo BEIZE-UID-$(id -u)'")?;
+    let run0_ms = started.elapsed().saturating_sub(PASSWORD_PAUSE).as_millis();
     ensure!(
         status == 0 && lines.iter().any(|l| l.contains("BEIZE-UID-0")),
         "run0 with the owner's password did not run as root (exit status {status}): {lines:?}"
@@ -722,6 +740,10 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         "polkit did not ask for the owner's own password: {lines:?}"
     );
     say!("  ok: run0 refuses a wrong password and runs as root with the owner's");
+    say!(
+        "  measured: login {login_ms} ms (getty to shell), run0 with the password \
+         {run0_ms} ms (without typing)"
+    );
     // Nobody logs in as root: no password matches its entry.
     let (_, lines) = shell.capture("run0 getent shadow root")?;
     ensure!(

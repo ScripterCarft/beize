@@ -106,7 +106,7 @@ pub(super) const OWNER_CONSOLE_CREDENTIALS: [&str; 2] = [
 /// The password question of PAM, here asked by polkit's agent (run0).
 const PASSWORD_PROMPT: &str = "Password:";
 /// How long the owner takes to start typing a password.
-const PASSWORD_PAUSE: Duration = Duration::from_millis(500);
+pub(super) const PASSWORD_PAUSE: Duration = Duration::from_millis(500);
 
 /// Typed as an answer: Ctrl+C alone, without Enter.
 pub(super) const CTRL_C: &str = "\u{3}";
