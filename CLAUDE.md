@@ -275,8 +275,12 @@ QEMU belegt den Gast-RAM vorab (`memory-backend-ram,prealloc=on`, `machine.rs`),
 0,36 s in jedem Start. CI 38131390634 grün: Kernel 0,42–1,06 s (1. Start 0,8–0,9 statt 2,4–4 s),
 initrd 4,80–5,58 s, System 3,50–4,04 s. initrd in der CI (2. Start): bis 5a 3,40–3,48 s, mit
 5b+libseccomp (`8b71ff9`) 4,07–4,19, mit RAM-Vorbelegung (`f189912`) 4,80–4,87; lokal unverändert
-2,38–2,41 s. Ursache offen – **zuerst im nächsten Chat:** Boot-Report um die langsamsten
-initrd-Units erweitern (Messwerkzeug), CI-Werte ablesen, dann `BOOT_BUDGET`-Kommentar aktualisieren.
+2,38–2,41 s. **Messwerkzeug fertig (`b898b9c`):** Smoke behält das Journal jedes Starts
+(`.journal.json`), zeigt die langsamsten Units. Erster Fund: PID 1 wartete in jedem VM-Start
+2× 333 ms auf eine Terminal-Antwort (CSI 18), `bz` antwortet jetzt → lokal Gast 5,0 → 3,7 s
+(initrd 1,70, System 1,61 s). **Offen:** CI-Lauf 38138839583 auswerten (Zeile „slowest units“
+im Log; bei rot: Artefakt `build-logs` mit `bz boot-times`), Ursache der langsameren
+CI-initrd finden, dann `BOOT_BUDGET` + Kommentar neu messen.
 **Hardware-Test 5b (Besitzer, 2026-10-11):** Wer zum Abtippen des Recovery-Keys über 90 s brauchte,
 landete im Notfall-Tor – systemd-gpt-auto-generator hebt die Gerätefrist nur für
 `dev-mapper-root.device` auf, `sysroot.mount` wartet auf `/dev/gpt-auto-root` (upstream main
@@ -286,8 +290,10 @@ Zweiter Hardware-Fund: in der Wiederherstellung scheiterte „Early TPM SRK Setu
 dort nach, wenn die initrd sie übersprang) – Drop-in auch in `system/usr`, Smoke prüft
 `ConditionResult=no` (CI 38136757166 grün). Beides bei der nächsten Neuinstallation prüfen.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
-**Nächster Schritt: ADR 0019 (Konten, homed hinter Beize-Schnittstelle) entwerfen und mit dem
-Besitzer abstimmen, dann 5d.**
+**ADR 0019 (Konten) als Entwurf in `docs/adr/0019-konten.md` (nicht committet) – wartet auf
+die Antwort des Besitzers zu den zwei offenen Punkten am Ende, dann 5d bauen.** Wichtig aus
+dem Quelltext (v262): homed ändert Passwörter nur mit altem Passwort oder hinterlegtem
+Recovery-Key, auch für root; beim Anlegen braucht es den Klartext jedes Keys.
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
