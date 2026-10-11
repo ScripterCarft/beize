@@ -265,7 +265,9 @@ polkits `meson_post_install.py` macht den Helfer als root setuid – Rezept nimm
 RAM (`INIT_ON_FREE`, ADR 0015); in der VM stellte der Host jede Seite dabei erst bereit – auf dem
 verschachtelten CI-Runner 0,6–4 s je nach Speicherzustand (vorher 1. = 2. Start, ~0,8 s). Fix:
 QEMU belegt den Gast-RAM vorab (`memory-backend-ram,prealloc=on`, `machine.rs`), lokal Kernel
-0,36 s in jedem Start. Nach grüner CI die neuen CI-Werte in den `BOOT_BUDGET`-Kommentar.
+0,36 s in jedem Start. CI 38131390634 grün: Kernel 0,42–1,06 s (1. Start 0,8–0,9 statt 2,4–4 s),
+initrd 4,80–5,58 s (vorher 4,1–4,2 – Anstieg seit libseccomp/5c prüfen, Budget 6,0), System
+3,50–4,04 s. Zuerst im nächsten Chat: diese Werte in den `BOOT_BUDGET`-Kommentar, initrd-Anstieg klären.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
 **Nächster Schritt: ADR 0019 (Konten, homed hinter Beize-Schnittstelle) entwerfen und mit dem
 Besitzer abstimmen, dann 5d.**
