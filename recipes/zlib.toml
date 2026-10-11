@@ -1,0 +1,19 @@
+# Compression library, required by glib (GIO streams). Only the shared library.
+name = "zlib"
+version = "1.3.2"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 5303 }
+url = "https://zlib.net/zlib-{version}.tar.xz"
+sha256 = "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3"
+signature = "https://zlib.net/zlib-{version}.tar.xz.asc"
+keyring = "zlib"
+
+[build]
+script = '''
+CHOST="$TARGET" "$SRC/configure" --prefix=/usr --libdir=/usr/lib --shared
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

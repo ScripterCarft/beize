@@ -1,0 +1,29 @@
+# GLib, GObject and GIO: the base library polkit is written against (and,
+# later, GTK applications). No introspection, translations or documentation.
+name = "glib"
+version = "2.90.1"
+stage = "target"
+deps = ["gcc", "glibc", "zlib", "libffi", "pcre2", "util-linux"]
+
+# GNOME publishes only checksums for the archives; the release tags are
+# signed. gvdb is a submodule, pinned by the signed tree.
+[source]
+latest = { release-monitoring = 10024 }
+git = "https://gitlab.gnome.org/GNOME/glib.git"
+tag = "{version}"
+commit = "e05063ccc6c8f222465a1080927f4c14349f3de6"
+submodules = true
+keyring = "glib"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release --wrap-mode=nodownload \
+  -Ddefault_library=shared \
+  -Dselinux=disabled -Dlibmount=enabled -Dxattr=true \
+  -Dman-pages=disabled -Ddocumentation=false -Dintrospection=disabled \
+  -Dnls=disabled -Dsysprof=disabled -Ddtrace=disabled -Dsystemtap=disabled \
+  -Dtests=false -Dinstalled_tests=false -Dglib_debug=disabled
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''

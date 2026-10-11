@@ -1,0 +1,29 @@
+# Small embeddable JavaScript engine: polkit evaluates its rules with it
+# (the only engine polkit supports since 126). Only the shared library.
+name = "duktape"
+version = "2.7.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 21345 }
+url = "https://github.com/svaarala/duktape/releases/download/v{version}/duktape-{version}.tar.xz"
+sha256 = "90f8d2fa8b5567c6899830ddef2c03f3c27960b11aca222fa17aa7ac613c2890"
+unsigned = "duktape signs neither release archives nor tags (checked 2026-10-11); archive pinned by SHA-256, the one Arch Linux builds"
+
+[build]
+script = '''
+# Upstream's Makefile.sharedlibrary builds in-tree; only the release library
+# (not the debug variant libduktaped) and its pkg-config file. Upstream's
+# link line uses libm without linking it; append it after the source, as
+# Arch Linux does.
+cp -a "$SRC/." .
+sed -i 's/duktape\.c$/& -lm/' Makefile.sharedlibrary
+make -f Makefile.sharedlibrary INSTALL_PREFIX=/usr CC="$CC" \
+  libduktape.so.207.20700 duktape.pc
+install -Dm755 libduktape.so.207.20700 "$PKG/usr/lib/libduktape.so.207.20700"
+ln -s libduktape.so.207.20700 "$PKG/usr/lib/libduktape.so.207"
+ln -s libduktape.so.207 "$PKG/usr/lib/libduktape.so"
+install -Dm644 duktape.pc "$PKG/usr/lib/pkgconfig/duktape.pc"
+install -Dm644 src/duktape.h src/duk_config.h -t "$PKG/usr/include"
+'''

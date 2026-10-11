@@ -41,6 +41,10 @@ systemd-userdb-load-credentials.service getty@tty1.service systemd-vconsole-setu
 systemd-mute-console.socket systemd-ask-password.socket
 systemd-ask-password-console.path systemd-ask-password-wall.path
 
+# Privileges (ADR 0018): polkit's password helper; polkitd itself starts on
+# demand over D-Bus (run0, localed, ...).
+polkit-agent-helper.socket
+
 # System basics: D-Bus, kernel settings, runtime files, host name.
 dbus.service dbus.socket systemd-sysctl.service systemd-hostnamed.socket
 systemd-tmpfiles-setup.service systemd-tmpfiles-setup-dev.service

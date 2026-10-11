@@ -12,6 +12,10 @@ enable beize-save-clock.timer
 enable beize-setup.service
 # The console keymap also for the initrd (ADR 0017).
 enable beize-keymap.path
+# Privileges (ADR 0018): polkit checks passwords in this sandboxed helper,
+# one instance per request, instead of a setuid program. polkitd itself is
+# started by D-Bus on first use.
+enable polkit-agent-helper.socket
 # Time with NTS (ADR 0012).
 enable ntpd-rs.service
 

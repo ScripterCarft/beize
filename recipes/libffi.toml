@@ -1,0 +1,20 @@
+# Foreign function interface, required by glib (GObject closures).
+name = "libffi"
+version = "3.8.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 1611 }
+url = "https://github.com/libffi/libffi/releases/download/v{version}/libffi-{version}.tar.gz"
+sha256 = "7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4"
+unsigned = "libffi signs neither release archives nor tags (checked 2026-10-11); archive pinned by SHA-256, the one Arch Linux builds"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --disable-static --disable-docs --disable-multi-os-directory
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+'''

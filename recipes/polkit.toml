@@ -1,0 +1,41 @@
+# Authorization manager (ADR 0018): decides whether a user may do something
+# that needs privileges – run0 above all. Administrators are the members of
+# wheel (upstream's 50-default.rules). Passwords are checked by the
+# socket-activated agent helper, a sandboxed service: nothing is setuid.
+# pkexec is not shipped (setuid root by design).
+name = "polkit"
+version = "127"
+stage = "target"
+deps = ["gcc", "glibc", "glib", "duktape", "expat", "linux-pam", "systemd", "dbus"]
+
+[source]
+latest = { release-monitoring = 3682 }
+git = "https://github.com/polkit-org/polkit.git"
+tag = "{version}"
+commit = "9e4894c969eecf26a3ba762f4f7a268aa0fb3e51"
+unsigned = "polkit signs neither release tags (lightweight) nor commits and publishes no archives of its own (checked 2026-10-11); pinned to the commit of the release tag"
+
+[build]
+script = '''
+# os_type only picks defaults for the group and the PAM includes (and is
+# otherwise guessed from the build host); both are set here.
+meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+  --prefix=/usr --libdir=/usr/lib --sysconfdir=/etc --buildtype=release \
+  -Dsession_tracking=logind -Dsystemdsystemunitdir=/usr/lib/systemd/system \
+  -Dauthfw=pam -Dpam_include=system-auth -Dpam_prefix=/usr/lib/pam.d \
+  -Dpam_module_dir=/usr/lib/security -Dprivileged_group=wheel \
+  -Dintrospection=false -Dtests=false -Dexamples=false -Dman=false \
+  -Dgtk_doc=false -Dgettext=false
+meson compile -j "$JOBS"
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+# The sysusers.d and tmpfiles.d directories come from systemd's pkg-config
+# file, which the cross build prefixes with the sysroot; polkit has no option
+# for them.
+mv "$PKG$SYSROOT/usr/lib/sysusers.d" "$PKG$SYSROOT/usr/lib/tmpfiles.d" "$PKG/usr/lib/"
+d="$PKG$SYSROOT/usr/lib"
+while [ "$d" != "$PKG" ]; do rmdir "$d"; d=$(dirname "$d"); done
+rm "$PKG/usr/bin/pkexec"
+# An empty /etc/polkit-1/rules.d for local rules; tmpfiles.d creates it
+# (polkit-tmpfiles.conf), Beize ships only /usr.
+rm -r "$PKG/etc"
+'''

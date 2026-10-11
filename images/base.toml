@@ -5,4 +5,6 @@
 packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils", "beize-setup",
             "tzdata", "ca-certificates", "ntpd-rs", "kmod", "beize-tpm",
             # Keyboard (ADR 0017): layouts, localed's check of them, console keymaps.
-            "xkeyboard-config", "libxkbcommon", "kbd"]
+            "xkeyboard-config", "libxkbcommon", "kbd",
+            # Privileges (ADR 0018): run0, authorized by polkit.
+            "polkit"]

@@ -1,0 +1,26 @@
+# Regular expressions, required by glib (GRegex). Only the 8-bit library;
+# no JIT (it needs writable executable memory), no tools.
+name = "pcre2"
+version = "10.49"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 5832 }
+url = "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-{version}/pcre2-{version}.tar.bz2"
+sha256 = "53c156e1ba416a20da8e65395daa132da0d80e76910424caca3fcdae7831d384"
+signature = "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-{version}/pcre2-{version}.tar.bz2.sig"
+keyring = "pcre2"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --disable-static --enable-pcre2-8 --disable-pcre2-16 --disable-pcre2-32 \
+  --disable-jit --disable-pcre2grep-libz --disable-pcre2grep-libbz2 \
+  --disable-pcre2test-libreadline --disable-pcre2test-libedit
+make -j"$JOBS"
+make DESTDIR="$PKG" install
+rm -f "$PKG"/usr/bin/pcre2grep "$PKG"/usr/bin/pcre2test
+rm -rf "$PKG/usr/share/doc" "$PKG/usr/share/man"
+'''
