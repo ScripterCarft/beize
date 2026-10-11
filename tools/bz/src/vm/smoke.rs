@@ -678,7 +678,12 @@ fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
 fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-privileges")?;
     // The serial console is no active session: polkit asks every time.
-    let answers = Answers::passwords(&["wrong-password", SMOKE_PASSWORD, SMOKE_PASSWORD]);
+    let answers = Answers::passwords(&[
+        "wrong-password",
+        SMOKE_PASSWORD,
+        SMOKE_PASSWORD,
+        SMOKE_PASSWORD,
+    ]);
     let shell = Shell::boot(&machine, &answers, &OWNER_CONSOLE_CREDENTIALS, false)?;
 
     let (status, lines) = shell.capture("run0 id -u")?;
@@ -706,6 +711,13 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         "polkit did not ask for the owner's own password: {lines:?}"
     );
     say!("  ok: run0 refuses a wrong password and runs as root with the owner's");
+    // Nobody logs in as root: no password matches its entry.
+    let (_, lines) = shell.capture("run0 getent shadow root")?;
+    ensure!(
+        lines.iter().any(|l| l.starts_with("root:!*:")),
+        "root's password is not locked: {lines:?}"
+    );
+    say!("  ok: root has no password, only run0 gives root");
 
     // Mount options of / and /usr (field 6 of mountinfo), without grep.
     let (_, lines) = shell.capture(

@@ -84,10 +84,12 @@ pub fn add_group(group: &str, name: &str, id: u32) -> Result<String, String> {
     Ok(append(&out, &format!("{name}:x:{id}:")))
 }
 
-/// `shadow` with the owner's entry appended and root given the same password
-/// hash: the emergency shell (sulogin) asks for root's password, and the
-/// owner should not need a second one to remember. `days` is today in days
-/// since 1970 (last password change).
+/// `shadow` with the owner's entry appended and root locked: nobody logs in
+/// as root (ADR 0018). The owner gets root with run0 and their own password;
+/// the emergency gate and the recovery ask for the recovery key instead
+/// (ADR 0016). Locked even if root had a password before, like macOS's
+/// disabled root and Fedora's with an administrator account. `days` is
+/// today in days since 1970 (last password change).
 pub fn add_shadow(shadow: &str, name: &str, hash: &str, days: u64) -> Result<String, String> {
     let mut found_root = false;
     let mut out = String::new();
@@ -95,8 +97,7 @@ pub fn add_shadow(shadow: &str, name: &str, hash: &str, days: u64) -> Result<Str
         let mut fields: Vec<String> = line.split(':').map(str::to_owned).collect();
         if fields.first().map(String::as_str) == Some("root") && fields.len() >= 3 {
             found_root = true;
-            fields[1] = hash.to_owned();
-            fields[2] = days.to_string();
+            fields[1] = LOCKED.to_owned();
         }
         out.push_str(&fields.join(":"));
         out.push('\n');
@@ -106,6 +107,9 @@ pub fn add_shadow(shadow: &str, name: &str, hash: &str, days: u64) -> Result<Str
     }
     Ok(append(&out, &format!("{name}:{hash}:{days}:0:99999:7:::")))
 }
+
+/// A password field no password matches: "!" locks, "*" matches no hash.
+const LOCKED: &str = "!*";
 
 fn append(text: &str, line: &str) -> String {
     let mut out = text.to_owned();
@@ -165,7 +169,10 @@ mod tests {
         assert!(twice.contains("wheel:x:10:joe,ann\n"));
 
         let shadow = add_shadow(SHADOW, "joe", "$y$j9T$salt$hash", 20005).unwrap();
-        assert!(shadow.starts_with("root:$y$j9T$salt$hash:20005:"));
+        assert!(shadow.starts_with("root:!*:20000:"));
+        // A root password from before is locked, too.
+        let had = add_shadow("root:$y$j9T$old$hash:19000::::::\n", "joe", "$y$h", 20005).unwrap();
+        assert!(had.starts_with("root:!*:19000:"));
         assert!(shadow.contains("systemd-network:!*:::::::\n"));
         assert!(shadow.ends_with("joe:$y$j9T$salt$hash:20005:0:99999:7:::\n"));
     }

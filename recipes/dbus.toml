@@ -28,4 +28,8 @@ DESTDIR="$PKG" meson install --no-rebuild --quiet
 # /etc/dbus-1/{system,session}.conf are empty legacy stubs; the real
 # configuration lives in /usr/share/dbus-1.
 rm -rf "$PKG/etc"
+# The setuid launch helper starts system bus services without systemd. Here
+# systemd starts every one (SystemdService=), and setuid is not allowed
+# (ADR 0018); installed without the bit, it would only be dead weight.
+rm "$PKG/usr/lib/dbus-1.0/dbus-daemon-launch-helper"
 '''
