@@ -275,6 +275,9 @@ landete im Notfall-Tor – systemd-gpt-auto-generator hebt die Gerätefrist nur 
 `dev-mapper-root.device` auf, `sysroot.mount` wartet auf `/dev/gpt-auto-root` (upstream main
 genauso). Behoben per initrd-Drop-in (Smoke-Test dafür vom Besitzer verworfen: 100 s je Lauf); Upstream-Bericht
 (Entwurf, sendet der Besitzer): WSL `~/upstream/systemd-gpt-auto-timeout/ISSUE.md`.
+Zweiter Hardware-Fund: in der Wiederherstellung scheiterte „Early TPM SRK Setup“ im System (läuft
+dort nach, wenn die initrd sie übersprang) – Drop-in auch in `system/usr`, Smoke prüft
+`ConditionResult=no` (CI 38136757166 grün). Beides bei der nächsten Neuinstallation prüfen.
 **Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
 **Nächster Schritt: ADR 0019 (Konten, homed hinter Beize-Schnittstelle) entwerfen und mit dem
 Besitzer abstimmen, dann 5d.**
