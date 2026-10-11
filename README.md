@@ -43,7 +43,9 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [x] Kernel mit eigener Konfiguration auf Upstreams Standardwerten, Treiber als
       signierte Module (nur signierte werden geladen, Lockdown), CPU-Microcode im UKI;
       der Boot-Test prüft, dass ein unsigniertes Modul abgewiesen wird
-- [ ] Startzeit auf echter Hardware, Administratorrechte, Tastaturlayout
+- [x] Tastaturlayout: beim ersten Start gewählt (XKB), auf der Konsole und in der initrd –
+      der Recovery-Key wird mit der eigenen Tastatur getippt
+- [ ] Startzeit auf echter Hardware, Administratorrechte
 - [ ] Updater (systemd-sysupdate)
 - [ ] NVIDIA, WLAN, Bluetooth, Ton
 - [ ] Start von der zweiten SSD

@@ -71,7 +71,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery), `beize-setup` (1. Start: Konto, Zeitzone) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`; ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -122,7 +122,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb. Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -157,6 +157,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   zeigt es erst der Smoke-Test.
 - Notfallzugang nur über `beize-tpm emergency` (Drop-ins für emergency/rescue), nie
   `sulogin`, `debug-shell` oder ein Generator, der eine Shell öffnet.
+- **Tastatur (ADR 0017):** ein Layout immer als ganze Zeile aus systemds
+  `kbd-model-map` setzen, deren Keymap es gibt (`localectl … --no-convert`, wie
+  beize-setup) – localed rät sonst auch Keymaps, die kbd nicht hat.
 - **Kernel-Optionen** nur in das passende Fragment unter `kernel/config/`, mit Grund
   (Vorbild Fedora nennen); fehlende Abhängigkeiten meldet `bz`. Gerätetreiber als
   Modul (`=m`), fest nur Infrastruktur vor udev (ADR 0015).
@@ -189,6 +192,11 @@ in die Endfassung einarbeiten, keine Nachträge.
 - systemd-Konsolenzeilen enthalten ANSI-Codes **mitten im Text** → `strip_ansi`.
 - `sbvarsign` signiert die `.auth`-Dateien mit der aktuellen Zeit: `disk.img` ist nie
   bit-gleich (der Image-Stamp nimmt deshalb die Schlüssel, nicht die `.auth`).
+- Smoke tippt in der initrd über QMP echte Tasten (Scancodes, die Keymap entscheidet):
+  Tasten, bevor die Abfrage tty1 geöffnet hat, gehen verloren – daher 1 s Pause nach
+  dem Prompt auf der seriellen Konsole.
+- Gegenproben nur gezielt zurücksetzen (Backup der Datei), nie `git checkout` auf eine
+  Datei mit noch nicht committeten Änderungen.
 - Rust `Command::output()` setzt stdin auf null: Programme, die am Terminal fragen sollen
   (systemd-ask-password), brauchen `.stdin(Stdio::inherit())`, sonst warten sie auf
   einen Passwort-Agenten.
@@ -208,6 +216,11 @@ in die Endfassung einarbeiten, keine Nachträge.
   (frisches Build-Verzeichnis = kein veralteter Zustand; meson-Optionen landen in
   `config.h`, inkrementell würde ohnehin fast alles neu übersetzt).
 - CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`).
+- Tastatur (ADR 0017): auf aus XKB umgewandelte Keymaps umstellen, sobald ein
+  kbd-Release die XKB-Korrekturen nach 2.10.0 enthält (AltGr: 0bb93f7); systemds
+  `kbd-model-map` nennt für ko-KR/km-KH/ar-SA Keymaps, die kbd nicht hat
+  (vconsole-setup scheitert vor dem Setup) – Upstream-Bericht vorbereiten;
+  Konsolenschrift (HiDPI) noch nicht gesetzt.
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-11)
 
@@ -220,7 +233,18 @@ Notfall-Tor `beize-tpm emergency` (Shell nur mit Recovery-Key, PCR 11 vorher ges
 Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, BIOS-Empfehlungen. `INIT_ON_FREE` bleibt
 (Besitzer, ADR 0015). `BOOT_BUDGET` unverändert (VM-initrd-Phase hängt am swtpm).
 
-**Nächster Schritt: Phase 5 (eigener Chat), ADR 0017 Tastatur/Locale vorab abstimmen.**
+**Phase 5a abgeschlossen (ADR 0017, 2026-10-11, mit dem Besitzer abgestimmt):** XKB-Layout
+im Setup als erste Frage (kbd-Keymaps über `kbd-model-map`, wie Arch), Keymap der initrd in
+der EFI-Variable `BeizeKeymap` (Vorbild macOS/FileVault), Notfall-Tor nimmt den Recovery-Key
+in jeder Schreibweise, Bestätigungswort `stored`, LANG bleibt C.UTF-8. Nebenbei behoben:
+`beize-tpm reseal` nach einem Vertipper am Recovery-Key. Smoke tippt den Key per QMP auf der
+Tastatur (US-Bindestrich abgelehnt, deutscher angenommen; Gegenproben rot).
+**Hardware-Check (Besitzer, nach `bz sign`/`bz install`):** Die Installation hat ihr Setup
+schon hinter sich, also einmal `localectl set-keymap --no-convert de-latin1-nodeadkeys` und
+`localectl set-x11-keymap --no-convert de pc105 nodeadkeys terminate:ctrl_alt_bksp` (oder
+`de`/`de` ohne Variante); danach `tail -c +5 /sys/firmware/efi/efivars/BeizeKeymap-*` und
+nach dem Neustart `journalctl -b -u beize-keymap` (initrd: „Console keymap: …“).
+**Nächster Schritt: Phase 5b (eigener Chat), ADR 0018 Rechte (run0 + polkit) vorab abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
@@ -264,8 +288,7 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
 4. ✓ **Startpfad (ADR 0016):** initrd aus Funktionen, Notfall-Tor, hwdb, Befunde analysiert
    (udev → Kernel-Patch, NvPCR → by design, ntpd-rs → Upstream-Issue), BIOS-Empfehlungen.
    Gemessen: ab Loader 13,5 s; initrd bleibt 4,0 s bis zum USB-Patch.
-5. **Grundfunktionen:** a) Tastatur/Locale (ADR 0017): XKB als einzige Quelle
-   (xkeyboard-config, libxkbcommon, localed, kbd), beize-setup fragt Layout vor dem Passwort.
+5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
    b) Rechte (ADR 0018): run0 + polkit (duktape), kein setuid in `/usr` (Test).
    c) iputils `ping` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
 6. **A/B-Updates (ADR 0019) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
