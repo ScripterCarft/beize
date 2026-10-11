@@ -321,7 +321,7 @@ new-update-key` (**Besitzer muss ihn vor dem nächsten `bz sign` erzeugen**); (4
 fremdem Schlüssel, geänderter Datei, älterer Version; Start ohne Recovery-Key, Zähler entfernt).
 Funde: `systemd-sysupdate-notify-pcrlock.socket` aus (pcrlock-Credential auf der ESP veränderte
 PCR 12); `beize-keymap.service` ohne Startlimit (Flake beim ersten Start); beize-tpm nennt bei
-„Start verändert“ die PCR-12-Ereignisse. **Offen:** (5) `beize-boot-health` + signiertes
+„Start verändert“ die PCR-12-Ereignisse. **Gepusht 2026-10-11, CI 38164107277 prüfen (`gh run view`).** **Offen:** (5) `beize-boot-health` + signiertes
 systemd-boot in `/usr` (`systemd-boot-update` nach `boot-complete.target`); (6) restliche
 Szenarien: zweites Update B→A, kaputtes Update (verity) → nach 3 Versuchen zurück.
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
@@ -379,3 +379,8 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:
    zählt ein Start mit fehlgeschlagener Unit als gescheitert?); Smoke: Update A→B mit TPM,
    kaputtes Update → A, zweites Update.
+7. **Konsolidierung vor M3 (Wunsch des Besitzers 2026-10-11, Umfang vorab abstimmen):** auf der
+   Hardware messen (Start, Speicher/CPU im Leerlauf über Stunden – nichts wächst oder schwankt),
+   Review des eigenen Codes (`bz`, `os/*`) auf Einfachheit und Effizienz, offene Punkte aus §10
+   und die offenen Warnungen; Funktionen bleiben, geändert wird nur nachweislich Besseres. Nicht
+   feinschleifen, was M3 ersetzt (Konsole, Setup-Oberfläche).
