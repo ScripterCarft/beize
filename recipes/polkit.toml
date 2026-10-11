@@ -35,6 +35,10 @@ mv "$PKG$SYSROOT/usr/lib/sysusers.d" "$PKG$SYSROOT/usr/lib/tmpfiles.d" "$PKG/usr
 d="$PKG$SYSROOT/usr/lib"
 while [ "$d" != "$PKG" ]; do rmdir "$d"; d=$(dirname "$d"); done
 rm "$PKG/usr/bin/pkexec"
+# Upstream's meson_post_install.py makes the agent helper setuid root when
+# installing as root (the CI builds as root); Beize runs it socket-activated
+# as a service instead (ADR 0018).
+chmod 0755 "$PKG/usr/lib/polkit-1/polkit-agent-helper-1"
 # An empty /etc/polkit-1/rules.d for local rules; tmpfiles.d creates it
 # (polkit-tmpfiles.conf), Beize ships only /usr.
 rm -r "$PKG/etc"
