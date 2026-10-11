@@ -221,6 +221,13 @@ in die Endfassung einarbeiten, keine Nachträge.
   `kbd-model-map` nennt für ko-KR/km-KH/ar-SA Keymaps, die kbd nicht hat
   (vconsole-setup scheitert vor dem Setup) – Upstream-Bericht vorbereiten;
   Konsolenschrift (HiDPI) noch nicht gesetzt.
+- **systemd ohne seccomp** (gefunden 2026-10-11, `-Dauto_features=disabled`, libseccomp
+  fehlt): `SystemCallFilter=`, `RestrictAddressFamilies=` u. a. in allen Units (auch
+  polkit, systemds eigene) werden still ignoriert. Härtungslücke – mit dem Besitzer
+  entscheiden (libseccomp als Paket, signiert; Fedora/Arch bauen mit).
+- polkit: Drop-in `polkit-agent-helper@.service.d/beize-stderr.conf` mit polkit 128
+  entfernen (upstream 3d07db95a4). FIDO/pam_u2f im socket-aktivierten Helfer ist in 127
+  kaputt (upstream #622) – erst relevant mit Sicherheitsschlüsseln.
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-11)
 
@@ -242,7 +249,17 @@ Tastatur (US-Bindestrich abgelehnt, deutscher angenommen; Gegenproben rot).
 **Auf der Hardware bestätigt (2026-10-11, Neuinstallation, Code-Stand `b3bda29`):** Layout „German“
 → `KEYMAP=de`, EFI-Variable `de`, initrd meldet „Console keymap: de.“. Ohne Updater
 (Phase 6) heißt neues Image Neuinstallation (`bz install … --reinstall`, neuer Recovery-Key).
-**Nächster Schritt: Phase 5b umsetzen (ADR 0018 angenommen), Stand im Fahrplan unten.**
+**Phase 5b abgeschlossen (ADR 0018, 2026-10-11; Smoke grün, 13 Szenarien):** run0 + polkit
+127 (wheel, eigenes Passwort, Helfer socket-aktiviert, kein pkexec; systemd mit
+`-Dpolkit=enabled`), root `!*`, Bau-Prüfung ohne setuid/setgid (`privileges.rs`), `/usr`
+ohne xattrs, `nosuid,nodev` auf `/` und `/usr`, UKI-Profil „Recovery“ (`@recovery`,
+nur Beize-Profil signiert; PCR 12 = `@1` + `1`, `policy::Boot`), Notfall-Tor nimmt den
+Key aus dem cryptsetup-Keyring. Neue Pakete glib/pcre2/zlib/libffi/duktape/polkit, `bz`
+kann Submodule. Smoke-Szenarien „Privileges“ (Besitzer per Autologin-Credential an der
+seriellen Konsole, `debug::Shell::capture`) und „Recovery“ (`boot_once`).
+**Hardware-Check 5b (Besitzer, Neuinstallation):** `run0 id -u` mit eigenem Passwort → 0;
+Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s` → Shell.
+**Nächster Schritt: Phase 5c (ping/tracepath), dann ADR 0019 (Konten) vorab abstimmen.**
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
@@ -287,17 +304,18 @@ nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber
    (udev → Kernel-Patch, NvPCR → by design, ntpd-rs → Upstream-Issue), BIOS-Empfehlungen.
    Gemessen: ab Loader 13,5 s; initrd bleibt 4,0 s bis zum USB-Patch.
 5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
-   b) **In Arbeit:** Rechte (ADR 0018, angenommen 2026-10-11): run0 + polkit 127 (duktape,
-      Helfer socket-aktiviert ohne setuid, kein pkexec), Profil „Wiederherstellung“ im UKI
-      (Notfall-Tor, TPM gibt nicht frei) **vor** dem Sperren von root, `nosuid,nodev` auf
-      `/usr` und `/`, Bau-Prüfung ohne setuid/setgid/Capabilities. Neue Pakete: polkit,
-      duktape, glib, pcre2, libffi, zlib.
+   b) ✓ Rechte (ADR 0018): run0 + polkit, root gesperrt, kein setuid, Wiederherstellung.
    c) iputils `ping` + `tracepath` ohne setuid/Capabilities (ping_group_range), Smoke-Check.
    d) Konten (ADR 0019, vorab abstimmen): systemd-homed (Speicher „directory“, wie macOS
       ohne Verschlüsselung je Benutzer), Passwort ändern, Zurücksetzen in der
       Wiederherstellung mit **einem** Recovery-Key; beize-setup legt das Konto über homed
       an. Besitzer (2026-10-11): nur, wenn es wirklich stabil läuft – bei merkwürdigen
       Problemen anhalten und neu besprechen. UI später frei gestaltbar (homed = API).
+      Besitzer-Wunsch: **eine Beize-Schnittstelle für Konten** (Vorbild macOS Open Directory),
+      dahinter austauschbar homed oder klassisch `/etc/shadow`; Setup, Einstellungen,
+      Anmeldung und Wiederherstellung sprechen nur sie. Lesen und Anmelden sind schon
+      neutral (userdb/NSS, PAM) – die Schnittstelle deckt die Schreibvorgänge ab (anlegen,
+      Passwort ändern/zurücksetzen, Name, Bild), mit polkit; ein Vertragstest gilt für jedes Modul.
 6. **A/B-Updates (ADR 0020) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
    systemd-sysupdate (usr, verity, UKI, signierter Bootloader – `systemd-boot-update` ist
    deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:
