@@ -223,7 +223,8 @@ in die Endfassung einarbeiten, keine Nachträge.
 - systemd-Rezeptänderungen bauen systemd komplett neu (~5 min): bewusst so gelassen
   (frisches Build-Verzeichnis = kein veralteter Zustand; meson-Optionen landen in
   `config.h`, inkrementell würde ohnehin fast alles neu übersetzt).
-- CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`).
+- CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`). Container-Image von public.ecr.aws
+  scheiterte einmal am Download-Limit (2026-10-12) – tritt es wieder auf: Anmeldung/Mirror prüfen.
 - systemd 263: PID 1 fragt einen VT nicht mehr per CSI 18 nach seiner Größe (upstream
   4ca7ac0275, nach v262) – auf der Hardware (`/dev/console` = tty0) wartet 262 in initrd
   und System je 333 ms auf eine Antwort, die der VT nie gibt. Mit dem Update auf der
@@ -237,7 +238,7 @@ in die Endfassung einarbeiten, keine Nachträge.
   entfernen (upstream 3d07db95a4). FIDO/pam_u2f im socket-aktivierten Helfer ist in 127
   kaputt (upstream #622) – erst relevant mit Sicherheitsschlüsseln.
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-11)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-12)
 
 **Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
 neu installieren: `keys/secureboot/README.md`). Installiert ist `18b89a3` (Phase 4, CI grün,
@@ -350,8 +351,28 @@ PARTLABEL/FSTYPE/LABEL – util-linux ist vor systemd und damit `--without-udev`
 eigenes Rezept `recipes/lsblk.toml` nach systemd mit libudev, Smoke prüft es als Besitzer
 (Gegenprobe rot). Kommt mit 0.2 auf die Hardware. Einmal ging ein Smoke-Lauf beim ersten Start
 nicht weiter („did not report within 120s“, Logs überschrieben), in den Läufen danach nicht
-mehr – beobachten. **Offen für M2:** Teil B (Update auf 0.2 vom Stick, `docs/hardware.md`;
-`OS_VERSION` erhöht Claude auf Zuruf). Danach Phase 7 (Umfang vorab abstimmen).
+mehr – beobachten. **Teil B bestätigt (Besitzer, 2026-10-12):** Update 0.1 → 0.2 vom USB-Stick,
+Start ohne Recovery-Key, alles wie in `docs/hardware.md` erwartet, `lsblk` als Benutzer ok.
+**Phase 6 abgeschlossen; installiert ist 0.2 (`d4ee932`).** CI 38266265098 (lsblk) scheiterte nur
+am Container-Download („toomanyrequests: Data limit exceeded“ bei public.ecr.aws) – **CI des Pushs
+mit `d4ee932` prüfen** (deckt beide Commits ab; bei Rot zuerst prüfen, ob wieder nur der Download).
+
+**NÄCHSTER CHAT – Phase 7, Wünsche des Besitzers (2026-10-12):** zuerst optimieren, byte-genau:
+Startzeiten sind zu lang, Builds teils immens groß und ineffektiv. Umfang vorab abstimmen (siehe
+Fahrplan Punkt 7): messen (Start auf der Hardware, Größen von `/usr`, initrd, UKI, Build-Zeiten
+und -Platz), dann gezielt verbessern, jede Änderung belegt.
+**Später (ADR, mit Updates über das Internet vor M5): Zurück auf eine ältere Version.** Heute gibt
+es das nicht als Funktion: Die vorige Version liegt im anderen Slot und steht im Startmenü
+(einmal wählbar), der nächste Start nimmt wieder die neueste, das nächste Update überschreibt sie.
+Wege: (1) „Vorige Version“ (Vorbild Windows „Zurück“, `rpm-ostree rollback`): `beize-update
+rollback` macht die Version im anderen Slot zum Standard, ohne Download; verlangt, dass
+Zustandsformate in `/etc`/`/var` eine Version zurück lesbar bleiben. (2) Ältere Versionen vom
+Server (Vorbild ChromeOS-Enterprise-Rollback): die signierte Liste nennt erlaubte Versionen
+(Mindestversion wegen Sicherheitslücken), nur der Besitzer löst aus, ggf. mit Zurücksetzen der
+Daten, weil Formate nicht rückwärts garantiert sind. (3) Schutz gegen Downgrade durch Angreifer:
+beize-updated lehnt ältere Versionen heute ab, aber jedes ältere signierte UKI entsperrt das TPM
+(ADR 0009, offen) – Mindestversion im TPM (NV-Zähler) oder in der signierten PCR-Richtlinie;
+gehört mit (1)/(2) entschieden. Empfehlung: (1) bald (klein), (2)+(3) mit dem Update-Server.
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;

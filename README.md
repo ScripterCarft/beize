@@ -52,7 +52,7 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 - [ ] Startzeit auf echter Hardware
 - [x] A/B-Updates: signiert (ML-DSA), aktiv beim nächsten Start; ein Update, das nicht
       startet, fällt nach drei Versuchen von selbst auf die vorige Version zurück
-      (in der VM getestet, auf der Hardware noch offen)
+      (auf der Hardware bestätigt: 0.1 → 0.2 vom USB-Stick, 2026-10-12)
 - [ ] NVIDIA, WLAN, Bluetooth, Ton
 - [ ] Start von der zweiten SSD
 
