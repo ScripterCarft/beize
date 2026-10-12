@@ -9,10 +9,11 @@ on:
     # Weekly, to notice when an upstream download or signature changes.
     - cron: "17 4 * * 1"
 
-# The workflow only reads the repository; caches and artifacts use the
-# runner's own token.
+# The workflow only reads the repository and the build container
+# (mirror.yml); caches and artifacts use the runner's own token.
 permissions:
   contents: read
+  packages: read
 
 # A newer push to the same branch makes older runs pointless: cancel them
 # instead of letting several multi-hour builds run side by side.
@@ -28,7 +29,10 @@ jobs:
     # link the host's libraries, and libsystemd's sd-json (beize-accounts)
     # needs systemd 257 – the runner image has 255.
     container:
-      image: public.ecr.aws/docker/library/ubuntu:26.04
+      image: ghcr.io/scriptercarft/beize-build:ubuntu-26.04
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,9 +64,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     container:
-      # Docker's official ubuntu image via AWS's mirror (same digest): Docker
-      # Hub refused anonymous pulls from the runners (rate limit).
-      image: public.ecr.aws/docker/library/ubuntu:26.04
+      # Ubuntu's official image, pinned by digest in this repository's
+      # registry (mirror.yml): anonymous pulls from Docker Hub and AWS's
+      # mirror failed on their limits.
+      image: ghcr.io/scriptercarft/beize-build:ubuntu-26.04
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
       # Privileged for user namespaces (image assembly) and /dev/kvm (boot test).
       options: --privileged --device /dev/kvm
     steps:

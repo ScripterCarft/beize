@@ -118,7 +118,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   Änderung neu messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`, manuell
   und wöchentlich (dann von null) `ci/system.sh` im privilegierten `ubuntu:26.04`-Container
-  (`public.ecr.aws`) mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum und Microcode
+  (gespiegelt in GHCR, `mirror.yml`) mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum und Microcode
   im Actions-Cache; `build/out` nicht, daher laufen die Schritte ab Kernel dort immer. Der
   Runner ist klein (Smoke-Szenarien nacheinander, ~14 min). Repo privat: Actions-Minuten sparsam.
 
