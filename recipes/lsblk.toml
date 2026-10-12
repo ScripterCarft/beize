@@ -1,0 +1,34 @@
+# lsblk from util-linux, built after systemd with libudev: it reads file
+# systems, labels and partition names from udev's database, as any user
+# may. util-linux itself comes before systemd (libblkid and libmount are
+# systemd's dependencies) and so without udev; lsblk then probed the disks
+# itself, which only root may – for everyone else those columns stayed empty.
+name = "lsblk"
+version = "2.42.4"
+stage = "target"
+deps = ["gcc", "glibc", "util-linux", "systemd"]
+
+[source]
+latest = { release-monitoring = 8179 }
+url = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-{version}.tar.xz"
+sha256 = "fbd62a100ab7bb8746ba0661255c3c48185b1e9021507c624da01fbc696330ec"
+signature = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.42/util-linux-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "util-linux"
+
+[build]
+# Only the program: it links the libraries the util-linux package ships
+# (same version).
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
+  --bindir=/usr/bin --sbindir=/usr/bin --runstatedir=/run \
+  --disable-all-programs \
+  --enable-libblkid --enable-libmount --enable-libsmartcols --enable-lsblk \
+  --disable-nls --disable-static --disable-liblastlog2 --disable-pylibmount \
+  --without-python --without-systemd --with-udev --without-econf \
+  --without-ncurses --without-ncursesw --without-tinfo --without-readline \
+  --without-btrfs --without-cryptsetup --without-libmagic
+make -j"$JOBS" lsblk
+install -D -m 0755 .libs/lsblk "$PKG/usr/bin/lsblk"
+'''

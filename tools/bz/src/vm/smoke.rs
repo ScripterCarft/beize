@@ -1428,6 +1428,15 @@ fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         );
     }
     say!("  ok: the owner pings (IPv4, IPv6) and traces a path without privileges");
+    // lsblk as the owner shows what udev knows (recipes/lsblk.toml).
+    let (_, lines) = shell.capture("lsblk -n -o PARTLABEL,FSTYPE")?;
+    ensure!(
+        lines
+            .iter()
+            .any(|l| l.split_whitespace().collect::<Vec<_>>() == ["root", "crypto_LUKS"]),
+        "lsblk shows the owner no partition names and file systems: {lines:?}"
+    );
+    say!("  ok: lsblk shows the owner partition names and file systems");
 
     // Accounts (ADR 0019), through Beize's account service: the owner
     // changes their own password – a wrong current one changes nothing.

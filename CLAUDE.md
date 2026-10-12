@@ -344,9 +344,14 @@ die Enrollment-Dateien neu – Wettlauf zwischen Szenarien). **Phase 6 ist im Co
 CI 38168342604 grün. Danach (2026-10-12): Szenario „Update“ installiert das zweite Update
 von einem USB-Stick (MBR + FAT32, `Machine::usb_stick`; xHCI auf festem PCI-Slot, sonst
 verschieben sich die Adressen und OVMFs Starteintrag zeigt ins Leere) – der Weg des Besitzers.
-**Offen für M2 (Besitzer):** Hardware-Test nach `docs/hardware.md` „Updates testen“ (Update-
-Schlüssel, Neuinstallation 0.1, Update auf 0.2 vom Stick; `OS_VERSION` erhöht Claude auf
-Zuruf). Ergebnis bringt der Besitzer mit. Danach Phase 7 (Umfang vorab abstimmen).
+**Hardware-Test, Teil A erledigt (Besitzer, 2026-10-12):** Update-Schlüssel erzeugt (`593a820`),
+0.1 neu installiert, `beize_0.1.efi` gesegnet. Fund: `lsblk` zeigte normalen Benutzern keine
+PARTLABEL/FSTYPE/LABEL – util-linux ist vor systemd und damit `--without-udev` gebaut; jetzt
+eigenes Rezept `recipes/lsblk.toml` nach systemd mit libudev, Smoke prüft es als Besitzer
+(Gegenprobe rot). Kommt mit 0.2 auf die Hardware. Einmal ging ein Smoke-Lauf beim ersten Start
+nicht weiter („did not report within 120s“, Logs überschrieben), in den Läufen danach nicht
+mehr – beobachten. **Offen für M2:** Teil B (Update auf 0.2 vom Stick, `docs/hardware.md`;
+`OS_VERSION` erhöht Claude auf Zuruf). Danach Phase 7 (Umfang vorab abstimmen).
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;

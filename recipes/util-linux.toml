@@ -1,6 +1,7 @@
 # Core system libraries (libblkid, libmount for systemd) and a few tools,
 # among them login (through PAM) and sulogin (the emergency shell; checks
-# root's password with libxcrypt).
+# root's password with libxcrypt). Built before systemd, so without udev:
+# lsblk, which needs udev's database, is a recipe of its own.
 name = "util-linux"
 version = "2.42.4"
 stage = "target"
@@ -22,7 +23,7 @@ script = '''
   --disable-all-programs \
   --enable-libuuid --enable-libblkid --enable-libmount --enable-libsmartcols \
   --enable-libfdisk \
-  --enable-agetty --enable-mount --enable-lsblk --enable-dmesg \
+  --enable-agetty --enable-mount --enable-dmesg \
   --enable-login --enable-sulogin --enable-nologin \
   --disable-nls --disable-static --disable-liblastlog2 --disable-pylibmount \
   --disable-makeinstall-chown --disable-makeinstall-setuid \
