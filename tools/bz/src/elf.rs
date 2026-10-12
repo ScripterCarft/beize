@@ -1,6 +1,9 @@
 //! The ELF check (ADR 0014): every program and library in an image tree must
 //! carry Beize's hardening – like Fedora's annocheck. A package that ignores
 //! the build flags breaks the build instead of shipping unhardened code.
+//! Each also needs a GNU build ID, which names the exact build in core dumps
+//! and crash reports (as Fedora requires); a file without one was linked by
+//! something other than Beize's compiler.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,7 +56,8 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
         problems.join("\n  ")
     );
     say!(
-        "  ok: all {} ELF files in {what} are hardened (PIE, RELRO, BIND_NOW, CET)",
+        "  ok: all {} ELF files in {what} are hardened (PIE, RELRO, BIND_NOW, CET) \
+         and have a build ID",
         files.len()
     );
     Ok(())
@@ -86,6 +90,7 @@ struct Hardening {
     executable_stack: Option<bool>,
     ibt: bool,
     shstk: bool,
+    build_id: bool,
 }
 
 impl Hardening {
@@ -117,6 +122,8 @@ impl Hardening {
                 h.bind_now |= line.split_whitespace().any(|f| f == "NOW");
             } else if line.contains("(TEXTREL)") {
                 h.textrel = true;
+            } else if line.contains("NT_GNU_BUILD_ID") {
+                h.build_id = true;
             } else if let Some(at) = line.find("x86 feature:") {
                 let features = &line[at + "x86 feature:".len()..];
                 let features = features.split(", x86 ").next().unwrap_or_default();
@@ -153,6 +160,9 @@ impl Hardening {
         if needs_cet && !(self.ibt && self.shstk) {
             problems.push("no CET (IBT and SHSTK)");
         }
+        if !self.build_id {
+            problems.push("no build ID");
+        }
         problems
     }
 }
@@ -168,6 +178,7 @@ mod tests {
   GNU_RELRO      0x14af70 0x000000000014bf70 0x000000000014bf70 0x003090 0x003090 R   0x1
  0x000000000000001e (FLAGS)              BIND_NOW
  0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+  GNU                  0x00000014	NT_GNU_BUILD_ID (unique build ID bitstring)
   GNU                  0x00000030	NT_GNU_PROPERTY_TYPE_0	      Properties: x86 feature: IBT, SHSTK, x86 ISA needed: x86-64-baseline, x86 feature used: x86, XMM
 ";
 
@@ -207,6 +218,9 @@ mod tests {
             Hardening::parse(&no_stack).problems(true),
             ["executable stack"]
         );
+        // Linked by a compiler without --enable-linker-build-id.
+        let no_id = HARDENED.replace("NT_GNU_BUILD_ID", "NT_GNU_HWCAP");
+        assert_eq!(Hardening::parse(&no_id).problems(true), ["no build ID"]);
         let textrel = HARDENED.replace("BIND_NOW\n", "BIND_NOW TEXTREL\n");
         assert_eq!(
             Hardening::parse(&textrel).problems(true),

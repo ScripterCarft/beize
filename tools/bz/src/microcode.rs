@@ -60,6 +60,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     concatenate(&amd_files, &dir.join("AuthenticAMD.bin"))?;
     tree::normalize_mtimes(&root)?;
     initrd::pack_uncompressed(&root, &archive)?;
+    fs::remove_dir_all(&work)?;
     say!(
         "  microcode: {} Intel and {} AMD update files -> {}",
         intel_files.len(),

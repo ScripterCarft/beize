@@ -38,7 +38,12 @@ Relokationstabelle (`-z now`) und Frame-Pointer. Ob ein Paket die Flags überhau
   nicht ausführbaren Stack und keine Text-Relokationen. C/C++ muss zudem die
   CET-Eigenschaften (IBT, SHSTK) tragen – die fehlen, sobald ein einziges Objekt ohne
   Beizes Flags gebaut wurde, und machen so Pakete sichtbar, die die Flags ignorieren.
-  Ausnahmen stehen mit Grund in `bz` (`NO_CET`); jede Verletzung bricht den Build. Die
+  Ausnahmen stehen mit Grund in `bz` (`NO_CET`); jede Verletzung bricht den Build. Jede
+  Datei braucht außerdem eine GNU-Build-ID (wie Fedora): Sie benennt den Build in
+  Core-Dumps und Absturzberichten, und ihr Fehlen zeigt, dass nicht Beizes Compiler
+  gelinkt hat – bis 2026-10-12 baute so unbemerkt der Bootstrap-Compiler gcc-pass1 alle
+  Pakete, weil er im selben Präfix den endgültigen gcc überschrieben hatte; seitdem hat
+  er ein eigenes (`build/tools/pass1`), das nur glibc nutzt. Die
   Stufe x86-64-v3 prüft glibc selbst: Die Programme tragen die Markierung „ISA needed:
   x86-64-v3“, die der Linker aus dem Code ableitet.
 - **Shadow Stacks im Kernel** (`CONFIG_X86_USER_SHADOW_STACK`, wie Fedora und Ubuntu):

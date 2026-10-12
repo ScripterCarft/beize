@@ -108,7 +108,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   `bz boot-times <datei>`). Smoke zeigt beim Start mit Zeitbudget die langsamsten Units.
   Die Konsolengröße der VM steht in der Kommandozeile (`systemd.tty.*`, sonst fragt PID 1 2× 333 ms).
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Rezeptänderung an systemd
-  ~5 min (frisches Build-Verzeichnis, dazu dbus); voller Neubau ~10–15 min.
+  ~5 min (frisches Build-Verzeichnis, dazu dbus); Bau von null 14,8 min (2026-10-12, davon
+  Toolchain 7,7 min), Plattenspitze 7 GiB, danach `build/` 5,2 GB. Die CI baut wöchentlich von null.
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke.rs` (Modul-Doku) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
@@ -357,7 +358,24 @@ Start ohne Recovery-Key, alles wie in `docs/hardware.md` erwartet, `lsblk` als B
 am Container-Download („toomanyrequests: Data limit exceeded“ bei public.ecr.aws) – **CI des Pushs
 mit `d4ee932` prüfen** (deckt beide Commits ab; bei Rot zuerst prüfen, ob wieder nur der Download).
 
-**NÄCHSTER CHAT – Phase 7, Wünsche des Besitzers (2026-10-12):** zuerst optimieren, byte-genau:
+**Phase 7 begonnen (2026-10-12): Ausgangsmessung fertig** – Werte und Rohdaten in WSL
+`~/p7/BASELINE.md` (außerhalb des Repos). CI 38271196612 (`4108e4a`) grün. **Plan mit dem Besitzer
+abgestimmt**, Reihenfolge: (1) Bau von null reparieren (glibc-FORTIFY-Abfrage im leeren Sysroot),
+CI baut wöchentlich von null, `bz` räumt Quellen/Altlasten auf; (2) CI: Cache < 10 GB (Microcode-Auszug
+statt 632-MB-linux-firmware), Artefakt/verify nur wenn nötig, bz-Bau cachen; (3) Smoke: 90-s-Warten
+im dm-verity-Szenario an der Ursache; (4) Image/Start: Kernel zstd (gemessen: schnellste und 1,2 MB
+kleiner), initrd- und EROFS-Kompression messen, Update komprimiert, `/usr`-Ballast einzeln prüfen;
+(5) Pakete parallel bauen – **Besitzer: RAM-gesteuert (MemAvailable + gemessener Bedarf je Paket,
+feste Reserve, cgroup-Grenze), nie OOM wie 2026-10-06**; (6) Leerlauf über Stunden (RAM/CPU je Unit),
+offene Warnungen; (7) Review `bz`/`os/*`: Strukturen und Implementierungen, auch Kleinvieh;
+(8) Hardware-Messung ohne F8, Kernel 7.3. Jede Änderung mit Vorher/Nachher, je Punkt ein Commit.
+**(1) erledigt:** glibc-Abfrage beantwortet; Paket sieht beim Bauen sich selbst nicht mehr
+(`ENV_REVISION` 3); **Fund: seit 2026-10-10 baute gcc-pass1 alle Pakete** (gleiches Präfix, Neubau
+überschrieb den endgültigen gcc; keine Build-IDs, auch im installierten 0.2) → pass1 in
+`build/tools/pass1`, ELF-Prüfung verlangt Build-ID; `bz` räumt `work/{src,build,pkg}` und Microcode
+auf (11 → 5,2 GB). Bau von null 14:48, Smoke grün. `build/tools` jetzt 538 MB (pass1 +236 MB) – beim
+CI-Cache (Punkt 2) berücksichtigen. Alter Stand zum Vergleich: `~/beize/build.before` (löschen nach Punkt 2).
+**Phase 7, Wünsche des Besitzers (2026-10-12):** zuerst optimieren, byte-genau:
 Startzeiten sind zu lang, Builds teils immens groß und ineffektiv. Umfang vorab abstimmen (siehe
 Fahrplan Punkt 7): messen (Start auf der Hardware, Größen von `/usr`, initrd, UKI, Build-Zeiten
 und -Platz), dann gezielt verbessern, jede Änderung belegt.

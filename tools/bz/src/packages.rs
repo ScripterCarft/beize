@@ -34,7 +34,8 @@ const TARGET_RUSTFLAGS: &str = "-C target-cpu=x86-64-v3 -C force-frame-pointers=
 pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// Bump to force a full rebuild after changing the build environment below.
 /// 2: each package sees only its dependencies in the sysroot.
-const ENV_REVISION: u32 = 2;
+/// 3: not its own earlier build either.
+const ENV_REVISION: u32 = 3;
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
 
 /// Builds the given recipes and everything they depend on.
@@ -50,8 +51,10 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut up_to_date = 0;
     for (index, recipe) in order.iter().enumerate() {
-        // The package itself and everything it depends on, directly or not.
-        let mut visible = BTreeSet::from([recipe.name.clone()]);
+        // Everything the package depends on, directly or not – not its own
+        // earlier build: a rebuild sees the sysroot a build from scratch sees
+        // (glibc's configure once passed only because its old libc was there).
+        let mut visible = BTreeSet::new();
         for dep in &recipe.deps {
             visible.extend(closures[dep].iter().cloned());
         }
@@ -73,21 +76,25 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
             clean_up(paths, recipe, &order[index + 1..])?;
         }
         fingerprints.insert(recipe.name.clone(), fingerprint);
+        visible.insert(recipe.name.clone());
         closures.insert(recipe.name.clone(), visible);
     }
     if up_to_date > 0 {
         say!("  {up_to_date} of {} packages up to date", order.len());
     }
+    sweep(paths)?;
     Ok(order)
 }
 
 /// Removes what a successful build leaves in `work/`, as rpmbuild does: the
-/// build tree always, the unpacked sources unless a later package or the
-/// kernel (built incrementally from its tree) still needs them. Otherwise a
-/// full build holds every package's trees at once – more than the ~14 GB a
-/// CI runner has free. A failed build keeps both for debugging.
+/// build and staging trees always (the files are in the sysroot now), the
+/// unpacked sources unless a later package or the kernel (built
+/// incrementally from its tree) still needs them. Otherwise a full build
+/// holds every package's trees at once – more than the ~14 GB a CI runner has
+/// free. A failed build keeps them for debugging, until [`sweep`].
 fn clean_up(paths: &Paths, recipe: &Recipe, later: &[Recipe]) -> Result<()> {
     remove(&paths.work.join("build").join(&recipe.name))?;
+    remove(&paths.work.join("pkg").join(&recipe.name))?;
     let Some(source) = &recipe.source else {
         return Ok(());
     };
@@ -103,11 +110,37 @@ fn clean_up(paths: &Paths, recipe: &Recipe, later: &[Recipe]) -> Result<()> {
     remove(&paths.work.join("src").join(stem))
 }
 
-fn remove(dir: &Path) -> Result<()> {
-    if dir.exists() {
-        fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
+/// After all packages built: removes the trees of earlier failed builds and
+/// the sources of versions no recipe uses any more – only the kernel's
+/// sources stay.
+fn sweep(paths: &Paths) -> Result<()> {
+    let kernel = Recipe::load(paths, "linux")?;
+    let keep = kernel
+        .source
+        .as_ref()
+        .context("linux has no source")?
+        .stem()?;
+    for dir in ["src", "build", "pkg"] {
+        let Ok(entries) = fs::read_dir(paths.work.join(dir)) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if dir != "src" || path.file_name().is_none_or(|name| *name != *keep) {
+                remove(&path)?;
+            }
+        }
     }
     Ok(())
+}
+
+fn remove(path: &Path) -> Result<()> {
+    let removed = match path.symlink_metadata() {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(_) => return Ok(()),
+    };
+    removed.with_context(|| format!("removing {}", path.display()))
 }
 
 /// The fingerprint a package was last built with: what a step that uses

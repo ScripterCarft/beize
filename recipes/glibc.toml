@@ -13,12 +13,19 @@ keyring = "glibc"
 
 [build]
 script = '''
+# Built by the bootstrap compiler (recipes/gcc-pass1.toml); the full one
+# needs this glibc.
+export PATH="$TOOLS/pass1/bin:$PATH"
 echo "rootsbindir=/usr/bin" > configparms
 # Hardening (ADR 0014) through glibc's own switches: FORTIFY, stack
 # protector, BIND_NOW and CET are configure options. --enable-cet must be
 # explicit: configure probes the preprocessor without CFLAGS, misses
 # -fcf-protection and would compile CET code without CET support. glibc
 # links itself, so no LDFLAGS; it is not C++, so no _GLIBCXX_ASSERTIONS.
+# configure finds the highest FORTIFY level by linking a test program, which
+# needs a C library – there is none before this build, so a build from
+# scratch failed. Answered here: level 3 needs __builtin_dynamic_object_size
+# (gcc 12 and later).
 export CFLAGS="-O2 -pipe -fstack-clash-protection -fcf-protection \
   -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
 unset CXXFLAGS LDFLAGS
@@ -28,7 +35,8 @@ unset CXXFLAGS LDFLAGS
   --with-headers="$SYSROOT/usr/include" --enable-kernel=6.1 \
   --enable-stack-protector=strong --enable-fortify-source=3 --enable-bind-now --enable-cet \
   --disable-werror --disable-nscd \
-  libc_cv_slibdir=/usr/lib
+  libc_cv_slibdir=/usr/lib \
+  libc_cv_supported_fortify_source=3 libc_cv_test_supported_fortify_source=3
 make -j"$JOBS"
 make DESTDIR="$PKG" install
 # Only /usr is shipped: /etc/rpc (Sun RPC names) and the nscd database

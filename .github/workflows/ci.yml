@@ -88,7 +88,10 @@ jobs:
       # rebuilt. Saved after every run, also a failed or cancelled one, so a
       # long first build is never lost. sysroot-hidden holds what a build that
       # was cut off had hidden from the sysroot; bz puts it back on the next run.
+      # The weekly run starts from nothing, so a build from scratch keeps
+      # working (it broke once unnoticed: glibc's configure needed an old libc).
       - name: Restore build state
+        if: github.event_name != 'schedule'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
