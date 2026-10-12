@@ -235,6 +235,18 @@ fn owners(paths: &Paths) -> Result<BTreeMap<PathBuf, String>> {
     Ok(owners)
 }
 
+/// Removes `package` from the sysroot – its files and its manifest – before
+/// it is built again: the build sees the sysroot a build from scratch sees,
+/// and a failed build leaves nothing of an older one behind.
+pub fn uninstall(paths: &Paths, package: &str) -> Result<()> {
+    remove_installed(paths, package)?;
+    let manifest = manifest_path(paths, package);
+    if manifest.exists() {
+        fs::remove_file(&manifest)?;
+    }
+    Ok(())
+}
+
 fn remove_installed(paths: &Paths, package: &str) -> Result<()> {
     let Ok(files) = manifest(paths, package) else {
         return Ok(());
@@ -361,6 +373,55 @@ mod tests {
         );
         assert!(hidden_left.is_empty());
         assert_eq!(link, Path::new("libudev.so.1"));
+    }
+
+    /// A package built again: its old files are gone while it builds, the
+    /// new ones replace them, and the others come back without a clash
+    /// (hiding its old files instead clashed with the new ones on restore).
+    #[test]
+    fn a_rebuilt_package_replaces_its_old_files() {
+        let dir = std::env::temp_dir().join(format!("bz-rebuild-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let paths = Paths {
+            root: dir.clone(),
+            cache: dir.join("cache"),
+            work: dir.join("work"),
+            tools: dir.join("tools"),
+            sysroot: dir.join("sysroot"),
+            manifests: dir.join("manifests"),
+            hidden: dir.join("hidden"),
+            out: dir.join("out"),
+        };
+        fs::create_dir_all(paths.sysroot.join("usr/bin")).unwrap();
+        fs::create_dir_all(paths.sysroot.join("usr/lib")).unwrap();
+        fs::create_dir_all(&paths.manifests).unwrap();
+        fs::create_dir_all(&paths.hidden).unwrap();
+        fs::write(paths.sysroot.join("usr/lib/libc.so.6"), "").unwrap();
+        fs::write(paths.manifests.join("glibc.list"), "usr/lib/libc.so.6\n").unwrap();
+        fs::write(paths.sysroot.join("usr/bin/ls"), "old").unwrap();
+        fs::write(paths.sysroot.join("usr/bin/dir"), "old").unwrap();
+        fs::write(
+            paths.manifests.join("coreutils.list"),
+            "usr/bin/dir\nusr/bin/ls\n",
+        )
+        .unwrap();
+        let staging = dir.join("staging");
+        fs::create_dir_all(staging.join("usr/bin")).unwrap();
+        fs::write(staging.join("usr/bin/ls"), "new").unwrap();
+
+        uninstall(&paths, "coreutils").unwrap();
+        let visible = BTreeSet::from(["glibc".to_owned()]);
+        hide_others(&paths, &visible).unwrap();
+        let seen = walk(&paths.sysroot).unwrap();
+        merge(&paths, "coreutils", &staging).unwrap();
+        unhide_all(&paths).unwrap();
+        let ls = fs::read_to_string(paths.sysroot.join("usr/bin/ls")).unwrap();
+        let dir_left = paths.sysroot.join("usr/bin/dir").exists();
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(seen, [PathBuf::from("usr/lib/libc.so.6")]);
+        assert_eq!(ls, "new");
+        assert!(!dir_left, "a file the new build no longer installs stays");
     }
 
     #[test]

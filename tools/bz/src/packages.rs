@@ -68,6 +68,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
             }
         } else {
             let _ = fs::remove_file(&stamp);
+            install::uninstall(paths, &recipe.name)?;
             install::hide_others(paths, &visible)?;
             let built = build_one(paths, recipe);
             install::unhide_all(paths)?;
