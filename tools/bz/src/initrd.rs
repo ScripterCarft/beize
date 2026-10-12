@@ -152,6 +152,10 @@ fn with_dependencies(paths: &Paths, kernel: &Kernel, names: &[String]) -> Result
 }
 
 /// Writes a reproducible, zstd-compressed newc cpio archive of `root`.
+/// Level 19, measured in the VM (2026-10-12; size, packing, boot manager to
+/// initrd, median of 6): 3: 14.1 MB, 0.1 s, 1.78 s; 15: 12.7 MB, 1.4 s,
+/// 1.70 s; 19: 11.5 MB, 7.2 s, 1.68 s; 22: 11.4 MB, 10.3 s, 1.69 s. The
+/// smaller archive starts faster, and on real hardware reading counts more.
 pub fn pack(root: &Path, image: &Path) -> Result<()> {
     cpio(
         root,
