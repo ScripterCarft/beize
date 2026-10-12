@@ -12,6 +12,49 @@ Treiber im Image (`bz hw-check`, Stand 2026-10-10): alle PCI-Geräte außer WLAN
 (HDA) und der NVIDIA-GPU – sie kommen mit ihren Phasen; SPI-Flash (BIOS) und Shared
 SRAM brauchen keinen.
 
+## Updates testen (ADR 0020)
+
+Einmalig vor dem ersten Update; alle `bz`-Befehle im eigenen WSL-Terminal (1Password).
+
+**A. Neuinstallation 0.1 mit Update-Schlüssel und 4-GiB-Slots** (die letzte)
+
+1. `./bz secureboot new-update-key`, dann
+   `git add keys/secureboot/update.pub.pem && git commit -m "Add the production update key (public part)"`.
+2. `./bz build && ./bz sign`, dann neu installieren wie in
+   [`keys/secureboot/README.md`](../keys/secureboot/README.md) 2b („Neu installieren“, `--reinstall`).
+   Die Secure-Boot-Schlüssel bleiben in der Firmware (Schritt 3 dort entfällt).
+3. `F8` → Samsung-SSD: Einrichtung wie gewohnt, **neuer** Recovery-Key (in 1Password ablegen).
+4. Prüfen (angemeldet): `(. /usr/lib/os-release; echo $IMAGE_VERSION)` → `0.1`;
+   `run0 ls /boot/EFI/Linux` → `beize_0.1.efi` (ohne `+3`: als gelungen markiert);
+   `systemctl --failed` → 0 Units; `lsblk -o NAME,SIZE,PARTLABEL` → zwei 4G-Slots
+   `beize_0.1` und `_empty`.
+
+**B. Update 0.1 → 0.2 vom USB-Stick**
+
+1. `OS_VERSION` in `tools/bz/src/layout.rs` auf `"0.2"` (Commit), dann
+   `./bz build && ./bz release` → `build/out/release/0.2/` (5 Dateien).
+2. USB-Stick (FAT32 oder exFAT) in Windows **BEIZE** benennen und den Ordner
+   `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\release\0.2` als `beize-0.2`
+   daraufkopieren.
+3. Beize 0.1 starten, Stick einstecken, anmelden:
+   ```sh
+   run0 mkdir -p /run/stick
+   run0 mount -o ro /dev/disk/by-label/BEIZE /run/stick
+   run0 beize-update install /run/stick/beize-0.2
+   run0 umount /run/stick
+   ```
+   Erwartet: „Beize 0.2 is installed. It starts with the next restart.“;
+   `run0 ls /boot/EFI/Linux` → `beize_0.1.efi` und `beize_0.2+3-0.efi`.
+4. Neu starten (`F8` → Samsung). Erwartet: **ohne** Recovery-Key, Anmeldung mit demselben
+   Passwort, Daten unverändert; `IMAGE_VERSION` → `0.2`; `run0 ls /boot/EFI/Linux` →
+   `beize_0.2.efi` (gelungen) und `beize_0.1.efi`; `systemctl --failed` → 0 Units;
+   `lsblk` → `beize_0.2` im zweiten Slot. Leertaste beim Start hält das Menü an: beide
+   Versionen stehen darin, 0.2 vorausgewählt.
+
+Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
+Den Rückfall nach drei Fehlstarts prüft nur der Smoke-Test (absichtlich kaputtes Update);
+auf der Hardware nicht nötig.
+
 ## Startzeit messen
 
 Das Journal auf der Root-Partition ist persistent; es lässt sich unter WSL ohne Neubau

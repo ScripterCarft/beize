@@ -48,6 +48,9 @@ pub(super) struct Machine {
     /// An unsigned kernel module the boot report tries to load (ADR 0015),
     /// passed in through QEMU's fw_cfg.
     pub(super) unsigned_module: PathBuf,
+    /// A USB stick plugged in (a raw disk image), as the owner brings an
+    /// update to a computer without another one to serve it (ADR 0020).
+    pub(super) usb_stick: Option<PathBuf>,
 }
 
 impl Machine {
@@ -60,6 +63,7 @@ impl Machine {
             rtc: None,
             logs: boot_logs(paths),
             unsigned_module: paths.out.join("unsigned-module.ko"),
+            usb_stick: None,
         }
     }
 
@@ -404,6 +408,18 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         .args(["-nic", "user,model=virtio-net-pci"]);
     for value in &machine.smbios {
         cmd.arg("-smbios").arg(format!("type=11,value={value}"));
+    }
+    if let Some(stick) = &machine.usb_stick {
+        // On a slot of its own: the other devices keep their PCI addresses,
+        // which the firmware's boot entries name (a PC has its USB
+        // controller always).
+        cmd.args(["-device", "qemu-xhci,id=xhci,addr=0x10"])
+            .arg("-drive")
+            .arg(format!(
+                "if=none,id=stick,format=raw,file={}",
+                stick.display()
+            ))
+            .args(["-device", "usb-storage,bus=xhci.0,drive=stick"]);
     }
     if let Some(base) = machine.rtc {
         cmd.arg("-rtc").arg(format!("base={base}"));

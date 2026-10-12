@@ -671,7 +671,7 @@ const NO_NEWER_UPDATE: &str = "There is no newer version.";
 /// of `images/running-units.txt` failed. A successful boot replaces an older
 /// boot loader with the signed one from `/usr`.
 fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
-    let machine = installed.machine.copy_as(paths, "smoke-update")?;
+    let mut machine = installed.machine.copy_as(paths, "smoke-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
     let releases = paths.work.join("smoke-releases");
     if releases.exists() {
@@ -799,9 +799,33 @@ fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Resu
     say!("  ok: {version} started, the TPM unlocked the data as before");
 
     // The next update replaces the oldest version, never the running one.
+    // It comes from a USB stick, as on the owner's PC: Beize and Windows
+    // share the computer, there is no other one to serve it.
     let next = format!("{}.2", layout::OS_VERSION);
     test_release(paths, keys, &next, &releases.join(&next))?;
-    install_update(&machine, &releases.join(&next), &next)?;
+    let stick = paths.work.join("smoke-update-stick.img");
+    usb_stick(&releases.join(&next), &format!("beize-{next}"), &stick)?;
+    machine.usb_stick = Some(stick.clone());
+    let shell = Shell::boot(
+        &machine,
+        &Answers::none(),
+        &DEBUG_CONSOLE_CREDENTIALS,
+        false,
+    )?;
+    let (status, lines) = shell.capture(&format!(
+        "mkdir -p /run/stick && mount -o ro /dev/disk/by-label/{STICK_LABEL} /run/stick \
+         && beize-update install /run/stick/beize-{next}"
+    ))?;
+    ensure!(
+        status == 0
+            && lines
+                .iter()
+                .any(|l| l.contains(&format!("Beize {next} is installed"))),
+        "beize-update did not install {next} from the USB stick (exit status {status}): {lines:?}"
+    );
+    shell.power_off()?;
+    machine.usb_stick = None;
+    fs::remove_file(&stick)?;
     let labels = usr_labels(&machine.disk)?;
     let expected = [&next, &next, &version, &version].map(|v| layout::usr_label(v));
     ensure!(
@@ -817,7 +841,7 @@ fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Resu
     boot_healthy(&machine, 4, &Answers::none())?;
     check_blessed(&machine.disk, &next)?;
     say!(
-        "  ok: the second update {next} replaced {} in slot A",
+        "  ok: the second update {next}, from a USB stick, replaced {} in slot A",
         layout::OS_VERSION
     );
     machine.remove()?;
@@ -916,6 +940,50 @@ fn broken_update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) 
     );
     machine.remove()?;
     fs::remove_dir_all(&releases)?;
+    Ok(())
+}
+
+/// The volume label of the test's USB stick.
+const STICK_LABEL: &str = "BEIZE";
+
+/// A USB stick image as it comes from a shop: an MBR with one FAT32
+/// partition, holding the release in `dir` as directory `name`.
+fn usb_stick(dir: &Path, name: &str, image: &Path) -> Result<()> {
+    const SIZE: u64 = 512 * layout::MIB;
+    const START: u64 = 2048; // sectors of 512 bytes
+    let file = fs::File::create(image)?;
+    file.set_len(SIZE)?;
+    drop(file);
+    let mut sfdisk = Command::new("sfdisk")
+        .arg("--quiet")
+        .arg(image)
+        .stdin(std::process::Stdio::piped())
+        .spawn()?;
+    sfdisk
+        .stdin
+        .take()
+        .context("sfdisk stdin")?
+        .write_all(format!("label: dos\nstart={START}, type=c\n").as_bytes())?;
+    ensure!(
+        sfdisk.wait()?.success(),
+        "sfdisk failed on {}",
+        image.display()
+    );
+    util::output(
+        Command::new("mkfs.vfat")
+            .args(["-F", "32", "-n", STICK_LABEL])
+            .arg(format!("--offset={START}"))
+            .arg(image)
+            .arg(((SIZE - START * 512) / 1024).to_string()),
+    )?;
+    util::output(
+        Command::new("mcopy")
+            .arg("-s")
+            .arg("-i")
+            .arg(format!("{}@@{}", image.display(), START * 512))
+            .arg(dir)
+            .arg(format!("::/{name}")),
+    )?;
     Ok(())
 }
 

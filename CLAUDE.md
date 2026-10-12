@@ -341,9 +341,12 @@ initrd-Drop-in + Upstream-Bericht/Patch WSL `~/upstream/systemd-veritysetup-cmdl
 Tor), „dm-verity“ prüft Tor ohne andere Version (wartet 90 s, upstream-Gerätefrist), „Update“
 mit zweitem Update in Slot A. Testschlüssel lädt der Smoke-Test einmal (`Keys::test` schreibt
 die Enrollment-Dateien neu – Wettlauf zwischen Szenarien). **Phase 6 ist im Code fertig.**
-**Offen für M2 (Besitzer):** `bz secureboot new-update-key`, Neuinstallation (letzte, 4-GiB-Slots),
-dann ein echtes Update auf der Hardware (`bz release` mit höherer `OS_VERSION`, `run0
-beize-update install <Quelle>`). Danach Phase 7 (Umfang vorab abstimmen).
+CI 38168342604 grün. Danach (2026-10-12): Szenario „Update“ installiert das zweite Update
+von einem USB-Stick (MBR + FAT32, `Machine::usb_stick`; xHCI auf festem PCI-Slot, sonst
+verschieben sich die Adressen und OVMFs Starteintrag zeigt ins Leere) – der Weg des Besitzers.
+**Offen für M2 (Besitzer):** Hardware-Test nach `docs/hardware.md` „Updates testen“ (Update-
+Schlüssel, Neuinstallation 0.1, Update auf 0.2 vom Stick; `OS_VERSION` erhöht Claude auf
+Zuruf). Ergebnis bringt der Besitzer mit. Danach Phase 7 (Umfang vorab abstimmen).
 Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
 USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
 Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
