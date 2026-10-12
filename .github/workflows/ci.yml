@@ -72,25 +72,44 @@ jobs:
       # actions/cache picks zstd or gzip depending on what is installed, and a
       # cache saved with one is invisible to a restore with the other. ci/system.sh
       # installs zstd, so without this step every restore (gzip) missed every
-      # save (zstd) and each run rebuilt the whole system from scratch.
+      # save (zstd) and each run rebuilt the whole system from scratch. curl
+      # for rustup.
       - name: Install cache compression
         run: |
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends zstd >/dev/null
+          apt-get install -y -qq --no-install-recommends ca-certificates curl zstd >/dev/null
+      # Same toolchain as rust-toolchain.toml; bz's own build is cached, so
+      # ci/system.sh starts building Beize at once.
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.99.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Downloaded sources, named by their pins (sha256 or commit) rather than
+      # by the recipes: a recipe change that keeps its sources keeps the
+      # cache. Not linux-firmware (632 MB): only the microcode comes from it,
+      # and that is kept with the build state below; bz downloads it when the
+      # microcode changes and for the weekly verification.
+      - name: Name the sources
+        id: sources
+        run: |
+          pins=$(grep -h -E '^\s*(sha256|commit)\s*=' recipes/*.toml | sort | sha256sum | cut -c1-16)
+          echo "key=sources-$pins" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: build/cache
-          key: sources-${{ hashFiles('recipes/*.toml') }}
+          path: |
+            build/cache
+            !build/cache/linux-firmware-*.tar.xz
+          key: ${{ steps.sources.outputs.key }}
           restore-keys: sources-
-      # Built packages (cross toolchain, sysroot, ownership manifests, stamps)
-      # and the kernel object tree. bz's fingerprints decide what is still up
-      # to date, so restoring an older state is safe: only what changed is
-      # rebuilt. Saved after every run, also a failed or cancelled one, so a
-      # long first build is never lost. sysroot-hidden holds what a build that
-      # was cut off had hidden from the sysroot; bz puts it back on the next run.
+      # Built packages (cross toolchain, sysroot, ownership manifests, stamps),
+      # the kernel object tree and the microcode. bz's fingerprints decide what
+      # is still up to date, so restoring an older state is safe: only what
+      # changed is rebuilt. sysroot-hidden holds what a build that was cut off
+      # had hidden from the sysroot; bz puts it back on the next run.
       # The weekly run starts from nothing, so a build from scratch keeps
       # working (it broke once unnoticed: glibc's configure needed an old libc).
       - name: Restore build state
+        id: restore
         if: github.event_name != 'schedule'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -101,13 +120,25 @@ jobs:
             build/manifests
             build/work/stamps
             build/work/linux-obj
-          key: build-${{ hashFiles('recipes/*.toml', 'kernel/**', 'tools/bz/src/**') }}-${{ github.run_id }}
-          restore-keys: |
-            build-${{ hashFiles('recipes/*.toml', 'kernel/**', 'tools/bz/src/**') }}-
-            build-
+            build/work/microcode.cpio
+          key: build-
+          restore-keys: build-
+      # The weekly run checks every source's signature again, to notice when
+      # an upstream download or signature changes; on other runs the build
+      # verifies new sources itself.
       - run: ci/system.sh
-      - name: Save build state
+        env:
+          VERIFY_SOURCES: ${{ github.event_name != 'push' }}
+      # Named by the stamps of what it holds, so a run that rebuilt nothing
+      # saves nothing; saved also after a failed or cancelled run, so a long
+      # build is never lost.
+      - name: Name the build state
+        id: state
         if: always()
+        run: |
+          echo "key=build-${{ hashFiles('build/work/stamps/*', '!build/work/stamps/step-usr', '!build/work/stamps/step-initrd', '!build/work/stamps/step-image') }}" >> "$GITHUB_OUTPUT"
+      - name: Save build state
+        if: always() && steps.state.outputs.key != 'build-' && steps.state.outputs.key != steps.restore.outputs.cache-matched-key
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -117,8 +148,11 @@ jobs:
             build/manifests
             build/work/stamps
             build/work/linux-obj
-          key: build-${{ hashFiles('recipes/*.toml', 'kernel/**', 'tools/bz/src/**') }}-${{ github.run_id }}
+            build/work/microcode.cpio
+          key: ${{ steps.state.outputs.key }}
+      # The image for trying it out, when a run is started by hand.
       - name: Upload disk image
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beize-disk-image

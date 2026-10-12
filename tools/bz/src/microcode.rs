@@ -21,11 +21,18 @@ use crate::stamp::{Fingerprint, Stamp};
 use crate::tree;
 use crate::util;
 
-/// Builds `out/microcode.cpio` from the intel-microcode and linux-firmware sources.
+/// The archive [`build`] writes. In `work/` beside its stamp, like the
+/// kernel's object tree: an intermediate the build state keeps, so CI need
+/// not unpack linux-firmware (632 MB) for 0.3 MB of it on every run.
+pub fn archive(paths: &Paths) -> PathBuf {
+    paths.work.join("microcode.cpio")
+}
+
+/// Builds [`archive`] from the intel-microcode and linux-firmware sources.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let intel = Recipe::load(paths, "intel-microcode")?;
     let firmware = Recipe::load(paths, "linux-firmware")?;
-    let archive = paths.out.join("microcode.cpio");
+    let archive = archive(paths);
     let stamp = Stamp::new(
         paths,
         "microcode",

@@ -15,8 +15,12 @@ if ! command -v cargo >/dev/null; then
     source "$HOME/.cargo/env"
 fi
 
+# Every source's signature again (CI: weekly and by hand); a build verifies
+# new sources itself.
+if [ "${VERIFY_SOURCES:-true}" = true ]; then
+    ./bz verify
+fi
 # Free space after each step: a full build is close to what a runner has.
-./bz verify
 ./bz build --locked
 df -h .
 ./bz smoke

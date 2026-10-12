@@ -156,18 +156,14 @@ fn ukify(paths: &Paths) -> Result<Command> {
 
 /// Builds the boot chain, signs it with the test keys and writes `out/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
-    microcode::build(paths)?;
+    let microcode = microcode::build(paths)?;
     let disk = paths.out.join("disk.img");
     let mut inputs = Fingerprint::new()?;
-    for built in [
-        "vmlinuz",
-        "kernel.release",
-        "microcode.cpio",
-        "initrd.cpio.zst",
-    ] {
+    for built in ["vmlinuz", "kernel.release", "initrd.cpio.zst"] {
         inputs = inputs.file(&paths.out.join(built))?;
     }
     inputs = inputs
+        .file(&microcode)?
         // The /usr tree, by the fingerprint of the step that assembled it.
         .file(&stamp::file(paths, usr::STAMP))?
         .tree(&paths.sysroot.join("usr/lib/systemd/boot/efi"))?
@@ -227,7 +223,7 @@ pub fn boot_chain(
     out: &Path,
 ) -> Result<BootChain> {
     let kernel = paths.out.join("vmlinuz");
-    let microcode = paths.out.join("microcode.cpio");
+    let microcode = microcode::archive(paths);
     let initrd = paths.out.join("initrd.cpio.zst");
     for input in [&kernel, &microcode, &initrd] {
         if !input.exists() {
