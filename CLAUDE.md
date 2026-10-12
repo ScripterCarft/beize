@@ -200,8 +200,8 @@ in die Endfassung einarbeiten, keine Nachträge.
 - `sbvarsign` signiert die `.auth`-Dateien mit der aktuellen Zeit: `disk.img` ist nie
   bit-gleich (der Image-Stamp nimmt deshalb die Schlüssel, nicht die `.auth`).
 - Smoke tippt in der initrd über QMP echte Tasten (Scancodes, die Keymap entscheidet):
-  Tasten, bevor die Abfrage tty1 geöffnet hat, gehen verloren – daher 1 s Pause nach
-  dem Prompt auf der seriellen Konsole.
+  Tasten, bevor die Abfrage tty1 geöffnet hat, gehen verloren – daher `PASSWORD_PAUSE`
+  (500 ms) nach dem Prompt auf der seriellen Konsole, auch vor jedem Tippen über QMP.
 - Gegenproben nur gezielt zurücksetzen (Backup der Datei), nie `git checkout` auf eine
   Datei mit noch nicht committeten Änderungen.
 - Rust `fs::copy` schreibt sparse Dateien voll aus (ext4: über den Page-Cache): Disks immer
@@ -380,7 +380,16 @@ Microcode in `build/work/microcode.cpio` (mit dem Build-Zustand gecacht), Build-
 benannt (kein Speichern ohne Neubau), `bz verify` nur wöchentlich/manuell (`VERIFY_SOURCES`), bz mit
 rust-cache, Image-Artefakt nur manuell. Erster Lauf nach dem Push baut wegen `ENV_REVISION` 3 alles
 (~45 min), erst der zweite zeigt die Dauer im Normalfall (vorher 17,5 min system.sh). Push wartet auf
-den Besitzer; alte Cache-Einträge verdrängt GitHub selbst (LRU).
+den Besitzer; alte Cache-Einträge verdrängt GitHub selbst (LRU). Gepusht `bdf1cc9`; CI 38285735465 baut von
+null (Cache-Version durch neue Pfadliste ungültig, einmalig), lief um 19:22 UTC noch.
+**(3) `7cdb7cc`:** beschädigtes `/usr` → Tor nach ~1 s statt 91 s (udev-Regel `99-zz-beize-verity.rules`:
+systemds CRYPT-*-Regel traf verity; Upstream-Entwurf `~/upstream/systemd-verity-not-ready/`), Smoke-Frist
+60 s (Gegenprobe rot). **(4) `8d8ae5e`** Kernel zstd, initrd -19 gemessen bestätigt; **`fb46d11`** `/usr` zstd 9
++ 64 KiB + tailpacking,fragments (80 → 50 MiB, Start gleich, Kaltlesen −12 %; dedupe in erofs-utils 1.9 kaputt);
+**`8e7611f`** Linker-Namen/aclocal/gettext/cmake nicht ins Image. Lokal, Push nach grüner CI.
+Fund: `sbsign` schreibt die Signierzeit → Bootloader, UKI und damit `/usr` nie bit-gleich (zu §10).
+Ballast-Liste mit Belegen liegt dem Besitzer vor (Locales 24 MB, libstdc++/libmvec 4,4 MB ohne Nutzer, glibc-/glib-
+Entwicklerwerkzeuge, openssl-CLI, gconv-Split, coreutils als ein Programm).
 **Phase 7, Wünsche des Besitzers (2026-10-12):** zuerst optimieren, byte-genau:
 Startzeiten sind zu lang, Builds teils immens groß und ineffektiv. Umfang vorab abstimmen (siehe
 Fahrplan Punkt 7): messen (Start auf der Hardware, Größen von `/usr`, initrd, UKI, Build-Zeiten

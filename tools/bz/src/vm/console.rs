@@ -570,6 +570,11 @@ fn read_console(
                     _ => ("", ""),
                 };
                 if !dash.is_empty() {
+                    // The prompt reaches the serial console before the
+                    // agent on tty1 reads the keyboard; keys pressed at once
+                    // could get lost (2026-10-12: the German dash attempt was
+                    // refused once in ten runs). A person reads it first too.
+                    thread::sleep(PASSWORD_PAUSE);
                     echo(
                         &mut log,
                         &format!("(typing the recovery key on the keyboard, {how})"),
