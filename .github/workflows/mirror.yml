@@ -1,0 +1,25 @@
+name: Mirror the build container
+
+# The CI's build host (ADR 0004) as a copy in this repository's registry:
+# anonymous pulls from public.ecr.aws failed on its data limit
+# ("toomanyrequests"), and a copy pinned by digest cannot change unnoticed.
+# Run by hand after changing the digest (a new Ubuntu 26.04 base image).
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+env:
+  # docker.io/library/ubuntu:26.04, linux/amd64, created 2026-09-27.
+  SOURCE: public.ecr.aws/docker/library/ubuntu@sha256:88a381d5b5eeb2b35d3ad70925a362c37ce569daf43ede89ff818ec20e4d3794
+  TARGET: ghcr.io/scriptercarft/beize-build:ubuntu-26.04
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - run: docker pull "$SOURCE"
+      - run: docker tag "$SOURCE" "$TARGET"
+      - run: docker push "$TARGET"
