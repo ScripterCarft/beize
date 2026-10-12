@@ -56,11 +56,11 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let own = paths.root.join("system/initrd");
     let mut files = BTreeSet::new();
     for recipe in tree::target_packages(&recipes) {
-        files.extend(
-            install::manifest(paths, &recipe.name)?
-                .into_iter()
-                .filter(|file| !tree::is_build_only(file)),
-        );
+        for file in install::manifest(paths, &recipe.name)? {
+            if !tree::is_build_only(&paths.sysroot, &file)? {
+                files.insert(file);
+            }
+        }
     }
     let pool = Pool {
         sysroot: paths.sysroot.clone(),

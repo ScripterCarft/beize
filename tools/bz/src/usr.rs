@@ -88,7 +88,9 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     // usr/sbin -> bin and usr/lib64 -> lib; the root-level links (/bin, /lib64,
     // ...) are created by systemd on first boot.
     install::prepare_layout(&root)?;
-    tree::populate(paths, &recipes, &root, |file| !tree::is_build_only(file))?;
+    tree::populate(paths, &recipes, &root, |file| {
+        tree::is_build_only(&paths.sysroot, file).map(|build_only| !build_only)
+    })?;
 
     let usr = root.join("usr");
     util::run(

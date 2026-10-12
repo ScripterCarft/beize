@@ -58,19 +58,41 @@ pub fn assembly_inputs(
 }
 
 /// Build-time files that are never part of a running system.
-const BUILD_ONLY_DIRS: [&str; 7] = [
+const BUILD_ONLY_DIRS: [&str; 10] = [
     // Tools that bz runs on the build host from the sysroot (e.g. ukify).
     "usr/lib/beize-build",
     "usr/include",
     "usr/lib/pkgconfig",
     "usr/share/pkgconfig",
+    "usr/lib/cmake",
+    // Autoconf macros and gettext's extraction rules.
+    "usr/share/aclocal",
+    "usr/share/gettext",
     "usr/share/man",
     "usr/share/info",
     "usr/share/doc",
 ];
 const BUILD_ONLY_EXTENSIONS: [&str; 3] = ["a", "o", "la"];
 
-pub fn is_build_only(path: &Path) -> bool {
+/// Whether `path` (relative to `sysroot`) is only for building: by place and
+/// extension, and the linker names of libraries – `usr/lib/libfoo.so` as a
+/// link to the versioned library or as a linker script (libc.so), what
+/// Fedora's -devel packages hold. Programs load libraries by their SONAME
+/// (`libfoo.so.1`); a library whose SONAME has no version is a real file
+/// and stays (glibc's libmemusage.so).
+pub fn is_build_only(sysroot: &Path, path: &Path) -> Result<bool> {
+    if is_build_only_by_name(path) {
+        return Ok(true);
+    }
+    let linker_name = path.parent() == Some(Path::new("usr/lib"))
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("lib") && name.ends_with(".so"));
+    Ok(linker_name && !is_elf(&sysroot.join(path))?)
+}
+
+fn is_build_only_by_name(path: &Path) -> bool {
     BUILD_ONLY_DIRS.iter().any(|dir| path.starts_with(dir))
         || path
             .extension()
@@ -89,15 +111,15 @@ pub fn populate(
     paths: &Paths,
     recipes: &[Recipe],
     dest: &Path,
-    keep: impl Fn(&Path) -> bool,
+    keep: impl Fn(&Path) -> Result<bool>,
 ) -> Result<usize> {
     let mut files = Vec::new();
     for recipe in target_packages(recipes) {
-        files.extend(
-            install::manifest(paths, &recipe.name)?
-                .into_iter()
-                .filter(|file| keep(file)),
-        );
+        for file in install::manifest(paths, &recipe.name)? {
+            if keep(&file)? {
+                files.push(file);
+            }
+        }
     }
     copy_files(paths, &files, dest)
 }
@@ -183,14 +205,34 @@ mod tests {
 
     #[test]
     fn recognises_build_only_files() {
-        assert!(is_build_only(Path::new("usr/include/stdio.h")));
-        assert!(is_build_only(Path::new("usr/lib/libc.a")));
-        assert!(is_build_only(Path::new("usr/lib/crt1.o")));
-        assert!(is_build_only(Path::new("usr/lib/beize-build/ukify")));
-        assert!(is_build_only(Path::new("usr/share/man/man1/ls.1")));
-        assert!(!is_build_only(Path::new("usr/lib/libc.so.6")));
-        assert!(!is_build_only(Path::new("usr/bin/bash")));
-        assert!(!is_build_only(Path::new("usr/share/factory/etc/issue")));
+        let sysroot = std::env::temp_dir().join(format!("bz-build-only-{}", std::process::id()));
+        let lib = sysroot.join("usr/lib");
+        fs::create_dir_all(lib.join("security")).unwrap();
+        let elf = b"\x7fELF and the rest";
+        for name in ["libfoo.so.1", "libmemusage.so", "security/pam_unix.so"] {
+            fs::write(lib.join(name), elf).unwrap();
+        }
+        std::os::unix::fs::symlink("libfoo.so.1", lib.join("libfoo.so")).unwrap();
+        fs::write(lib.join("libc.so"), "GROUP ( libc.so.6 )\n").unwrap();
+        let build_only = |path: &str| is_build_only(&sysroot, Path::new(path)).unwrap();
+
+        assert!(build_only("usr/include/stdio.h"));
+        assert!(build_only("usr/lib/libc.a"));
+        assert!(build_only("usr/lib/crt1.o"));
+        assert!(build_only("usr/lib/beize-build/ukify"));
+        assert!(build_only("usr/share/man/man1/ls.1"));
+        assert!(build_only("usr/share/aclocal/glib-2.0.m4"));
+        // Linker names: a link and a linker script.
+        assert!(build_only("usr/lib/libfoo.so"));
+        assert!(build_only("usr/lib/libc.so"));
+        // What programs load: by SONAME, also one without a version, and
+        // modules that end in .so.
+        assert!(!build_only("usr/lib/libfoo.so.1"));
+        assert!(!build_only("usr/lib/libmemusage.so"));
+        assert!(!build_only("usr/lib/security/pam_unix.so"));
+        assert!(!build_only("usr/bin/bash"));
+        assert!(!build_only("usr/share/factory/etc/issue"));
+        fs::remove_dir_all(&sysroot).unwrap();
     }
 
     #[test]
