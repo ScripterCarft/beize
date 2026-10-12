@@ -375,6 +375,12 @@ offene Warnungen; (7) Review `bz`/`os/*`: Strukturen und Implementierungen, auch
 `build/tools/pass1`, ELF-Prüfung verlangt Build-ID; `bz` räumt `work/{src,build,pkg}` und Microcode
 auf (11 → 5,2 GB). Bau von null 14:48, Smoke grün. `build/tools` jetzt 538 MB (pass1 +236 MB) – beim
 CI-Cache (Punkt 2) berücksichtigen. Alter Stand zum Vergleich: `~/beize/build.before` (löschen nach Punkt 2).
+**(2) im Code (`e9ce833`), CI-Wirkung noch zu messen:** Quellen-Cache nach Pins ohne linux-firmware,
+Microcode in `build/work/microcode.cpio` (mit dem Build-Zustand gecacht), Build-Zustand nach Stempeln
+benannt (kein Speichern ohne Neubau), `bz verify` nur wöchentlich/manuell (`VERIFY_SOURCES`), bz mit
+rust-cache, Image-Artefakt nur manuell. Erster Lauf nach dem Push baut wegen `ENV_REVISION` 3 alles
+(~45 min), erst der zweite zeigt die Dauer im Normalfall (vorher 17,5 min system.sh). Push wartet auf
+den Besitzer; alte Cache-Einträge verdrängt GitHub selbst (LRU).
 **Phase 7, Wünsche des Besitzers (2026-10-12):** zuerst optimieren, byte-genau:
 Startzeiten sind zu lang, Builds teils immens groß und ineffektiv. Umfang vorab abstimmen (siehe
 Fahrplan Punkt 7): messen (Start auf der Hardware, Größen von `/usr`, initrd, UKI, Build-Zeiten
