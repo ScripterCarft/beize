@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export DEBIAN_FRONTEND=noninteractive
+# What the build runs on (build jobs and test VMs follow from it).
+echo "build host: $(nproc) CPUs, $(awk '/MemTotal/ {printf "%.1f", $2 / 1048576}' /proc/meminfo) GiB, $(df -h --output=avail . | tail -1) free"
 apt-get update -qq
 grep -vE '^\s*(#|$)' ci/packages.txt \
     | xargs apt-get install -y -qq --no-install-recommends >/dev/null
