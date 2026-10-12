@@ -113,15 +113,14 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke.rs` (Modul-Doku) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
-- Start in der VM: 5,3 s Gast-Uptime, erster Start ~8 s. Der zweite Start hat ein
-  Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei Änderung neu
-  messen und den Kommentar aktualisieren.
+- Start in der VM: 3,7 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~105 s. Der zweite Start
+  hat ein Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei
+  Änderung neu messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`, manuell
-  und wöchentlich `ci/system.sh` im privilegierten `ubuntu:26.04`-Container
-  (`public.ecr.aws`) mit KVM. Pakete, Toolchain, Sysroot, Stamps und Kernel-Objektbaum
-  im Actions-Cache (auch nach Abbruch gespeichert); `build/out` nicht, daher laufen die
-  Schritte ab Kernel dort immer. Mit Cache ~12–17 min; 4-Kern-Runner → Smoke-Szenarien
-  nacheinander. Repo privat: Actions-Minuten sparsam.
+  und wöchentlich (dann von null) `ci/system.sh` im privilegierten `ubuntu:26.04`-Container
+  (`public.ecr.aws`) mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum und Microcode
+  im Actions-Cache; `build/out` nicht, daher laufen die Schritte ab Kernel dort immer. Der
+  Runner ist klein (Smoke-Szenarien nacheinander, ~14 min). Repo privat: Actions-Minuten sparsam.
 
 ## 7. ADRs (`docs/adr/`)
 
@@ -210,259 +209,53 @@ in die Endfassung einarbeiten, keine Nachträge.
   (systemd-ask-password), brauchen `.stdin(Stdio::inherit())`, sonst warten sie auf
   einen Passwort-Agenten.
 
-## 10. Offene Punkte (außer der aktuellen Aufgabe)
+## 10. Offene Punkte
 
-- Kernel ohne BTF (`DEBUG_INFO_BTF`, wie Fedora): systemd braucht es für BPF-Funktionen
-  (z. B. `RestrictFileSystems=`), sched_ext auch; kostet DWARF beim Bau (Zeit, CI-Platz).
-- `bz outdated`: mpc 1.4.1 mit der nächsten Toolchain-Änderung (baut die Toolchain neu).
-- Updater (systemd-sysupdate), Verhalten bei verity-Fehlern zur Laufzeit, WLAN, NVIDIA,
-  Bluetooth, Start von der zweiten SSD, Installer.
-- TPM: Rollback älterer signierter UKIs; `CONFIG_TCG_TPM2_HMAC` aus; Attestierung bei
-  neuem TPM. Profil „Nur Beize“ (Option-ROM-Hashes, ADR 0010).
-- Recovery-Key nur auf der Konsole – das Onboarding (M3+) muss ihn grafisch zeigen.
-- Bit-genaue Builds (Container- vs. lokaler Bau unterscheiden sich, vermutlich Build-Pfad).
-- systemd-Rezeptänderungen bauen systemd komplett neu (~5 min): bewusst so gelassen
-  (frisches Build-Verzeichnis = kein veralteter Zustand; meson-Optionen landen in
-  `config.h`, inkrementell würde ohnehin fast alles neu übersetzt).
-- CI: rustup-Hinweis im Container (`RUSTUP_AUTO_INSTALL`). Container-Image von public.ecr.aws
-  scheiterte einmal am Download-Limit (2026-10-12) – tritt es wieder auf: Anmeldung/Mirror prüfen.
-- systemd 263: PID 1 fragt einen VT nicht mehr per CSI 18 nach seiner Größe (upstream
-  4ca7ac0275, nach v262) – auf der Hardware (`/dev/console` = tty0) wartet 262 in initrd
-  und System je 333 ms auf eine Antwort, die der VT nie gibt. Mit dem Update auf der
-  Hardware nachmessen; kein eigener Patch vorher.
-- Tastatur (ADR 0017): auf aus XKB umgewandelte Keymaps umstellen, sobald ein
-  kbd-Release die XKB-Korrekturen nach 2.10.0 enthält (AltGr: 0bb93f7); systemds
-  `kbd-model-map` nennt für ko-KR/km-KH/ar-SA Keymaps, die kbd nicht hat
-  (vconsole-setup scheitert vor dem Setup) – Upstream-Bericht vorbereiten;
-  Konsolenschrift (HiDPI) noch nicht gesetzt.
-- polkit: Drop-in `polkit-agent-helper@.service.d/beize-stderr.conf` mit polkit 128
-  entfernen (upstream 3d07db95a4). FIDO/pam_u2f im socket-aktivierten Helfer ist in 127
-  kaputt (upstream #622) – erst relevant mit Sicherheitsschlüsseln.
+**GitHub Issues** (`gh issue list`; Labels `phase-7`, `upstream`, `hardware`). Neue Punkte dort
+anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
+liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-12)
 
-**Beize läuft auf dem Rechner des Besitzers** (Disks und Messwerte: `docs/hardware.md`;
-neu installieren: `keys/secureboot/README.md`). Installiert ist `18b89a3` (Phase 4, CI grün,
-auf der Hardware gemessen 2026-10-11: ab Loader 13,5 s, vor dem Fahrplan 18,4 s).
+**Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.2 (`d4ee932`; Disks, Messwerte,
+Update-Test: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch mit
+dem Bootstrap-Compiler gebaut (Fund Phase 7) – beim Hardware-Test am Ende von Phase 7 ersetzen.
+Wiederherstellung auf der Hardware: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s`.
 
-**Phase 4 abgeschlossen** (ADR 0016): initrd aus Funktionen (10,7 statt 19,3 MiB),
-Notfall-Tor `beize-tpm emergency` (Shell nur mit Recovery-Key, PCR 11 vorher gesperrt;
-Smoke-Szenario mit Gegenprobe), hwdb.bin in `/usr`, BIOS-Empfehlungen. `INIT_ON_FREE` bleibt
-(Besitzer, ADR 0015). `BOOT_BUDGET` unverändert (VM-initrd-Phase hängt am swtpm).
+**PHASE 7 – Konsolidierung (seit 2026-10-12, Plan mit dem Besitzer abgestimmt).** Ausgangswerte
+und Rohdaten: WSL `~/p7/BASELINE.md`. Jede Änderung mit Vorher/Nachher, je Thema ein Commit.
+Erledigt (gepusht bis `ca2560d`):
+- Bau von null repariert; **seit 2026-10-10 baute gcc-pass1 alle Pakete** (gleiches Präfix) →
+  pass1 in `build/tools/pass1`, ELF-Prüfung verlangt Build-IDs; Paket wird vor dem Neubau
+  deinstalliert (`install::uninstall`); `bz` räumt `work/` auf (11 → 5,2 GB). Bau von null lokal
+  14:48; die CI baut wöchentlich von null (2:11 h).
+- CI: Quellen-Cache nach Pins ohne linux-firmware, Microcode in `build/work`, Build-Zustand nach
+  Stempeln benannt, verify/Artefakt nur wöchentlich/manuell.
+- Beschädigtes `/usr` → Tor nach ~1 s statt 91 s (`99-zz-beize-verity.rules`); Smoke-Frist 60 s;
+  Tastatur-Pause gegen einen Flake.
+- Kernel zstd (UKI 28,5 → 27,3 MB); initrd -19 gemessen bestätigt; `/usr` zstd 9 + 64 KiB +
+  fragments, `LEFT_OUT` in `usr.rs` (mit dem Besitzer), Linker-Namen raus, ELF-Prüfung löst
+  NEEDED wie der Lader auf: `/usr` 80,2 → 40,8 MiB. coreutils bleiben Einzelprogramme (gemessen).
 
-**Phase 5a abgeschlossen (ADR 0017, 2026-10-11, mit dem Besitzer abgestimmt):** XKB-Layout
-im Setup als erste Frage (kbd-Keymaps über `kbd-model-map`, wie Arch), Keymap der initrd in
-der EFI-Variable `BeizeKeymap` (Vorbild macOS/FileVault), Notfall-Tor nimmt den Recovery-Key
-in jeder Schreibweise, Bestätigungswort `stored`, LANG bleibt C.UTF-8. Nebenbei behoben:
-`beize-tpm reseal` nach einem Vertipper am Recovery-Key. Smoke tippt den Key per QMP auf der
-Tastatur (US-Bindestrich abgelehnt, deutscher angenommen; Gegenproben rot).
-**Auf der Hardware bestätigt (2026-10-11, Neuinstallation, Code-Stand `b3bda29`):** Layout „German“
-→ `KEYMAP=de`, EFI-Variable `de`, initrd meldet „Console keymap: de.“. Ohne Updater
-(Phase 6) heißt neues Image Neuinstallation (`bz install … --reinstall`, neuer Recovery-Key).
-**Phase 5b abgeschlossen (ADR 0018, 2026-10-11; Smoke grün, 13 Szenarien):** run0 + polkit
-127 (wheel, eigenes Passwort, Helfer socket-aktiviert, kein pkexec; systemd mit
-`-Dpolkit=enabled`), root `!*`, Bau-Prüfung ohne setuid/setgid (`privileges.rs`), `/usr`
-ohne xattrs, `nosuid,nodev` auf `/` und `/usr`, UKI-Profil „Recovery“ (`@recovery`,
-nur Beize-Profil signiert; PCR 12 = `@1` + `1`, `policy::Boot`), Notfall-Tor nimmt den
-Key aus dem cryptsetup-Keyring. Neue Pakete glib/pcre2/zlib/libffi/duktape/polkit, `bz`
-kann Submodule. Smoke-Szenarien „Privileges“ (Besitzer per Autologin-Credential an der
-seriellen Konsole, `debug::Shell::capture`) und „Recovery“ (`boot_once`).
-**Hardware-Check 5b (Besitzer, Neuinstallation):** `run0 id -u` mit eigenem Passwort → 0;
-Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s` → Shell.
-**Danach (2026-10-11, Wunsch des Besitzers vor 5c): systemd mit libseccomp** – Filter waren
-vorher still wirkungslos; ntpd-rs-Unit fehlte AF_NETLINK (jetzt wie upstreams
-`ntpd-rs.strict.service`, mit dessen SystemCallFilter); Smoke prüft `Seccomp: 2`. CI-Fund:
-polkits `meson_post_install.py` macht den Helfer als root setuid – Rezept nimmt das Bit weg
-(die Bau-Prüfung hat es gefunden). Gepusht wird erst nach grüner CI (Besitzer).
-**CI-Zeitbudget (2026-10-11 geklärt):** Lauf 38129740661 scheiterte an der Kernel-Phase (1,41 s >
-1,40 s). Ursache: Seit `e9353d2` (eigene Kernel-Konfiguration) löscht der Kernel beim Start den ganzen
-RAM (`INIT_ON_FREE`, ADR 0015); in der VM stellte der Host jede Seite dabei erst bereit – auf dem
-verschachtelten CI-Runner 0,6–4 s je nach Speicherzustand (vorher 1. = 2. Start, ~0,8 s). Fix:
-QEMU belegt den Gast-RAM vorab (`memory-backend-ram,prealloc=on`, `machine.rs`), lokal Kernel
-0,36 s in jedem Start. CI 38131390634 grün: Kernel 0,42–1,06 s (1. Start 0,8–0,9 statt 2,4–4 s),
-initrd 4,80–5,58 s, System 3,50–4,04 s. initrd in der CI (2. Start): bis 5a 3,40–3,48 s, mit
-5b+libseccomp (`8b71ff9`) 4,07–4,19, mit RAM-Vorbelegung (`f189912`) 4,80–4,87; lokal unverändert
-2,38–2,41 s. **Messwerkzeug fertig (`b898b9c`):** Smoke behält das Journal jedes Starts
-(`.journal.json`), zeigt die langsamsten Units. Erster Fund: PID 1 wartete in jedem VM-Start
-2× 333 ms auf eine Terminal-Antwort (CSI 18), `bz` antwortet jetzt → lokal Gast 5,0 → 3,7 s
-(initrd 1,70, System 1,61 s). Journal über eine leere virtio-Disk (über die serielle Schnittstelle
-war es in der CI zu langsam). CI 38139971446 grün: 2. Start initrd 2,99–3,28 s (statt 4,8), System
-2,44–3,19 s; jede Unit dort 1,5–3× langsamer als lokal (cryptsetup, TPM) – verschachtelte
-Virtualisierung, keine einzelne Ursache. **Offen:** `BOOT_BUDGET` + Kommentar nach weiteren
-CI-Läufen neu festlegen.
-**Hardware-Test 5b (Besitzer, 2026-10-11):** Wer zum Abtippen des Recovery-Keys über 90 s brauchte,
-landete im Notfall-Tor – systemd-gpt-auto-generator hebt die Gerätefrist nur für
-`dev-mapper-root.device` auf, `sysroot.mount` wartet auf `/dev/gpt-auto-root` (upstream main
-genauso). Behoben per initrd-Drop-in (Smoke-Test dafür vom Besitzer verworfen: 100 s je Lauf); Upstream-Bericht
-(Entwurf, sendet der Besitzer): WSL `~/upstream/systemd-gpt-auto-timeout/ISSUE.md`.
-Zweiter Hardware-Fund: in der Wiederherstellung scheiterte „Early TPM SRK Setup“ im System (läuft
-dort nach, wenn die initrd sie übersprang) – Drop-in auch in `system/usr`, Smoke prüft
-`ConditionResult=no` (CI 38136757166 grün). Beides auf der Hardware bestätigt (2026-10-11).
-**Phase 5c abgeschlossen** (iputils 20250605, nur ping/tracepath; Smoke als Besitzer).
-**Phase 5d abgeschlossen (ADR 0019, 2026-10-11):** Konten über Beizes eigenen Dienst
-`beize-accountsd` (Socket je Anfrage, abgeschottet), gespeichert als systemd-Benutzerdatensätze in
-`/etc/userdb`, Anmeldung/run0 über pam_unix + nss-systemd. Rechte durch Beweis (eigenes Passwort;
-Administrator mit eigenem Passwort; root ohne). `beize-account passwd|reset|add`. Erst homed gebaut
-(`e22cc2a`) und mit dem Besitzer verworfen: homed will selbst Instanz sein (kein Admin-Reset,
-Recovery-Key bei jedem Passwortwechsel, systemd#25876), Ballast. Vorschlag für #25876 trotzdem in
-WSL `~/upstream/systemd-homed-recovery-key/` (für Beize nicht mehr nötig; Senden nach Wahl des
-Besitzers). VM-Konsolengröße per `systemd.tty.*` in der Kommandozeile (eine Antwort von `bz` kam
-unter Last zu spät und landete im getippten Recovery-Key).
-**Auf der Hardware bestätigt (Besitzer, 2026-10-11, Neuinstallation, CI 38147548274 grün):** Setup,
-Anmelden, `beize-account passwd|add|reset`, Gast ohne Admin-Rechte, Zurücksetzen in der
-Wiederherstellung – alles wie erwartet; ebenso die offenen 5b-Punkte (Recovery-Key nach >90 s,
-„Early TPM SRK Setup“ in der Wiederherstellung).
-**Phase 6: ADR 0020 mit dem Besitzer abgestimmt (2026-10-11):** eigener `beize-updated` (holt
-unprivilegiert, prüft ML-DSA-Signatur mit libcrypto) + systemd-sysupdate als Werkzeug; Quelle
-vorerst lokal (Verzeichnis/URL), Server vor M5; Start gelungen = keine Unit aus
-`running-units.txt` fehlgeschlagen; Slots 4 GiB. **Umsetzung in Schritten:** (1) ✓ xz + curl,
-systemd mit sysupdate (Socket und importd-Reste entfernt, Journal jetzt zstd); (2+3) ✓ Slots
-4 GiB, `sysupdate.d` aus `layout.rs`, `bz usr` baut nur noch den Baum, `usr::pack` packt ihn je
-Version und Schlüsselsatz (öffentlicher Update-Schlüssel in `/usr`, daher packt `bz sign` neu),
-`bz release` + `release::write` (Test-Releases für den Smoke-Test), `bz secureboot
-new-update-key` (**Besitzer muss ihn vor dem nächsten `bz sign` erzeugen**);
-(4) ✓ `os/beize-update` + Szenario „Update“ (A→B per HTTP aus `bz`, Ablehnung von geänderter Liste,
-fremdem Schlüssel, geänderter Datei, älterer Version; Start ohne Recovery-Key, Zähler entfernt).
-Funde: `systemd-sysupdate-notify-pcrlock.socket` aus (pcrlock-Credential auf der ESP veränderte
-PCR 12); `beize-keymap.service` ohne Startlimit (Flake beim ersten Start); beize-tpm nennt bei
-„Start verändert“ die PCR-12-Ereignisse. CI 38164107277 starb ohne Log: `Machine::install`
-kopierte das 4,6-GiB-Image mit `fs::copy` voll aus (Runner-Platte voll) – jetzt sparse + Prüfung.
-(5) ✓ `beize-boot-health.service` (Skript prüft die Units aus `running-units.txt`, das `bz` nach
-`/usr/lib/beize` legt) vor `boot-complete.target`, in jedem Start; signiertes systemd-boot als
-`.signed` in `/usr`, eigenes `beize-boot-update.service` nach `boot-complete.target` (systemds
-Unit läuft vor `sysinit.target`, ADR angepasst). Szenario „Update“ prüft: älterer Loader wird
-ersetzt (aus `.signed`), Start mit fehlgeschlagener Unit (ntpd-rs per Drop-in-Credential) wird
-nicht gezählt (`+2-1`), Gegenproben rot. CI 38165560259 grün (Sparse-Fix bestätigt).
-(6) ✓ (mit dem Besitzer abgestimmt): Notfall-Tor startet eine Version auf Probe selbst neu
-(`os/beize-tpm/src/trial.rs`: gezählt + nicht gesegnet, keine Wiederherstellung, andere
-Beize-Version in `LoaderEntries`; Schleifensperre: systemd-boot zählt auch `+0-3` → `+0-4`
-weiter, ein ohne Versuche gewählter Eintrag wartet). Fund: veritysetup-Generator verknüpft
-`/dev/mapper/usr` bei `usrhash=` nicht mit dem Dienst (90 s Warten trotz Fehlschlag) →
-initrd-Drop-in + Upstream-Bericht/Patch WSL `~/upstream/systemd-veritysetup-cmdline-device/`
-(Patch noch nicht kompiliert). Smoke-Szenario „kaputtes Update“ (3× Neustart → A; A kaputt →
-Tor), „dm-verity“ prüft Tor ohne andere Version (wartet 90 s, upstream-Gerätefrist), „Update“
-mit zweitem Update in Slot A. Testschlüssel lädt der Smoke-Test einmal (`Keys::test` schreibt
-die Enrollment-Dateien neu – Wettlauf zwischen Szenarien). **Phase 6 ist im Code fertig.**
-CI 38168342604 grün. Danach (2026-10-12): Szenario „Update“ installiert das zweite Update
-von einem USB-Stick (MBR + FAT32, `Machine::usb_stick`; xHCI auf festem PCI-Slot, sonst
-verschieben sich die Adressen und OVMFs Starteintrag zeigt ins Leere) – der Weg des Besitzers.
-**Hardware-Test, Teil A erledigt (Besitzer, 2026-10-12):** Update-Schlüssel erzeugt (`593a820`),
-0.1 neu installiert, `beize_0.1.efi` gesegnet. Fund: `lsblk` zeigte normalen Benutzern keine
-PARTLABEL/FSTYPE/LABEL – util-linux ist vor systemd und damit `--without-udev` gebaut; jetzt
-eigenes Rezept `recipes/lsblk.toml` nach systemd mit libudev, Smoke prüft es als Besitzer
-(Gegenprobe rot). Kommt mit 0.2 auf die Hardware. Einmal ging ein Smoke-Lauf beim ersten Start
-nicht weiter („did not report within 120s“, Logs überschrieben), in den Läufen danach nicht
-mehr – beobachten. **Teil B bestätigt (Besitzer, 2026-10-12):** Update 0.1 → 0.2 vom USB-Stick,
-Start ohne Recovery-Key, alles wie in `docs/hardware.md` erwartet, `lsblk` als Benutzer ok.
-**Phase 6 abgeschlossen; installiert ist 0.2 (`d4ee932`).** CI 38266265098 (lsblk) scheiterte nur
-am Container-Download („toomanyrequests: Data limit exceeded“ bei public.ecr.aws) – **CI des Pushs
-mit `d4ee932` prüfen** (deckt beide Commits ab; bei Rot zuerst prüfen, ob wieder nur der Download).
+Offen, in dieser Reihenfolge (Issues mit Label `phase-7`):
+1. CI: Container-Mirror (#1), Kosten des Baus von null (#2) – **kein self-hosted Runner**
+   (Besitzer); PRs nur, wenn sie nicht langsamer machen (Cache je Branch).
+2. **Pakete parallel bauen (#3) – Besitzer: RAM-gesteuert, nie OOM.** Messung je Paket:
+   WSL `~/p7/memory-peaks.txt`.
+3. Doku schlank halten: es kommt viel dazu, wenig weg – nur Funktionsloses entfernen (Besitzer).
+4. Upstream statt Eigenem nur messen und bewerten (#4); **Go nur bei großem Gewinn ohne
+   Einschränkung**. Bit-genaue Builds (#5).
+5. Leerlauf (#6), Review (#7), Hardware-Test (#8). `~/beize/build.before` löschen.
 
-**Phase 7 begonnen (2026-10-12): Ausgangsmessung fertig** – Werte und Rohdaten in WSL
-`~/p7/BASELINE.md` (außerhalb des Repos). CI 38271196612 (`4108e4a`) grün. **Plan mit dem Besitzer
-abgestimmt**, Reihenfolge: (1) Bau von null reparieren (glibc-FORTIFY-Abfrage im leeren Sysroot),
-CI baut wöchentlich von null, `bz` räumt Quellen/Altlasten auf; (2) CI: Cache < 10 GB (Microcode-Auszug
-statt 632-MB-linux-firmware), Artefakt/verify nur wenn nötig, bz-Bau cachen; (3) Smoke: 90-s-Warten
-im dm-verity-Szenario an der Ursache; (4) Image/Start: Kernel zstd (gemessen: schnellste und 1,2 MB
-kleiner), initrd- und EROFS-Kompression messen, Update komprimiert, `/usr`-Ballast einzeln prüfen;
-(5) Pakete parallel bauen – **Besitzer: RAM-gesteuert (MemAvailable + gemessener Bedarf je Paket,
-feste Reserve, cgroup-Grenze), nie OOM wie 2026-10-06**; (6) Leerlauf über Stunden (RAM/CPU je Unit),
-offene Warnungen; (7) Review `bz`/`os/*`: Strukturen und Implementierungen, auch Kleinvieh;
-(8) Hardware-Messung ohne F8, Kernel 7.3. Jede Änderung mit Vorher/Nachher, je Punkt ein Commit.
-**(1) erledigt:** glibc-Abfrage beantwortet; Paket sieht beim Bauen sich selbst nicht mehr
-(`ENV_REVISION` 3); **Fund: seit 2026-10-10 baute gcc-pass1 alle Pakete** (gleiches Präfix, Neubau
-überschrieb den endgültigen gcc; keine Build-IDs, auch im installierten 0.2) → pass1 in
-`build/tools/pass1`, ELF-Prüfung verlangt Build-ID; `bz` räumt `work/{src,build,pkg}` und Microcode
-auf (11 → 5,2 GB). Bau von null 14:48, Smoke grün. `build/tools` jetzt 538 MB (pass1 +236 MB) – beim
-CI-Cache (Punkt 2) berücksichtigen. Alter Stand zum Vergleich: `~/beize/build.before` (löschen nach Punkt 2).
-**(2) im Code (`e9ce833`), CI-Wirkung noch zu messen:** Quellen-Cache nach Pins ohne linux-firmware,
-Microcode in `build/work/microcode.cpio` (mit dem Build-Zustand gecacht), Build-Zustand nach Stempeln
-benannt (kein Speichern ohne Neubau), `bz verify` nur wöchentlich/manuell (`VERIFY_SOURCES`), bz mit
-rust-cache, Image-Artefakt nur manuell. Erster Lauf nach dem Push baut wegen `ENV_REVISION` 3 alles
-(~45 min), erst der zweite zeigt die Dauer im Normalfall (vorher 17,5 min system.sh). Push wartet auf
-den Besitzer; alte Cache-Einträge verdrängt GitHub selbst (LRU). Gepusht `bdf1cc9`; CI 38285735465 baut von
-null (Cache-Version durch neue Pfadliste ungültig, einmalig), lief um 19:22 UTC noch.
-**(3) `7cdb7cc`:** beschädigtes `/usr` → Tor nach ~1 s statt 91 s (udev-Regel `99-zz-beize-verity.rules`:
-systemds CRYPT-*-Regel traf verity; Upstream-Entwurf `~/upstream/systemd-verity-not-ready/`), Smoke-Frist
-60 s (Gegenprobe rot). **(4) `8d8ae5e`** Kernel zstd, initrd -19 gemessen bestätigt; **`fb46d11`** `/usr` zstd 9
-+ 64 KiB + tailpacking,fragments (80 → 50 MiB, Start gleich, Kaltlesen −12 %; dedupe in erofs-utils 1.9 kaputt);
-**`8e7611f`** Linker-Namen/aclocal/gettext/cmake nicht ins Image. Lokal, Push nach grüner CI.
-Fund: `sbsign` schreibt die Signierzeit → Bootloader, UKI und damit `/usr` nie bit-gleich (zu §10).
-Ballast-Liste mit Belegen liegt dem Besitzer vor (Locales 24 MB, libstdc++/libmvec 4,4 MB ohne Nutzer, glibc-/glib-
-Entwicklerwerkzeuge, openssl-CLI, gconv-Split, coreutils als ein Programm).
-**Phase 7, Wünsche des Besitzers (2026-10-12):** zuerst optimieren, byte-genau:
-Startzeiten sind zu lang, Builds teils immens groß und ineffektiv. Umfang vorab abstimmen (siehe
-Fahrplan Punkt 7): messen (Start auf der Hardware, Größen von `/usr`, initrd, UKI, Build-Zeiten
-und -Platz), dann gezielt verbessern, jede Änderung belegt.
-**Später (ADR, mit Updates über das Internet vor M5): Zurück auf eine ältere Version.** Heute gibt
-es das nicht als Funktion: Die vorige Version liegt im anderen Slot und steht im Startmenü
-(einmal wählbar), der nächste Start nimmt wieder die neueste, das nächste Update überschreibt sie.
-Wege: (1) „Vorige Version“ (Vorbild Windows „Zurück“, `rpm-ostree rollback`): `beize-update
-rollback` macht die Version im anderen Slot zum Standard, ohne Download; verlangt, dass
-Zustandsformate in `/etc`/`/var` eine Version zurück lesbar bleiben. (2) Ältere Versionen vom
-Server (Vorbild ChromeOS-Enterprise-Rollback): die signierte Liste nennt erlaubte Versionen
-(Mindestversion wegen Sicherheitslücken), nur der Besitzer löst aus, ggf. mit Zurücksetzen der
-Daten, weil Formate nicht rückwärts garantiert sind. (3) Schutz gegen Downgrade durch Angreifer:
-beize-updated lehnt ältere Versionen heute ab, aber jedes ältere signierte UKI entsperrt das TPM
-(ADR 0009, offen) – Mindestversion im TPM (NV-Zähler) oder in der signierten PCR-Richtlinie;
-gehört mit (1)/(2) entschieden. Empfehlung: (1) bald (klein), (2)+(3) mit dem Update-Server.
-Upstream (2026-10-11): beide Kernel-Patches vom Besitzer per b4 gesendet (mei → char-misc,
-USB → usb; Tags `sent/*` in WSL `~/upstream/kernel`, Wiederholung/v2: `send.sh`,
-Anleitung `~/upstream/EINREICHEN.md`). Antworten der Maintainer bringt der Besitzer mit;
-wird der USB-Patch angenommen: ADR „nur upstream angenommene Kernel-Patches“ vorschlagen. ntpd-rs: Regression (Backoff aus #969
-beim Spawner-Umbau verloren), Issue vom Besitzer angelegt (2026-10-11; `gh`-Token darf
-keine fremden Issues anlegen). BIOS-Empfehlungen sind gesetzt (2026-10-11);
-Firmware-Zeit einmal ohne F8 messen (Weg in `docs/hardware.md`; bisherige Werte enthalten das Bootmenü).
-Erkenntnisse: NvPCR-Initialisierung kostet auf Intel PTT ~0,2 s je NvPCR, upstream bewusst
-vor dem Entsperren; `login` passt nicht in den NV-Speicher des PTT (systemd überspringt ihn,
-Beize nutzt ihn nicht) – abgeschlossen. DHCP braucht auf der Hardware 4,6–12 s nach dem Link,
-in der VM 11 ms (Netz des Besitzers). USB-Reproduktion: `qemu-xhci` mit 8 `usb-hub` à 8
-HID-Geräten (Befehl im Patch).
-Offene Warnungen (auch in der VM, Ursache offen): `systemd-growfs`: `crypt_resize() …
-Operation not permitted`; `dbus-daemon`: „Failed to drop supplementary groups“;
-`systemd-networkd`: kein nftables (`NF_TABLES` fehlt). Nur Hardware: `igc` „can't disable
-ASPM“, `i2c` ITE8853 (-16), `intel-lpss` debugfs. `PKCS7: Waived invalid module sig (has
-authattrs)` ist das erwartete ML-DSA-Verhalten.
-
-**Fahrplan bis M2 (vom Besitzer freigegeben; je Phase eigener Chat, ADR vorab abstimmen,
-nichts abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen):**
-1. ✓ **Messen als Werkzeug:** `bz boot-times`, `beize-boot-chain.service`, Zeitbudget im
-   Smoke-Test, `docs/hardware.md`.
-   ✓ **1b. Was läuft (ADR 0013):** Units im signierten Image statt in `/etc`, Regeln
-   `images/base.preset` → systemd-Vorgaben → `disable *`; Smoke prüft die laufenden Units.
-2. ✓ **Toolchain (ADR 0014):** gcc mit x86-64-v3/`generic` als Standard, Härtung wie Fedora,
-   ELF-Prüfung in `bz` (alle ELF in `/usr` + initrd; Ausnahmen `NO_CET` in `elf.rs`), Kernel
-   mit Shadow Stacks für Programme, Boot-Report `shstk=` (WSL-VMs ohne CET: `nohw`).
-3. ✓ **Kernel (ADR 0015):** Konfiguration nach Funktion auf `alldefconfig` + Upstream-Härtung,
-   aufgelöst in `kernel/beize.config`; Treiber als ML-DSA-signierte Module, Lockdown
-   „integrity“, Microcode im UKI, kmod/zstd/acl; Smoke prüft Lockdown, Modulsignatur
-   (Gegenprobe), Treiber je PCI-Gerät; `bz hw-check`, `bz outdated`. Autologin im Image
-   entfernt: `bz run`/`debug` melden root per Credential an, `bz smoke` schaltet den
-   seriellen getty per `getty.auto=no` ab (er setzt die Konsole zurück und verwarf den Report).
-   Offen: **7.3** (erscheint ~Ende Oktober; `bz outdated` zeigt es) – Fix „Skip Target Speed
-   quirk on clamped ports with no link“ für ~5 s PCIe-Retraining leerer Root-Ports
-   (Regression 72780f796468) mit 7.3 auf der Hardware prüfen. `mei_me`-Patch (meldet die
-   xHCI-ID 8086:7a60) sendet der Besitzer: WSL `~/upstream/0001-mei-me-*.patch`
-   (Name/Signed-off-by eintragen, an die Adressen aus `get_maintainer.pl`). Grundsatz: Bei
-   Fehlern zuerst fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht
-   hat (Beispiel dieser Phase: ML-DSA übernommen, die zugehörige PKCS#7-Option nicht).
-4. ✓ **Startpfad (ADR 0016):** initrd aus Funktionen, Notfall-Tor, hwdb, Befunde analysiert
-   (udev → Kernel-Patch, NvPCR → by design, ntpd-rs → Upstream-Issue), BIOS-Empfehlungen.
-   Gemessen: ab Loader 13,5 s; initrd bleibt 4,0 s bis zum USB-Patch.
-5. **Grundfunktionen:** a) ✓ Tastatur (ADR 0017).
-   b) ✓ Rechte (ADR 0018): run0 + polkit, root gesperrt, kein setuid, Wiederherstellung.
-   c) ✓ iputils `ping` + `tracepath` ohne Rechte (ping_group_range), Smoke-Check.
-   d) ✓ Konten (ADR 0019): Beizes Kontodienst ist die einzige Instanz (Vorbild macOS
-      opendirectoryd), Konten in systemds Standardformat, Rechte durch Beweis, ein
-      Recovery-Key über die Wiederherstellung. Besitzer-Wunsch: Beize hat die Macht, wenig
-      Ballast; Name und Bild mit den Einstellungen (M3).
-6. **A/B-Updates (ADR 0020) → M2:** Slot-Größe vorher neu festlegen (letzte Neuinstallation),
-   systemd-sysupdate (usr, verity, UKI, signierter Bootloader – `systemd-boot-update` ist
-   deshalb aus), signierte SHA256SUMS, `bz release`, Rückfall per Boot-Counting (entscheiden:
-   zählt ein Start mit fehlgeschlagener Unit als gescheitert?); Smoke: Update A→B mit TPM,
-   kaputtes Update → A, zweites Update.
-7. **Konsolidierung vor M3 (Wunsch des Besitzers 2026-10-11, Umfang vorab abstimmen):** auf der
-   Hardware messen (Start, Speicher/CPU im Leerlauf über Stunden – nichts wächst oder schwankt),
-   Review des eigenen Codes (`bz`, `os/*`) auf Einfachheit und Effizienz, offene Punkte aus §10
-   und die offenen Warnungen; Funktionen bleiben, geändert wird nur nachweislich Besseres. Nicht
-   feinschleifen, was M3 ersetzt (Konsole, Setup-Oberfläche).
+**Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase eigener Chat, ADR vorab abstimmen, nichts
+abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen; bei Fehlern zuerst
+fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
+1. ✓ Messen als Werkzeug (`bz boot-times`, Zeitbudget, `docs/hardware.md`); Was läuft (ADR 0013).
+2. ✓ Toolchain x86-64-v3 + Härtung (ADR 0014).
+3. ✓ Kernel (ADR 0015).
+4. ✓ Startpfad, initrd aus Funktionen, Notfall-Tor (ADR 0016).
+5. ✓ Grundfunktionen: Tastatur (0017), Rechte (0018), ping, Konten (0019).
+6. ✓ A/B-Updates (ADR 0020), auf der Hardware bestätigt (0.1 → 0.2 vom USB-Stick).
+7. **Konsolidierung vor M3** (läuft): auf der Hardware messen (Start, Leerlauf über Stunden –
+   nichts wächst), Review des eigenen Codes, offene Punkte; Funktionen bleiben, geändert wird
+   nur nachweislich Besseres. Nicht feinschleifen, was M3 ersetzt (Konsole, Setup-Oberfläche).

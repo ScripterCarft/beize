@@ -111,7 +111,7 @@ Logs in `build/work/logs/`.
 | `keys/` | Öffentliche Schlüssel der Upstream-Maintainer (siehe `keys/README.md`) |
 | `ci/` | Paketliste und kompletter CI-Ablauf |
 | `images/` | Welche Pakete in `/usr` gehören, aus welchen Funktionen die initrd besteht (ADR 0016), welche Units laufen (ADR 0013) |
-| `os/` | Eigener Rust-Code im Image (`beize-tpm`, `beize-setup`) |
+| `os/` | Eigener Rust-Code im Image (`beize-tpm`, `beize-setup`, `beize-accounts`, `beize-update`, `beize-varlink`) |
 | `system/usr/`, `system/initrd/` | Eigene Dateien in `/usr` und in der initrd (Units, Skripte, Werkseinstellungen) |
 | `kernel/config/` | Kernel-Konfiguration nach Funktion (ADR 0015); `kernel/beize.config` ist das aufgelöste Ergebnis |
 | `docs/adr/` | Architekturentscheidungen mit Begründung |
@@ -119,10 +119,11 @@ Logs in `build/work/logs/`.
 
 ## Grundsätze
 
-- Jede Upstream-Quelle ist auf Version und Prüfsumme (bzw. Commit) gepinnt und
-  muss von ihren Maintainern signiert sein; unsignierte Quellen nimmt `bz` nicht an.
+- Jede Upstream-Quelle ist auf Version und Prüfsumme (bzw. Commit) gepinnt und, wo
+  ihre Maintainer signieren, gegen deren Signatur geprüft; `bz verify` nennt die
+  wenigen unsignierten mit Grund.
 - Reproduzierbar angelegt (feste Zeitstempel, IDs, Metadaten). Noch nicht bit-gleich:
-  Binaries aus Container- und lokalem Bau unterscheiden sich, und die Secure-Boot-
-  Einschreibdateien tragen die Signierzeit.
+  Binaries aus Container- und lokalem Bau unterscheiden sich, und Signaturen tragen die
+  Signierzeit (Issue #5).
 - Private Schlüssel (Secure Boot, Signaturen) liegen nie im Repository, sondern in 1Password.
 - Größere Entscheidungen werden als ADR festgehalten.
