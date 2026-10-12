@@ -237,11 +237,10 @@ Erledigt (gepusht bis `ca2560d`):
   fragments, `LEFT_OUT` in `usr.rs` (mit dem Besitzer), Linker-Namen raus, ELF-Prüfung löst
   NEEDED wie der Lader auf: `/usr` 80,2 → 40,8 MiB. coreutils bleiben Einzelprogramme (gemessen).
 
-**NÄCHSTER CHAT – zuerst:** Gepusht bis `d4f99ef` (CI 38302037860 grün; Runner belegt: 2 CPUs,
-7,8 GiB, 8,4 GB frei; Normallauf 20,5 min, Smoke 846 s). Lokal und **noch nicht gepusht**: `dc37640`
-(CI zieht das Build-Image aus GHCR, Fixes #1) – erst pushen, wenn der Besitzer den Workflow
-„Mirror the build container“ einmal gestartet hat (GitHub → Actions; der `gh`-Token darf keine
-Workflows starten) und `gh run list --workflow mirror.yml` grün zeigt. Speicherbedarf je Paket
+**NÄCHSTER CHAT – zuerst:** CI 38305117376 prüfen (Push `66e5bfb`; erstmals mit dem Build-Image aus
+GHCR, Mirror-Lauf 38305037919 grün; Fixes #1 – bei Grün #1 schließen), dann diesen lokalen Commit
+pushen. Runner belegt: 2 CPUs, 7,8 GiB, 8,4 GB frei; Normallauf ~20 min, Smoke ~850 s. Der `gh`-Token
+darf keine Workflows starten (Mirror startet der Besitzer). Speicherbedarf je Paket
 (`memory.peak`, enthält Seiten-Cache – für #3 den anonymen Anteil messen): WSL `~/p7/memory-peaks.txt`.
 
 Offen, in dieser Reihenfolge (Issues mit Label `phase-7`):
