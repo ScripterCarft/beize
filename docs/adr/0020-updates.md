@@ -66,8 +66,12 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   veritysetup-Generator `/dev/mapper/usr` nicht mit seinem Dienst (anders als für
   veritytab-Einträge); scheiterte das Einrichten, wartete die initrd trotzdem 90 s. Ein
   initrd-Drop-in stellt die Verknüpfung her (Upstream-Bericht mit Patch: WSL `~/upstream`).
-  Ist `/usr` eingerichtet, aber unlesbar (beschädigte Daten), wartet die initrd weiter die
-  Gerätefrist von 90 s wie upstream, dann folgt dasselbe Tor.
+  Ist `/usr` eingerichtet, aber unlesbar (beschädigte Daten), hielt systemds
+  `99-systemd.rules` das Gerät für „noch nicht bereit“ (die Regel für verschlüsselte Geräte
+  ohne erkanntes Dateisystem trifft auch verity) und die initrd wartete ebenfalls 90 s; eine
+  eigene udev-Regel der initrd macht ein verity-Gerät bereit, sobald es eingerichtet ist –
+  das Einhängen scheitert dann sofort mit dem echten Fehler („can't read superblock“), das
+  Tor zeigt ihn nach ~1 s statt nach 91 s (Upstream-Bericht: WSL `~/upstream`).
 - **Bootloader:** Das signierte systemd-boot liegt als `systemd-bootx64.efi.signed` in `/usr`
   (signiert mit den Schlüsseln des Images). `beize-boot-update.service` ruft dasselbe
   `bootctl update` wie systemds `systemd-boot-update.service`, aber erst nach

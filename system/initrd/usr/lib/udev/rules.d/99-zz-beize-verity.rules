@@ -1,0 +1,13 @@
+# A dm-verity device is ready as soon as device-mapper set it up, even when
+# its content cannot be read. systemd's 99-systemd.rules marks encrypted
+# devices (DM_UUID CRYPT-*) without a recognised file system not ready,
+# "since we are probably still calling mke2fs" – which matches verity
+# (CRYPT-VERITY-*) too, although a verity device is read-only and fixed by
+# its root hash: it never gets a file system later. With a modified /usr,
+# blkid's probe fails (I/O error), the device never became ready, and the
+# initrd waited the full 90 s device timeout before the emergency gate. Now
+# the mount fails at once with the real error. Sorted after 99-systemd.rules.
+# Upstream report: ~/upstream.
+SUBSYSTEM=="block", ACTION!="remove", ENV{DM_UUID}=="CRYPT-VERITY-*", ENV{DM_NAME}=="?*", \
+  ENV{DM_UDEV_DISABLE_OTHER_RULES_FLAG}!="1", ENV{ID_PART_TABLE_TYPE}=="", ENV{ID_FS_USAGE}=="", \
+  ENV{SYSTEMD_READY}="1"

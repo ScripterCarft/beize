@@ -855,9 +855,8 @@ fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Resu
 /// again. That version started once: when it fails too, the start waits at
 /// the emergency gate instead of restarting.
 ///
-/// A damaged hash tree header fails at once (dm-verity is not set up); with
-/// damaged data /usr is set up but unreadable, and the initrd waits for it
-/// as long as for any device (90 s) – `corrupted_usr` shows that.
+/// A damaged hash tree header fails when dm-verity is set up; damaged data
+/// when /usr is mounted – `corrupted_usr` shows that. Both fail at once.
 fn broken_update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-broken-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
@@ -1567,10 +1566,11 @@ const GATE_MENU: &str = "emergency shell (needs the recovery key)";
 /// Shown by the emergency gate before a new version restarts by itself
 /// (os/beize-tpm/src/trial.rs).
 const TRIAL_RESTARTING: &str = "This version of Beize is new and did not start. Restarting";
-/// How long a failed start may take to restart or reach the gate: with an
-/// unreadable /usr the initrd waits 90 s for it, like for any device
-/// (systemd's DefaultDeviceTimeoutSec).
-const FAILED_START_TIMEOUT: Duration = Duration::from_secs(150);
+/// How long a failed start may take to restart or reach the gate. Below
+/// systemd's 90 s device timeout on purpose: a damaged /usr must fail the
+/// start at once, not after waiting for a device that never becomes ready
+/// (system/initrd: dev-mapper-usr.device.d, 99-zz-beize-verity.rules).
+const FAILED_START_TIMEOUT: Duration = Duration::from_secs(60);
 /// systemd's description of systemd-veritysetup@usr.service.
 const VERITY_SETUP: &str = "Integrity Protection Setup for usr";
 
