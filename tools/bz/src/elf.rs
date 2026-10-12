@@ -35,8 +35,9 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     let mut files = Vec::new();
     collect_elf(root, &mut files)?;
     let mut problems = Vec::new();
+    let mut parsed = Vec::new();
     for file in &files {
-        let relative = file.strip_prefix(root)?;
+        let relative = file.strip_prefix(root)?.to_path_buf();
         let output = util::output(
             Command::new(&readelf)
                 .args(["--wide", "--file-header", "--program-headers"])
@@ -44,8 +45,16 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
                 .arg(file),
         )?;
         let needs_cet = !NO_CET.iter().any(|(path, _)| relative == Path::new(path));
-        for problem in Hardening::parse(&output).problems(needs_cet) {
+        let hardening = Hardening::parse(&output);
+        for problem in hardening.problems(needs_cet) {
             problems.push(format!("/{}: {problem}", relative.display()));
+        }
+        parsed.push((relative, hardening));
+    }
+    let mut unresolved = Vec::new();
+    for (relative, hardening) in &parsed {
+        for library in hardening.unresolved(root, relative, &parsed) {
+            unresolved.push(format!("/{} needs {library}", relative.display()));
         }
     }
     ensure!(
@@ -55,9 +64,14 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
         files.len(),
         problems.join("\n  ")
     );
+    ensure!(
+        unresolved.is_empty(),
+        "libraries missing in {what}:\n  {}",
+        unresolved.join("\n  ")
+    );
     say!(
-        "  ok: all {} ELF files in {what} are hardened (PIE, RELRO, BIND_NOW, CET) \
-         and have a build ID",
+        "  ok: all {} ELF files in {what} are hardened (PIE, RELRO, BIND_NOW, CET), \
+         have a build ID and find their libraries",
         files.len()
     );
     Ok(())
@@ -91,6 +105,11 @@ struct Hardening {
     ibt: bool,
     shstk: bool,
     build_id: bool,
+    /// Its name as a library (DT_SONAME), the libraries it needs
+    /// (DT_NEEDED) and where it looks for them first (DT_RUNPATH).
+    soname: Option<String>,
+    needed: Vec<String>,
+    runpath: Vec<String>,
 }
 
 impl Hardening {
@@ -122,6 +141,17 @@ impl Hardening {
                 h.bind_now |= line.split_whitespace().any(|f| f == "NOW");
             } else if line.contains("(TEXTREL)") {
                 h.textrel = true;
+            } else if line.contains("(SONAME)") {
+                h.soname = bracketed(line);
+            } else if line.contains("(NEEDED)") {
+                h.needed.extend(bracketed(line));
+            } else if line.contains("(RUNPATH)") || line.contains("(RPATH)") {
+                h.runpath.extend(
+                    bracketed(line)
+                        .iter()
+                        .flat_map(|dirs| dirs.split(':'))
+                        .map(str::to_owned),
+                );
             } else if line.contains("NT_GNU_BUILD_ID") {
                 h.build_id = true;
             } else if let Some(at) = line.find("x86 feature:") {
@@ -132,6 +162,43 @@ impl Hardening {
             }
         }
         h
+    }
+
+    /// The directories, relative to the root, where the dynamic loader
+    /// looks for the libraries `file` needs: its runpath, then /usr/lib.
+    fn search_dirs(&self, file: &Path) -> Vec<PathBuf> {
+        let origin = Path::new("/").join(file.parent().unwrap_or(Path::new("")));
+        let mut dirs = Vec::new();
+        for dir in &self.runpath {
+            dirs.push(lexical(&dir.replace("$ORIGIN", &origin.to_string_lossy())));
+        }
+        dirs.push(PathBuf::from("usr/lib"));
+        dirs
+    }
+
+    /// The needed libraries that `file` (relative to `root`) would not find
+    /// in `root`. As for the dynamic loader, a library loaded by a program
+    /// also finds what that program's search path found (`all`: every ELF
+    /// file of the tree): systemd's libsystemd-core has no runpath and gets
+    /// libsystemd-shared from systemd's.
+    fn unresolved(&self, root: &Path, file: &Path, all: &[(PathBuf, Hardening)]) -> Vec<String> {
+        let mut dirs = self.search_dirs(file);
+        if let Some(soname) = &self.soname {
+            for (loader, parsed) in all {
+                if parsed.needed.contains(soname) {
+                    dirs.extend(parsed.search_dirs(loader));
+                }
+            }
+        }
+        self.needed
+            .iter()
+            .filter(|library| {
+                !dirs
+                    .iter()
+                    .any(|dir| root.join(dir).join(library).symlink_metadata().is_ok())
+            })
+            .cloned()
+            .collect()
     }
 
     fn problems(&self, needs_cet: bool) -> Vec<&'static str> {
@@ -165,6 +232,28 @@ impl Hardening {
         }
         problems
     }
+}
+
+/// An absolute path made relative to the root, `..` resolved by name.
+fn lexical(path: &str) -> PathBuf {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    parts.iter().collect()
+}
+
+/// The text between the brackets of a readelf line: `... [libc.so.6]`.
+fn bracketed(line: &str) -> Option<String> {
+    let start = line.find('[')? + 1;
+    let end = line.rfind(']')?;
+    line.get(start..end).map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -241,5 +330,48 @@ mod tests {
     fn kernel_modules_are_left_to_the_kernel() {
         let module = "  Type:                              REL (Relocatable file)\n";
         assert!(Hardening::parse(module).problems(true).is_empty());
+    }
+
+    #[test]
+    fn needed_libraries_are_found_in_usr_lib_or_the_runpath() {
+        let root = std::env::temp_dir().join(format!("bz-needed-{}", std::process::id()));
+        fs::create_dir_all(root.join("usr/lib/systemd")).unwrap();
+        fs::write(root.join("usr/lib/libc.so.6"), "").unwrap();
+        fs::write(root.join("usr/lib/systemd/libsystemd-shared-262.so"), "").unwrap();
+        let program = "\
+ 0x0000000000000001 (NEEDED)             Shared library: [libsystemd-shared-262.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]
+ 0x000000000000001d (RUNPATH)            Library runpath: [$ORIGIN/../lib/systemd]
+";
+        let h = Hardening::parse(program);
+        assert_eq!(
+            h.unresolved(&root, Path::new("usr/bin/systemctl"), &[]),
+            ["libstdc++.so.6"]
+        );
+        // The same runpath seen from elsewhere does not lead there.
+        assert_eq!(
+            h.unresolved(&root, Path::new("usr/lib/beize/tool"), &[]),
+            ["libsystemd-shared-262.so", "libstdc++.so.6"]
+        );
+
+        // A library without a runpath finds what the program loading it
+        // found (libsystemd-core, loaded by systemd); alone it would not.
+        let core = Hardening::parse(
+            " 0x000000000000000e (SONAME)             Library soname: [libsystemd-core-262.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libsystemd-shared-262.so]
+",
+        );
+        let core_path = Path::new("usr/lib/systemd/libsystemd-core-262.so");
+        assert_eq!(
+            core.unresolved(&root, core_path, &[]),
+            ["libsystemd-shared-262.so"]
+        );
+        let systemd = Hardening::parse(&format!(
+            "{program} 0x0000000000000001 (NEEDED)             Shared library: [libsystemd-core-262.so]\n"
+        ));
+        let all = [(PathBuf::from("usr/bin/systemd-tool"), systemd)];
+        assert!(core.unresolved(&root, core_path, &all).is_empty());
+        fs::remove_dir_all(&root).unwrap();
     }
 }
