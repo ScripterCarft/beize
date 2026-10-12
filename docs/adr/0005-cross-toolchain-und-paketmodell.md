@@ -37,7 +37,7 @@ Paketen und schreibt ein Manifest. `bz owner <pfad>` beantwortet, woher eine Dat
 
 **Image.** Das `/usr`-Image wird nur aus den Manifesten der Pakete in
 `images/base.toml` zusammengesetzt, ohne Header, statische Bibliotheken und
-Dokumentation, und ohne Debug-Informationen. Es ist ein read-only EROFS-Image (LZ4HC).
+Dokumentation, und ohne Debug-Informationen. Es ist ein read-only EROFS-Image (zstd).
 
 ## Konsequenzen
 

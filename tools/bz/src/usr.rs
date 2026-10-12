@@ -163,7 +163,13 @@ pub fn pack(
     let _ = fs::remove_file(&image);
     util::run(
         Command::new("mkfs.erofs")
-            .arg("-zlz4hc")
+            // zstd level 9 in 64 KiB clusters, file tails packed together.
+            // Measured in the VM (2026-10-12): 49.7 instead of 80.2 MiB with
+            // lz4hc, start unchanged, all of /usr read cold 12 % faster
+            // (fewer bytes); level 15 saves 3 MiB more for 26 s more packing,
+            // lzma 6 MiB more but starts 0.45 s slower. Not `dedupe`: in
+            // erofs-utils 1.9 it gave an impossibly small image.
+            .args(["-zzstd,9", "-C65536", "-Eztailpacking,fragments"])
             .arg("--all-root")
             // No extended attributes: nothing in /usr needs one, and without
             // them no file can carry capabilities (ADR 0018).
