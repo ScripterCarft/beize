@@ -237,11 +237,17 @@ Erledigt (gepusht bis `ca2560d`):
   fragments, `LEFT_OUT` in `usr.rs` (mit dem Besitzer), Linker-Namen raus, ELF-Prüfung löst
   NEEDED wie der Lader auf: `/usr` 80,2 → 40,8 MiB. coreutils bleiben Einzelprogramme (gemessen).
 
+**NÄCHSTER CHAT – zuerst:** Gepusht bis `d4f99ef` (CI 38302037860 grün; Runner belegt: 2 CPUs,
+7,8 GiB, 8,4 GB frei; Normallauf 20,5 min, Smoke 846 s). Lokal und **noch nicht gepusht**: `dc37640`
+(CI zieht das Build-Image aus GHCR, Fixes #1) – erst pushen, wenn der Besitzer den Workflow
+„Mirror the build container“ einmal gestartet hat (GitHub → Actions; der `gh`-Token darf keine
+Workflows starten) und `gh run list --workflow mirror.yml` grün zeigt. Speicherbedarf je Paket
+(`memory.peak`, enthält Seiten-Cache – für #3 den anonymen Anteil messen): WSL `~/p7/memory-peaks.txt`.
+
 Offen, in dieser Reihenfolge (Issues mit Label `phase-7`):
-1. CI: Container-Mirror (#1), Kosten des Baus von null (#2) – **kein self-hosted Runner**
-   (Besitzer); PRs nur, wenn sie nicht langsamer machen (Cache je Branch).
-2. **Pakete parallel bauen (#3) – Besitzer: RAM-gesteuert, nie OOM.** Messung je Paket:
-   WSL `~/p7/memory-peaks.txt`.
+1. CI: Kosten des Baus von null (#2: 2:11 h auf 2 CPUs) – **kein self-hosted Runner** (Besitzer);
+   PRs nur, wenn sie nicht langsamer machen (Cache je Branch).
+2. **Pakete parallel bauen (#3) – Besitzer: RAM-gesteuert, nie OOM.**
 3. Doku schlank halten: es kommt viel dazu, wenig weg – nur Funktionsloses entfernen (Besitzer).
 4. Upstream statt Eigenem nur messen und bewerten (#4); **Go nur bei großem Gewinn ohne
    Einschränkung**. Bit-genaue Builds (#5).
