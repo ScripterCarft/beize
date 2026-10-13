@@ -1,0 +1,31 @@
+[package]
+name = "beize-fuzz"
+description = "Fuzzers for what unprivileged callers send Beize's services (ci/fuzz.sh)"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+beize-update = { path = "../os/beize-update" }
+beize-varlink = { path = "../os/beize-varlink" }
+
+# Not part of the main workspace: it needs a nightly compiler (sanitizers).
+[workspace]
+
+[[bin]]
+name = "varlink_request"
+path = "fuzz_targets/varlink_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_list"
+path = "fuzz_targets/update_list.rs"
+test = false
+doc = false
+bench = false

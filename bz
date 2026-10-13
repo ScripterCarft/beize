@@ -2,12 +2,17 @@
 # Entry point for the Beize build tool: runs tools/bz in Beize's buildroot
 # (ADR 0021) – the Ubuntu, packages and Rust the CI builds with – so a build
 # sees nothing of this machine but the repository. Creates the buildroot
-# when ci/buildroot/ changed.
+# when ci/buildroot/ changed. `./bz exec <command>` runs any command in it
+# (e.g. `./bz exec cargo deny check`, `./bz exec ci/fuzz.sh`).
 set -euo pipefail
 cd "$(dirname "$0")"
 repo=$PWD
 
 run_bz() {
+    if [ "${1:-}" = exec ]; then
+        shift
+        exec "$@"
+    fi
     exec cargo run --quiet --release -p bz -- "$@"
 }
 

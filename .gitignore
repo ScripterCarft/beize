@@ -1,3 +1,6 @@
 /target
 /build
 /.idea
+# cargo-fuzz's own directories; findings go to build/fuzz (ci/fuzz.sh).
+/fuzz/target
+/fuzz/artifacts

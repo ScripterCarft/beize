@@ -70,6 +70,52 @@ pub fn call_message(interface: &str, method: &str, params: &str) -> Secret {
     ))
 }
 
+/// The method a request calls on `interface`, without the interface's name:
+/// `Create` of `{"method":"io.beize.Accounts.Create",…}`.
+pub fn method<'a>(request: json::Object<'a>, interface: &str) -> Option<&'a str> {
+    request
+        .str("method")?
+        .strip_prefix(interface)?
+        .strip_prefix('.')
+        // A method's name is one word (Varlink's grammar).
+        .filter(|method| !method.contains('.'))
+}
+
+/// Parameters the services read from requests.
+const REQUEST_KEYS: [&str; 9] = [
+    "name",
+    "realName",
+    "password",
+    "administrator",
+    "auth",
+    "current",
+    "new",
+    "source",
+    "version",
+];
+
+/// What a caller controls before a service looks at who it is: messages
+/// from `bytes`, their JSON, method and parameters, read as the services
+/// read them. For the fuzzers (fuzz/) and their regression test; panics only
+/// on a bug.
+#[doc(hidden)]
+pub fn fuzz_request(bytes: &[u8]) {
+    let mut stream = bytes;
+    while let Ok(Some(message)) = read_message(&mut stream, 64 * 1024) {
+        let Ok(request) = json::Json::parse(message.expose(), true) else {
+            continue;
+        };
+        let request = request.object();
+        let _ = method(request, "io.beize.Accounts");
+        if let Some(params) = request.object("parameters") {
+            for key in REQUEST_KEYS {
+                let _ = (params.str(key), params.bool(key), params.unsigned(key));
+                let _ = (params.first_str(key), params.object(key));
+            }
+        }
+    }
+}
+
 /// An error reply: `<interface>.<error>`, with `reason` for the person.
 pub fn error_message(interface: &str, error: &str, reason: &str) -> String {
     format!(
@@ -145,6 +191,30 @@ mod tests {
         assert!(read_message(&mut reader, 64).unwrap().is_none());
         assert!(read_message(&mut &b"{\"cut"[..], 64).is_err());
         assert!(read_message(&mut &b"{\"long\"}\0"[..], 4).is_err());
+    }
+
+    #[test]
+    fn names_the_method_of_the_interface() {
+        let call = call_message("io.beize.X", "Do", "");
+        let json = json::Json::parse(call.expose(), false).unwrap();
+        assert_eq!(method(json.object(), "io.beize.X"), Some("Do"));
+        assert_eq!(method(json.object(), "io.beize.Y"), None);
+        assert_eq!(method(json.object(), "io.beize"), None);
+    }
+
+    /// Every input the fuzzers keep (fuzz/corpus, and what once crashed in
+    /// fuzz/regressions) runs on every test, without a fuzzer.
+    #[test]
+    fn fuzz_inputs_still_pass() {
+        let fuzz = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz");
+        let mut inputs = 0;
+        for dir in ["corpus/varlink_request", "regressions/varlink_request"] {
+            for entry in std::fs::read_dir(fuzz.join(dir)).into_iter().flatten() {
+                fuzz_request(&std::fs::read(entry.unwrap().path()).unwrap());
+                inputs += 1;
+            }
+        }
+        assert!(inputs > 0);
     }
 
     #[test]

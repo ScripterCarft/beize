@@ -88,10 +88,7 @@ fn handle(store: &Store, caller: &Caller, request: &str) -> String {
         return reply_error("org.varlink.service.InvalidParameter", "");
     };
     let object = request.object();
-    let method = object
-        .str("method")
-        .and_then(|m| m.strip_prefix(protocol::INTERFACE))
-        .and_then(|m| m.strip_prefix('.'));
+    let method = beize_varlink::method(object, protocol::INTERFACE);
     let Some(params) = object.object("parameters") else {
         return reply_error("org.varlink.service.InvalidParameter", "parameters");
     };

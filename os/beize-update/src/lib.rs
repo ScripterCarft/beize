@@ -167,11 +167,7 @@ pub fn serve(
     let reply = match request(&mut stream, interface) {
         Ok((request, uid)) => {
             let object = request.object();
-            let method = object
-                .str("method")
-                .and_then(|m| m.strip_prefix(interface))
-                .and_then(|m| m.strip_prefix('.'))
-                .unwrap_or("");
+            let method = beize_varlink::method(object, interface).unwrap_or("");
             match object.object("parameters") {
                 Some(params) => match handle(method, params, uid) {
                     Ok(params) => format!("{{\"parameters\":{{{params}}}}}"),

@@ -129,6 +129,22 @@ pub fn newer(a: &str, b: &str) -> bool {
     numbers(a) > numbers(b)
 }
 
+/// What a fetched list goes through: parsed, and its version compared. For
+/// the fuzzers (fuzz/) and their regression test; panics only on a bug.
+#[doc(hidden)]
+pub fn fuzz_list(bytes: &[u8]) {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return;
+    };
+    if let Ok(list) = List::parse(text) {
+        assert!(valid_version(&list.version));
+        let _ = newer(&list.version, "0.2");
+        for entry in &list.entries {
+            let _ = entry.kind.max_size();
+        }
+    }
+}
+
 /// `IMAGE_VERSION` from an os-release file's content.
 pub fn image_version(os_release: &str) -> Option<&str> {
     os_release
@@ -154,6 +170,21 @@ mod tests {
             format!("beize_{version}_{UUID}.usr.verity"),
             format!("beize_{version}.efi"),
         ]
+    }
+
+    /// Every input the fuzzers keep (fuzz/corpus, and what once crashed in
+    /// fuzz/regressions) runs on every test, without a fuzzer.
+    #[test]
+    fn fuzz_inputs_still_pass() {
+        let fuzz = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz");
+        let mut inputs = 0;
+        for dir in ["corpus/update_list", "regressions/update_list"] {
+            for entry in std::fs::read_dir(fuzz.join(dir)).into_iter().flatten() {
+                fuzz_list(&std::fs::read(entry.unwrap().path()).unwrap());
+                inputs += 1;
+            }
+        }
+        assert!(inputs > 0);
     }
 
     #[test]

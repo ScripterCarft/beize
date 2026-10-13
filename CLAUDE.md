@@ -87,7 +87,8 @@ Neubinden, echte Hardware).
 
 ```sh
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
-cargo deny check     # Rust-Abhängigkeiten: Advisories, Lizenzen, Herkunft (deny.toml; im Buildroot)
+./bz exec cargo deny check   # Rust-Abhängigkeiten: Advisories, Lizenzen, Herkunft (deny.toml)
+./bz exec ci/fuzz.sh [s]     # Fuzzing (fuzz/), je Ziel s Sekunden; Funde in build/fuzz/artifacts
 ./bz build           # kernel → Pakete → usr → initrd → image; jeder Schritt nur, wenn sich seine Eingaben ändern
 ./bz smoke --quick   # Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
 ./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
@@ -193,6 +194,10 @@ in die Endfassung einarbeiten, keine Nachträge.
   suchen, Homepage prüfen) und `[sbom]` mit `license` (SPDX, Fedoras Angabe) und `cpe`
   (Liste, gegen NVDs CPE-Wörterbuch geprüft; leer nur mit Begründung); Test verlangt beides.
   Die SBOM des Images: `build/out/sbom.spdx.json`.
+- **Eigener Rust-Code:** `unsafe` nur mit `// SAFETY:`, kein `unwrap`/`expect` außerhalb von
+  Tests (Lints). Was ein unprivilegierter Aufrufer schickt, läuft durch einen Fuzz-Einstieg
+  (`beize_varlink::fuzz_request`, `beize_update::list::fuzz_list`, Ziele in `fuzz/`); neue
+  Eingaben dorthin. Ein behobener Fund kommt nach `fuzz/regressions/<ziel>/` (cargo test).
 - Ausgaben in `bz` über `say!` (nicht `eprintln!`), damit parallele Szenarien sie
   gesammelt zeigen; Prüfungen im Smoke-Test müssen belegen, dass ihre Bedingung
   hergestellt wurde (Gegenprobe: Eigenschaft absichtlich brechen → rot).
