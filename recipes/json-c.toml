@@ -17,7 +17,7 @@ unsigned = "json-c publishes neither signed releases nor signed tags; pinned to 
 script = '''
 cmake -S "$SRC" -B . -G Ninja \
   -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
-  -DCMAKE_SYSROOT="$SYSROOT" -DCMAKE_C_COMPILER="$CC" \
+  -DCMAKE_SYSROOT="$SYSROOT" -DCMAKE_C_COMPILER="$TARGET-gcc" \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib \
   -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_TESTING=OFF -DBUILD_APPS=OFF
 cmake --build . --parallel "$JOBS"

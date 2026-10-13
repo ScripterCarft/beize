@@ -112,8 +112,7 @@ jobs:
       # Built packages (cross toolchain, sysroot, ownership manifests, stamps),
       # the kernel object tree and the microcode. bz's fingerprints decide what
       # is still up to date, so restoring an older state is safe: only what
-      # changed is rebuilt. sysroot-hidden holds what a build that was cut off
-      # had hidden from the sysroot; bz puts it back on the next run.
+      # changed is rebuilt.
       # The weekly run starts from nothing, so a build from scratch keeps
       # working (it broke once unnoticed: glibc's configure needed an old libc).
       - name: Restore build state
@@ -124,7 +123,6 @@ jobs:
           path: |
             build/tools
             build/sysroot
-            build/sysroot-hidden
             build/manifests
             build/work/stamps
             build/work/linux-obj
@@ -152,7 +150,6 @@ jobs:
           path: |
             build/tools
             build/sysroot
-            build/sysroot-hidden
             build/manifests
             build/work/stamps
             build/work/linux-obj

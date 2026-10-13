@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
@@ -35,15 +35,14 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// Bump to force a full rebuild after changing the build environment below.
 /// 2: each package sees only its dependencies in the sysroot.
 /// 3: not its own earlier build either.
-const ENV_REVISION: u32 = 3;
+/// 4: each package builds against a sysroot of its own (--sysroot).
+const ENV_REVISION: u32 = 4;
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
 
 /// Builds the given recipes and everything they depend on.
 pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     let order = resolve(paths, names)?;
-    install::unhide_all(paths)?;
     install::prepare_layout(&paths.sysroot)?;
-    write_meson_cross_file(paths)?;
 
     let stamps = paths.work.join("stamps");
     fs::create_dir_all(&stamps)?;
@@ -51,9 +50,10 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut up_to_date = 0;
     for (index, recipe) in order.iter().enumerate() {
-        // Everything the package depends on, directly or not – not its own
-        // earlier build: a rebuild sees the sysroot a build from scratch sees
-        // (glibc's configure once passed only because its old libc was there).
+        // Everything the package depends on, directly or not: all its build
+        // sees. Not its own earlier build either: a rebuild sees what a build
+        // from scratch sees (glibc's configure once passed only because its
+        // old libc was there).
         let mut visible = BTreeSet::new();
         for dep in &recipe.deps {
             visible.extend(closures[dep].iter().cloned());
@@ -69,10 +69,9 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         } else {
             let _ = fs::remove_file(&stamp);
             install::uninstall(paths, &recipe.name)?;
-            install::hide_others(paths, &visible)?;
-            let built = build_one(paths, recipe);
-            install::unhide_all(paths)?;
-            built?;
+            let sysroot = recreate(&sysroot_dir(paths, &recipe.name))?;
+            install::link_packages(paths, &visible, &sysroot)?;
+            build_one(paths, recipe, &sysroot)?;
             fs::write(&stamp, &fingerprint)?;
             clean_up(paths, recipe, &order[index + 1..])?;
         }
@@ -88,7 +87,8 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
 }
 
 /// Removes what a successful build leaves in `work/`, as rpmbuild does: the
-/// build and staging trees always (the files are in the sysroot now), the
+/// build and staging trees and its sysroot always (the files are in the
+/// sysroot now), the
 /// unpacked sources unless a later package or the kernel (built
 /// incrementally from its tree) still needs them. Otherwise a full build
 /// holds every package's trees at once – more than the ~14 GB a CI runner has
@@ -96,6 +96,8 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
 fn clean_up(paths: &Paths, recipe: &Recipe, later: &[Recipe]) -> Result<()> {
     remove(&paths.work.join("build").join(&recipe.name))?;
     remove(&paths.work.join("pkg").join(&recipe.name))?;
+    remove(&sysroot_dir(paths, &recipe.name))?;
+    remove(&meson_cross_file(paths, &recipe.name))?;
     let Some(source) = &recipe.source else {
         return Ok(());
     };
@@ -121,7 +123,7 @@ fn sweep(paths: &Paths) -> Result<()> {
         .as_ref()
         .context("linux has no source")?
         .stem()?;
-    for dir in ["src", "build", "pkg"] {
+    for dir in ["src", "build", "pkg", "sysroot"] {
         let Ok(entries) = fs::read_dir(paths.work.join(dir)) else {
             continue;
         };
@@ -235,9 +237,14 @@ fn repo_digest(paths: &Paths, recipe: &Recipe) -> Result<String> {
     Ok(util::hex(&hasher.finalize()))
 }
 
+/// The sysroot of one package's build: its dependencies, nothing else.
+fn sysroot_dir(paths: &Paths, name: &str) -> PathBuf {
+    paths.work.join("sysroot").join(name)
+}
+
 /// Cargo for building Beize's own Rust code for the target: the toolchain
 /// running bz (rust-toolchain.toml), crates cached under build/cache.
-fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path) {
+fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path, sysroot: &Path) {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let cargo = Path::new(&cargo);
     cmd.env("CARGO", cargo)
@@ -248,7 +255,10 @@ fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path) {
         // sysroot; build scripts and proc macros stay with the host's cc.
         .env(
             "RUSTFLAGS",
-            format!("-C linker={TARGET}-gcc {TARGET_RUSTFLAGS}"),
+            format!(
+                "-C linker={TARGET}-gcc -C link-arg=--sysroot={} {TARGET_RUSTFLAGS}",
+                sysroot.display()
+            ),
         );
     if let Some(rustc) = cargo
         .parent()
@@ -259,7 +269,10 @@ fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path) {
     }
 }
 
-fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
+/// Builds one package against `sysroot`. The cross compiler has no usable
+/// sysroot of its own (recipes/gcc.toml): a build that calls it without
+/// `$CC` fails instead of seeing other packages.
+fn build_one(paths: &Paths, recipe: &Recipe, sysroot: &Path) -> Result<()> {
     let stage = recipe
         .stage
         .with_context(|| format!("{} has no stage", recipe.name))?;
@@ -297,7 +310,7 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
         .env("BUILD", &build_dir)
         .env("PKG", &pkg_dir)
         .env("TOOLS", &paths.tools)
-        .env("SYSROOT", &paths.sysroot)
+        .env("SYSROOT", sysroot)
         .env("TARGET", TARGET)
         .env("JOBS", jobs.to_string())
         .stdin(Stdio::null());
@@ -309,25 +322,32 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
             cmd.env("CFLAGS", "-O2 -pipe").env("CXXFLAGS", "-O2 -pipe");
         }
         Stage::Target => {
-            cmd.env("CC", format!("{TARGET}-gcc"))
-                .env("CXX", format!("{TARGET}-g++"))
-                .env("AR", format!("{TARGET}-ar"))
-                .env("RANLIB", format!("{TARGET}-ranlib"))
-                .env("NM", format!("{TARGET}-nm"))
-                .env("STRIP", format!("{TARGET}-strip"))
-                .env("CFLAGS", TARGET_CFLAGS)
-                .env("CXXFLAGS", TARGET_CFLAGS)
-                .env("LDFLAGS", TARGET_LDFLAGS)
-                .env("PKG_CONFIG_SYSROOT_DIR", &paths.sysroot)
-                .env(
-                    "PKG_CONFIG_LIBDIR",
-                    format!(
-                        "{0}/usr/lib/pkgconfig:{0}/usr/share/pkgconfig",
-                        paths.sysroot.display()
-                    ),
-                )
-                .env("MESON_CROSS", meson_cross_file(paths));
-            cargo_env(&mut cmd, paths, &build_dir);
+            let meson_cross = write_meson_cross_file(paths, &recipe.name, sysroot)?;
+            cmd.env(
+                "CC",
+                format!("{TARGET}-gcc --sysroot={}", sysroot.display()),
+            )
+            .env(
+                "CXX",
+                format!("{TARGET}-g++ --sysroot={}", sysroot.display()),
+            )
+            .env("AR", format!("{TARGET}-ar"))
+            .env("RANLIB", format!("{TARGET}-ranlib"))
+            .env("NM", format!("{TARGET}-nm"))
+            .env("STRIP", format!("{TARGET}-strip"))
+            .env("CFLAGS", TARGET_CFLAGS)
+            .env("CXXFLAGS", TARGET_CFLAGS)
+            .env("LDFLAGS", TARGET_LDFLAGS)
+            .env("PKG_CONFIG_SYSROOT_DIR", sysroot)
+            .env(
+                "PKG_CONFIG_LIBDIR",
+                format!(
+                    "{0}/usr/lib/pkgconfig:{0}/usr/share/pkgconfig",
+                    sysroot.display()
+                ),
+            )
+            .env("MESON_CROSS", meson_cross);
+            cargo_env(&mut cmd, paths, &build_dir, sysroot);
         }
     }
 
@@ -341,16 +361,19 @@ fn build_one(paths: &Paths, recipe: &Recipe) -> Result<()> {
     Ok(())
 }
 
-fn meson_cross_file(paths: &Paths) -> std::path::PathBuf {
-    paths.work.join("meson-cross.ini")
+fn meson_cross_file(paths: &Paths, name: &str) -> PathBuf {
+    paths
+        .work
+        .join("sysroot")
+        .join(format!("{name}.meson-cross.ini"))
 }
 
-fn write_meson_cross_file(paths: &Paths) -> Result<()> {
-    let sysroot = paths.sysroot.display();
+fn write_meson_cross_file(paths: &Paths, name: &str, sysroot: &Path) -> Result<PathBuf> {
+    let sysroot = sysroot.display();
     let text = format!(
         "[binaries]\n\
-         c = '{TARGET}-gcc'\n\
-         cpp = '{TARGET}-g++'\n\
+         c = ['{TARGET}-gcc', '--sysroot={sysroot}']\n\
+         cpp = ['{TARGET}-g++', '--sysroot={sysroot}']\n\
          ar = '{TARGET}-ar'\n\
          strip = '{TARGET}-strip'\n\
          pkg-config = 'pkg-config'\n\
@@ -365,11 +388,12 @@ fn write_meson_cross_file(paths: &Paths) -> Result<()> {
          cpu = 'x86_64'\n\
          endian = 'little'\n"
     );
-    fs::write(meson_cross_file(paths), text)?;
-    Ok(())
+    let file = meson_cross_file(paths, name);
+    fs::write(&file, text)?;
+    Ok(file)
 }
 
-fn recreate(dir: &Path) -> Result<std::path::PathBuf> {
+fn recreate(dir: &Path) -> Result<PathBuf> {
     remove(dir)?;
     fs::create_dir_all(dir)?;
     Ok(dir.to_owned())

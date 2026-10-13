@@ -18,6 +18,9 @@ script = '''
 "$SRC/Configure" linux-x86_64 \
   --prefix=/usr --libdir=lib --openssldir=/etc/ssl \
   shared no-tests no-docs
+# The library keeps the compiler command (`openssl version -f`): written
+# first, without this build's sysroot.
+make crypto/buildinf.h CC="$TARGET-gcc"
 make -j"$JOBS"
 make DESTDIR="$PKG" install_sw
 '''

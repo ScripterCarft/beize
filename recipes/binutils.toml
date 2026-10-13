@@ -12,8 +12,9 @@ keyring = "binutils"
 
 [build]
 script = '''
+# No usable default sysroot: bz gives each build its own (see gcc.toml).
 "$SRC/configure" \
-  --prefix="$TOOLS" --target="$TARGET" --with-sysroot="$SYSROOT" \
+  --prefix="$TOOLS" --target="$TARGET" --with-sysroot="$TOOLS/no-sysroot" \
   --disable-nls --disable-werror --enable-gprofng=no \
   --enable-new-dtags --enable-default-hash-style=gnu
 make -j"$JOBS"

@@ -22,5 +22,8 @@ script = '''
   bash_cv_printf_a_format=yes bash_cv_strtold_broken=no
 make -j"$JOBS"
 make DESTDIR="$PKG" install
+# bashbug and the Makefile for loadable builtins record the compiler
+# command: without this build's sysroot (as Yocto's bash recipe does).
+sed -i "s# --sysroot=$SYSROOT##" "$PKG/usr/bin/bashbug" "$PKG/usr/lib/bash/Makefile.inc"
 ln -s bash "$PKG/usr/bin/sh"
 '''

@@ -16,6 +16,13 @@ binutils → gcc (Stufe 1, ohne libc) → Kernel-Header → glibc → gcc (volls
 Alles für Beize wird damit gegen den eigenen Sysroot gebaut, der Host liefert
 nur Werkzeuge.
 
+**Sysroot je Paket.** Jedes Paket baut gegen ein eigenes Sysroot, das genau seine
+(transitiven) Abhängigkeiten enthält – harte Links ins gemeinsame Sysroot, wie
+Yoctos recipe-sysroot. So hängt kein Ergebnis davon ab, was zufällig schon gebaut
+ist. Der Compiler bekommt es über `--sysroot` in `$CC`; ein eigenes Standard-Sysroot
+hat er nicht, damit ein Aufruf am `$CC` vorbei scheitert, statt fremde Pakete oder
+den Host zu sehen.
+
 **Rezepte.** Jedes Paket ist eine TOML-Datei unter `recipes/`: gepinnte Quelle,
 Abhängigkeiten, Stufe (`toolchain` oder `target`) und ein Build-Skript.
 

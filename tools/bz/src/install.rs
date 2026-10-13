@@ -160,49 +160,32 @@ pub fn copy_entry(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Moves the files of every installed package outside `visible` out of the
-/// sysroot, so a build sees exactly its dependencies. Without this, configure
-/// scripts pick up whatever earlier builds left behind, and the result depends
-/// on build order and history: lvm2 rebuilt after systemd found libudev and
-/// wrote a different udev rule than in a clean build, where it comes first.
-pub fn hide_others(paths: &Paths, visible: &BTreeSet<String>) -> Result<()> {
-    for package in installed(paths)? {
-        if visible.contains(&package) {
+/// Fills `dest`, an empty directory, with the files of `packages` as hard
+/// links into the sysroot: the sysroot of one package's build, which sees
+/// exactly its dependencies (as Yocto's recipe-sysroot). Without this,
+/// configure scripts pick up whatever else is installed, and the result
+/// depends on build order and history: lvm2 rebuilt after systemd found
+/// libudev and wrote a different udev rule than in a clean build, where it
+/// comes first. Hard links cost neither space nor time; a package installed
+/// later replaces its files with new ones and leaves running builds alone.
+pub fn link_packages(paths: &Paths, packages: &BTreeSet<String>, dest: &Path) -> Result<()> {
+    prepare_layout(dest)?;
+    for package in packages {
+        // Toolchain packages install into build/tools and have no manifest.
+        if !manifest_path(paths, package).exists() {
             continue;
         }
-        for file in manifest(paths, &package)? {
-            let path = paths.sysroot.join(&file);
-            if path.symlink_metadata().is_ok() {
-                move_entry(&path, &paths.hidden.join(&file))?;
+        for file in manifest(paths, package)? {
+            let target = dest.join(&file);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
             }
+            // A symlink is linked itself, not what it points to.
+            fs::hard_link(paths.sysroot.join(&file), &target)
+                .with_context(|| format!("linking /{} of {package}", file.display()))?;
         }
     }
     Ok(())
-}
-
-/// Moves everything `hide_others` hid back into the sysroot. Also repairs the
-/// sysroot after an interrupted build, so call it before relying on it.
-pub fn unhide_all(paths: &Paths) -> Result<()> {
-    for rel in walk(&paths.hidden)? {
-        let dest = paths.sysroot.join(&rel);
-        if dest.symlink_metadata().is_ok() {
-            bail!(
-                "cannot restore {}: the sysroot has a file there already",
-                dest.display()
-            );
-        }
-        move_entry(&paths.hidden.join(&rel), &dest)?;
-    }
-    fs::remove_dir_all(&paths.hidden)?;
-    fs::create_dir_all(&paths.hidden)?;
-    Ok(())
-}
-
-fn move_entry(src: &Path, dest: &Path) -> Result<()> {
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::rename(src, dest).with_context(|| format!("moving {} to {}", src.display(), dest.display()))
 }
 
 fn installed(paths: &Paths) -> Result<Vec<String>> {
@@ -326,9 +309,8 @@ mod tests {
         assert!(!leaks_build_path(Path::new("home/joe/notes"), root));
     }
 
-    #[test]
-    fn hides_packages_outside_the_dependencies_and_restores_them() {
-        let dir = std::env::temp_dir().join(format!("bz-hide-{}", std::process::id()));
+    fn scratch_paths(name: &str) -> Paths {
+        let dir = std::env::temp_dir().join(format!("bz-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let paths = Paths {
             root: dir.clone(),
@@ -337,13 +319,18 @@ mod tests {
             tools: dir.join("tools"),
             sysroot: dir.join("sysroot"),
             manifests: dir.join("manifests"),
-            hidden: dir.join("hidden"),
             out: dir.join("out"),
         };
         fs::create_dir_all(paths.sysroot.join("usr/lib/pkgconfig")).unwrap();
+        fs::create_dir_all(paths.sysroot.join("usr/bin")).unwrap();
         fs::create_dir_all(&paths.manifests).unwrap();
-        fs::create_dir_all(&paths.hidden).unwrap();
-        fs::write(paths.sysroot.join("usr/lib/libc.so.6"), "").unwrap();
+        paths
+    }
+
+    #[test]
+    fn a_build_sees_exactly_its_dependencies() {
+        let paths = scratch_paths("link");
+        fs::write(paths.sysroot.join("usr/lib/libc.so.6"), "libc").unwrap();
         fs::write(paths.sysroot.join("usr/lib/pkgconfig/libudev.pc"), "").unwrap();
         symlink("libudev.so.1", paths.sysroot.join("usr/lib/libudev.so")).unwrap();
         fs::write(paths.manifests.join("glibc.list"), "usr/lib/libc.so.6\n").unwrap();
@@ -353,51 +340,35 @@ mod tests {
         )
         .unwrap();
 
-        let visible = BTreeSet::from(["glibc".to_owned(), "lvm2".to_owned()]);
-        hide_others(&paths, &visible).unwrap();
-        let seen = walk(&paths.sysroot).unwrap();
-        unhide_all(&paths).unwrap();
-        let restored = walk(&paths.sysroot).unwrap();
-        let hidden_left = walk(&paths.hidden).unwrap();
-        let link = fs::read_link(paths.sysroot.join("usr/lib/libudev.so")).unwrap();
-        fs::remove_dir_all(&dir).unwrap();
+        let view = paths.work.join("sysroot/lvm2");
+        let deps = BTreeSet::from(["gcc".to_owned(), "glibc".to_owned()]);
+        link_packages(&paths, &deps, &view).unwrap();
+        let seen = walk(&view.join("usr")).unwrap();
+        let libc = fs::read_to_string(view.join("usr/lib/libc.so.6")).unwrap();
+        let usr_bin = fs::read_link(view.join("bin")).unwrap();
 
-        assert_eq!(seen, [PathBuf::from("usr/lib/libc.so.6")]);
+        let with_systemd = paths.work.join("sysroot/dbus");
+        let deps = BTreeSet::from(["glibc".to_owned(), "systemd".to_owned()]);
+        link_packages(&paths, &deps, &with_systemd).unwrap();
+        let link = fs::read_link(with_systemd.join("usr/lib/libudev.so")).unwrap();
+        fs::remove_dir_all(&paths.root).unwrap();
+
+        // Besides the merged-/usr links (usr/lib64, usr/sbin) only glibc.
+        assert_eq!(seen, ["lib/libc.so.6", "lib64", "sbin"].map(PathBuf::from));
+        assert_eq!(libc, "libc");
+        assert_eq!(usr_bin, Path::new("usr/bin"), "merged-/usr layout");
         assert_eq!(
-            restored,
-            [
-                PathBuf::from("usr/lib/libc.so.6"),
-                PathBuf::from("usr/lib/libudev.so"),
-                PathBuf::from("usr/lib/pkgconfig/libudev.pc"),
-            ]
+            link,
+            Path::new("libudev.so.1"),
+            "a dangling symlink stays one"
         );
-        assert!(hidden_left.is_empty());
-        assert_eq!(link, Path::new("libudev.so.1"));
     }
 
-    /// A package built again: its old files are gone while it builds, the
-    /// new ones replace them, and the others come back without a clash
-    /// (hiding its old files instead clashed with the new ones on restore).
+    /// A package built again: its old files are gone, the new ones replace
+    /// them, and the sysroot of a build that linked the old files keeps them.
     #[test]
     fn a_rebuilt_package_replaces_its_old_files() {
-        let dir = std::env::temp_dir().join(format!("bz-rebuild-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let paths = Paths {
-            root: dir.clone(),
-            cache: dir.join("cache"),
-            work: dir.join("work"),
-            tools: dir.join("tools"),
-            sysroot: dir.join("sysroot"),
-            manifests: dir.join("manifests"),
-            hidden: dir.join("hidden"),
-            out: dir.join("out"),
-        };
-        fs::create_dir_all(paths.sysroot.join("usr/bin")).unwrap();
-        fs::create_dir_all(paths.sysroot.join("usr/lib")).unwrap();
-        fs::create_dir_all(&paths.manifests).unwrap();
-        fs::create_dir_all(&paths.hidden).unwrap();
-        fs::write(paths.sysroot.join("usr/lib/libc.so.6"), "").unwrap();
-        fs::write(paths.manifests.join("glibc.list"), "usr/lib/libc.so.6\n").unwrap();
+        let paths = scratch_paths("rebuild");
         fs::write(paths.sysroot.join("usr/bin/ls"), "old").unwrap();
         fs::write(paths.sysroot.join("usr/bin/dir"), "old").unwrap();
         fs::write(
@@ -405,23 +376,22 @@ mod tests {
             "usr/bin/dir\nusr/bin/ls\n",
         )
         .unwrap();
-        let staging = dir.join("staging");
+        let running = paths.work.join("sysroot/bash");
+        link_packages(&paths, &BTreeSet::from(["coreutils".to_owned()]), &running).unwrap();
+        let staging = paths.root.join("staging");
         fs::create_dir_all(staging.join("usr/bin")).unwrap();
         fs::write(staging.join("usr/bin/ls"), "new").unwrap();
 
         uninstall(&paths, "coreutils").unwrap();
-        let visible = BTreeSet::from(["glibc".to_owned()]);
-        hide_others(&paths, &visible).unwrap();
-        let seen = walk(&paths.sysroot).unwrap();
         merge(&paths, "coreutils", &staging).unwrap();
-        unhide_all(&paths).unwrap();
         let ls = fs::read_to_string(paths.sysroot.join("usr/bin/ls")).unwrap();
         let dir_left = paths.sysroot.join("usr/bin/dir").exists();
-        fs::remove_dir_all(&dir).unwrap();
+        let ls_running = fs::read_to_string(running.join("usr/bin/ls")).unwrap();
+        fs::remove_dir_all(&paths.root).unwrap();
 
-        assert_eq!(seen, [PathBuf::from("usr/lib/libc.so.6")]);
         assert_eq!(ls, "new");
         assert!(!dir_left, "a file the new build no longer installs stays");
+        assert_eq!(ls_running, "old");
     }
 
     #[test]

@@ -16,7 +16,7 @@ sed -e '/m64=/s/lib64/lib/' -i "$SRC/gcc/config/i386/t-linux64"
 prefix="$TOOLS/pass1"
 rm -rf "$prefix"
 "$SRC/configure" \
-  --target="$TARGET" --prefix="$prefix" --with-sysroot="$SYSROOT" \
+  --target="$TARGET" --prefix="$prefix" --with-sysroot="$TOOLS/no-sysroot" \
   --with-as="$TOOLS/bin/$TARGET-as" --with-ld="$TOOLS/bin/$TARGET-ld" \
   --with-glibc-version=2.44 --with-newlib --without-headers \
   --with-arch=x86-64-v3 --with-tune=generic --enable-cet \

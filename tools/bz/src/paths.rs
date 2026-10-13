@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// Directory layout used by every build step.
 ///
@@ -18,9 +18,6 @@ pub struct Paths {
     pub sysroot: PathBuf,
     /// One file list per installed package, recording who owns what.
     pub manifests: PathBuf,
-    /// Files of installed packages hidden from the sysroot while a package
-    /// that does not depend on them is built. Empty between builds.
-    pub hidden: PathBuf,
     /// Artifacts other steps consume: kernel, root filesystem, disk image.
     pub out: PathBuf,
 }
@@ -31,6 +28,11 @@ impl Paths {
             .join("../..")
             .canonicalize()
             .context("locating repository root")?;
+        // Builds get paths inside compiler commands (CC="gcc --sysroot=..."),
+        // which build systems split at blanks.
+        if root.to_string_lossy().contains(char::is_whitespace) {
+            bail!("the repository path {} contains blanks", root.display());
+        }
         let build = root.join("build");
         let paths = Self {
             cache: build.join("cache"),
@@ -38,7 +40,6 @@ impl Paths {
             tools: build.join("tools"),
             sysroot: build.join("sysroot"),
             manifests: build.join("manifests"),
-            hidden: build.join("sysroot-hidden"),
             out: build.join("out"),
             root,
         };
@@ -48,7 +49,6 @@ impl Paths {
             &paths.tools,
             &paths.sysroot,
             &paths.manifests,
-            &paths.hidden,
             &paths.out,
         ] {
             fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;

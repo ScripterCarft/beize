@@ -16,7 +16,7 @@ keyring = "libcap"
 script = '''
 # libcap only builds in-tree.
 cp -a "$SRC/." .
-opts=(CROSS_COMPILE="$TARGET-" BUILD_CC=gcc prefix=/usr lib=lib
+opts=(CROSS_COMPILE="$TARGET-" CC="$CC" BUILD_CC=gcc prefix=/usr lib=lib
       GOLANG=no PAM_CAP=no SHARED=yes RAISE_SETFCAP=no)
 make -j"$JOBS" "${opts[@]}"
 make "${opts[@]}" DESTDIR="$PKG" install

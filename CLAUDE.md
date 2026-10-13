@@ -143,8 +143,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   nach Vorbild `recipes/beize-tpm.toml`. Crates mit Build-Skript meiden (laufen mit
   dem Host-cc). Krypto nie selbst schreiben.
 - Rezepte **ohne** `repo` behalten ihren Fingerprint (Test) – sonst baut alles neu.
-- **Ein Paket sieht beim Bauen nur seine (transitiven) `deps` im Sysroot.** Fehlt etwas,
-  gehört es in `deps` – nicht die Sperre umgehen.
+- **Ein Paket baut gegen ein eigenes Sysroot nur aus seinen (transitiven) `deps`**
+  (ADR 0005). Den Compiler nur über `$CC`/`$CXX` aufrufen (Makefiles, die ihn selbst
+  zusammensetzen: `CC="$CC"` übergeben); fehlt etwas, gehört es in `deps`.
 - Build-Jobs nach RAM begrenzt (1,5 GiB/Job), parallele VMs nach CPUs/RAM (je 4 CPUs
   und 3 GiB reserviert, Gast 2 GiB) – nicht zurückdrehen.
 - Werkzeuge, die zur systemd-Version im Image passen müssen (ukify, systemd-measure),
