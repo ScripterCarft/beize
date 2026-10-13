@@ -101,11 +101,12 @@ pub fn sha256_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(hex(&hasher.finalize()))
+}
+
+/// Bytes as lowercase hex digits, as sha256sum writes a digest.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Memory reserved per parallel build job. Large C++ translation units (gcc)

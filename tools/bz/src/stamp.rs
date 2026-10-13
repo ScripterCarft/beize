@@ -51,7 +51,7 @@ impl Fingerprint {
     }
 
     pub fn finish(self) -> String {
-        hex(&self.0.finalize())
+        util::hex(&self.0.finalize())
     }
 }
 
@@ -140,10 +140,6 @@ fn bz_digest() -> Result<&'static str> {
     let exe = std::env::current_exe().context("locating the bz binary")?;
     let digest = util::sha256_file(&exe)?;
     Ok(DIGEST.get_or_init(|| digest))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]

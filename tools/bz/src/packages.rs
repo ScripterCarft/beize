@@ -217,11 +217,7 @@ fn fingerprint(recipe: &Recipe, repo: &str, known: &BTreeMap<String, String>) ->
             known.get(dep).map_or("", String::as_str)
         ));
     }
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    util::hex(&hasher.finalize())
 }
 
 /// Digest over the paths and contents of the repository files a recipe
@@ -236,11 +232,7 @@ fn repo_digest(paths: &Paths, recipe: &Recipe) -> Result<String> {
         stamp::hash_tree(&mut hasher, &paths.root, &paths.root.join(entry))
             .with_context(|| format!("{}: repo path {entry}", recipe.name))?;
     }
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(util::hex(&hasher.finalize()))
 }
 
 /// Cargo for building Beize's own Rust code for the target: the toolchain
@@ -398,11 +390,7 @@ mod tests {
         let mut legacy = Sha256::new();
         legacy.update(environment());
         legacy.update(&recipe.text);
-        let legacy: String = legacy
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let legacy = util::hex(&legacy.finalize());
         assert_eq!(fingerprint(&recipe, &digest, &BTreeMap::new()), legacy);
     }
 

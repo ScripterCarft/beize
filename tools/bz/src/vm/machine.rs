@@ -337,12 +337,12 @@ pub(super) fn edit_firmware(machine: &Machine, options: &[&str]) -> Result<()> {
 /// LoaderEntryOneShot variable), as `bootctl set-oneshot` would.
 pub(super) fn boot_once(machine: &Machine, entry: &str) -> Result<()> {
     // UTF-16LE with the terminating NUL; non-volatile, boot and runtime access.
-    let data: String = entry
+    let data: Vec<u8> = entry
         .encode_utf16()
         .chain([0])
         .flat_map(u16::to_le_bytes)
-        .map(|b| format!("{b:02x}"))
         .collect();
+    let data = crate::util::hex(&data);
     let json = machine.vars.with_extension("oneshot.json");
     fs::write(
         &json,
