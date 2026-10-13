@@ -19,6 +19,11 @@ MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "MIT AND CC-PDDC AND (GPL-3.0-or-later WITH Texinfo-exception)"
+cpe = ["cpe:2.3:a:libffi_project:libffi"]
+
 [files]
 image = [
   "usr/lib/libffi.so.*",

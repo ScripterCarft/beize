@@ -31,6 +31,11 @@ if "$TARGET-readelf" -d "$PKG"/usr/lib/libcryptsetup.so.* | grep -q libpopt; the
 fi
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "GPL-2.0-or-later WITH cryptsetup-OpenSSL-exception AND LGPL-2.1-or-later WITH cryptsetup-OpenSSL-exception"
+cpe = ["cpe:2.3:a:cryptsetup_project:cryptsetup"]
+
 [files]
 image = [
   "usr/lib/libcryptsetup.so.*",

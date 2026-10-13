@@ -34,6 +34,11 @@ rm -rf "$PKG/etc"
 rm "$PKG/usr/lib/dbus-1.0/dbus-daemon-launch-helper"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "(AFL-2.1 OR GPL-2.0-or-later) AND GPL-2.0-or-later"
+cpe = ["cpe:2.3:a:freedesktop:dbus"]
+
 [files]
 image = [
   "usr/bin/dbus-cleanup-sockets",

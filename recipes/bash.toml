@@ -28,6 +28,11 @@ sed -i "s# --sysroot=$SYSROOT##" "$PKG/usr/bin/bashbug" "$PKG/usr/lib/bash/Makef
 ln -s bash "$PKG/usr/bin/sh"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "GPL-3.0-or-later"
+cpe = ["cpe:2.3:a:gnu:bash"]
+
 [files]
 image = [
   "usr/bin/bash",

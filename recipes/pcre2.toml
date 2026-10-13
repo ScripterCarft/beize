@@ -25,6 +25,11 @@ rm -f "$PKG"/usr/bin/pcre2grep "$PKG"/usr/bin/pcre2test
 rm -rf "$PKG/usr/share/doc" "$PKG/usr/share/man"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "BSD-3-Clause AND FSFULLR AND X11 AND GPL-2.0-or-later AND FSFAP AND FSFUL AND GPL-3.0-or-later"
+cpe = ["cpe:2.3:a:pcre:pcre2"]
+
 [files]
 image = [
   "usr/bin/pcre2-config",

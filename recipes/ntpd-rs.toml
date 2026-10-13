@@ -29,6 +29,11 @@ for bin in ntp-daemon ntp-ctl; do
 done
 '''
 
+[sbom]
+# As the project states it (Cargo.toml).
+license = "Apache-2.0 OR MIT"
+cpe = ["cpe:2.3:a:tweedegolf:ntpd-rs"]
+
 [files]
 image = [
   "usr/bin/ntp-ctl",

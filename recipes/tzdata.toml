@@ -37,6 +37,12 @@ make CC=gcc CFLAGS=-O2 zic
 install -m 644 zone1970.tab iso3166.tab "$PKG/usr/share/zoneinfo/"
 '''
 
+[sbom]
+# The zone data Beize ships: public domain, as the tz project states.
+license = "LicenseRef-Public-Domain"
+# No CPE: data; the NVD lists no product for it.
+cpe = []
+
 [files]
 image = [
   "usr/share/zoneinfo/**",

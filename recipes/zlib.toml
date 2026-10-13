@@ -18,6 +18,11 @@ MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
 
+[sbom]
+# As the project states it (LICENSE).
+license = "Zlib"
+cpe = ["cpe:2.3:a:zlib:zlib", "cpe:2.3:a:gnu:zlib"]
+
 [files]
 image = [
   "usr/lib/libz.so.*",

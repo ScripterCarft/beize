@@ -17,7 +17,7 @@ use crate::layout::{
 use crate::paths::Paths;
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
-use crate::{initrd, microcode, secureboot, stamp, usr, util};
+use crate::{initrd, microcode, sbom, secureboot, stamp, usr, util};
 
 const SECTOR: u64 = 512;
 /// The ESP starts at 1 MiB; 1 MiB at the end holds the backup GPT.
@@ -186,6 +186,9 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         inputs,
         &[&disk, &unsigned_uki(paths), &paths.out.join("beize.efi")],
     );
+    // The SBOM always: its inputs (recipes' metadata, the buildroot) are not
+    // the image's, and writing it takes a moment.
+    sbom::write(paths, layout::OS_VERSION, &paths.out.join(sbom::FILE))?;
     if stamp.is_current() {
         say!("  disk image is up to date");
         return Ok(disk);

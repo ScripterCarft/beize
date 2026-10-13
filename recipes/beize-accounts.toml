@@ -20,6 +20,10 @@ install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-acco
   "$PKG/usr/lib/beize/beize-accountsd"
 '''
 
+[sbom]
+# Beize's own code: its license is the owner's decision (NOASSERTION until then).
+license = "NOASSERTION"
+
 [files]
 image = [
   "usr/bin/beize-account",

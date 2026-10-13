@@ -17,6 +17,12 @@ script = '''
 install -D -m 644 "$SRC/cacert-$VERSION.pem" "$PKG/usr/share/ca-certificates/ca-bundle.pem"
 '''
 
+[sbom]
+# Mozilla's root store, as curl's extract of it states.
+license = "MPL-2.0"
+# No CPE: data (Mozilla's root store); the NVD lists no product for it.
+cpe = []
+
 [files]
 image = [
   "usr/share/ca-certificates/**",

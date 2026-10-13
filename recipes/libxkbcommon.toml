@@ -25,6 +25,11 @@ MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "MIT AND X11 AND MIT-CMU"
+cpe = ["cpe:2.3:a:xkbcommon:libxkbcommon"]
+
 [files]
 image = [
   "usr/lib/libxkbcommon.so.*",

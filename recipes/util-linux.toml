@@ -35,6 +35,11 @@ MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "GPL-1.0-or-later AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-or-later AND LGPL-2.1-or-later AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC AND LicenseRef-Public-Domain"
+cpe = ["cpe:2.3:a:kernel:util-linux", "cpe:2.3:a:util-linux_project:util-linux"]
+
 [files]
 image = [
   "usr/bin/agetty",

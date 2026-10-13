@@ -55,7 +55,7 @@ pub fn assembly_inputs(
                 recipe.name,
                 packages::built_fingerprint(paths, &recipe.name)?
             ))
-            .text(&recipe.files_text);
+            .text(&recipe.metadata_text);
     }
     inputs.tree(&paths.root.join("system").join(own))
 }

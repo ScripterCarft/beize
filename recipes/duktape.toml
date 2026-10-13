@@ -28,6 +28,11 @@ install -Dm644 duktape.pc "$PKG/usr/lib/pkgconfig/duktape.pc"
 install -Dm644 src/duktape.h src/duk_config.h -t "$PKG/usr/include"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "MIT"
+cpe = ["cpe:2.3:a:duktape_project:duktape"]
+
 [files]
 image = [
   "usr/lib/libduktape.so.*",

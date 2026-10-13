@@ -25,6 +25,11 @@ MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install_sw
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "Apache-2.0"
+cpe = ["cpe:2.3:a:openssl:openssl"]
+
 [files]
 image = [
   "usr/lib/libcrypto.so.*",

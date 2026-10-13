@@ -40,6 +40,11 @@ rm -r "$PKG/var" "$PKG/run"
 install -Dm644 "$SRC/dist/sysusers.d/tpm2-tss.conf" "$PKG/usr/lib/sysusers.d/tpm2-tss.conf"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "BSD-2-Clause"
+cpe = ["cpe:2.3:a:tpm2_software_stack_project:tpm2_software_stack"]
+
 [files]
 image = [
   "usr/lib/libtss2-esys.so.*",

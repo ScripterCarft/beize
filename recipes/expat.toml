@@ -20,6 +20,11 @@ MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "MIT"
+cpe = ["cpe:2.3:a:libexpat_project:libexpat"]
+
 [files]
 image = [
   "usr/bin/xmlwf",

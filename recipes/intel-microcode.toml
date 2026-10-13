@@ -13,3 +13,9 @@ url = "https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files/archi
 file = "intel-microcode-{version}.tar.gz"
 sha256 = "0ec19023dad1e6dd0c5909174b8dff2555b91cf01671e36271a1ef36655c0cfc"
 unsigned = "Intel publishes no signatures for the microcode releases; pinned by digest. The CPU verifies Intel's signature inside each update before applying it"
+
+[sbom]
+# Intel's redistribution license (license file in the archive).
+license = "LicenseRef-Intel-Microcode"
+# No CPE: CVEs about microcode name the processors, not this package.
+cpe = []

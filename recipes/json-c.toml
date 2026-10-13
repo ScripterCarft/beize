@@ -24,6 +24,11 @@ MAKEFLAGS="$JOBSERVER" cmake --build .
 DESTDIR="$PKG" cmake --install .
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "MIT"
+cpe = ["cpe:2.3:a:json-c_project:json-c", "cpe:2.3:a:json-c:json-c"]
+
 [files]
 image = [
   "usr/lib/libjson-c.so.*",

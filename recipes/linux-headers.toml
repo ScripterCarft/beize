@@ -7,3 +7,8 @@ stage = "target"
 script = '''
 make -C "$SRC" O="$BUILD" ARCH=x86_64 headers_install INSTALL_HDR_PATH="$PKG/usr"
 '''
+
+[sbom]
+# The part of the package Beize ships; licenses as Fedora states them.
+license = "GPL-2.0-only WITH Linux-syscall-note"
+cpe = ["cpe:2.3:o:linux:linux_kernel"]

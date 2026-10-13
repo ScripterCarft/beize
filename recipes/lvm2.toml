@@ -37,6 +37,11 @@ grep -qF 'IMPORT{builtin}="blkid"' "$PKG/usr/lib/udev/rules.d/13-dm-disk.rules" 
   || { echo "13-dm-disk.rules does not use udev's builtin blkid" >&2; exit 1; }
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "GPL-2.0-only"
+cpe = ["cpe:2.3:a:redhat:lvm2", "cpe:2.3:a:heinz_mauelshagen:lvm2"]
+
 [files]
 image = [
   "usr/bin/blkdeactivate",

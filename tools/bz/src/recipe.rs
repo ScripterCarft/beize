@@ -39,12 +39,29 @@ pub struct Recipe {
     pub build: Option<Build>,
     /// What of the package goes into the image (`crate::files`).
     pub files: Files,
+    /// License, product names and assessed vulnerabilities (ADR 0022).
+    pub sbom: Sbom,
     /// The recipe text, part of the build fingerprint – without the `latest`
-    /// lines and the `[files]` table: where releases are announced and what
-    /// the image takes do not change the build.
+    /// lines and the metadata tables: where releases are announced, what the
+    /// image takes and what the package is called elsewhere do not change
+    /// the build.
     pub text: String,
-    /// The `[files]` table as written, an input of the trees built from it.
-    pub files_text: String,
+    /// The metadata tables as written, an input of the trees built from it.
+    pub metadata_text: String,
+}
+
+/// The recipe's `[sbom]` table (ADR 0022).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sbom {
+    /// SPDX license expression of the package.
+    pub license: Option<String>,
+    /// CPE 2.3 prefixes (`cpe:2.3:<part>:<vendor>:<product>`) the NVD knows
+    /// the package by; empty for what has none (data, firmware).
+    pub cpe: Option<Vec<String>>,
+    /// Vulnerabilities assessed as not affecting Beize, with the reason.
+    #[serde(default, rename = "cve-ignore")]
+    pub cve_ignore: std::collections::BTreeMap<String, String>,
 }
 
 /// The recipe's `[files]` table (`crate::files`).
@@ -66,8 +83,9 @@ pub struct BuildOnly {
     pub why: String,
 }
 
-/// Where the `[files]` table starts; it must be the recipe's last table.
-const FILES_TABLE: &str = "[files]";
+/// The metadata tables, which end a recipe: nothing in them changes how the
+/// package builds. The first one starts the metadata.
+const METADATA_TABLES: [&str; 3] = ["[sbom]", "[sbom.cve-ignore]", "[files]"];
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,6 +112,8 @@ struct RawRecipe {
     build: Option<Build>,
     #[serde(default)]
     files: Files,
+    #[serde(default)]
+    sbom: Sbom,
 }
 
 impl Recipe {
@@ -132,20 +152,24 @@ impl Recipe {
             .collect::<Result<_>>()
             .context("in [[extra]]")?;
         // What builds the package ends with one newline, however many blank
-        // lines come before [files]: adding the table changes no fingerprint.
-        let (build_text, files_text) = match text.find(&format!("\n{FILES_TABLE}\n")) {
+        // lines come before the metadata: adding it changes no fingerprint.
+        let start = METADATA_TABLES
+            .iter()
+            .filter_map(|table| text.find(&format!("\n{table}\n")))
+            .min();
+        let (build_text, metadata_text) = match start {
             Some(at) => (
                 format!("{}\n", text[..at].trim_end_matches('\n')),
                 &text[at + 1..],
             ),
             None => (text.to_owned(), ""),
         };
-        if files_text
+        if let Some(table) = metadata_text
             .lines()
-            .skip(1)
-            .any(|line| line.trim_start().starts_with('['))
+            .map(str::trim)
+            .find(|line| line.starts_with('[') && !METADATA_TABLES.contains(line))
         {
-            bail!("{FILES_TABLE} must be the recipe's last table");
+            bail!("{table} comes after the metadata tables, which end a recipe");
         }
         Ok(Self {
             name: raw.name,
@@ -158,11 +182,12 @@ impl Recipe {
             repo: raw.repo,
             build: raw.build,
             files: raw.files,
+            sbom: raw.sbom,
             text: build_text
                 .split_inclusive('\n')
                 .filter(|line| !line.trim_start().starts_with("latest = "))
                 .collect(),
-            files_text: files_text.to_owned(),
+            metadata_text: metadata_text.to_owned(),
         })
     }
 
@@ -241,23 +266,56 @@ mod tests {
         )
     }
 
-    /// Adding or changing [files] must not change what builds the package:
-    /// anything else rebuilds the whole system (and every CI cache).
+    /// Adding or changing the metadata ([sbom], [files]) must not change
+    /// what builds the package: anything else rebuilds the whole system (and
+    /// every CI cache).
     #[test]
-    fn files_table_is_not_part_of_the_build_text() {
+    fn metadata_is_not_part_of_the_build_text() {
         let recipe = "name = \"p\"\nversion = \"1\"\n\n[build]\nscript = '''\nmake\n'''\n";
         let plain = Recipe::parse(recipe).unwrap();
-        for files in [
+        for metadata in [
             "\n[files]\nimage = [\"usr/bin/p\"]\n",
             "[files]\n",
             "\n\n[files]\nbuild = [{ path = \"usr/bin/q\", why = \"x\" }]\n",
+            "\n[sbom]\nlicense = \"MIT\"\ncpe = [\n  \"cpe:2.3:a:p:p\",\n]\n\n\
+             [sbom.cve-ignore]\n\"CVE-1-1\" = \"x\"\n\n[files]\nimage = []\n",
         ] {
-            let with = Recipe::parse(&format!("{recipe}{files}")).unwrap();
-            assert_eq!(with.text, plain.text, "{files:?}");
-            assert!(with.files_text.starts_with("[files]\n"));
+            let with = Recipe::parse(&format!("{recipe}{metadata}")).unwrap();
+            assert_eq!(with.text, plain.text, "{metadata:?}");
+            assert!(with.metadata_text.starts_with('['));
         }
         let after = format!("{recipe}\n[files]\nimage = []\n\n[source]\nurl = \"x\"\n");
         assert!(Recipe::parse(&after).is_err());
+    }
+
+    /// Every source names its license and its products in the NVD (ADR 0022).
+    #[test]
+    fn every_source_has_license_and_cpe() {
+        let paths = Paths::new().unwrap();
+        for name in all_names(&paths).unwrap() {
+            let recipe = Recipe::load(&paths, &name).unwrap();
+            if recipe.source.is_none() && recipe.repo.is_empty() {
+                continue;
+            }
+            let license = recipe.sbom.license.as_deref().unwrap_or("");
+            assert!(!license.is_empty(), "{name}: [sbom] license is missing");
+            if recipe.repo.is_empty() {
+                let cpe = recipe.sbom.cpe.as_ref();
+                assert!(cpe.is_some(), "{name}: [sbom] cpe is missing");
+                for entry in cpe.into_iter().flatten() {
+                    assert!(
+                        entry.starts_with("cpe:2.3:") && entry.split(':').count() == 5,
+                        "{name}: {entry} is no cpe:2.3:<part>:<vendor>:<product>"
+                    );
+                }
+            }
+            for (cve, why) in &recipe.sbom.cve_ignore {
+                assert!(
+                    cve.starts_with("CVE-") && !why.trim().is_empty(),
+                    "{name}: {cve}"
+                );
+            }
+        }
     }
 
     #[test]

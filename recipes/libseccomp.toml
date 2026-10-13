@@ -25,6 +25,11 @@ rm -f "$PKG/usr/bin/scmp_sys_resolver"
 rm -rf "$PKG/usr/share/man"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "LGPL-2.1-only"
+cpe = ["cpe:2.3:a:libseccomp_project:libseccomp"]
+
 [files]
 image = [
   "usr/lib/libseccomp.so.*",

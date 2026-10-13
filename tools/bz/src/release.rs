@@ -12,7 +12,7 @@ use crate::image::{self, Target};
 use crate::layout::{self, RELEASE_UKI, RELEASE_USR, RELEASE_USR_VERITY};
 use crate::paths::Paths;
 use crate::secureboot::{self, Keys};
-use crate::{say, util};
+use crate::{say, sbom, util};
 
 /// The list of a release's files: `<sha256>  <name>` per line, as
 /// `sha256sum` writes it.
@@ -70,6 +70,9 @@ pub fn write(paths: &Paths, keys: &Keys, version: &str, target: Target, dir: &Pa
     }
     fs::write(dir.join(LIST), list)?;
     keys.sign_update(&dir.join(LIST), &dir.join(SIGNATURE))?;
+    // What the release consists of (ADR 0022); beside the signed files, not
+    // one of them: beize-update fetches only what the list names.
+    sbom::write(paths, version, &dir.join(sbom::FILE))?;
     fs::remove_dir_all(&work)?;
     say!("  release {version} -> {}", dir.display());
     Ok(())

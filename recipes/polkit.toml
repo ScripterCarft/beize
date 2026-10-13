@@ -38,6 +38,11 @@ chmod 0755 "$PKG/usr/lib/polkit-1/polkit-agent-helper-1"
 rm -r "$PKG/etc"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "LGPL-2.0-or-later"
+cpe = ["cpe:2.3:a:polkit_project:polkit", "cpe:2.3:a:freedesktop:polkit"]
+
 [files]
 image = [
   "usr/bin/pkaction",

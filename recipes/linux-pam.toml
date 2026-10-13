@@ -31,6 +31,11 @@ DESTDIR="$PKG" meson install --no-rebuild --quiet
 rm -rf "$PKG/etc"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "BSD-3-Clause AND GPL-2.0-or-later"
+cpe = ["cpe:2.3:a:linux-pam:linux-pam", "cpe:2.3:a:kernel:linux-pam"]
+
 [files]
 image = [
   "usr/bin/faillock",

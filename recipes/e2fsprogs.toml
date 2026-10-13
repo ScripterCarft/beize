@@ -30,6 +30,11 @@ make DESTDIR="$PKG" install
 rm -rf "$PKG/etc"
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "GPL-2.0-only"
+cpe = ["cpe:2.3:a:e2fsprogs_project:e2fsprogs"]
+
 [files]
 image = [
   "usr/bin/badblocks",

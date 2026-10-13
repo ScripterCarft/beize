@@ -23,6 +23,7 @@ mod paths;
 mod privileges;
 mod recipe;
 mod release;
+mod sbom;
 mod schedule;
 mod secureboot;
 mod select;

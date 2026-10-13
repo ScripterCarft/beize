@@ -26,6 +26,11 @@ MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
 
+[sbom]
+# As Fedora's package states it (2026-10-13).
+license = "LGPL-2.1-or-later AND BSD-3-Clause AND BSD-2-Clause AND BSD-2-Clause-FreeBSD AND 0BSD AND CC0-1.0 AND LicenseRef-Public-Domain"
+cpe = ["cpe:2.3:a:elektrobit:libxcrypt"]
+
 [files]
 image = [
   "usr/lib/libcrypt.so.*",
