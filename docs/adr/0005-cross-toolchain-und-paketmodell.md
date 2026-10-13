@@ -13,8 +13,16 @@ zugeordnet sein (Grundprinzip „Nachvollziehbar“).
 
 **Toolchain.** `bz` baut eine Cross-Toolchain für `x86_64-beize-linux-gnu`:
 binutils → gcc (Stufe 1, ohne libc) → Kernel-Header → glibc → gcc (vollständig).
-Alles für Beize wird damit gegen den eigenen Sysroot gebaut, der Host liefert
-nur Werkzeuge.
+Alles für Beize wird damit gegen den eigenen Sysroot gebaut, der Host – Beizes
+Buildroot (ADR 0021) – liefert nur Werkzeuge.
+
+**Zwei Maschinen, zwei pkg-config.** Wie bei Debian, Yocto und Buildroot fragt ein
+Bau das Zielsystem über `x86_64-beize-linux-gnu-pkg-config`: pkgconf mit einer
+Personality (Sysroot und Suchpfade des Pakets). Das Sysroot steht nur vor `-I`/`-L`
+(freedesktop-Regel); Variablen bleiben Pfade auf dem Ziel. Ein schlichtes `pkg-config`
+im PATH eines Zielpakets ist dasselbe, damit nichts aus Versehen den Host fragt.
+Werkzeuge, die beim Bauen laufen (Meson `native: true`, z. B. `glib-mkenums`), kommen
+ausdrücklich vom Host (Meson-Datei für die Baumaschine).
 
 **Sysroot je Paket.** Jedes Paket baut gegen ein eigenes Sysroot, das genau seine
 (transitiven) Abhängigkeiten enthält – harte Links ins gemeinsame Sysroot, wie

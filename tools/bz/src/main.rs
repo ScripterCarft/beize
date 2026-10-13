@@ -4,6 +4,7 @@
 //! disk image and runs it in QEMU.
 
 mod boottimes;
+mod buildroot;
 mod cgroup;
 mod elf;
 mod hwcheck;
@@ -162,6 +163,11 @@ fn main() -> Result<()> {
     util::set_verbose(cli.verbose);
     util::set_locked(cli.locked);
     let paths = Paths::new()?;
+    // Everything runs in the buildroot (./bz enters it), except writing a
+    // real disk: that needs sudo and the machine's disks, and builds nothing.
+    if !matches!(cli.command, Command::Install { .. }) {
+        buildroot::check(&paths)?;
+    }
 
     match cli.command {
         Command::Kernel => kernel::build(&paths).map(drop),

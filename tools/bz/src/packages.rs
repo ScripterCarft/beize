@@ -20,7 +20,7 @@ use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
 use crate::schedule::{self, Measured, Memory};
-use crate::{cgroup, install, stamp, util};
+use crate::{buildroot, cgroup, install, stamp, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
@@ -58,6 +58,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
 
     let stamps = paths.work.join("stamps");
     fs::create_dir_all(&stamps)?;
+    let environment = environment(buildroot::tools()?);
     let mut fingerprints = BTreeMap::new();
     let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut planned = Vec::new();
@@ -71,7 +72,12 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
             visible.extend(closures[dep].iter().cloned());
         }
 
-        let fingerprint = fingerprint(recipe, &repo_digest(paths, recipe)?, &fingerprints);
+        let fingerprint = fingerprint(
+            &environment,
+            recipe,
+            &repo_digest(paths, recipe)?,
+            &fingerprints,
+        );
         if fs::read_to_string(stamps.join(&recipe.name)).is_ok_and(|s| s == fingerprint) {
             if util::verbose() {
                 say!("  {} {} is up to date", recipe.name, recipe.version);
@@ -359,20 +365,26 @@ fn topological_order(
     Ok(order)
 }
 
-/// The build environment every fingerprint starts with.
-fn environment() -> String {
+/// The build environment every fingerprint starts with: bz's own settings
+/// and the buildroot the build runs in.
+fn environment(buildroot: &str) -> String {
     format!(
         "env {ENV_REVISION} {TARGET} {TARGET_CFLAGS} {TARGET_LDFLAGS} {TARGET_RUSTFLAGS} \
-         {BUILD_EPOCH}\n"
+         {BUILD_EPOCH} buildroot {buildroot}\n"
     )
 }
 
 /// Everything that influences a build: the recipe itself, the build
 /// environment, the repository content it builds from and the fingerprints
 /// of all dependencies.
-fn fingerprint(recipe: &Recipe, repo: &str, known: &BTreeMap<String, String>) -> String {
+fn fingerprint(
+    environment: &str,
+    recipe: &Recipe,
+    repo: &str,
+    known: &BTreeMap<String, String>,
+) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(environment());
+    hasher.update(environment);
     hasher.update(&recipe.text);
     hasher.update(repo);
     for source in recipe.sources() {
@@ -681,11 +693,15 @@ mod tests {
         let recipe = Recipe::parse("name = \"a\"\nversion = \"1\"\n").unwrap();
         let digest = repo_digest(&paths, &recipe).unwrap();
         assert_eq!(digest, "");
+        let environment = environment("0123456789abcdef");
         let mut legacy = Sha256::new();
-        legacy.update(environment());
+        legacy.update(&environment);
         legacy.update(&recipe.text);
         let legacy = util::hex(&legacy.finalize());
-        assert_eq!(fingerprint(&recipe, &digest, &BTreeMap::new()), legacy);
+        assert_eq!(
+            fingerprint(&environment, &recipe, &digest, &BTreeMap::new()),
+            legacy
+        );
     }
 
     /// The target's pkg-config searches only the package's sysroot, and

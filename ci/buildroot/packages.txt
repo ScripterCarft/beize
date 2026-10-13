@@ -1,5 +1,8 @@
-# Ubuntu 26.04 packages needed to build and test Beize.
-# Used by ci/system.sh and the README; one package per line.
+# The Ubuntu 26.04 packages of Beize's buildroot (ADR 0021), beyond Ubuntu's
+# essential ones: everything bz and the builds may run. One per line.
+
+# Rust: the toolchain of rust-toolchain.toml (create.sh installs it)
+rustup
 
 # Toolchain bootstrap
 build-essential
@@ -26,8 +29,15 @@ cmake
 gperf
 meson
 ninja-build
-pkg-config
+# pkg-config for the build host; bz runs pkgconf with a personality for
+# the target (x86_64-beize-linux-gnu-pkg-config)
+pkgconf
 python3-jinja2
+# glib-mkenums for polkit: tools that run while building come from the
+# build host, as in Debian's cross builds (glib-2.0.pc names the tool,
+# libgio-2.0-dev-bin has it)
+libgio-2.0-dev
+libgio-2.0-dev-bin
 # systemd-boot and the UKI stub
 python3-pyelftools
 

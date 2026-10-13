@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
+use crate::buildroot;
 use crate::paths::Paths;
 use crate::util;
 
@@ -19,10 +20,12 @@ use crate::util;
 pub struct Fingerprint(Sha256);
 
 impl Fingerprint {
-    /// Starts with the running bz binary.
+    /// Starts with the running bz binary and the buildroot it runs in (the
+    /// tools every step calls).
     pub fn new() -> Result<Self> {
         let mut hasher = Sha256::new();
         hasher.update(format!("bz {}\n", bz_digest()?));
+        hasher.update(format!("buildroot {}\n", buildroot::tools()?));
         Ok(Self(hasher))
     }
 

@@ -1,5 +1,116 @@
 #!/usr/bin/env bash
-# Entry point for the Beize build tool. Builds and runs tools/bz.
+# Entry point for the Beize build tool: runs tools/bz in Beize's buildroot
+# (ADR 0021) – the Ubuntu, packages and Rust the CI builds with – so a build
+# sees nothing of this machine but the repository. Creates the buildroot
+# when ci/buildroot/ changed.
 set -euo pipefail
 cd "$(dirname "$0")"
-exec cargo run --quiet --release -p bz -- "$@"
+repo=$PWD
+
+run_bz() {
+    exec cargo run --quiet --release -p bz -- "$@"
+}
+
+# In the buildroot already: the CI's jobs, or entered below.
+if [ -e /etc/beize-buildroot ]; then
+    run_bz "$@"
+fi
+
+command=
+for arg in "$@"; do
+    case $arg in
+        -*) ;;
+        *) command=$arg; break ;;
+    esac
+done
+# Writing a real disk needs sudo and the machine's disks and builds
+# nothing: it stays on this machine (own target directory, so the two
+# builds of bz do not replace each other).
+if [ "$command" = install ]; then
+    CARGO_TARGET_DIR=$repo/target/host run_bz "$@"
+fi
+
+name=$(ci/buildroot/hash.sh)
+root=$repo/build/buildroot/$name
+if [ ! -e "$root/etc/beize-buildroot" ]; then
+    echo "==> Creating buildroot $name (ADR 0021)" >&2
+    mkdir -p build/buildroot
+    # Earlier buildroots go; their files are the user's (unpacked below).
+    for old in build/buildroot/*; do
+        [ -e "$old" ] || continue
+        chmod -R u+w "$old"
+        rm -rf "$old"
+    done
+    # Output only on failure, as everywhere in bz.
+    log=build/buildroot/create.log
+    if ! ci/buildroot/create.sh "$root.tar" build/cache/buildroot-packages > "$log" 2>&1; then
+        tail -n 40 "$log" | cut -c 1-300 >&2
+        echo "error: creating the buildroot failed (log: $log)" >&2
+        exit 1
+    fi
+    mkdir "$root.new"
+    # As the user: device nodes stay out (bwrap provides /dev), files
+    # belong to whoever builds.
+    tar -x -f "$root.tar" -C "$root.new" --no-same-owner --exclude='./dev/*'
+    rm "$root.tar"
+    # Places bwrap binds this machine's files onto (the root is read-only):
+    # its name servers, and WSL's interop for the owner's commands.
+    rm -f "$root.new/etc/resolv.conf"
+    : > "$root.new/etc/resolv.conf"
+    : > "$root.new/init"
+    mv "$root.new" "$root"
+fi
+
+uid=$(id -u)
+mkdir -p build/home
+# Where the repository is bound in (the root is read-only inside).
+mkdir -p "$root$repo"
+args=(
+    --ro-bind "$root" /
+    --bind "$repo" "$repo"
+    --chdir "$repo"
+    --proc /proc
+    --dev /dev
+    --ro-bind /sys /sys
+    --tmpfs /tmp
+    --tmpfs /var/tmp
+    --tmpfs /run
+    --ro-bind /etc/resolv.conf /etc/resolv.conf
+    --die-with-parent
+    --clearenv
+    --setenv PATH /opt/rust/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    --setenv HOME "$repo/build/home"
+    --setenv USER "$(id -un)"
+    --setenv LANG C.UTF-8
+    --setenv TERM "${TERM:-dumb}"
+    --setenv RUSTUP_HOME /opt/rust
+    --setenv CARGO_HOME "$repo/build/cache/cargo"
+    --setenv CARGO_TARGET_DIR "$repo/target/buildroot"
+)
+# The test VMs.
+if [ -e /dev/kvm ]; then
+    args+=(--dev-bind /dev/kvm /dev/kvm)
+fi
+# The user's service manager: each package builds in a scope of its own,
+# with a memory limit (ADR 0005); systemd-run --scope keeps it in here.
+bus=/run/user/$uid
+if [ -S "$bus/bus" ]; then
+    args+=(--bind "$bus" "$bus" --setenv XDG_RUNTIME_DIR "$bus"
+        --setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$bus/bus")
+fi
+# The owner's commands read keys from 1Password (ADR 0010), and only they
+# see its CLI: $BZ_OP, or on WSL Windows' op.exe through WSL's interop.
+case $command in
+    secureboot | sign | release)
+        op=${BZ_OP:-$(command -v op.exe || command -v op || true)}
+        if [ -n "$op" ]; then
+            args+=(--tmpfs /mnt --ro-bind "$(dirname "$op")" "$(dirname "$op")"
+                --setenv BZ_OP "$op")
+        fi
+        if [ -n "${WSL_INTEROP:-}" ]; then
+            args+=(--ro-bind /init /init --bind /run/WSL /run/WSL
+                --setenv WSL_INTEROP "$WSL_INTEROP")
+        fi
+        ;;
+esac
+exec bwrap "${args[@]}" -- ./bz "$@"

@@ -1,9 +1,11 @@
 name: Mirror the build container
 
-# The CI's build host (ADR 0004) as a copy in this repository's registry:
-# anonymous pulls from public.ecr.aws failed on its data limit
-# ("toomanyrequests"), and a copy pinned by digest cannot change unnoticed.
-# Run by hand after changing the digest (a new Ubuntu 26.04 base image).
+# The Ubuntu that creates Beize's buildroot in the CI (ci.yml, ADR 0021) as a
+# copy in this repository's registry: anonymous pulls from public.ecr.aws
+# failed on its data limit ("toomanyrequests"), and a copy pinned by digest
+# cannot change unnoticed. It only runs mmdebstrap: what goes into the
+# buildroot is fixed by ci/buildroot/packages.lock. Run by hand after
+# changing the digest.
 on:
   workflow_dispatch:
 

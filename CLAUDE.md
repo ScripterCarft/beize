@@ -80,7 +80,8 @@ Neubinden, echte Hardware).
 | `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
-| `ci/packages.txt`, `ci/system.sh` | einzige Liste der Build-Abhängigkeiten; kompletter CI-Ablauf |
+| `ci/buildroot/` | Buildroot (ADR 0021): `packages.txt` (einzige Liste der Werkzeuge) → `lock.sh` → `packages.lock` (Versionen + SHA-256, Snapshot-Datum in `snapshot`); `create.sh`, `hash.sh` |
+| `ci/system.sh` | kompletter CI-Ablauf (läuft im Buildroot-Image) |
 
 ## 6. Bauen und Testen (in `~/beize`)
 
@@ -101,6 +102,9 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 #   ./bz sign · ./bz release (signiertes Update nach build/out/release/<ver>) · ./bz install
 ```
 
+- `./bz` läuft im Buildroot (ADR 0021, bwrap; legt ihn bei Änderung an `ci/buildroot/` neu
+  an, ~4 min, Log `build/buildroot/create.log`). Nur `bz install` läuft auf dem Rechner selbst.
+  `cargo test` usw. laufen auch außerhalb; `bz` selbst baut nur im Buildroot.
 - Ausgabe ist knapp: Befehle zeigen nur bei Fehler ihre letzten 40 Zeilen. Logs:
   `build/work/logs/<paket>.log`, `linux.log`, Konsole jedes Starts in
   `build/work/logs/boot/NN-<maschine>.log` (gehört immer zum letzten smoke/debug/run),
@@ -116,9 +120,10 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Start in der VM: 3,7 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~105 s. Der zweite Start
   hat ein Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei
   Änderung neu messen und den Kommentar aktualisieren.
-- CI (`.github/workflows/ci.yml`): fmt/clippy/test bei jedem Push; auf `main`, manuell
-  und wöchentlich (dann von null) `ci/system.sh` im privilegierten `ubuntu:26.04`-Container
-  (gespiegelt in GHCR, `mirror.yml`) mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum und Microcode
+- CI (`.github/workflows/ci.yml`): Job `buildroot` legt das Buildroot-Image in GHCR an, wenn
+  es fehlt (`beize-buildroot:<hash>`; `mirror.yml` liefert nur das Ubuntu dafür); darin
+  fmt/clippy/test bei jedem Push; auf `main`, manuell und wöchentlich (dann von null)
+  `ci/system.sh` privilegiert mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum und Microcode
   im Actions-Cache; `build/out` nicht, daher laufen die Schritte ab Kernel dort immer. Der
   Runner ist klein (Smoke-Szenarien nacheinander, ~14 min). Repo privat: Actions-Minuten sparsam.
 
@@ -128,16 +133,17 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
 
 - Nur `/usr` ausliefern: `bz` bricht ab bei Dateien außerhalb; Altlasten im Rezept
   löschen (mit Kommentar) oder nach `/usr/share/factory` verlegen.
-- pkg-config folgt den freedesktop-Regeln (`PKG_CONFIG_FDO_SYSROOT_RULES`): nur `-I`/`-L`
-  bekommen das Sysroot, Variablen (Unit-, udev-, tmpfiles-Verzeichnisse) bleiben
-  Zielpfade. `bz` bricht ab, wenn ein Sysroot-Pfad in `/usr` landet.
+- pkg-config je Maschine (ADR 0005): Zielpakete fragen `x86_64-beize-linux-gnu-pkg-config`
+  (= `pkg-config`/`$PKG_CONFIG` in ihrem PATH; pkgconf-Personality, FDO-Regel: Variablen
+  bleiben Zielpfade). Werkzeuge für die Baumaschine über Meson `--native-file "$MESON_NATIVE"`
+  (jedes Meson-Rezept übergibt es). `bz` bricht ab, wenn ein Sysroot-Pfad in `/usr` landet.
 - `meson -Dauto_features=disabled`: jedes benötigte Feature ausdrücklich einschalten.
 - Abhängigkeitsschleifen vermeiden (libdevmapper ohne udev-Sync: systemd → cryptsetup → lvm2).
 - **Eigener Rust-Code im Image:** Crate unter `os/<name>`, Rezept mit `repo = [...]`
@@ -153,7 +159,8 @@ in die Endfassung einarbeiten, keine Nachträge.
   Parallele VMs nach CPUs/RAM (je 4 CPUs und 3 GiB reserviert, Gast 2 GiB).
 - Werkzeuge, die zur systemd-Version im Image passen müssen (ukify, systemd-measure),
   kommen aus unserem systemd-Build (ADR 0009).
-- Host-Werkzeuge, die `bz` aufruft, gehören in `ci/packages.txt`. Im Gast gibt es kein
+- Host-Werkzeuge, die `bz` oder ein Bau aufruft, gehören in `ci/buildroot/packages.txt`
+  (danach `ci/buildroot/lock.sh`; neuer Buildroot = alles baut neu). Im Gast gibt es kein
   `sed`/`awk`/`grep` (Skripte in reinem Bash).
 - Autotools-Abfragen beim Host (`AC_CHECK_PROG`) im Rezept beantworten (`ac_cv_…=yes`).
 - Skripte unter `system/` müssen ausführbar sein (Test prüft das).
@@ -185,11 +192,11 @@ in die Endfassung einarbeiten, keine Nachträge.
 - WSL beendet die Distro ohne angehängte `wsl.exe`-Sitzung → lange Jobs im Vordergrund
   oder mit gehaltener Sitzung; Logs nach `~`, nicht `/tmp`.
 - `qemu -serial stdio` liest stdin – in Skripten `< /dev/null`.
-- **CI rot, lokal grün?** Den Lauf 1:1 nachstellen: `rsync -a --exclude /build --exclude
-  /target ~/beize/ ~/ci-x/`, dann `sudo podman run --rm --privileged --device /dev/kvm -v
-  ~/ci-x:/w -w /w public.ecr.aws/docker/library/ubuntu:26.04 ci/system.sh`; danach
-  `build/work/initrd-tree` bzw. `usr-tree` mit `diff -rq` vergleichen.
-- `actions/cache` im Container: `zstd` **vor** dem Wiederherstellen installieren.
+- **CI rot, lokal grün?** Werkzeuge sind gleich (Buildroot); Unterschiede kommen vom Runner:
+  2 CPUs, 7,8 GiB, root, kein Service-Manager (keine cgroups, Speicher nur per Startprüfung),
+  Bau von null (Cache leer oder wöchentlich). Lokal von null: `build/` außer `cache/` leeren.
+- `actions/cache` braucht `zstd` im Container (im Buildroot enthalten), sonst verfehlen sich
+  Sichern (zstd) und Wiederherstellen (gzip).
 - Kernel: `allnoconfig` verneint auch Upstreams Sicherheitsstandards (Mitigations) –
   Basis bleibt `alldefconfig`. Module installiert kbuild nach `INSTALL_MOD_PATH/lib/modules`
   (es gibt kein `KERNEL_MODULE_DIRECTORY`).

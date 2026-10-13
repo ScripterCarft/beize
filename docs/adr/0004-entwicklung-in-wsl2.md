@@ -11,7 +11,8 @@ schnelle Testläufe.
 ## Entscheidung
 
 - Werkbank ist Ubuntu 26.04 LTS in WSL2. Das Repository liegt im ext4-Dateisystem
-  von WSL (`~/beize`), nicht auf einem Windows-Laufwerk.
+  von WSL (`~/beize`), nicht auf einem Windows-Laufwerk. Gebaut wird nicht mit den
+  Paketen der Werkbank, sondern in Beizes Buildroot (ADR 0021).
 - Testläufe erfolgen in QEMU mit KVM und OVMF (UEFI). Echte Hardware wird auf einer
   separaten SSD getestet.
 - Bearbeitet wird mit Rider oder VS Code über deren WSL-Integration.

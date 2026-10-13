@@ -59,18 +59,19 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
 ## Voraussetzungen
 
 Entwickelt wird unter Linux, auf Windows in WSL2 (siehe [ADR 0004](docs/adr/0004-entwicklung-in-wsl2.md)).
-Unter Ubuntu 26.04 – dieselbe Paketliste nutzt auch die CI:
+`bz` baut nur in Beizes Buildroot ([ADR 0021](docs/adr/0021-buildroot.md)): Ubuntu 26.04
+mit gepinnten Paketen und Rust, dieselbe Umgebung wie in der CI. `./bz` legt ihn beim ersten
+Aufruf an (~4 min). Auf dem Rechner selbst braucht es dafür nur:
 
 ```sh
-grep -vE '^\s*(#|$)' ci/packages.txt | xargs sudo apt install -y
-curl https://sh.rustup.rs -sSf | sh
+sudo apt install mmdebstrap bubblewrap curl   # Ubuntu/Debian
 ```
 
-Für schnelle VMs muss der Benutzer in der Gruppe `kvm` sein.
+Dazu Untergeordnete IDs für den Benutzer (`/etc/subuid`, `/etc/subgid`, unter Ubuntu
+Standard) und für schnelle VMs die Gruppe `kvm`. Pakete des Buildroots ändern:
+`ci/buildroot/packages.txt` bearbeiten, dann `ci/buildroot/lock.sh`.
 
-`ci/system.sh` führt den kompletten Ablauf der CI aus (Quellen prüfen, alles
-bauen, booten) und läuft in einem frischen Ubuntu-26.04-Container, z. B.:
-`podman run --rm --privileged --device /dev/kvm -v "$PWD:/src" -w /src ubuntu:26.04 ci/system.sh`
+`ci/system.sh` ist der komplette Ablauf der CI (Quellen prüfen, alles bauen, booten).
 
 ## Benutzung
 
