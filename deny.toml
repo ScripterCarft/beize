@@ -1,0 +1,34 @@
+# What Beize's Rust code may depend on, checked by cargo-deny in the CI's
+# check job (the buildroot has it, ADR 0021). A dependency that breaks a rule
+# fails the check; an exception goes here with its reason.
+
+[graph]
+all-features = true
+
+# RustSec's advisories: known vulnerabilities, unsound and unmaintained
+# crates, and yanked versions all fail.
+[advisories]
+yanked = "deny"
+unmaintained = "all"
+ignore = []
+
+# Permissive licenses only, as the crates in use have them (checked
+# 2026-10-13); Beize's own crates are not published and carry none.
+[licenses]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense"]
+confidence-threshold = 0.93
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Beize's crates depend on each other by path, within this repository.
+allow-wildcard-paths = true
+
+# Crates only from crates.io: their versions and checksums are in Cargo.lock.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

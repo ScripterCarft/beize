@@ -84,6 +84,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # The Rust dependencies: RustSec advisories, licenses, origin (deny.toml).
+      - run: cargo deny check
 
   system:
     name: Build and boot

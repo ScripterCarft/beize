@@ -87,6 +87,7 @@ Neubinden, echte Hardware).
 
 ```sh
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+cargo deny check     # Rust-Abhängigkeiten: Advisories, Lizenzen, Herkunft (deny.toml; im Buildroot)
 ./bz build           # kernel → Pakete → usr → initrd → image; jeder Schritt nur, wenn sich seine Eingaben ändern
 ./bz smoke --quick   # Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
 ./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
