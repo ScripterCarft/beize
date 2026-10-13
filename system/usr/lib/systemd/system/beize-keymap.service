@@ -12,3 +12,30 @@ StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/beize/beize-tpm keymap save
+# Sandbox (images/security.toml): it writes one EFI variable, whose file
+# efivarfs marks immutable (hence CAP_LINUX_IMMUTABLE).
+ProtectSystem=strict
+ReadWritePaths=/sys/firmware/efi/efivars
+CapabilityBoundingSet=CAP_LINUX_IMMUTABLE
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077

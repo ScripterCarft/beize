@@ -19,6 +19,32 @@ Before=shutdown.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=bootctl --variables=no --graceful update
+# Sandbox (images/security.toml): it writes systemd-boot to the ESP, which
+# it finds by its block device.
+ProtectSystem=strict
+ReadWritePaths=-/efi -/boot
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
