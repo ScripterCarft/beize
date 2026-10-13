@@ -35,7 +35,6 @@ image = [
   "usr/bin/gio",
   "usr/bin/gio-querymodules",
   "usr/bin/gsettings",
-  "usr/lib/glib-2.0/**",
   "usr/lib/libgio-2.0.so.*",
   "usr/lib/libglib-2.0.so.*",
   "usr/lib/libgmodule-2.0.so.*",

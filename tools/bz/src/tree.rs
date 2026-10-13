@@ -75,7 +75,10 @@ const BUILD_ONLY_DIRS: [&str; 10] = [
     "usr/share/info",
     "usr/share/doc",
 ];
-const BUILD_ONLY_EXTENSIONS: [&str; 3] = ["a", "o", "la"];
+/// Static libraries, objects, libtool archives and C headers, also outside
+/// usr/include (glib's glibconfig.h, dbus's dbus-arch-deps.h, bash's
+/// loadables.h live under usr/lib).
+const BUILD_ONLY_EXTENSIONS: [&str; 4] = ["a", "o", "la", "h"];
 
 /// Whether `path` (relative to `sysroot`) is only for building: by place and
 /// extension, and the linker names of libraries – `usr/lib/libfoo.so` as a
@@ -201,6 +204,7 @@ mod tests {
         let build_only = |path: &str| is_build_only(&sysroot, Path::new(path)).unwrap();
 
         assert!(build_only("usr/include/stdio.h"));
+        assert!(build_only("usr/lib/glib-2.0/include/glibconfig.h"));
         assert!(build_only("usr/lib/libc.a"));
         assert!(build_only("usr/lib/crt1.o"));
         assert!(build_only("usr/lib/beize-build/ukify"));

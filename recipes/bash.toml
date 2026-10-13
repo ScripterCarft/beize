@@ -35,3 +35,6 @@ image = [
   "usr/bin/sh",
   "usr/lib/bash/**",
 ]
+build = [
+  { path = "usr/lib/bash/Makefile.*", why = "for building loadable builtins (Fedora's bash-devel)" },
+]
