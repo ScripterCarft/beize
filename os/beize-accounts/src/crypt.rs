@@ -2,7 +2,11 @@
 
 use std::ffi::{CStr, CString, c_char, c_int, c_ulong};
 
+use beize_varlink::wipe;
+
 const CRYPT_OUTPUT_SIZE: usize = 384;
+/// sizeof(struct crypt_data): libxcrypt fixes it at exactly 32 KiB.
+const CRYPT_DATA_SIZE: usize = 32 * 1024;
 const CRYPT_GENSALT_OUTPUT_SIZE: usize = 192;
 
 #[link(name = "crypt")]
@@ -26,7 +30,6 @@ unsafe extern "C" {
 /// A yescrypt hash of `password` with a fresh random salt, as /etc/shadow
 /// stores it (`$y$...`).
 pub fn hash(password: &str) -> Result<String, String> {
-    let phrase = CString::new(password).map_err(|_| "the password contains a NUL byte")?;
     let prefix = c"$y$";
     let mut setting = [0 as c_char; CRYPT_GENSALT_OUTPUT_SIZE];
     // SAFETY: valid NUL-terminated prefix, no caller-supplied random bytes
@@ -44,28 +47,11 @@ pub fn hash(password: &str) -> Result<String, String> {
     if salted.is_null() {
         return Err("libxcrypt could not create a salt".into());
     }
-    // struct crypt_data is CRYPT_DATA_INTERNAL_SIZE + CRYPT_OUTPUT_SIZE + ...:
-    // 32 KiB is far more than libxcrypt's (stable) layout needs.
-    let mut data = vec![0u8; 32 * 1024];
-    // SAFETY: phrase and setting are NUL-terminated; data is a zeroed buffer
-    // of the given size, which crypt_rn requires.
-    let result = unsafe {
-        crypt_rn(
-            phrase.as_ptr(),
-            setting.as_ptr(),
-            data.as_mut_ptr(),
-            data.len() as c_int,
-        )
-    };
-    if result.is_null() {
-        return Err("libxcrypt could not hash the password".into());
-    }
-    // SAFETY: on success crypt_rn returns a NUL-terminated string inside data.
-    let hash = unsafe { CStr::from_ptr(result) }
-        .to_str()
-        .map_err(|_| "libxcrypt returned an invalid hash")?
-        .to_owned();
-    data.fill(0);
+    // SAFETY: crypt_gensalt_rn wrote a NUL-terminated setting into the buffer.
+    let setting = unsafe { CStr::from_ptr(salted) };
+    let phrase = CString::new(password).map_err(|_| "the password contains a NUL byte")?;
+    let hash = crypt(phrase, setting).ok_or("libxcrypt could not hash the password")?;
+    let hash = String::from_utf8(hash).map_err(|_| "libxcrypt returned an invalid hash")?;
     if !hash.starts_with("$y$") || hash.len() >= CRYPT_OUTPUT_SIZE {
         return Err("libxcrypt returned an unexpected hash".into());
     }
@@ -78,27 +64,28 @@ pub fn verify(password: &str, hash: &str) -> bool {
     let (Ok(phrase), Ok(setting)) = (CString::new(password), CString::new(hash)) else {
         return false;
     };
-    let mut data = vec![0u8; 32 * 1024];
-    // SAFETY: both strings are NUL-terminated; data is a zeroed buffer of
-    // the given size, which crypt_rn requires.
+    crypt(phrase, &setting).is_some_and(|result| same(&result, hash.as_bytes()))
+}
+
+/// crypt_rn: the hash of `phrase` with `setting`, or None. The passphrase
+/// and libxcrypt's working memory are wiped afterwards.
+fn crypt(phrase: CString, setting: &CStr) -> Option<Vec<u8>> {
+    let mut data = vec![0u8; CRYPT_DATA_SIZE];
+    // SAFETY: phrase and setting are NUL-terminated; data is a zeroed buffer
+    // of sizeof(struct crypt_data), which crypt_rn requires.
     let result = unsafe {
         crypt_rn(
             phrase.as_ptr(),
             setting.as_ptr(),
             data.as_mut_ptr(),
-            data.len() as c_int,
+            CRYPT_DATA_SIZE as c_int,
         )
     };
     // SAFETY: on success crypt_rn returns a NUL-terminated string in data.
-    let matches = !result.is_null()
-        && same(
-            unsafe { CStr::from_ptr(result) }.to_bytes(),
-            hash.as_bytes(),
-        );
-    data.fill(0);
-    let mut phrase = phrase.into_bytes();
-    phrase.fill(0);
-    matches
+    let hash = (!result.is_null()).then(|| unsafe { CStr::from_ptr(result) }.to_bytes().to_vec());
+    wipe(&mut data);
+    wipe(&mut phrase.into_bytes());
+    hash
 }
 
 /// Equal bytes, compared without stopping at the first difference.

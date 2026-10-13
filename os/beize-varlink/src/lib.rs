@@ -9,20 +9,22 @@ mod secret;
 
 use std::io::{self, Read, Write};
 
-pub use secret::Secret;
+pub use secret::{Secret, wipe};
 
 /// Reads one message of at most `max` bytes; `None` at the end of the
 /// connection. A message may carry secrets: it is a [`Secret`], and what is
 /// read of a refused one is erased.
 pub fn read_message(stream: &mut impl Read, max: usize) -> io::Result<Option<Secret>> {
-    let mut message = Vec::new();
+    // Room for the longest message at once: growing the buffer would leave
+    // copies of its start in freed memory.
+    let mut message = Vec::with_capacity(max);
     let mut byte = [0u8; 1];
     loop {
         if stream.read(&mut byte)? == 0 {
             return if message.is_empty() {
                 Ok(None)
             } else {
-                message.fill(0);
+                wipe(&mut message);
                 Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "message cut off",
@@ -33,7 +35,7 @@ pub fn read_message(stream: &mut impl Read, max: usize) -> io::Result<Option<Sec
             break;
         }
         if message.len() == max {
-            message.fill(0);
+            wipe(&mut message);
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "message too long",
@@ -44,8 +46,7 @@ pub fn read_message(stream: &mut impl Read, max: usize) -> io::Result<Option<Sec
     match String::from_utf8(message) {
         Ok(text) => Ok(Some(Secret::new(text))),
         Err(error) => {
-            let mut bytes = error.into_bytes();
-            bytes.fill(0);
+            wipe(&mut error.into_bytes());
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "message not UTF-8",

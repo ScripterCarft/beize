@@ -19,13 +19,18 @@ impl Secret {
 impl Drop for Secret {
     fn drop(&mut self) {
         // SAFETY: zeros are valid UTF-8; the string is dropped right after.
-        for byte in unsafe { self.0.as_bytes_mut() } {
-            // SAFETY: a valid, exclusively borrowed byte; volatile so the
-            // compiler keeps the write to memory that is freed next.
-            unsafe { std::ptr::write_volatile(byte, 0) };
-        }
-        compiler_fence(Ordering::SeqCst);
+        wipe(unsafe { self.0.as_bytes_mut() });
     }
+}
+
+/// Overwrites `bytes` with zeros in a way the compiler keeps, although the
+/// memory is usually freed right after (a plain `fill(0)` may be dropped).
+pub fn wipe(bytes: &mut [u8]) {
+    for byte in bytes {
+        // SAFETY: a valid, exclusively borrowed byte.
+        unsafe { std::ptr::write_volatile(byte, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
 }
 
 /// Never printed, not even by accident in an error message.
