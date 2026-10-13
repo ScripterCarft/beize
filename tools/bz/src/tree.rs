@@ -39,7 +39,8 @@ pub fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 
 /// What a tree assembled from `recipes` and the repository's `system/<own>`
 /// files depends on: its definition (relative to the repository), the build
-/// of every package (including the toolchain that strips them) and those files.
+/// of every package (including the toolchain that strips them), what each
+/// recipe's `[files]` lets in, and those files.
 pub fn assembly_inputs(
     paths: &Paths,
     definition: &str,
@@ -48,11 +49,13 @@ pub fn assembly_inputs(
 ) -> Result<Fingerprint> {
     let mut inputs = Fingerprint::new()?.file(&paths.root.join(definition))?;
     for recipe in recipes {
-        inputs = inputs.text(&format!(
-            "{} {}",
-            recipe.name,
-            packages::built_fingerprint(paths, &recipe.name)?
-        ));
+        inputs = inputs
+            .text(&format!(
+                "{} {}",
+                recipe.name,
+                packages::built_fingerprint(paths, &recipe.name)?
+            ))
+            .text(&recipe.files_text);
     }
     inputs.tree(&paths.root.join("system").join(own))
 }
@@ -103,25 +106,6 @@ fn is_build_only_by_name(path: &Path) -> bool {
 /// The target packages among `recipes` (toolchain recipes ship nothing).
 pub fn target_packages(recipes: &[Recipe]) -> impl Iterator<Item = &Recipe> {
     recipes.iter().filter(|r| r.stage == Some(Stage::Target))
-}
-
-/// Copies every file of the target packages that `keep` accepts from the
-/// sysroot into `dest` and strips debug information. Returns the file count.
-pub fn populate(
-    paths: &Paths,
-    recipes: &[Recipe],
-    dest: &Path,
-    keep: impl Fn(&Path) -> Result<bool>,
-) -> Result<usize> {
-    let mut files = Vec::new();
-    for recipe in target_packages(recipes) {
-        for file in install::manifest(paths, &recipe.name)? {
-            if keep(&file)? {
-                files.push(file);
-            }
-        }
-    }
-    copy_files(paths, &files, dest)
 }
 
 /// Copies `files` (relative to the root) from the sysroot into `dest` and

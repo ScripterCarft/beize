@@ -16,3 +16,8 @@ unsigned = "neither Mozilla's certdata.txt nor curl's PEM extract of it is signe
 script = '''
 install -D -m 644 "$SRC/cacert-$VERSION.pem" "$PKG/usr/share/ca-certificates/ca-bundle.pem"
 '''
+
+[files]
+image = [
+  "usr/share/ca-certificates/**",
+]

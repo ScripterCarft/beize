@@ -30,3 +30,19 @@ DESTDIR="$PKG" meson install --no-rebuild --quiet
 # /usr/lib/pam.d (system/usr).
 rm -rf "$PKG/etc"
 '''
+
+[files]
+image = [
+  "usr/bin/faillock",
+  "usr/bin/mkhomedir_helper",
+  "usr/bin/pam_namespace_helper",
+  "usr/bin/pam_timestamp_check",
+  "usr/bin/pwhistory_helper",
+  "usr/bin/unix_chkpwd",
+  "usr/lib/environment",
+  "usr/lib/libpam.so.*",
+  "usr/lib/libpam_misc.so.*",
+  "usr/lib/libpamc.so.*",
+  "usr/lib/security/**",
+  "usr/lib/systemd/**",
+]

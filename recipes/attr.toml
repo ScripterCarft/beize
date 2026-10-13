@@ -22,3 +22,11 @@ make DESTDIR="$PKG" install
 rm "$PKG/etc/xattr.conf"
 rmdir "$PKG/etc"
 '''
+
+[files]
+image = [
+  "usr/bin/attr",
+  "usr/bin/getfattr",
+  "usr/bin/setfattr",
+  "usr/lib/libattr.so.*",
+]

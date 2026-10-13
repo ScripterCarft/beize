@@ -21,3 +21,9 @@ MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 rm -rf "$PKG/usr/share/man"
 '''
+
+[files]
+image = [
+  "usr/share/X11/**",
+  "usr/share/xkeyboard-config-2/**",
+]

@@ -23,3 +23,8 @@ cmake -S "$SRC" -B . -G Ninja \
 MAKEFLAGS="$JOBSERVER" cmake --build .
 DESTDIR="$PKG" cmake --install .
 '''
+
+[files]
+image = [
+  "usr/lib/libjson-c.so.*",
+]

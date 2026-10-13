@@ -36,3 +36,13 @@ make DESTDIR="$PKG" BLKID_RULE="$BLKID_RULE" install_device-mapper
 grep -qF 'IMPORT{builtin}="blkid"' "$PKG/usr/lib/udev/rules.d/13-dm-disk.rules" \
   || { echo "13-dm-disk.rules does not use udev's builtin blkid" >&2; exit 1; }
 '''
+
+[files]
+image = [
+  "usr/bin/blkdeactivate",
+  "usr/bin/dmsetup",
+  "usr/bin/dmstats",
+  "usr/bin/dmvdostats",
+  "usr/lib/libdevmapper.so.*",
+  "usr/lib/udev/**",
+]

@@ -24,3 +24,8 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
 MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''
+
+[files]
+image = [
+  "usr/lib/libxkbcommon.so.*",
+]

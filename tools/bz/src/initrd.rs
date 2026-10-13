@@ -14,6 +14,7 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use crate::elf;
+use crate::files;
 use crate::install;
 use crate::kernel::{self, Kernel};
 use crate::layout;
@@ -54,14 +55,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         fs::create_dir_all(root.join(dir))?;
     }
     let own = paths.root.join("system/initrd");
-    let mut files = BTreeSet::new();
-    for recipe in tree::target_packages(&recipes) {
-        for file in install::manifest(paths, &recipe.name)? {
-            if !tree::is_build_only(&paths.sysroot, &file)? {
-                files.insert(file);
-            }
-        }
-    }
+    // What the initrd takes from comes from what goes into Beize at all.
+    let files = files::image_files(paths, &recipes)?;
     let pool = Pool {
         sysroot: paths.sysroot.clone(),
         own: own.clone(),

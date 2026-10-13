@@ -37,3 +37,22 @@ chmod 0755 "$PKG/usr/lib/polkit-1/polkit-agent-helper-1"
 # (polkit-tmpfiles.conf), Beize ships only /usr.
 rm -r "$PKG/etc"
 '''
+
+[files]
+image = [
+  "usr/bin/pkaction",
+  "usr/bin/pkcheck",
+  "usr/bin/pkttyagent",
+  "usr/lib/libpolkit-agent-1.so.*",
+  "usr/lib/libpolkit-gobject-1.so.*",
+  "usr/lib/pam.d/**",
+  "usr/lib/polkit-1/**",
+  "usr/lib/systemd/**",
+  "usr/lib/sysusers.d/**",
+  "usr/lib/tmpfiles.d/**",
+  "usr/share/dbus-1/**",
+  "usr/share/polkit-1/**",
+]
+build = [
+  { path = "usr/share/locale/**", why = "translations: Beize runs in C.UTF-8 until M3" },
+]

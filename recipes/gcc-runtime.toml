@@ -12,3 +12,11 @@ cp -a "$TOOLS/$TARGET"/lib/libgcc_s.so.1 "$PKG/usr/lib/"
 cp -a "$TOOLS/$TARGET"/lib/libstdc++.so.6* "$PKG/usr/lib/"
 rm -f "$PKG"/usr/lib/*.py
 '''
+
+[files]
+image = [
+  "usr/lib/libgcc_s.so.*",
+]
+build = [
+  { path = "usr/lib/libstdc++.so*", why = "no program is C++ (checked 2026-10-12)" },
+]

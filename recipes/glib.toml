@@ -27,3 +27,34 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
 MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''
+
+[files]
+image = [
+  "usr/bin/gapplication",
+  "usr/bin/gdbus",
+  "usr/bin/gio",
+  "usr/bin/gio-querymodules",
+  "usr/bin/gsettings",
+  "usr/lib/glib-2.0/**",
+  "usr/lib/libgio-2.0.so.*",
+  "usr/lib/libglib-2.0.so.*",
+  "usr/lib/libgmodule-2.0.so.*",
+  "usr/lib/libgobject-2.0.so.*",
+  "usr/lib/libgthread-2.0.so.*",
+  "usr/libexec/gio-launch-desktop",
+  "usr/share/bash-completion/**",
+  "usr/share/gdb/**",
+  "usr/share/glib-2.0/**",
+]
+build = [
+  { path = "usr/bin/gdbus-codegen", why = "build tool (Python)" },
+  { path = "usr/bin/gi-*", why = "introspection tools: nothing uses language bindings" },
+  { path = "usr/bin/glib-compile-*", why = "build tools" },
+  { path = "usr/bin/glib-genmarshal", why = "build tool (Python)" },
+  { path = "usr/bin/glib-gettextize", why = "build tool" },
+  { path = "usr/bin/glib-mkenums", why = "build tool (Python)" },
+  { path = "usr/bin/gobject-query", why = "development tool" },
+  { path = "usr/bin/gresource", why = "development tool" },
+  { path = "usr/bin/gtester*", why = "test tools" },
+  { path = "usr/lib/libgirepository-2.0.so*", why = "introspection: nothing uses language bindings" },
+]

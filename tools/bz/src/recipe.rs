@@ -37,10 +37,37 @@ pub struct Recipe {
     /// their content is part of the build fingerprint.
     pub repo: Vec<String>,
     pub build: Option<Build>,
+    /// What of the package goes into the image (`crate::files`).
+    pub files: Files,
     /// The recipe text, part of the build fingerprint – without the `latest`
-    /// lines: where releases are announced does not change the build.
+    /// lines and the `[files]` table: where releases are announced and what
+    /// the image takes do not change the build.
     pub text: String,
+    /// The `[files]` table as written, an input of the trees built from it.
+    pub files_text: String,
 }
+
+/// The recipe's `[files]` table (`crate::files`).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Files {
+    /// Patterns of the files that go into the image.
+    #[serde(default)]
+    pub image: Vec<String>,
+    /// Files only for building other packages, each with its reason.
+    #[serde(default)]
+    pub build: Vec<BuildOnly>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildOnly {
+    pub path: String,
+    pub why: String,
+}
+
+/// Where the `[files]` table starts; it must be the recipe's last table.
+const FILES_TABLE: &str = "[files]";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,6 +92,8 @@ struct RawRecipe {
     #[serde(default)]
     repo: Vec<String>,
     build: Option<Build>,
+    #[serde(default)]
+    files: Files,
 }
 
 impl Recipe {
@@ -102,6 +131,22 @@ impl Recipe {
             .map(|s| s.into_extra(&raw.version))
             .collect::<Result<_>>()
             .context("in [[extra]]")?;
+        // What builds the package ends with one newline, however many blank
+        // lines come before [files]: adding the table changes no fingerprint.
+        let (build_text, files_text) = match text.find(&format!("\n{FILES_TABLE}\n")) {
+            Some(at) => (
+                format!("{}\n", text[..at].trim_end_matches('\n')),
+                &text[at + 1..],
+            ),
+            None => (text.to_owned(), ""),
+        };
+        if files_text
+            .lines()
+            .skip(1)
+            .any(|line| line.trim_start().starts_with('['))
+        {
+            bail!("{FILES_TABLE} must be the recipe's last table");
+        }
         Ok(Self {
             name: raw.name,
             version: raw.version,
@@ -112,10 +157,12 @@ impl Recipe {
             extra,
             repo: raw.repo,
             build: raw.build,
-            text: text
+            files: raw.files,
+            text: build_text
                 .split_inclusive('\n')
                 .filter(|line| !line.trim_start().starts_with("latest = "))
                 .collect(),
+            files_text: files_text.to_owned(),
         })
     }
 
@@ -192,6 +239,25 @@ mod tests {
         format!(
             "url = \"{url}\"\nsha256 = \"{DIGEST}\"\nsignature = \"{url}.sig\"\nkeyring = \"{keyring}\"\n"
         )
+    }
+
+    /// Adding or changing [files] must not change what builds the package:
+    /// anything else rebuilds the whole system (and every CI cache).
+    #[test]
+    fn files_table_is_not_part_of_the_build_text() {
+        let recipe = "name = \"p\"\nversion = \"1\"\n\n[build]\nscript = '''\nmake\n'''\n";
+        let plain = Recipe::parse(recipe).unwrap();
+        for files in [
+            "\n[files]\nimage = [\"usr/bin/p\"]\n",
+            "[files]\n",
+            "\n\n[files]\nbuild = [{ path = \"usr/bin/q\", why = \"x\" }]\n",
+        ] {
+            let with = Recipe::parse(&format!("{recipe}{files}")).unwrap();
+            assert_eq!(with.text, plain.text, "{files:?}");
+            assert!(with.files_text.starts_with("[files]\n"));
+        }
+        let after = format!("{recipe}\n[files]\nimage = []\n\n[source]\nurl = \"x\"\n");
+        assert!(Recipe::parse(&after).is_err());
     }
 
     #[test]

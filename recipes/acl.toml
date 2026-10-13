@@ -19,3 +19,11 @@ script = '''
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
+
+[files]
+image = [
+  "usr/bin/chacl",
+  "usr/bin/getfacl",
+  "usr/bin/setfacl",
+  "usr/lib/libacl.so.*",
+]

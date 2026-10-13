@@ -19,3 +19,8 @@ MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-pa
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-tpm" \
   "$PKG/usr/lib/beize/beize-tpm"
 '''
+
+[files]
+image = [
+  "usr/lib/beize/**",
+]

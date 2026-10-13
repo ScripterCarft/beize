@@ -19,3 +19,9 @@ install -D -m 755 "$release/beize-update" "$PKG/usr/bin/beize-update"
 install -D -m 755 "$release/beize-updated" "$PKG/usr/lib/beize/beize-updated"
 install -D -m 755 "$release/beize-update-fetch" "$PKG/usr/lib/beize/beize-update-fetch"
 '''
+
+[files]
+image = [
+  "usr/bin/beize-update",
+  "usr/lib/beize/**",
+]

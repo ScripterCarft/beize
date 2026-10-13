@@ -25,3 +25,8 @@ script = '''
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
+
+[files]
+image = [
+  "usr/lib/libcrypt.so.*",
+]

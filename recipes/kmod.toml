@@ -25,3 +25,15 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
 MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''
+
+[files]
+image = [
+  "usr/bin/depmod",
+  "usr/bin/insmod",
+  "usr/bin/kmod",
+  "usr/bin/lsmod",
+  "usr/bin/modinfo",
+  "usr/bin/modprobe",
+  "usr/bin/rmmod",
+  "usr/lib/libkmod.so.*",
+]

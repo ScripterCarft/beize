@@ -27,3 +27,11 @@ make DESTDIR="$PKG" install
 sed -i "s# --sysroot=$SYSROOT##" "$PKG/usr/bin/bashbug" "$PKG/usr/lib/bash/Makefile.inc"
 ln -s bash "$PKG/usr/bin/sh"
 '''
+
+[files]
+image = [
+  "usr/bin/bash",
+  "usr/bin/bashbug",
+  "usr/bin/sh",
+  "usr/lib/bash/**",
+]

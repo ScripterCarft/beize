@@ -17,3 +17,8 @@ CHOST="$TARGET" "$SRC/configure" --prefix=/usr --libdir=/usr/lib --shared
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
+
+[files]
+image = [
+  "usr/lib/libz.so.*",
+]

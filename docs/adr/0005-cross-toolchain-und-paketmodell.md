@@ -62,9 +62,22 @@ Paket mit dem längsten verbleibenden Pfad.
 die Pfade auf das zusammengeführte `/usr`, prüft auf Konflikte mit anderen
 Paketen und schreibt ein Manifest. `bz owner <pfad>` beantwortet, woher eine Datei kommt.
 
-**Image.** Das `/usr`-Image wird nur aus den Manifesten der Pakete in
-`images/base.toml` zusammengesetzt, ohne Header, statische Bibliotheken und
-Dokumentation, und ohne Debug-Informationen. Es ist ein read-only EROFS-Image (zstd).
+**Was ins Image kommt.** Wie Fedoras `%files` erklärt jedes Rezept seine Dateien.
+Nur zum Bauen sind ihrer Art nach Header, statische Bibliotheken, pkg-config- und
+CMake-Dateien, Handbücher und Linker-Namen (Fedoras -devel). Alles andere nennt der
+Abschnitt `[files]` des Rezepts:
+- `image`: Muster der Dateien fürs Image. Programme und Bibliotheken direkt in
+  `usr/bin` und `usr/lib` stehen einzeln da, tiefere Verzeichnisse auch als `dir/**`.
+- `build`: Dateien nur zum Bauen anderer Pakete, jede mit Grund. Ein solcher
+  Eintrag nimmt Dateien auch aus einem Image-Muster heraus, wie `%exclude`.
+
+Eine Datei ohne Zuordnung lässt den Bau scheitern, ebenso ein Muster, das nichts
+trifft (Fedoras „Installed (but unpackaged) file(s) found“). So kommt nichts
+unbemerkt ins Image. `[files]` ist die letzte Tabelle des Rezepts und zählt nicht
+zum Bau-Fingerprint.
+
+**Image.** Das `/usr`-Image wird aus diesen Dateien der Pakete in `images/base.toml`
+zusammengesetzt, ohne Debug-Informationen. Es ist ein read-only EROFS-Image (zstd).
 
 ## Konsequenzen
 

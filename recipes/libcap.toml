@@ -21,3 +21,13 @@ opts=(CROSS_COMPILE="$TARGET-" CC="$CC" BUILD_CC=gcc prefix=/usr lib=lib
 MAKEFLAGS="$JOBSERVER" make "${opts[@]}"
 make "${opts[@]}" DESTDIR="$PKG" install
 '''
+
+[files]
+image = [
+  "usr/bin/capsh",
+  "usr/bin/getcap",
+  "usr/bin/getpcaps",
+  "usr/bin/setcap",
+  "usr/lib/libcap.so.*",
+  "usr/lib/libpsx.so.*",
+]

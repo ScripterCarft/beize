@@ -30,3 +30,9 @@ if "$TARGET-readelf" -d "$PKG"/usr/lib/libcryptsetup.so.* | grep -q libpopt; the
   echo "libcryptsetup links popt" >&2; exit 1
 fi
 '''
+
+[files]
+image = [
+  "usr/lib/libcryptsetup.so.*",
+  "usr/lib/tmpfiles.d/**",
+]

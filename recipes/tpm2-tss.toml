@@ -39,3 +39,16 @@ rm -r "$PKG/var" "$PKG/run"
 # sysusers entry only together with FAPI.
 install -Dm644 "$SRC/dist/sysusers.d/tpm2-tss.conf" "$PKG/usr/lib/sysusers.d/tpm2-tss.conf"
 '''
+
+[files]
+image = [
+  "usr/lib/libtss2-esys.so.*",
+  "usr/lib/libtss2-mu.so.*",
+  "usr/lib/libtss2-rc.so.*",
+  "usr/lib/libtss2-sys.so.*",
+  "usr/lib/libtss2-tcti-device.so.*",
+  "usr/lib/libtss2-tcti-null.so.*",
+  "usr/lib/libtss2-tctildr.so.*",
+  "usr/lib/sysusers.d/**",
+  "usr/lib/udev/**",
+]

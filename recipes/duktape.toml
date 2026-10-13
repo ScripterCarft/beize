@@ -27,3 +27,8 @@ ln -s libduktape.so.207 "$PKG/usr/lib/libduktape.so"
 install -Dm644 duktape.pc "$PKG/usr/lib/pkgconfig/duktape.pc"
 install -Dm644 src/duktape.h src/duk_config.h -t "$PKG/usr/include"
 '''
+
+[files]
+image = [
+  "usr/lib/libduktape.so.*",
+]

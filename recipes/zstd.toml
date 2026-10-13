@@ -21,3 +21,8 @@ meson setup . "$SRC/build/meson" --cross-file "$MESON_CROSS" --native-file "$MES
 MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''
+
+[files]
+image = [
+  "usr/lib/libzstd.so.*",
+]

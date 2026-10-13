@@ -10,6 +10,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::elf;
+use crate::files;
 use crate::install;
 use crate::kernel::{self, Kernel};
 use crate::layout;
@@ -33,76 +34,6 @@ const SHIPPED_PRESET: &str = "99-beize.preset";
 /// The units every boot runs (ADR 0013); in `/usr` for beize-boot-health,
 /// which decides by them whether a boot succeeded (ADR 0020).
 const RUNNING_UNITS: &str = "images/running-units.txt";
-
-/// Files of the packages that the image leaves out, with the reason; the
-/// packages keep them in the sysroot, for building others. A path names a
-/// file or directory; a trailing `*` matches every name starting so.
-const LEFT_OUT: [(&str, &str); 25] = [
-    // Languages come with M3 as compiled locales (as macOS, Fedora's
-    // langpacks); until then Beize runs in C.UTF-8 and nothing can use
-    // locale sources or translations.
-    ("usr/share/i18n", "locale sources"),
-    ("usr/bin/localedef", "compiles locale sources"),
-    ("usr/share/locale", "translations"),
-    // No program links these (checked 2026-10-12); C++ and vector math
-    // stay available for building.
-    ("usr/lib/libstdc++.so*", "no program is C++"),
-    ("usr/lib/libmvec.so*", "no program links it"),
-    // glibc's tools for debugging and profiling programs.
-    ("usr/bin/mtrace", "Perl script, Beize has no Perl"),
-    ("usr/bin/sotruss", "debugging tool"),
-    ("usr/lib/audit/sotruss-lib.so", "sotruss"),
-    ("usr/bin/xtrace", "debugging tool"),
-    ("usr/bin/sprof", "profiling tool"),
-    ("usr/bin/pcprofiledump", "profiling tool"),
-    ("usr/lib/libpcprofile.so", "profiling tool"),
-    ("usr/lib/libmemusage.so", "profiling tool"),
-    // glib's tools for building software; gio, gdbus, gsettings,
-    // gapplication and gio-querymodules stay (Fedora's runtime package).
-    ("usr/bin/gdbus-codegen", "build tool (Python)"),
-    ("usr/bin/glib-compile-*", "build tools"),
-    ("usr/bin/glib-genmarshal", "build tool (Python)"),
-    ("usr/bin/glib-mkenums", "build tool (Python)"),
-    ("usr/bin/glib-gettextize", "build tool"),
-    ("usr/bin/gobject-query", "development tool"),
-    ("usr/bin/gresource", "development tool"),
-    ("usr/bin/gtester*", "test tools"),
-    // GObject introspection: for language bindings, which nothing uses.
-    ("usr/bin/gi-*", "introspection tools"),
-    ("usr/lib/libgirepository-2.0.so*", "introspection"),
-    // The libraries stay (ntpd-rs, curl); nothing in Beize runs the
-    // command or needs the legacy algorithms (as Fedora's split).
-    ("usr/bin/openssl", "command line tool"),
-    ("usr/lib/ossl-modules/legacy.so", "legacy algorithms"),
-];
-
-/// Fails for an entry of [`LEFT_OUT`] that no package installs any more.
-fn check_left_out(paths: &Paths, recipes: &[crate::recipe::Recipe]) -> Result<()> {
-    let mut files = Vec::new();
-    for recipe in tree::target_packages(recipes) {
-        files.extend(install::manifest(paths, &recipe.name)?);
-    }
-    for (pattern, why) in LEFT_OUT {
-        ensure!(
-            files.iter().any(|file| left_out_by(pattern, file)),
-            "LEFT_OUT names {pattern} ({why}), which no package installs any more"
-        );
-    }
-    Ok(())
-}
-
-fn left_out(path: &Path) -> bool {
-    LEFT_OUT
-        .iter()
-        .any(|(pattern, _)| left_out_by(pattern, path))
-}
-
-fn left_out_by(pattern: &str, path: &Path) -> bool {
-    match pattern.strip_suffix('*') {
-        Some(prefix) => path.to_str().is_some_and(|path| path.starts_with(prefix)),
-        None => path.starts_with(pattern),
-    }
-}
 
 /// Where [`build`] assembles `/usr`, as a tree with `usr/` in it.
 pub fn tree_dir(paths: &Paths) -> PathBuf {
@@ -131,7 +62,6 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
             .file(&paths.root.join(UNIT_PRESET))?
             .file(&paths.root.join(RUNNING_UNITS))?
-            .text(&format!("{LEFT_OUT:?}"))
             .tree(&kernel.modules)?,
         &[&root],
     );
@@ -159,10 +89,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     // usr/sbin -> bin and usr/lib64 -> lib; the root-level links (/bin, /lib64,
     // ...) are created by systemd on first boot.
     install::prepare_layout(&root)?;
-    check_left_out(paths, &recipes)?;
-    tree::populate(paths, &recipes, &root, |file| {
-        Ok(!left_out(file) && !tree::is_build_only(&paths.sysroot, file)?)
-    })?;
+    let image = files::image_files(paths, &recipes)?;
+    tree::copy_files(paths, &image.into_iter().collect::<Vec<_>>(), &root)?;
 
     let usr = root.join("usr");
     util::run(
@@ -536,20 +464,6 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
-
-    #[test]
-    fn left_out_matches_files_directories_and_name_prefixes() {
-        assert!(left_out(Path::new("usr/share/i18n/locales/de_DE")));
-        assert!(left_out(Path::new("usr/lib/libstdc++.so.6.0.36")));
-        assert!(left_out(Path::new("usr/bin/gi-compile-repository")));
-        assert!(left_out(Path::new("usr/bin/openssl")));
-        // Neighbours with a similar name stay.
-        assert!(!left_out(Path::new("usr/share/i18n-other")));
-        assert!(!left_out(Path::new("usr/bin/openssl-extra")));
-        assert!(!left_out(Path::new("usr/lib/libssl.so.4")));
-        assert!(!left_out(Path::new("usr/bin/gio")));
-        assert!(!left_out(Path::new("usr/bin/gsettings")));
-    }
 
     /// Scripts lose their executable bit easily (e.g. when edited through a
     /// Windows path); systemd then fails with "Permission denied".

@@ -19,3 +19,9 @@ install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-acco
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-accountsd" \
   "$PKG/usr/lib/beize/beize-accountsd"
 '''
+
+[files]
+image = [
+  "usr/bin/beize-account",
+  "usr/lib/beize/**",
+]

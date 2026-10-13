@@ -24,3 +24,13 @@ make crypto/buildinf.h CC="$TARGET-gcc"
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install_sw
 '''
+
+[files]
+image = [
+  "usr/lib/libcrypto.so.*",
+  "usr/lib/libssl.so.*",
+]
+build = [
+  { path = "usr/bin/openssl", why = "command line tool: nothing in Beize runs it" },
+  { path = "usr/lib/ossl-modules/legacy.so", why = "legacy algorithms: nothing needs them" },
+]

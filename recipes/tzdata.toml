@@ -36,3 +36,8 @@ make CC=gcc CFLAGS=-O2 zic
 # Tables for choosing a zone (beize-setup): zones by country, country names.
 install -m 644 zone1970.tab iso3166.tab "$PKG/usr/share/zoneinfo/"
 '''
+
+[files]
+image = [
+  "usr/share/zoneinfo/**",
+]

@@ -28,3 +28,9 @@ for bin in ntp-daemon ntp-ctl; do
   install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/$bin" "$PKG/usr/bin/$bin"
 done
 '''
+
+[files]
+image = [
+  "usr/bin/ntp-ctl",
+  "usr/bin/ntp-daemon",
+]

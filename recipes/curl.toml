@@ -34,3 +34,8 @@ make DESTDIR="$PKG" install
 rm -f "$PKG/usr/bin/curl" "$PKG/usr/bin/wcurl" "$PKG/usr/bin/curl-config"
 rm -rf "$PKG/usr/share/man" "$PKG/usr/share/aclocal"
 '''
+
+[files]
+image = [
+  "usr/lib/libcurl.so.*",
+]

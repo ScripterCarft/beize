@@ -19,3 +19,9 @@ script = '''
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''
+
+[files]
+image = [
+  "usr/bin/xmlwf",
+  "usr/lib/libexpat.so.*",
+]

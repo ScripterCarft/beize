@@ -33,3 +33,23 @@ rm -rf "$PKG/etc"
 # (ADR 0018); installed without the bit, it would only be dead weight.
 rm "$PKG/usr/lib/dbus-1.0/dbus-daemon-launch-helper"
 '''
+
+[files]
+image = [
+  "usr/bin/dbus-cleanup-sockets",
+  "usr/bin/dbus-daemon",
+  "usr/bin/dbus-launch",
+  "usr/bin/dbus-monitor",
+  "usr/bin/dbus-run-session",
+  "usr/bin/dbus-send",
+  "usr/bin/dbus-test-tool",
+  "usr/bin/dbus-update-activation-environment",
+  "usr/bin/dbus-uuidgen",
+  "usr/lib/dbus-1.0/**",
+  "usr/lib/libdbus-1.so.*",
+  "usr/lib/systemd/**",
+  "usr/lib/sysusers.d/**",
+  "usr/lib/tmpfiles.d/**",
+  "usr/share/dbus-1/**",
+  "usr/share/xml/**",
+]

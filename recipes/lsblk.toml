@@ -32,3 +32,8 @@ script = '''
 MAKEFLAGS="$JOBSERVER" make lsblk
 install -D -m 0755 .libs/lsblk "$PKG/usr/bin/lsblk"
 '''
+
+[files]
+image = [
+  "usr/bin/lsblk",
+]
