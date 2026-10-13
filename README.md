@@ -128,3 +128,9 @@ Logs in `build/work/logs/`.
   Signierzeit (Issue #5).
 - Private Schlüssel (Secure Boot, Signaturen) liegen nie im Repository, sondern in 1Password.
 - Größere Entscheidungen werden als ADR festgehalten.
+
+## Lizenz
+
+Beizes eigener Code steht unter der [Mozilla Public License 2.0](LICENSE). Die Pakete, aus
+denen Beize gebaut wird, behalten ihre Lizenzen; welche, steht in der SBOM jedes Images
+(`build/out/sbom.spdx.json`, ADR 0022).

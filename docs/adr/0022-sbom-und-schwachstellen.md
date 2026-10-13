@@ -25,8 +25,8 @@ digitalen Elementen.
     (`cpe:2.3:<a|o>:<hersteller>:<produkt>`), mehrere wie Yoctos `CVE_PRODUCT`. Sie ist
     leer mit Begründung für Daten und Firmware, die die NVD nicht als Produkt führt.
 
-  Beides ist Pflicht für jede Quelle; ein Test verlangt es. Beizes eigener Code hat
-  `NOASSERTION`, bis der Besitzer eine Lizenz gewählt hat.
+  Beides ist Pflicht für jede Quelle; ein Test verlangt es. Beizes eigener Code steht
+  unter MPL-2.0 (`LICENSE`).
 - **SBOM je Image.** `bz` schreibt beim Image-Schritt `build/out/sbom.spdx.json` (SPDX 2.3,
   datiert mit `SOURCE_DATE_EPOCH`). Darin stehen:
   - jedes Paket des Images, Kernel, Firmware und Microcode mit Version, Quelle, Pin
