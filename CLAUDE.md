@@ -219,7 +219,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-12)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-13)
 
 **Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.2 (`d4ee932`; Disks, Messwerte,
 Update-Test: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch mit
@@ -228,7 +228,7 @@ Wiederherstellung auf der Hardware: nach F8 Leertaste halten, „(Recovery)“, 
 
 **PHASE 7 – Konsolidierung (seit 2026-10-12, Plan mit dem Besitzer abgestimmt).** Ausgangswerte
 und Rohdaten: WSL `~/p7/BASELINE.md`. Jede Änderung mit Vorher/Nachher, je Thema ein Commit.
-Erledigt (gepusht bis `ca2560d`):
+Erledigt:
 - Bau von null repariert; **seit 2026-10-10 baute gcc-pass1 alle Pakete** (gleiches Präfix) →
   pass1 in `build/tools/pass1`, ELF-Prüfung verlangt Build-IDs; Paket wird vor dem Neubau
   deinstalliert (`install::uninstall`); `bz` räumt `work/` auf (11 → 5,2 GB). Bau von null lokal
@@ -240,21 +240,29 @@ Erledigt (gepusht bis `ca2560d`):
 - Kernel zstd (UKI 28,5 → 27,3 MB); initrd -19 gemessen bestätigt; `/usr` zstd 9 + 64 KiB +
   fragments, `LEFT_OUT` in `usr.rs` (mit dem Besitzer), Linker-Namen raus, ELF-Prüfung löst
   NEEDED wie der Lader auf: `/usr` 80,2 → 40,8 MiB. coreutils bleiben Einzelprogramme (gemessen).
+- **#3 parallel bauen** (2026-10-13, ADR 0005): Sysroot je Paket (harte Links, `--sysroot` in `$CC`,
+  Compiler ohne eigenes Sysroot), ein Jobserver (`$JOBSERVER` nur für Bauschritte), Start nach
+  gemessenem Speicher + PSI, cgroup je Paket, Kernel nebenher. Bau von null lokal **~15:20 → 9:18**
+  (24 statt 10 Jobs; gcc braucht dabei 8,7 GiB). Neu geprüft: ELF nur von eigenem gcc/rustc
+  (`.comment`), kein Sysroot-Pfad in `/usr`; pkg-config nach freedesktop-Regeln (libxkbcommon
+  suchte seine Daten im Bau-Verzeichnis). Rohdaten WSL `~/p7/a/`.
 
-**NÄCHSTER CHAT – zuerst:** CI 38305117376 prüfen (Push `66e5bfb`; erstmals mit dem Build-Image aus
-GHCR, Mirror-Lauf 38305037919 grün; Fixes #1 – bei Grün #1 schließen), dann diesen lokalen Commit
-pushen. Runner belegt: 2 CPUs, 7,8 GiB, 8,4 GB frei; Normallauf ~20 min, Smoke ~850 s. Der `gh`-Token
-darf keine Workflows starten (Mirror startet der Besitzer). Speicherbedarf je Paket
-(`memory.peak`, enthält Seiten-Cache – für #3 den anonymen Anteil messen): WSL `~/p7/memory-peaks.txt`.
+**NÄCHSTER CHAT – zuerst:** den CI-Lauf des Pushs von 2026-10-13 prüfen (`gh run list`): alle
+Pakete bauen neu (neue Toolchain-Rezepte), auf 2 CPUs ~2–2,5 h (Grenze 240 min). Bei Grün #3
+schließen. Runner: 2 CPUs, 7,8 GiB, 8,4 GB frei, kein systemd (keine cgroups, Speicher nur per
+Startprüfung); Normallauf ~20 min, davon Smoke ~850 s. Der `gh`-Token darf keine Workflows starten.
 
 Offen, in dieser Reihenfolge (Issues mit Label `phase-7`):
 1. CI: Kosten des Baus von null (#2: 2:11 h auf 2 CPUs) – **kein self-hosted Runner** (Besitzer);
    PRs nur, wenn sie nicht langsamer machen (Cache je Branch).
-2. **Pakete parallel bauen (#3) – Besitzer: RAM-gesteuert, nie OOM.**
-3. Doku schlank halten: es kommt viel dazu, wenig weg – nur Funktionsloses entfernen (Besitzer).
-4. Upstream statt Eigenem nur messen und bewerten (#4); **Go nur bei großem Gewinn ohne
-   Einschränkung**. Bit-genaue Builds (#5).
-5. Leerlauf (#6), Review (#7), Hardware-Test (#8). `~/beize/build.before` löschen.
+2. Doku schlank halten: es kommt viel dazu, wenig weg – nur Funktionsloses entfernen (Besitzer).
+3. Upstream statt Eigenem nur messen und bewerten (#4); **Go nur bei großem Gewinn ohne
+   Einschränkung**. Bit-genaue Builds (#5): 90 Dateien in `/usr` enthalten Bau-Pfade
+   (`__FILE__`, Cargo-Registry → `-ffile-prefix-map`/`--remap-path-prefix`), ntpd-rs und
+   iputils betten den Commit des Beize-Repos ein (finden es beim Bauen).
+4. Smoke dominiert die CI (14 von 19 min) – eigenes Thema nach #5.
+5. Leerlauf (#6), Review (#7), Hardware-Test (#8). `~/beize/build.before` löschen; in `~/beize`
+   liegt ein überflüssiger `git stash` (Stand vor A, voll in den Commits enthalten).
 
 **Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase eigener Chat, ADR vorab abstimmen, nichts
 abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen; bei Fehlern zuerst
