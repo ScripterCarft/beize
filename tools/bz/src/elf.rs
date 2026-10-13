@@ -3,7 +3,9 @@
 //! the build flags breaks the build instead of shipping unhardened code.
 //! Each also needs a GNU build ID, which names the exact build in core dumps
 //! and crash reports (as Fedora requires); a file without one was linked by
-//! something other than Beize's compiler.
+//! something other than Beize's compiler. And each must come from Beize's
+//! compilers, by what they write into `.comment`: the build host's gcc once
+//! compiled libcap unnoticed.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,6 +15,7 @@ use anyhow::{Result, ensure};
 
 use crate::packages::TARGET;
 use crate::paths::Paths;
+use crate::recipe::Recipe;
 use crate::{say, tree, util};
 
 /// Files that cannot carry the CET properties, with the reason.
@@ -32,6 +35,7 @@ const NO_CET: [(&str, &str); 9] = [
 /// Checks every ELF file under `root`; `what` names the tree in messages.
 pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     let readelf = paths.tools.join("bin").join(format!("{TARGET}-readelf"));
+    let gcc = format!("GCC: (GNU) {}", Recipe::load(paths, "gcc")?.version);
     let mut files = Vec::new();
     collect_elf(root, &mut files)?;
     let mut problems = Vec::new();
@@ -41,13 +45,16 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
         let output = util::output(
             Command::new(&readelf)
                 .args(["--wide", "--file-header", "--program-headers"])
-                .args(["--dynamic", "--notes"])
+                .args(["--dynamic", "--notes", "--string-dump=.comment"])
                 .arg(file),
         )?;
         let needs_cet = !NO_CET.iter().any(|(path, _)| relative == Path::new(path));
         let hardening = Hardening::parse(&output);
         for problem in hardening.problems(needs_cet) {
             problems.push(format!("/{}: {problem}", relative.display()));
+        }
+        if let Some(foreign) = hardening.foreign_compiler(&gcc) {
+            problems.push(format!("/{}: compiled by {foreign}", relative.display()));
         }
         parsed.push((relative, hardening));
     }
@@ -59,7 +66,7 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     }
     ensure!(
         problems.is_empty(),
-        "{} of {} ELF files in {what} lack Beize's hardening (ADR 0014):\n  {}",
+        "{} of {} ELF files in {what} lack Beize's hardening or compilers (ADR 0014):\n  {}",
         problems.len(),
         files.len(),
         problems.join("\n  ")
@@ -70,8 +77,8 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
         unresolved.join("\n  ")
     );
     say!(
-        "  ok: all {} ELF files in {what} are hardened (PIE, RELRO, BIND_NOW, CET), \
-         have a build ID and find their libraries",
+        "  ok: all {} ELF files in {what} come from Beize's compilers, are hardened \
+         (PIE, RELRO, BIND_NOW, CET), have a build ID and find their libraries",
         files.len()
     );
     Ok(())
@@ -110,15 +117,24 @@ struct Hardening {
     soname: Option<String>,
     needed: Vec<String>,
     runpath: Vec<String>,
+    /// What the compilers wrote into `.comment`, e.g. `GCC: (GNU) 16.2.0`.
+    compilers: Vec<String>,
 }
 
 impl Hardening {
     /// Parses `readelf --wide --file-header --program-headers --dynamic --notes`.
     fn parse(output: &str) -> Self {
         let mut h = Self::default();
+        let mut in_comment = false;
         for line in output.lines() {
             let line = line.trim();
-            if let Some(kind) = line.strip_prefix("Type:") {
+            if line.starts_with("String dump of section '.comment'") {
+                in_comment = true;
+            } else if in_comment && line.starts_with('[') {
+                if let Some((_, text)) = line.split_once(']') {
+                    h.compilers.push(text.trim().to_owned());
+                }
+            } else if let Some(kind) = line.strip_prefix("Type:") {
                 h.kind = kind
                     .split_whitespace()
                     .next()
@@ -199,6 +215,22 @@ impl Hardening {
             })
             .cloned()
             .collect()
+    }
+
+    /// A compiler other than Beize's gcc (`gcc`, as it names itself) and
+    /// rustc, or a note that none named itself. Kernel modules come from the
+    /// kernel's build, with the build host's compiler (ADR 0015).
+    fn foreign_compiler(&self, gcc: &str) -> Option<String> {
+        if self.kind == "REL" {
+            return None;
+        }
+        if self.compilers.is_empty() {
+            return Some("an unknown compiler (no .comment)".into());
+        }
+        self.compilers
+            .iter()
+            .find(|c| *c != gcc && !c.starts_with("rustc version "))
+            .map(|c| format!("\"{c}\""))
     }
 
     fn problems(&self, needs_cet: bool) -> Vec<&'static str> {
@@ -327,9 +359,44 @@ mod tests {
     }
 
     #[test]
+    fn only_beizes_compilers_are_accepted() {
+        let gcc = "GCC: (GNU) 16.2.0";
+        let dump = |comments: &str| {
+            Hardening::parse(&format!(
+                "{HARDENED}\nString dump of section '.comment':\n{comments}\n"
+            ))
+        };
+        assert_eq!(
+            dump("  [     0]  GCC: (GNU) 16.2.0").foreign_compiler(gcc),
+            None
+        );
+        assert_eq!(
+            dump("  [     0]  rustc version 1.99.0 (b940084d7 2026-09-28)\n  [    2d]  GCC: (GNU) 16.2.0")
+                .foreign_compiler(gcc),
+            None
+        );
+        assert_eq!(
+            dump("  [     0]  GCC: (Ubuntu 15.2.0-16ubuntu1) 15.2.0").foreign_compiler(gcc),
+            Some("\"GCC: (Ubuntu 15.2.0-16ubuntu1) 15.2.0\"".into())
+        );
+        assert!(Hardening::parse(HARDENED).foreign_compiler(gcc).is_some());
+        // "[Requesting program interpreter: ...]" is no compiler.
+        let interpreter = "      [Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]\n";
+        assert!(
+            Hardening::parse(&format!("{interpreter}{HARDENED}"))
+                .compilers
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn kernel_modules_are_left_to_the_kernel() {
         let module = "  Type:                              REL (Relocatable file)\n";
         assert!(Hardening::parse(module).problems(true).is_empty());
+        assert_eq!(
+            Hardening::parse(module).foreign_compiler("GCC: (GNU) 16.2.0"),
+            None
+        );
     }
 
     #[test]
