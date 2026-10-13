@@ -120,7 +120,7 @@ fn fetch_json(url: &str) -> Result<Value> {
 
 /// Orders versions by their runs of digits (numerically) and letters:
 /// `34.2` > `34`, `2026e` > `2026d`, `1.10` > `1.9`.
-fn compare_versions(a: &str, b: &str) -> Ordering {
+pub fn compare_versions(a: &str, b: &str) -> Ordering {
     let (a, b) = (version_parts(a), version_parts(b));
     for (x, y) in a.iter().zip(&b) {
         let digits = |part: &str| part.starts_with(|c: char| c.is_ascii_digit());

@@ -49,6 +49,11 @@ rm -rf "$PKG/etc" "$PKG/var"
 license = "LGPL-2.1-or-later AND SunPro AND LGPL-2.1-or-later WITH GCC-exception-2.0 AND BSD-3-Clause AND GPL-2.0-or-later AND LGPL-2.1-or-later WITH GNU-compiler-exception AND GPL-2.0-only AND ISC AND LicenseRef-Public-Domain AND HPND AND CMU-Mach AND LGPL-2.0-or-later AND Unicode-3.0 AND GFDL-1.1-or-later AND GPL-1.0-or-later AND FSFUL AND MIT AND Inner-Net-2.0 AND X11 AND GPL-2.0-or-later WITH GCC-exception-2.0 AND GFDL-1.3-only AND GFDL-1.1-only AND GPL-3.0-or-later AND GPL-3.0-or-later WITH Autoconf-exception-generic-3.0 AND GPL-3.0-or-later WITH Texinfo-exception"
 cpe = ["cpe:2.3:a:gnu:glibc"]
 
+[sbom.cve-ignore]
+# Checked 2026-10-13; the NVD's version range for them has no end.
+"CVE-2026-5435" = "fixed in 2.44 (its NEWS: bug 34033)"
+"CVE-2026-6238" = "fixed in 2.44 (its NEWS: bug 34069)"
+
 [files]
 image = [
   "usr/bin/gencat",

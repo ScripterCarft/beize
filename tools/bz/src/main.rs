@@ -6,6 +6,7 @@
 mod boottimes;
 mod buildroot;
 mod cgroup;
+mod cve;
 mod elf;
 mod files;
 mod hwcheck;
@@ -125,6 +126,9 @@ enum Command {
     Verify,
     /// Show which sources have newer upstream releases
     Outdated,
+    /// Show the known vulnerabilities (NVD) of what the image contains; fails
+    /// on an unassessed one of CVSS 7.0 or more (ADR 0022)
+    Cve,
     /// The owner's production Secure Boot keys (owner only, in a terminal)
     Secureboot {
         #[command(subcommand)]
@@ -196,6 +200,7 @@ fn main() -> Result<()> {
         Command::BootTimes { journal, boot, gap } => boottimes::show(&journal, &boot, gap),
         Command::HwCheck { journal, boot } => hwcheck::show(&paths, &journal, &boot),
         Command::Outdated => outdated::show(&paths),
+        Command::Cve => cve::show(&paths),
         Command::Owner { path } => {
             println!("{}", install::owner(&paths, &path)?);
             Ok(())

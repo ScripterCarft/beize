@@ -97,6 +97,7 @@ cargo deny check     # Rust-Abhängigkeiten: Advisories, Lizenzen, Herkunft (den
 ./bz boot-times ~/hw-logs/journal [--boot -1]   # Phasen, Kernel-Lücken, langsamste Units, Kette
 ./bz hw-check ~/hw-logs/journal   # welches PCI-Gerät des Rechners im Image einen Treiber hat
 ./bz outdated        # neuere Upstream-Releases aller Quellen
+./bz cve             # bekannte Lücken (NVD) im Image; rot ab CVSS 7 ohne Bewertung (~6 min)
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
 # --locked (CI): kernel/beize.config muss aktuell sein, statt neu geschrieben zu werden
 # nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys|new-update-key ·

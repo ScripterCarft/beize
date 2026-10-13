@@ -49,11 +49,7 @@ const OWN_LICENSES: [(&str, &str, &str); 3] = [
 
 /// Writes the SBOM of the image of `version` to `dest`.
 pub fn write(paths: &Paths, version: &str, dest: &Path) -> Result<()> {
-    let definition = tree::image_definition(paths)?;
-    let mut recipes = packages::resolve(paths, &definition.packages)?;
-    for name in KERNEL_RECIPES {
-        recipes.push(Recipe::load(paths, name)?);
-    }
+    let recipes = image_recipes(paths)?;
     let crates = rust_crates(paths, &recipes)?;
     let buildroot = buildinfo()?;
     let document = document(version, &recipes, &crates, &buildroot)?;
@@ -67,6 +63,24 @@ pub fn write(paths: &Paths, version: &str, dest: &Path) -> Result<()> {
         crates.len()
     );
     Ok(())
+}
+
+/// The recipes an image is made of: its packages with everything they
+/// build from, and the kernel with its firmware and microcode.
+pub fn image_recipes(paths: &Paths) -> Result<Vec<Recipe>> {
+    let definition = tree::image_definition(paths)?;
+    let mut recipes = packages::resolve(paths, &definition.packages)?;
+    for name in KERNEL_RECIPES {
+        recipes.push(Recipe::load(paths, name)?);
+    }
+    Ok(recipes)
+}
+
+/// Whether `recipe` only builds the image: the toolchain, and packages
+/// that put nothing into it (kernel headers).
+pub fn builds_only(recipe: &Recipe) -> bool {
+    recipe.stage == Some(Stage::Toolchain)
+        || (recipe.stage == Some(Stage::Target) && recipe.files.image.is_empty())
 }
 
 /// A Rust crate in Beize's own services.
@@ -102,9 +116,7 @@ fn document(
     for recipe in recipes {
         let id = package_id(&recipe.name);
         packages.push(recipe_package(recipe, &id)?);
-        let builds_only = recipe.stage == Some(Stage::Toolchain)
-            || (recipe.stage == Some(Stage::Target) && recipe.files.image.is_empty());
-        relationships.push(if builds_only {
+        relationships.push(if builds_only(recipe) {
             relationship(&id, "BUILD_TOOL_OF", image)
         } else {
             relationship(image, "CONTAINS", &id)

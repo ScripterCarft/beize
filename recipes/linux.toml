@@ -16,3 +16,13 @@ keyring = "linux"
 # As Fedora's package states it (2026-10-13).
 license = "((GPL-2.0-only WITH Linux-syscall-note) OR CDDL-1.0) AND ((GPL-2.0-only WITH Linux-syscall-note) OR Linux-OpenIB) AND 0BSD AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-3-Clause-Clear AND CC0-1.0 AND GFDL-1.1-no-invariants-or-later AND GPL-1.0-or-later AND (GPL-1.0-or-later WITH Linux-syscall-note) AND GPL-2.0-only AND (GPL-2.0-only OR CDDL-1.0) AND (GPL-2.0-only OR GFDL-1.2-no-invariants-only) AND (GPL-2.0-only OR GFDL-1.2-no-invariants-or-later) AND (GPL-2.0-only WITH Linux-syscall-note) AND GPL-2.0-or-later AND (GPL-2.0-or-later OR CC-BY-4.0) AND (GPL-2.0-or-later WITH GCC-exception-2.0) AND (GPL-2.0-or-later WITH Linux-syscall-note) AND ISC AND LGPL-2.0-or-later AND (LGPL-2.0-or-later WITH Linux-syscall-note) AND LGPL-2.1-only AND (LGPL-2.1-only WITH Linux-syscall-note) AND LGPL-2.1-or-later AND (LGPL-2.1-or-later WITH Linux-syscall-note) AND (Linux-OpenIB OR GPL-2.0-only) AND (Linux-OpenIB OR GPL-2.0-only OR BSD-2-Clause) AND Linux-man-pages-copyleft AND MIT AND (MPL-1.1 OR GPL-2.0-only) AND (X11 OR GPL-2.0-only) AND (X11 OR GPL-2.0-or-later) AND Zlib AND (copyleft-next-0.3.1 OR GPL-2.0-or-later)"
 cpe = ["cpe:2.3:o:linux:linux_kernel"]
+
+[sbom.cve-ignore]
+# Checked 2026-10-13; the NVD's version range for them has no end.
+"CVE-2019-3016" = "fixed in 5.4.19 (Debian's security tracker)"
+"CVE-2019-3819" = "fixed in 4.19.20 (Debian's security tracker)"
+"CVE-2019-3887" = "fixed in 4.19.37 (Debian's security tracker)"
+"CVE-2020-27815" = "fixed in 5.10.4 (the NVD's own other ranges, Debian's security tracker)"
+"CVE-2021-20194" = "fixed in 5.10.19 (Debian's security tracker)"
+"CVE-2021-3564" = "fixed in 5.10.46 (Debian's security tracker)"
+"CVE-2022-38096" = "fixed in 6.9 by 517621b70600 (Debian's security tracker: 6.7.12)"

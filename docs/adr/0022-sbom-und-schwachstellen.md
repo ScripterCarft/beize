@@ -38,9 +38,12 @@ digitalen Elementen.
 
   `bz release` legt die SBOM neben das Update.
 - **Schwachstellen.** `bz cve` fragt die NVD (API 2.0) je CPE und Version ab und meldet
-  offene CVEs. Bewertete Einträge stehen im Rezept unter `[sbom.cve-ignore]` mit Grund
-  (wie Yoctos `CVE_STATUS`), etwa „betrifft nur Windows“ oder „im Rezept behoben“. Der
-  wöchentliche CI-Lauf führt es aus und scheitert bei neuen Einträgen ab CVSS 7.0.
+  offene CVEs. Es zählt nur Einträge, die unser Produkt in dieser Version und für x86-64
+  als verwundbar nennen (wie Yoctos cve-check). Die Suche der NVD liefert auch CVEs, in
+  denen es nur Plattform ist (ein Apache-Modul auf OpenSSL). Bewertete Einträge stehen im
+  Rezept unter `[sbom.cve-ignore]` mit Grund und Beleg (wie Yoctos `CVE_STATUS`), etwa
+  „behoben in 2.44 (NEWS: Bug 34033)“, wenn der Versionsbereich der NVD kein Ende hat.
+  Der wöchentliche CI-Lauf führt es aus und scheitert bei neuen Einträgen ab CVSS 7.0.
 - **Rust-Abhängigkeiten.** cargo-deny prüft in jedem CI-Lauf RustSec-Advisories, Lizenzen
   (Erlaubnisliste) und Herkunft (nur crates.io) (`deny.toml`).
 
