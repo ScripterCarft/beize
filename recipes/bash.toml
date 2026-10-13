@@ -36,10 +36,10 @@ cpe = ["cpe:2.3:a:gnu:bash"]
 [files]
 image = [
   "usr/bin/bash",
-  "usr/bin/bashbug",
   "usr/bin/sh",
   "usr/lib/bash/**",
 ]
 build = [
+  { path = "usr/bin/bashbug", why = "mails bug reports to bash's maintainers; Beize has no mail" },
   { path = "usr/lib/bash/Makefile.*", why = "for building loadable builtins (Fedora's bash-devel)" },
 ]

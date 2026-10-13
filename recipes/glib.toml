@@ -47,10 +47,10 @@ image = [
   "usr/lib/libgthread-2.0.so.*",
   "usr/libexec/gio-launch-desktop",
   "usr/share/bash-completion/**",
-  "usr/share/gdb/**",
   "usr/share/glib-2.0/**",
 ]
 build = [
+  { path = "usr/share/gdb/**", why = "gdb's pretty printers: Beize has no gdb" },
   { path = "usr/bin/gdbus-codegen", why = "build tool (Python)" },
   { path = "usr/bin/gi-*", why = "introspection tools: nothing uses language bindings" },
   { path = "usr/bin/glib-compile-*", why = "build tools" },

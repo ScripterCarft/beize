@@ -47,7 +47,6 @@ image = [
   "usr/bin/dbus-monitor",
   "usr/bin/dbus-run-session",
   "usr/bin/dbus-send",
-  "usr/bin/dbus-test-tool",
   "usr/bin/dbus-update-activation-environment",
   "usr/bin/dbus-uuidgen",
   "usr/lib/libdbus-1.so.*",
@@ -55,5 +54,8 @@ image = [
   "usr/lib/sysusers.d/**",
   "usr/lib/tmpfiles.d/**",
   "usr/share/dbus-1/**",
-  "usr/share/xml/**",
+]
+build = [
+  { path = "usr/bin/dbus-test-tool", why = "a tool for testing D-Bus implementations" },
+  { path = "usr/share/xml/**", why = "DTDs for validating D-Bus XML while developing" },
 ]
