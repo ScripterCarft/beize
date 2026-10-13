@@ -43,7 +43,7 @@ pub fn signature_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
     let mut r = Reader::new(bytes);
     let mut entries = Vec::new();
     while !r.is_empty() {
-        let kind: [u8; 16] = r.take(16)?.try_into().unwrap();
+        let kind: [u8; 16] = r.array()?;
         let list_size = r.u32()? as usize;
         let header_size = r.u32()? as usize;
         let signature_size = r.u32()? as usize;

@@ -13,6 +13,12 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+# Every unsafe block says why it is sound (`// SAFETY:`), as in the standard
+# library and Rust for Linux.
+undocumented_unsafe_blocks = "deny"
+# Errors are handled, not panicked on, outside tests (clippy.toml).
+unwrap_used = "deny"
+expect_used = "deny"
 
 [profile.release]
 lto = "thin"

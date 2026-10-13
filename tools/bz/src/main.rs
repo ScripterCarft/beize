@@ -286,7 +286,10 @@ fn build_all(paths: &Paths) -> Result<()> {
         // What the kernel build says comes in one piece when it is done.
         let kernel = scope.spawn(|| util::capture(|| kernel::build(paths)));
         let packages = packages::build(paths, &image_packages);
-        let (kernel, said) = kernel.join().expect("the kernel build panicked");
+        // A panic in the kernel build goes on as the panic it is.
+        let (kernel, said) = kernel
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         for line in said {
             say!("{line}");
         }
