@@ -22,6 +22,6 @@ script = '''
   --host="$TARGET" --build=x86_64-pc-linux-gnu \
   --prefix=/usr --libdir=/usr/lib --disable-static --disable-werror \
   --enable-hashes=strong,glibc --enable-obsolete-api=no
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 '''

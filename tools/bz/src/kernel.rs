@@ -13,6 +13,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+use crate::jobserver;
 use crate::paths::Paths;
 use crate::recipe::Recipe;
 use crate::say;
@@ -109,10 +110,13 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     check_resolved(paths, &config)?;
 
     util::step(&format!("Building linux {}", recipe.version));
-    let jobs = util::job_count();
+    // Its jobs come from the pool the package builds share (bz build runs
+    // both side by side).
+    let jobs = jobserver::shared(paths)?;
+    let _token = jobs.acquire()?;
     util::run_logged(
         make(&src, &obj)
-            .arg(format!("-j{jobs}"))
+            .env("MAKEFLAGS", jobs.makeflags())
             .args(["bzImage", "modules"]),
         "linux",
         &paths.work.join("logs/linux.log"),

@@ -18,6 +18,6 @@ meson setup . "$SRC/build/meson" --cross-file "$MESON_CROSS" \
   --prefix=/usr --libdir=/usr/lib --buildtype=release \
   -Ddefault_library=shared -Dbin_programs=false -Dbin_contrib=false \
   -Dzlib=disabled -Dlzma=disabled -Dlz4=disabled
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''

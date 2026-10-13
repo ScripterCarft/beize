@@ -21,6 +21,6 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dxkb-config-root=/usr/share/xkeyboard-config-2 -Dx-locale-root=/usr/share/X11/locale \
   -Denable-x11=false -Denable-wayland=false -Denable-xkbregistry=false \
   -Denable-tools=false -Denable-docs=false -Denable-bash-completion=false
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''

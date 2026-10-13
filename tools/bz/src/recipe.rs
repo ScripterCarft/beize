@@ -129,6 +129,12 @@ impl Recipe {
     /// Unpacks the sources into `work/src/<stem>` and returns that directory.
     /// Recipes sharing a source share the tree; builds always happen out of tree.
     pub fn unpack(&self, paths: &Paths) -> Result<PathBuf> {
+        // One at a time: recipes that share a source (linux-headers and the
+        // kernel) may unpack it side by side.
+        static UNPACKING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _unpacking = UNPACKING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let source = self
             .source
             .as_ref()

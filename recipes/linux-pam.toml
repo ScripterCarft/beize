@@ -24,7 +24,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dsecuredir=/usr/lib/security \
   -Dsystemdunitdir=/usr/lib/systemd/system \
   -Dexamples=false -Dxtests=false
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 # The samples in /etc are not used: Beize's own configuration lives in
 # /usr/lib/pam.d (system/usr).

@@ -20,6 +20,6 @@ cmake -S "$SRC" -B . -G Ninja \
   -DCMAKE_SYSROOT="$SYSROOT" -DCMAKE_C_COMPILER="$TARGET-gcc" \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib \
   -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_TESTING=OFF -DBUILD_APPS=OFF
-cmake --build . --parallel "$JOBS"
+cmake --build .
 DESTDIR="$PKG" cmake --install .
 '''

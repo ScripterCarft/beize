@@ -109,37 +109,28 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Memory reserved per parallel build job. Large C++ translation units (gcc)
-/// need about this much; running out of memory takes down the whole build
-/// machine (WSL instance, CI runner) rather than just failing the build.
-const MEMORY_PER_JOB_MIB: u64 = 1536;
-
-/// Number of parallel build jobs: one per CPU, limited by total memory.
-pub fn job_count() -> usize {
-    parallel(1, MEMORY_PER_JOB_MIB)
-}
-
 /// How many jobs that each need `cpus_each` CPUs and `memory_each_mib` of
 /// memory this machine runs side by side (at least one).
 pub fn parallel(cpus_each: usize, memory_each_mib: u64) -> usize {
     let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
     let memory_kib = std::fs::read_to_string("/proc/meminfo")
         .ok()
-        .and_then(|info| mem_total_kib(&info));
+        .and_then(|info| meminfo_kib(&info, "MemTotal"));
     jobs_for(cpus / cpus_each.max(1), memory_kib, memory_each_mib)
 }
 
-fn jobs_for(by_cpus: usize, memory_kib: Option<u64>, memory_each_mib: u64) -> usize {
+pub fn jobs_for(by_cpus: usize, memory_kib: Option<u64>, memory_each_mib: u64) -> usize {
     let by_memory = memory_kib.map_or(usize::MAX, |kib| {
         usize::try_from(kib / 1024 / memory_each_mib.max(1)).unwrap_or(usize::MAX)
     });
     by_cpus.min(by_memory).max(1)
 }
 
-fn mem_total_kib(meminfo: &str) -> Option<u64> {
+/// A field of /proc/meminfo, e.g. `MemTotal`, in KiB.
+pub fn meminfo_kib(meminfo: &str, field: &str) -> Option<u64> {
     meminfo
         .lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))?
+        .find_map(|line| line.strip_prefix(field)?.strip_prefix(':'))?
         .trim()
         .strip_suffix("kB")?
         .trim()
@@ -155,6 +146,17 @@ const HEARTBEAT: Duration = Duration::from_secs(60);
 /// Runs a long command with its output in `log`, reporting every minute that
 /// `what` is still running; on failure shows the end of the log.
 pub fn run_logged(cmd: &mut Command, what: &str, log: &Path) -> Result<()> {
+    run_logged_watched(cmd, what, log, |_| {})
+}
+
+/// [`run_logged`], calling `watch` with the process ID every 200 ms while
+/// the command runs.
+pub fn run_logged_watched(
+    cmd: &mut Command,
+    what: &str,
+    log: &Path,
+    mut watch: impl FnMut(u32),
+) -> Result<()> {
     if let Some(dir) = log.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -170,6 +172,7 @@ pub fn run_logged(cmd: &mut Command, what: &str, log: &Path) -> Result<()> {
         if let Some(status) = child.try_wait()? {
             break status;
         }
+        watch(child.id());
         if Instant::now() >= next {
             let log_kib = fs::metadata(log).map_or(0, |m| m.len() / 1024);
             say!(
@@ -247,21 +250,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_total_memory() {
-        let info = "MemTotal:       16152084 kB\nMemFree:        14000000 kB\n";
-        assert_eq!(mem_total_kib(info), Some(16_152_084));
-        assert_eq!(mem_total_kib("MemFree: 1 kB\n"), None);
-    }
-
-    #[test]
-    fn memory_limits_parallel_jobs() {
-        // This machine: 24 threads, ~15.4 GiB in WSL -> memory bound.
-        assert_eq!(jobs_for(24, Some(16_152_084), MEMORY_PER_JOB_MIB), 10);
-        // GitHub runner: 4 CPUs, 16 GiB -> CPU bound.
-        assert_eq!(jobs_for(4, Some(16 * 1024 * 1024), MEMORY_PER_JOB_MIB), 4);
-        // Tiny machine still builds, one job at a time.
-        assert_eq!(jobs_for(8, Some(512 * 1024), MEMORY_PER_JOB_MIB), 1);
-        assert_eq!(jobs_for(8, None, MEMORY_PER_JOB_MIB), 8);
+    fn reads_meminfo_fields() {
+        let info = "MemTotal:       16152084 kB\nMemFree:        14000000 kB\n\
+                    MemAvailable:   15000000 kB\n";
+        assert_eq!(meminfo_kib(info, "MemTotal"), Some(16_152_084));
+        assert_eq!(meminfo_kib(info, "MemAvailable"), Some(15_000_000));
+        assert_eq!(meminfo_kib("MemFree: 1 kB\n", "MemTotal"), None);
+        assert_eq!(meminfo_kib("MemTotalX: 1 kB\n", "MemTotal"), None);
     }
 
     #[test]

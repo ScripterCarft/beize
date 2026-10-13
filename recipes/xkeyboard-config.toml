@@ -17,7 +17,7 @@ keyring = "xkeyboard-config"
 script = '''
 meson setup . "$SRC" --prefix=/usr --buildtype=release \
   -Dnls=false -Dcompat-rules=true -Dxorg-rules-symlinks=false
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 rm -rf "$PKG/usr/share/man"
 '''

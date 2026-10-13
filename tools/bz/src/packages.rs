@@ -1,19 +1,25 @@
-//! Builds recipes in dependency order, skipping those whose inputs are unchanged.
+//! Builds recipes in dependency order, skipping those whose inputs are
+//! unchanged; independent ones side by side.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
-use crate::install;
+use crate::jobserver::{self, Jobserver};
 use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
-use crate::{stamp, util};
+use crate::schedule::{self, Measured, Memory};
+use crate::{cgroup, install, stamp, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
@@ -48,8 +54,8 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
     fs::create_dir_all(&stamps)?;
     let mut fingerprints = BTreeMap::new();
     let mut closures: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut up_to_date = 0;
-    for (index, recipe) in order.iter().enumerate() {
+    let mut planned = Vec::new();
+    for recipe in &order {
         // Everything the package depends on, directly or not: all its build
         // sees. Not its own earlier build either: a rebuild sees what a build
         // from scratch sees (glibc's configure once passed only because its
@@ -60,42 +66,191 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         }
 
         let fingerprint = fingerprint(recipe, &repo_digest(paths, recipe)?, &fingerprints);
-        let stamp = stamps.join(&recipe.name);
-        if fs::read_to_string(&stamp).is_ok_and(|s| s == fingerprint) {
-            up_to_date += 1;
+        if fs::read_to_string(stamps.join(&recipe.name)).is_ok_and(|s| s == fingerprint) {
             if util::verbose() {
                 say!("  {} {} is up to date", recipe.name, recipe.version);
             }
         } else {
-            let _ = fs::remove_file(&stamp);
-            install::uninstall(paths, &recipe.name)?;
-            let sysroot = recreate(&sysroot_dir(paths, &recipe.name))?;
-            install::link_packages(paths, &visible, &sysroot)?;
-            build_one(paths, recipe, &sysroot)?;
-            fs::write(&stamp, &fingerprint)?;
-            clean_up(paths, recipe, &order[index + 1..])?;
+            planned.push(Planned {
+                recipe,
+                fingerprint: fingerprint.clone(),
+                visible: visible.clone(),
+            });
         }
         fingerprints.insert(recipe.name.clone(), fingerprint);
         visible.insert(recipe.name.clone());
         closures.insert(recipe.name.clone(), visible);
     }
+    let up_to_date = order.len() - planned.len();
     if up_to_date > 0 {
         say!("  {up_to_date} of {} packages up to date", order.len());
+    }
+    if !planned.is_empty() {
+        build_planned(paths, &planned)?;
     }
     sweep(paths)?;
     Ok(order)
 }
 
+/// A package to build in this run.
+struct Planned<'a> {
+    recipe: &'a Recipe,
+    fingerprint: String,
+    /// Everything it depends on, directly or not.
+    visible: BTreeSet<String>,
+}
+
+/// A build running beside others.
+struct Running<'a> {
+    recipe: &'a Recipe,
+    /// What it needed last time, MiB.
+    need_mib: u64,
+    /// The anonymous memory it holds now, bytes (0 without a cgroup).
+    holds: Arc<AtomicU64>,
+}
+
+/// Builds `planned` (in dependency order), as many side by side as CPUs and
+/// memory allow ([`schedule`]). After a build fails no new one starts; its
+/// error comes once the running ones are done.
+fn build_planned(paths: &Paths, planned: &[Planned]) -> Result<()> {
+    let jobs = jobserver::shared(paths)?;
+    let names: BTreeSet<&str> = planned.iter().map(|p| p.recipe.name.as_str()).collect();
+    let deps: BTreeMap<String, Vec<String>> = planned
+        .iter()
+        .map(|p| {
+            let within = p
+                .recipe
+                .deps
+                .iter()
+                .filter(|dep| names.contains(dep.as_str()));
+            (p.recipe.name.clone(), within.cloned().collect())
+        })
+        .collect();
+    let chain = schedule::chain_secs_of(paths, &deps);
+    let mut waiting: Vec<&Planned> = planned.iter().collect();
+    // Stable: equally long chains keep the dependency order.
+    waiting.sort_by_key(|p| std::cmp::Reverse(chain[&p.recipe.name]));
+    let limit_mib = schedule::limit_mib();
+    say!(
+        "  {} packages to build, {} jobs at a time{}",
+        planned.len(),
+        jobs.size(),
+        if cgroup::available() {
+            format!(", each in a cgroup of at most {limit_mib} MiB")
+        } else {
+            String::new()
+        }
+    );
+
+    let (done, results) = mpsc::channel();
+    let mut running: BTreeMap<String, Running> = BTreeMap::new();
+    let mut finished: BTreeSet<String> = BTreeSet::new();
+    let mut failed = None;
+    thread::scope(|scope| -> Result<()> {
+        loop {
+            while failed.is_none() && running.len() < jobs.size() {
+                let Some(index) = waiting
+                    .iter()
+                    .position(|p| deps[&p.recipe.name].iter().all(|d| finished.contains(d)))
+                else {
+                    break;
+                };
+                let next = waiting[index];
+                let name = &next.recipe.name;
+                let need_mib = schedule::measured(paths, name)
+                    .unwrap_or_default()
+                    .memory_mib();
+                let pending_mib = running
+                    .values()
+                    .map(|r| {
+                        r.need_mib
+                            .saturating_sub(r.holds.load(Ordering::Relaxed) >> 20)
+                    })
+                    .sum();
+                // The first build always starts: nothing else can make room.
+                if !running.is_empty()
+                    && Memory::now().is_some_and(|m| !m.admits(need_mib, pending_mib))
+                {
+                    break;
+                }
+                waiting.remove(index);
+
+                let _ = fs::remove_file(paths.work.join("stamps").join(name));
+                install::uninstall(paths, name)?;
+                let sysroot = recreate(&sysroot_dir(paths, name))?;
+                install::link_packages(paths, &next.visible, &sysroot)?;
+                let holds = Arc::new(AtomicU64::new(0));
+                running.insert(
+                    name.clone(),
+                    Running {
+                        recipe: next.recipe,
+                        need_mib,
+                        holds: Arc::clone(&holds),
+                    },
+                );
+                let done = done.clone();
+                scope.spawn(move || {
+                    let result = jobs.acquire().and_then(|token| {
+                        let built =
+                            build_one(paths, next.recipe, &sysroot, jobs, limit_mib, &holds);
+                        drop(token);
+                        built
+                    });
+                    let _ = done.send((next, result));
+                });
+            }
+            if running.is_empty() {
+                break;
+            }
+            let (built, result): (&Planned, _) = match results.recv_timeout(Duration::from_secs(1))
+            {
+                Ok(message) => message,
+                // Memory may have become free for the next build.
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => unreachable!("the sender is held here"),
+            };
+            let name = &built.recipe.name;
+            running.remove(name);
+            match result {
+                Ok(measured) => {
+                    if built.recipe.stage == Some(Stage::Target) {
+                        install::merge(paths, name, &paths.work.join("pkg").join(name))?;
+                    }
+                    fs::write(paths.work.join("stamps").join(name), &built.fingerprint)?;
+                    schedule::remember(paths, name, measured)?;
+                    finished.insert(name.clone());
+                    let still_needed = waiting.iter().map(|p| p.recipe);
+                    clean_up(
+                        paths,
+                        built.recipe,
+                        still_needed.chain(running.values().map(|r| r.recipe)),
+                    )?;
+                }
+                Err(error) => {
+                    failed.get_or_insert(error);
+                }
+            }
+        }
+        Ok(())
+    })?;
+    failed.map_or(Ok(()), Err)
+}
+
 /// Removes what a successful build leaves in `work/`, as rpmbuild does: the
-/// build and staging trees and its sysroot always (the files are in the
-/// sysroot now), the
-/// unpacked sources unless a later package or the kernel (built
-/// incrementally from its tree) still needs them. Otherwise a full build
-/// holds every package's trees at once – more than the ~14 GB a CI runner has
-/// free. A failed build keeps them for debugging, until [`sweep`].
-fn clean_up(paths: &Paths, recipe: &Recipe, later: &[Recipe]) -> Result<()> {
-    remove(&paths.work.join("build").join(&recipe.name))?;
-    remove(&paths.work.join("pkg").join(&recipe.name))?;
+/// build and staging trees, its sysroot and home always (the files are in
+/// the sysroot now), the unpacked sources unless a package still to be built
+/// or the kernel (built incrementally from its tree) still needs them.
+/// Otherwise a full build holds every package's trees at once – more than
+/// the ~14 GB a CI runner has free. A failed build keeps them for
+/// debugging, until [`sweep`].
+fn clean_up<'a>(
+    paths: &Paths,
+    recipe: &Recipe,
+    still_needed: impl Iterator<Item = &'a Recipe>,
+) -> Result<()> {
+    for dir in ["build", "pkg", "home"] {
+        remove(&paths.work.join(dir).join(&recipe.name))?;
+    }
     remove(&sysroot_dir(paths, &recipe.name))?;
     remove(&meson_cross_file(paths, &recipe.name))?;
     let Some(source) = &recipe.source else {
@@ -103,7 +258,8 @@ fn clean_up(paths: &Paths, recipe: &Recipe, later: &[Recipe]) -> Result<()> {
     };
     let stem = source.stem()?;
     let kernel = Recipe::load(paths, "linux")?;
-    for other in later.iter().chain([&kernel]) {
+    let still_needed: Vec<&Recipe> = still_needed.collect();
+    for other in still_needed.into_iter().chain([&kernel]) {
         if let Some(other) = &other.source
             && other.stem()? == stem
         {
@@ -123,7 +279,7 @@ fn sweep(paths: &Paths) -> Result<()> {
         .as_ref()
         .context("linux has no source")?
         .stem()?;
-    for dir in ["src", "build", "pkg", "sysroot"] {
+    for dir in ["src", "build", "pkg", "home", "sysroot"] {
         let Ok(entries) = fs::read_dir(paths.work.join(dir)) else {
             continue;
         };
@@ -269,10 +425,19 @@ fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path, sysroot: &Path)
     }
 }
 
-/// Builds one package against `sysroot`. The cross compiler has no usable
-/// sysroot of its own (recipes/gcc.toml): a build that calls it without
-/// `$CC` fails instead of seeing other packages.
-fn build_one(paths: &Paths, recipe: &Recipe, sysroot: &Path) -> Result<()> {
+/// Builds one package against `sysroot` into its staging tree, in a cgroup
+/// of at most `limit_mib` where there is one; keeps the anonymous memory it
+/// holds in `holds`. The cross compiler has no usable sysroot of its own
+/// (recipes/gcc.toml): a build that calls it without `$CC` fails instead of
+/// seeing other packages.
+fn build_one(
+    paths: &Paths,
+    recipe: &Recipe,
+    sysroot: &Path,
+    jobs: &Jobserver,
+    limit_mib: u64,
+    holds: &AtomicU64,
+) -> Result<Measured> {
     let stage = recipe
         .stage
         .with_context(|| format!("{} has no stage", recipe.name))?;
@@ -289,10 +454,9 @@ fn build_one(paths: &Paths, recipe: &Recipe, sysroot: &Path) -> Result<()> {
     util::step(&format!("Building {} {}", recipe.name, recipe.version));
     let build_dir = recreate(&paths.work.join("build").join(&recipe.name))?;
     let pkg_dir = recreate(&paths.work.join("pkg").join(&recipe.name))?;
-    let home = recreate(&paths.work.join("home"))?;
+    let home = recreate(&paths.work.join("home").join(&recipe.name))?;
     let log = paths.work.join("logs").join(format!("{}.log", recipe.name));
 
-    let jobs = util::job_count();
     let mut cmd = Command::new("bash");
     cmd.args(["-euo", "pipefail", "-c", script])
         .current_dir(&build_dir)
@@ -312,8 +476,8 @@ fn build_one(paths: &Paths, recipe: &Recipe, sysroot: &Path) -> Result<()> {
         .env("TOOLS", &paths.tools)
         .env("SYSROOT", sysroot)
         .env("TARGET", TARGET)
-        .env("JOBS", jobs.to_string())
-        .stdin(Stdio::null());
+        // make, ninja and cargo take their jobs from the shared pool.
+        .env("MAKEFLAGS", jobs.makeflags());
     if let Some(src) = &src {
         cmd.env("SRC", src);
     }
@@ -351,14 +515,38 @@ fn build_one(paths: &Paths, recipe: &Recipe, sysroot: &Path) -> Result<()> {
         }
     }
 
+    let in_cgroup = cgroup::available();
+    let unit = format!("bz-{}-{}", recipe.name, std::process::id());
+    let mut cmd = if in_cgroup {
+        cgroup::wrap(&cmd, &unit, limit_mib)
+    } else {
+        cmd
+    };
+    cmd.stdin(Stdio::null());
+    let mut peak = cgroup::Usage::default();
     let started = Instant::now();
-    util::run_logged(&mut cmd, &recipe.name, &log)?;
-    say!("  built in {:.0}s", started.elapsed().as_secs_f64());
-
-    if stage == Stage::Target {
-        install::merge(paths, &recipe.name, &pkg_dir)?;
+    let ran = util::run_logged_watched(&mut cmd, &recipe.name, &log, |pid| {
+        if let Some(now) = cgroup::usage(pid, &unit) {
+            holds.store(now.anon, Ordering::Relaxed);
+            peak.anon = peak.anon.max(now.anon);
+            peak.oom_kills = now.oom_kills;
+        }
+    });
+    if let Err(error) = ran {
+        if peak.oom_kills > 0 {
+            bail!(
+                "{error:#}\n  {} needed more than its limit of {limit_mib} MiB",
+                recipe.name
+            );
+        }
+        return Err(error);
     }
-    Ok(())
+    let secs = started.elapsed().as_secs();
+    say!("  {} built in {secs}s", recipe.name);
+    Ok(Measured {
+        anon_mib: (peak.anon > 0).then(|| peak.anon.div_ceil(1 << 20)),
+        secs,
+    })
 }
 
 fn meson_cross_file(paths: &Paths, name: &str) -> PathBuf {

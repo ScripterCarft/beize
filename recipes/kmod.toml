@@ -22,6 +22,6 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dzstd=enabled -Dxz=disabled -Dzlib=disabled -Dopenssl=disabled \
   -Dmanpages=false -Ddocs=false -Dbuild-tests=false \
   -Dbashcompletiondir=no -Dfishcompletiondir=no -Dzshcompletiondir=no
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''

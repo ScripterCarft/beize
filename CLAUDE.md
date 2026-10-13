@@ -146,8 +146,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 - **Ein Paket baut gegen ein eigenes Sysroot nur aus seinen (transitiven) `deps`**
   (ADR 0005). Den Compiler nur über `$CC`/`$CXX` aufrufen (Makefiles, die ihn selbst
   zusammensetzen: `CC="$CC"` übergeben); fehlt etwas, gehört es in `deps`.
-- Build-Jobs nach RAM begrenzt (1,5 GiB/Job), parallele VMs nach CPUs/RAM (je 4 CPUs
-  und 3 GiB reserviert, Gast 2 GiB) – nicht zurückdrehen.
+- Pakete bauen parallel (ADR 0005): ein Jobserver für alle, Rezepte **ohne `-j`**
+  (512 MiB je Job, 2 GiB Reserve); Start nur mit Speicherprüfung, je Paket eine cgroup.
+  Parallele VMs nach CPUs/RAM (je 4 CPUs und 3 GiB reserviert, Gast 2 GiB).
 - Werkzeuge, die zur systemd-Version im Image passen müssen (ukify, systemd-measure),
   kommen aus unserem systemd-Build (ADR 0009).
 - Host-Werkzeuge, die `bz` aufruft, gehören in `ci/packages.txt`. Im Gast gibt es kein

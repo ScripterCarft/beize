@@ -29,6 +29,6 @@ script = '''
   --without-python --without-systemd --with-udev --without-econf \
   --without-ncurses --without-ncursesw --without-tinfo --without-readline \
   --without-btrfs --without-cryptsetup --without-libmagic
-make -j"$JOBS" lsblk
+make lsblk
 install -D -m 0755 .libs/lsblk "$PKG/usr/bin/lsblk"
 '''

@@ -26,7 +26,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dpam_module_dir=/usr/lib/security -Dprivileged_group=wheel \
   -Dintrospection=false -Dtests=false -Dexamples=false -Dman=false \
   -Dgtk_doc=false -Dgettext=false
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 # The sysusers.d and tmpfiles.d directories come from systemd's pkg-config
 # file, which the cross build prefixes with the sysroot; polkit has no option

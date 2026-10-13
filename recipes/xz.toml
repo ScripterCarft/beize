@@ -18,7 +18,7 @@ script = '''
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib --disable-static \
   --disable-xz --disable-xzdec --disable-lzmadec --disable-lzmainfo \
   --disable-lzma-links --disable-scripts --disable-doc --disable-nls
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 rm -rf "$PKG/usr/share/man"
 '''

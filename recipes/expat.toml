@@ -16,6 +16,6 @@ script = '''
 "$SRC/configure" \
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
   --disable-static --without-docbook --without-examples --without-tests
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 '''

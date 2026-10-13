@@ -37,7 +37,7 @@ unset CXXFLAGS LDFLAGS
   --disable-werror --disable-nscd \
   libc_cv_slibdir=/usr/lib \
   libc_cv_supported_fortify_source=3 libc_cv_test_supported_fortify_source=3
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 # Only /usr is shipped: /etc/rpc (Sun RPC names) and the nscd database
 # Makefile in /var are not used by Beize.

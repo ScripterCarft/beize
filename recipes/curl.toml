@@ -28,7 +28,7 @@ script = '''
   --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
   --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-websockets \
   --disable-manual --disable-docs
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 # The library only: no curl command, no curl-config (pkg-config suffices).
 rm -f "$PKG/usr/bin/curl" "$PKG/usr/bin/wcurl" "$PKG/usr/bin/curl-config"

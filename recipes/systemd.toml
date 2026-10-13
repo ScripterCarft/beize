@@ -58,7 +58,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dsbat-distro=beize -Dsbat-distro-summary=Beize \
   -Dsbat-distro-pkgname=systemd -Dsbat-distro-version="$VERSION" \
   -Dsbat-distro-url=https://github.com/ScripterCarft/beize
-meson compile -j "$JOBS"
+meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 # importd comes only because sysupdate requires it (ADR 0020): sysupdate runs
 # systemd-import to write a partition, beize-updated fetches and verifies.

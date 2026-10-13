@@ -15,7 +15,7 @@ keyring = "acl"
 script = '''
 "$SRC/configure" --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
   --bindir=/usr/bin --sysconfdir=/etc --disable-static --disable-nls
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 # /etc/xattr.conf only lists attributes to skip when copying files between
 # filesystems (NFS, XFS, EVM); without it, everything is copied.

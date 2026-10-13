@@ -31,6 +31,6 @@ script = '''
   --without-ncurses --without-ncursesw --without-tinfo --without-readline \
   --without-btrfs --without-cryptsetup --without-libmagic \
   ADJTIME_PATH=/var/lib/hwclock/adjtime
-make -j"$JOBS"
+make
 make DESTDIR="$PKG" install
 '''

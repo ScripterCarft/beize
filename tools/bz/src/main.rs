@@ -4,12 +4,14 @@
 //! disk image and runs it in QEMU.
 
 mod boottimes;
+mod cgroup;
 mod elf;
 mod hwcheck;
 mod image;
 mod initrd;
 mod install;
 mod installer;
+mod jobserver;
 mod kernel;
 mod layout;
 mod microcode;
@@ -19,6 +21,7 @@ mod paths;
 mod privileges;
 mod recipe;
 mod release;
+mod schedule;
 mod secureboot;
 mod select;
 mod source;
@@ -261,8 +264,20 @@ fn verify_sources(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
+/// The kernel (built with the build host's compiler) and the packages of
+/// the image side by side, then the image's parts from them.
 fn build_all(paths: &Paths) -> Result<()> {
-    kernel::build(paths)?;
+    let image_packages = tree::image_definition(paths)?.packages;
+    std::thread::scope(|scope| {
+        // What the kernel build says comes in one piece when it is done.
+        let kernel = scope.spawn(|| util::capture(|| kernel::build(paths)));
+        let packages = packages::build(paths, &image_packages);
+        let (kernel, said) = kernel.join().expect("the kernel build panicked");
+        for line in said {
+            say!("{line}");
+        }
+        packages.and(kernel)
+    })?;
     usr::build(paths)?;
     initrd::build(paths)?;
     image::build(paths)?;

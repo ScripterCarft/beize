@@ -109,8 +109,8 @@ jobs:
             !build/cache/linux-firmware-*.tar.xz
           key: ${{ steps.sources.outputs.key }}
           restore-keys: sources-
-      # Built packages (cross toolchain, sysroot, ownership manifests, stamps),
-      # the kernel object tree and the microcode. bz's fingerprints decide what
+      # Built packages (cross toolchain, sysroot, ownership manifests, stamps,
+      # what each build needed), the kernel object tree and the microcode. bz's fingerprints decide what
       # is still up to date, so restoring an older state is safe: only what
       # changed is rebuilt.
       # The weekly run starts from nothing, so a build from scratch keeps
@@ -125,6 +125,7 @@ jobs:
             build/sysroot
             build/manifests
             build/work/stamps
+            build/work/measured
             build/work/linux-obj
             build/work/microcode.cpio
           key: build-
@@ -152,6 +153,7 @@ jobs:
             build/sysroot
             build/manifests
             build/work/stamps
+            build/work/measured
             build/work/linux-obj
             build/work/microcode.cpio
           key: ${{ steps.state.outputs.key }}

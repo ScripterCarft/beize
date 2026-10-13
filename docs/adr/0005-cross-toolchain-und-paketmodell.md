@@ -38,6 +38,16 @@ Mal auflistet (`keys/README.md`).
 **Inkrementell.** Ein Paket wird neu gebaut, wenn sich sein Rezept, seine
 Quellen, die Build-Umgebung oder eine Abhängigkeit geändert haben (Fingerprint).
 
+**Parallel.** Unabhängige Pakete bauen nebeneinander, der Kernel neben ihnen. Die
+CPUs verteilt ein gemeinsamer GNU-make-Jobserver (make, ninja, cargo; Rezepte ohne
+`-j`), so groß, wie CPUs und verfügbarer Speicher erlauben (512 MiB je Job, 2 GiB
+Reserve). Ein Paket startet nur, wenn sein beim letzten Bau gemessener
+Speicherbedarf neben dem der laufenden passt und der Kernel nicht schon unter
+Speicherdruck steht (PSI) – wie Yoctos `BB_PRESSURE_MAX_MEMORY`. Jedes läuft in
+einer eigenen cgroup mit Speichergrenze (systemd-Scope; in der CI ohne): reicht der
+Speicher doch nicht, scheitert der eine Bau statt der Maschine. Vorrang hat das
+Paket mit dem längsten verbleibenden Pfad.
+
 **Besitz.** Zielpakete installieren in ein Staging-Verzeichnis. `bz` normalisiert
 die Pfade auf das zusammengeführte `/usr`, prüft auf Konflikte mit anderen
 Paketen und schreibt ein Manifest. `bz owner <pfad>` beantwortet, woher eine Datei kommt.

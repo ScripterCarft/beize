@@ -123,7 +123,7 @@ pub fn merge(paths: &Paths, package: &str, staging: &Path) -> Result<()> {
         .map(|path| format!("{}\n", path.display()))
         .collect();
     fs::write(manifest_path(paths, package), manifest)?;
-    say!("  installed {} files", files.len());
+    say!("  {package}: installed {} files", files.len());
     Ok(())
 }
 
