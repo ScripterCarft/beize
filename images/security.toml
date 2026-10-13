@@ -1,0 +1,47 @@
+# How exposed Beize's services are (`systemd-analyze security` from Beize's
+# own systemd: 0 fully sandboxed … 10 unprotected), as measured: Beize's own
+# services, every one of them, and the daemons that run or answer over D-Bus
+# and Varlink – what an attacker on the system can talk to, as in Fedora's
+# hardening of its daemons. The one-shot steps of systemd's boot are not
+# listed: they run before anyone could.
+#
+# bz checks every entry when it assembles /usr and fails when one differs:
+# higher is a regression to undo; lower is progress – write the new value
+# here. A beize-* service without an entry fails too. Templates are measured
+# with an instance (beize-accounts@x.service).
+
+[exposure]
+# Beize's services with a Varlink interface for unprivileged callers.
+"beize-accounts@.service" = 1.7
+"beize-update@.service" = 2.9
+"beize-update-fetch@.service" = 1.5
+# Beize's boot steps and first-boot setup: not sandboxed yet. They write
+# EFI variables, the ESP, accounts and the clock file; each needs its own
+# sandbox, checked by the smoke test.
+"beize-boot-chain.service" = 9.4
+"beize-boot-health.service" = 9.4
+"beize-boot-report.service" = 9.4
+"beize-boot-update.service" = 9.4
+"beize-keymap.service" = 9.4
+"beize-save-clock.service" = 9.4
+"beize-setup.service" = 9.4
+
+# Daemons from upstream, as their units come.
+"dbus.service" = 9.0
+"ntpd-rs.service" = 2.1
+"polkit.service" = 1.2
+"polkit-agent-helper@.service" = 3.1
+"systemd-coredumpd.service" = 3.7
+"systemd-hostnamed.service" = 1.7
+"systemd-journald.service" = 4.7
+"systemd-localed.service" = 1.0
+"systemd-logind.service" = 2.8
+"systemd-machined.service" = 6.0
+"systemd-networkd.service" = 2.9
+"systemd-nsresourced.service" = 4.4
+"systemd-oomd.service" = 1.8
+"systemd-portabled.service" = 5.8
+"systemd-resolved.service" = 2.2
+"systemd-timedated.service" = 2.2
+"systemd-udevd.service" = 7.0
+"systemd-userdbd.service" = 2.3

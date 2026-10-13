@@ -19,6 +19,7 @@ use crate::paths::Paths;
 use crate::privileges;
 use crate::say;
 use crate::secureboot::Keys;
+use crate::security;
 use crate::stamp::Stamp;
 use crate::tree;
 use crate::util;
@@ -62,6 +63,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
             .file(&paths.root.join(UNIT_PRESET))?
             .file(&paths.root.join(RUNNING_UNITS))?
+            .file(&paths.root.join(security::DEFINITION))?
             .tree(&kernel.modules)?,
         &[&root],
     );
@@ -110,6 +112,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     ensure_no_firmware_needed(paths, &kernel)?;
     elf::check_tree(paths, &root, "/usr")?;
     privileges::check_tree(&root, "/usr")?;
+    security::check(paths, &root)?;
     ensure_no_sysroot_paths(paths, &root)?;
     write_repart_definitions(&usr)?;
     write_definitions(

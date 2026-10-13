@@ -26,6 +26,7 @@ mod release;
 mod sbom;
 mod schedule;
 mod secureboot;
+mod security;
 mod select;
 mod source;
 mod stamp;

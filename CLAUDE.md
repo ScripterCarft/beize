@@ -77,7 +77,7 @@ Neubinden, echte Hardware).
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) |
+| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
 | `ci/buildroot/` | Buildroot (ADR 0021): `packages.txt` (einzige Liste der Werkzeuge) → `lock.sh` → `packages.lock` (Versionen + SHA-256, Snapshot-Datum in `snapshot`); `create.sh`, `hash.sh` |
@@ -172,6 +172,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 - **Units aktivieren nur über `images/base.preset`** (mit Grund; `bz` legt die Links in
   `/usr`), nie über Presets oder `.wants`-Links in `system/`. Ändert sich, was läuft,
   `images/running-units.txt` mitpflegen (ADR 0013).
+- **Härtung als Ratsche:** `images/security.toml` hält `systemd-analyze security` jedes
+  eigenen Dienstes und jedes erreichbaren Daemons fest; `bz` bricht bei jeder Abweichung
+  ab (schlechter = zurücknehmen, besser = Wert eintragen). Neuer `beize-*`-Dienst = Eintrag.
 - **initrd (ADR 0016):** Was hinein soll, steht als Funktion mit Grund in
   `images/initrd.toml`; `bz` leitet Programme und Bibliotheken ab und bricht bei Lücken
   ab. Nicht ableitbar (deshalb dort ausdrücklich): was Generatoren erzeugen und deren
