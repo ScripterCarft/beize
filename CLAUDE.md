@@ -242,7 +242,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-13)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-13, abends)
 
 **Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.2 (`d4ee932`; Disks, Messwerte,
 Update-Test: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch mit
@@ -251,41 +251,37 @@ Wiederherstellung auf der Hardware: nach F8 Leertaste halten, „(Recovery)“, 
 
 **PHASE 7 – Konsolidierung (seit 2026-10-12, Plan mit dem Besitzer abgestimmt).** Ausgangswerte
 und Rohdaten: WSL `~/p7/BASELINE.md`. Jede Änderung mit Vorher/Nachher, je Thema ein Commit.
-Erledigt:
-- Bau von null repariert; **seit 2026-10-10 baute gcc-pass1 alle Pakete** (gleiches Präfix) →
-  pass1 in `build/tools/pass1`, ELF-Prüfung verlangt Build-IDs; Paket wird vor dem Neubau
-  deinstalliert (`install::uninstall`); `bz` räumt `work/` auf (11 → 5,2 GB). Bau von null lokal
-  14:48; die CI baut wöchentlich von null (2:11 h).
-- CI: Quellen-Cache nach Pins ohne linux-firmware, Microcode in `build/work`, Build-Zustand nach
-  Stempeln benannt, verify/Artefakt nur wöchentlich/manuell.
-- Beschädigtes `/usr` → Tor nach ~1 s statt 91 s (`99-zz-beize-verity.rules`); Smoke-Frist 60 s;
-  Tastatur-Pause gegen einen Flake.
-- Kernel zstd (UKI 28,5 → 27,3 MB); initrd -19 gemessen bestätigt; `/usr` zstd 9 + 64 KiB +
-  fragments, `LEFT_OUT` in `usr.rs` (mit dem Besitzer), Linker-Namen raus, ELF-Prüfung löst
-  NEEDED wie der Lader auf: `/usr` 80,2 → 40,8 MiB. coreutils bleiben Einzelprogramme (gemessen).
-- **#3 parallel bauen** (2026-10-13, ADR 0005): Sysroot je Paket (harte Links, `--sysroot` in `$CC`,
-  Compiler ohne eigenes Sysroot), ein Jobserver (`$JOBSERVER` nur für Bauschritte), Start nach
-  gemessenem Speicher + PSI, cgroup je Paket, Kernel nebenher. Bau von null lokal **~15:20 → 9:18**
-  (24 statt 10 Jobs; gcc braucht dabei 8,7 GiB). Neu geprüft: ELF nur von eigenem gcc/rustc
-  (`.comment`), kein Sysroot-Pfad in `/usr`; pkg-config nach freedesktop-Regeln (libxkbcommon
-  suchte seine Daten im Bau-Verzeichnis). Rohdaten WSL `~/p7/a/`.
+Erledigt (Einzelheiten in den Commits und ADRs):
+- 2026-10-12/13: Bau von null repariert (gcc-pass1 getrennt), `/usr` 80 → 41 MiB, Kernel/initrd
+  zstd, verity-Tor 91 → 1 s, **#3 parallel bauen** (Bau von null 15:20 → 9:18 lokal).
+- 2026-10-13, Grundgerüst auf Distributions-Niveau (Anlass: CI rot, weil Bauten den Host sahen):
+  pkg-config je Maschine (pkgconf-Personality, ADR 0005) · **Buildroot** gepinnt + abgeschottet,
+  lokal = CI (ADR 0021; Bau von null 557 s, unverändert) · Rezepte nennen ihre Dateien
+  (`[files]`, Fedoras `%files`; Header, bash-Makefiles und 66 funktionslose Dateien raus, #26) ·
+  cargo-deny · SBOM SPDX 2.3 · `bz cve` (NVD, 0 offen) (ADR 0022) · Härtungs-Ratsche
+  `images/security.toml`; 6 eigene Dienste gehärtet 9,4 → 1,1–1,9 (#23) · Lints (`SAFETY`, kein
+  `unwrap`) · Fuzzing (`fuzz/`, `ci/fuzz.sh`) · Lizenz MPL-2.0 (#25). Rohdaten WSL `~/p7/`.
 
-**NÄCHSTER CHAT – zuerst:** den CI-Lauf des Pushs von 2026-10-13 prüfen (`gh run list`): alle
-Pakete bauen neu (neue Toolchain-Rezepte), auf 2 CPUs ~2–2,5 h (Grenze 240 min). Bei Grün #3
-schließen. Runner: 2 CPUs, 7,8 GiB, 8,4 GB frei, kein systemd (keine cgroups, Speicher nur per
-Startprüfung); Normallauf ~20 min, davon Smoke ~850 s. Der `gh`-Token darf keine Workflows starten.
+**NÄCHSTER CHAT (1 von 2 vor M3) – Prüfen, Fehler suchen, M3 vorbereiten.**
+0. CI des letzten Pushs prüfen (`gh run list`); rot → zuerst das.
+1. **Stabilität gründlich durchgehen**, erst antworten, wenn nichts oder etwas Großes gefunden ist:
+   Bau von null lokal (`build/` außer `cache/` und `buildroot/` beiseite), `bz smoke` mehrmals
+   (Flakes?), `./bz exec cargo deny check`, `./bz cve`, `./bz exec ci/fuzz.sh 300`, `bz` selbst
+   (Fehlerpfade, Abbrüche mitten im Bau, erneuter Lauf danach, CI-Container-Pfad ohne cgroups).
+2. **Fehler suchen**: offene `bug`-Issues (#22 Journal-Warnungen, #28 D-Bus lehnt `DynamicUser=`
+   ab, #10 Smoke-Flake), Journal eines Starts, Review des eigenen Codes (#7). Beheben, was klein
+   ist; Großes als Issue mit Befund.
+3. **Alles auf M3 ausrichten**: offene phase-7-Issues abschließen oder bewusst nach M3 schieben
+   (#2 CI-Kosten, #4, #5 bit-genau, #6 Leerlauf, #8 Hardware-Test mit neuem Compiler-Stand, #24,
+   #27 Stempel), Lücken für einen Compositor benennen (GPU/DRM im Kernel, Mesa/Wayland-Pakete,
+   Eingabe, Fonts, Sitzung), `docs/VISION.md` zu M3 lesen, Hardware-Daten (`docs/hardware.md`).
+   Ergebnis: §11 so, dass der **übernächste Chat direkt den M3-Plan** macht (ADR-Entwürfe,
+   Reihenfolge, offene Fragen an den Besitzer).
+Runner: 2 CPUs, 7,8 GiB, root, kein systemd; Normallauf ~20 min, Bau von null ~2,5 h. Der
+`gh`-Token darf keine Workflows starten. In `~/beize` liegt ein überflüssiger `git stash`
+(Stand vom 13.10. morgens, in den Commits enthalten).
 
-Offen, in dieser Reihenfolge (Issues mit Label `phase-7`):
-1. CI: Kosten des Baus von null (#2: 2:11 h auf 2 CPUs) – **kein self-hosted Runner** (Besitzer);
-   PRs nur, wenn sie nicht langsamer machen (Cache je Branch).
-2. Doku schlank halten: es kommt viel dazu, wenig weg – nur Funktionsloses entfernen (Besitzer).
-3. Upstream statt Eigenem nur messen und bewerten (#4); **Go nur bei großem Gewinn ohne
-   Einschränkung**. Bit-genaue Builds (#5): 90 Dateien in `/usr` enthalten Bau-Pfade
-   (`__FILE__`, Cargo-Registry → `-ffile-prefix-map`/`--remap-path-prefix`), ntpd-rs und
-   iputils betten den Commit des Beize-Repos ein (finden es beim Bauen).
-4. Smoke dominiert die CI (14 von 19 min) – eigenes Thema nach #5.
-5. Leerlauf (#6), Review (#7), Hardware-Test (#8). `~/beize/build.before` löschen; in `~/beize`
-   liegt ein überflüssiger `git stash` (Stand vor A, voll in den Commits enthalten).
+**ÜBERNÄCHSTER CHAT: M3 planen** (Compositor), mit dem Besitzer abstimmen, dann umsetzen.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase eigener Chat, ADR vorab abstimmen, nichts
 abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen; bei Fehlern zuerst
