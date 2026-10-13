@@ -16,7 +16,7 @@ keyring = "linux-pam"
 script = '''
 # vendordir: the configuration ships in /usr/lib/pam.d, read when /etc/pam.d
 # has no file for a service – Beize ships only /usr (ADR 0007).
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
   -Dauto_features=disabled \
   -Dpam_unix=enabled \

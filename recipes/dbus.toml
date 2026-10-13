@@ -13,7 +13,7 @@ keyring = "dbus"
 
 [build]
 script = '''
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --libexecdir=/usr/lib/dbus-1.0 \
   --sysconfdir=/etc --localstatedir=/var --buildtype=release \
   -Dauto_features=disabled \

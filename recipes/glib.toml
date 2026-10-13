@@ -17,7 +17,7 @@ keyring = "glib"
 
 [build]
 script = '''
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --buildtype=release --wrap-mode=nodownload \
   -Ddefault_library=shared \
   -Dselinux=disabled -Dlibmount=enabled -Dxattr=true \

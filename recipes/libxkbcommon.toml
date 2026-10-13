@@ -16,7 +16,7 @@ unsigned = "libxkbcommon signs neither release tags nor commits and publishes no
 
 [build]
 script = '''
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --buildtype=release \
   -Dxkb-config-root=/usr/share/xkeyboard-config-2 -Dx-locale-root=/usr/share/X11/locale \
   -Denable-x11=false -Denable-wayland=false -Denable-xkbregistry=false \

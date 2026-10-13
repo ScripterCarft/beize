@@ -14,7 +14,7 @@ keyring = "zstd"
 
 [build]
 script = '''
-meson setup . "$SRC/build/meson" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC/build/meson" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --buildtype=release \
   -Ddefault_library=shared -Dbin_programs=false -Dbin_contrib=false \
   -Dzlib=disabled -Dlzma=disabled -Dlz4=disabled

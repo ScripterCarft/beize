@@ -19,7 +19,7 @@ unsigned = "polkit signs neither release tags (lightweight) nor commits and publ
 script = '''
 # os_type only picks defaults for the group and the PAM includes (and is
 # otherwise guessed from the build host); both are set here.
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --sysconfdir=/etc --buildtype=release \
   -Dsession_tracking=logind -Dsystemdsystemunitdir=/usr/lib/systemd/system \
   -Dauthfw=pam -Dpam_include=system-auth -Dpam_prefix=/usr/lib/pam.d \

@@ -17,7 +17,7 @@ keyring = "iputils"
 
 [build]
 script = '''
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
   -DBUILD_PING=true -DBUILD_TRACEPATH=true \
   -DBUILD_ARPING=false -DBUILD_CLOCKDIFF=false \

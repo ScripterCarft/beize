@@ -37,7 +37,7 @@ keyring = "systemd"
 
 [build]
 script = '''
-meson setup . "$SRC" --cross-file "$MESON_CROSS" \
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --buildtype=release \
   -Dmode=release -Dauto_features=disabled \
   -Dblkid=enabled -Dlibmount=enabled -Dfdisk=enabled -Drepart=enabled \

@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -43,7 +44,11 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// 3: not its own earlier build either.
 /// 4: each package builds against a sysroot of its own (--sysroot).
 /// 5: pkg-config variables without the sysroot.
-const ENV_REVISION: u32 = 5;
+/// 6: pkg-config for the target as pkgconf with a personality; the build
+///    host's for tools that run while building.
+const ENV_REVISION: u32 = 6;
+/// pkg-config for the target, as autoconf looks for it when cross-compiling.
+const TARGET_PKG_CONFIG: &str = "x86_64-beize-linux-gnu-pkg-config";
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
 
 /// Builds the given recipes and everything they depend on.
@@ -253,7 +258,10 @@ fn clean_up<'a>(
         remove(&paths.work.join(dir).join(&recipe.name))?;
     }
     remove(&sysroot_dir(paths, &recipe.name))?;
-    remove(&meson_cross_file(paths, &recipe.name))?;
+    for machine in ["cross", "native"] {
+        remove(&meson_file(paths, &recipe.name, machine))?;
+    }
+    remove(&pkg_config_dir(paths, &recipe.name))?;
     let Some(source) = &recipe.source else {
         return Ok(());
     };
@@ -491,7 +499,9 @@ fn build_one(
             cmd.env("CFLAGS", "-O2 -pipe").env("CXXFLAGS", "-O2 -pipe");
         }
         Stage::Target => {
-            let meson_cross = write_meson_cross_file(paths, &recipe.name, sysroot)?;
+            let pkg_config_bin = write_pkg_config(paths, &recipe.name, sysroot)?;
+            let meson_cross =
+                write_meson_cross_file(paths, &recipe.name, sysroot, &pkg_config_bin)?;
             cmd.env(
                 "CC",
                 format!("{TARGET}-gcc --sysroot={}", sysroot.display()),
@@ -507,20 +517,22 @@ fn build_one(
             .env("CFLAGS", TARGET_CFLAGS)
             .env("CXXFLAGS", TARGET_CFLAGS)
             .env("LDFLAGS", TARGET_LDFLAGS)
-            .env("PKG_CONFIG_SYSROOT_DIR", sysroot)
-            // The sysroot goes only in front of -I and -L, as with
-            // freedesktop's pkg-config; pkgconf also puts it in front of
-            // variables, which name places on the target (unit directories,
-            // xkeyboard-config's data), and builds wrote it into /usr.
-            .env("PKG_CONFIG_FDO_SYSROOT_RULES", "1")
+            // pkg-config for the target comes first: a build that calls
+            // plain pkg-config gets the target's answer, never the host's.
             .env(
-                "PKG_CONFIG_LIBDIR",
+                "PATH",
                 format!(
-                    "{0}/usr/lib/pkgconfig:{0}/usr/share/pkgconfig",
-                    sysroot.display()
+                    "{}:{}:{HOST_PATH}",
+                    pkg_config_bin.display(),
+                    paths.tools.join("bin").display()
                 ),
             )
-            .env("MESON_CROSS", meson_cross);
+            .env("PKG_CONFIG", pkg_config_bin.join(TARGET_PKG_CONFIG))
+            .env("MESON_CROSS", meson_cross)
+            .env(
+                "MESON_NATIVE",
+                write_meson_native_file(paths, &recipe.name)?,
+            );
             cargo_env(&mut cmd, paths, &build_dir, sysroot);
         }
     }
@@ -559,26 +571,86 @@ fn build_one(
     })
 }
 
-fn meson_cross_file(paths: &Paths, name: &str) -> PathBuf {
+fn meson_file(paths: &Paths, name: &str, machine: &str) -> PathBuf {
     paths
         .work
         .join("sysroot")
-        .join(format!("{name}.meson-cross.ini"))
+        .join(format!("{name}.meson-{machine}.ini"))
 }
 
-fn write_meson_cross_file(paths: &Paths, name: &str, sysroot: &Path) -> Result<PathBuf> {
+/// Where a package's pkg-config for the target lives.
+fn pkg_config_dir(paths: &Paths, name: &str) -> PathBuf {
+    paths.work.join("sysroot").join(format!("{name}.pkgconf"))
+}
+
+/// pkg-config for the target, as Debian, Yocto and Buildroot have it: pkgconf
+/// with a personality (sysroot and search paths of this package's sysroot),
+/// called as `x86_64-beize-linux-gnu-pkg-config` – what autoconf looks for
+/// when cross-compiling – and as `pkg-config`. The build host's pkg-config
+/// stays as it is, for tools that run while building. Returns the directory
+/// of the two commands.
+fn write_pkg_config(paths: &Paths, name: &str, sysroot: &Path) -> Result<PathBuf> {
+    let dir = recreate(&pkg_config_dir(paths, name))?;
+    let personality = dir.join(format!("{TARGET}.personality"));
+    fs::write(&personality, personality_text(sysroot))?;
+    // The FDO rule puts the sysroot only in front of -I and -L, as
+    // freedesktop's pkg-config does; pkgconf would put it in front of
+    // variables too, which name places on the target (unit directories,
+    // xkeyboard-config's data), and builds wrote it into /usr.
+    let script = format!(
+        "#!/bin/sh\n\
+         PKG_CONFIG_FDO_SYSROOT_RULES=1 exec /usr/bin/pkgconf --personality={} \"$@\"\n",
+        personality.display()
+    );
+    let bin = dir.join("bin");
+    fs::create_dir(&bin)?;
+    for command in [TARGET_PKG_CONFIG, "pkg-config"] {
+        let file = bin.join(command);
+        fs::write(&file, &script)?;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(bin)
+}
+
+fn personality_text(sysroot: &Path) -> String {
     let sysroot = sysroot.display();
+    format!(
+        "Triplet: {TARGET}\n\
+         SysrootDir: {sysroot}\n\
+         DefaultSearchPaths: {sysroot}/usr/lib/pkgconfig:{sysroot}/usr/share/pkgconfig\n\
+         SystemIncludePaths: /usr/include\n\
+         SystemLibraryPaths: /usr/lib\n\
+         WantDefaultStatic: false\n\
+         WantDefaultPure: true\n"
+    )
+}
+
+/// Meson's file for the build machine: tools that run while building
+/// (`dependency(…, native: true)`, glib-mkenums for polkit) come from the
+/// build host, as in Debian's cross builds – with the host's pkg-config,
+/// named by its path, since `pkg-config` in PATH is the target's.
+fn write_meson_native_file(paths: &Paths, name: &str) -> Result<PathBuf> {
+    let file = meson_file(paths, name, "native");
+    fs::write(&file, "[binaries]\npkg-config = '/usr/bin/pkg-config'\n")?;
+    Ok(file)
+}
+
+fn write_meson_cross_file(
+    paths: &Paths,
+    name: &str,
+    sysroot: &Path,
+    pkg_config_bin: &Path,
+) -> Result<PathBuf> {
+    let sysroot = sysroot.display();
+    let pkg_config = pkg_config_bin.join(TARGET_PKG_CONFIG);
+    let pkg_config = pkg_config.display();
     let text = format!(
         "[binaries]\n\
          c = ['{TARGET}-gcc', '--sysroot={sysroot}']\n\
          cpp = ['{TARGET}-g++', '--sysroot={sysroot}']\n\
          ar = '{TARGET}-ar'\n\
          strip = '{TARGET}-strip'\n\
-         pkg-config = 'pkg-config'\n\
-         \n\
-         [properties]\n\
-         sys_root = '{sysroot}'\n\
-         pkg_config_libdir = '{sysroot}/usr/lib/pkgconfig:{sysroot}/usr/share/pkgconfig'\n\
+         pkg-config = '{pkg_config}'\n\
          \n\
          [host_machine]\n\
          system = 'linux'\n\
@@ -586,7 +658,7 @@ fn write_meson_cross_file(paths: &Paths, name: &str, sysroot: &Path) -> Result<P
          cpu = 'x86_64'\n\
          endian = 'little'\n"
     );
-    let file = meson_cross_file(paths, name);
+    let file = meson_file(paths, name, "cross");
     fs::write(&file, text)?;
     Ok(file)
 }
@@ -614,6 +686,22 @@ mod tests {
         legacy.update(&recipe.text);
         let legacy = util::hex(&legacy.finalize());
         assert_eq!(fingerprint(&recipe, &digest, &BTreeMap::new()), legacy);
+    }
+
+    /// The target's pkg-config searches only the package's sysroot, and
+    /// treats the sysroot's /usr/include and /usr/lib as the system's (no
+    /// -I/-L for them).
+    #[test]
+    fn personality_names_only_the_sysroot() {
+        let text = personality_text(Path::new("/b/sysroots/zlib"));
+        assert!(text.contains(&format!("Triplet: {TARGET}\n")));
+        assert!(text.contains("SysrootDir: /b/sysroots/zlib\n"));
+        assert!(text.contains(
+            "DefaultSearchPaths: /b/sysroots/zlib/usr/lib/pkgconfig:/b/sysroots/zlib/usr/share/pkgconfig\n"
+        ));
+        assert!(text.contains("SystemIncludePaths: /usr/include\n"));
+        assert!(text.contains("SystemLibraryPaths: /usr/lib\n"));
+        assert!(TARGET_PKG_CONFIG.starts_with(TARGET));
     }
 
     fn order(graph: &[(&str, &[&str])], roots: &[&str]) -> Result<Vec<String>> {
