@@ -42,7 +42,8 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// 2: each package sees only its dependencies in the sysroot.
 /// 3: not its own earlier build either.
 /// 4: each package builds against a sysroot of its own (--sysroot).
-const ENV_REVISION: u32 = 4;
+/// 5: pkg-config variables without the sysroot.
+const ENV_REVISION: u32 = 5;
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
 
 /// Builds the given recipes and everything they depend on.
@@ -503,6 +504,11 @@ fn build_one(
             .env("CXXFLAGS", TARGET_CFLAGS)
             .env("LDFLAGS", TARGET_LDFLAGS)
             .env("PKG_CONFIG_SYSROOT_DIR", sysroot)
+            // The sysroot goes only in front of -I and -L, as with
+            // freedesktop's pkg-config; pkgconf also puts it in front of
+            // variables, which name places on the target (unit directories,
+            // xkeyboard-config's data), and builds wrote it into /usr.
+            .env("PKG_CONFIG_FDO_SYSROOT_RULES", "1")
             .env(
                 "PKG_CONFIG_LIBDIR",
                 format!(

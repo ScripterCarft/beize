@@ -135,8 +135,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 
 - Nur `/usr` ausliefern: `bz` bricht ab bei Dateien außerhalb; Altlasten im Rezept
   löschen (mit Kommentar) oder nach `/usr/share/factory` verlegen.
-- **pkg-config liefert beim Cross-Build Pfade mit Sysroot-Präfix** (Unit-, udev-,
-  tmpfiles-, sysusers-Verzeichnisse): immer explizit setzen.
+- pkg-config folgt den freedesktop-Regeln (`PKG_CONFIG_FDO_SYSROOT_RULES`): nur `-I`/`-L`
+  bekommen das Sysroot, Variablen (Unit-, udev-, tmpfiles-Verzeichnisse) bleiben
+  Zielpfade. `bz` bricht ab, wenn ein Sysroot-Pfad in `/usr` landet.
 - `meson -Dauto_features=disabled`: jedes benötigte Feature ausdrücklich einschalten.
 - Abhängigkeitsschleifen vermeiden (libdevmapper ohne udev-Sync: systemd → cryptsetup → lvm2).
 - **Eigener Rust-Code im Image:** Crate unter `os/<name>`, Rezept mit `repo = [...]`

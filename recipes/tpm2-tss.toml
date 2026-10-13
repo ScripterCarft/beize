@@ -17,7 +17,6 @@ keyring = "tpm2-tss"
 script = '''
 # configure looks for systemd-sysusers/-tmpfiles on the build host to decide
 # whether to install their files; answer it so the result never depends on the host.
-# The directories are set explicitly (pkg-config would add the sysroot).
 "$SRC/configure" \
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin \
   --sysconfdir=/etc --localstatedir=/var --with-runstatedir=/run \

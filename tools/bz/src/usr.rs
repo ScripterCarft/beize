@@ -182,6 +182,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     ensure_no_firmware_needed(paths, &kernel)?;
     elf::check_tree(paths, &root, "/usr")?;
     privileges::check_tree(&root, "/usr")?;
+    ensure_no_sysroot_paths(paths, &root)?;
     write_repart_definitions(&usr)?;
     write_definitions(
         &usr.join("lib/sysupdate.d"),
@@ -475,6 +476,33 @@ fn move_links(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Fails if anything but empty directories is left under `dir`.
+/// Fails if a file names a sysroot of the build: a place that exists only on
+/// the build machine (pkg-config variables once carried it into
+/// libxkbcommon, compiler commands into bash and OpenSSL).
+fn ensure_no_sysroot_paths(paths: &Paths, root: &Path) -> Result<()> {
+    let sysroots = [paths.sysroot.clone(), paths.work.join("sysroot")];
+    let mut grep = Command::new("grep");
+    grep.args(["--recursive", "--files-with-matches", "--fixed-strings"]);
+    for sysroot in &sysroots {
+        grep.arg("-e").arg(sysroot);
+    }
+    let out = grep.arg(root).output().context("starting grep")?;
+    match out.status.code() {
+        Some(1) => {
+            say!("  ok: no file in /usr names the build's sysroot");
+            Ok(())
+        }
+        Some(0) => bail!(
+            "these files name the build's sysroot, a place only on the build machine:\n{}",
+            String::from_utf8_lossy(&out.stdout).trim_end()
+        ),
+        _ => bail!(
+            "grep failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        ),
+    }
+}
+
 fn ensure_no_files(dir: &Path) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
