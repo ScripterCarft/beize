@@ -15,6 +15,6 @@ script = '''
 "$SRC/configure" \
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
   --disable-static --disable-docs --disable-multi-os-directory
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''

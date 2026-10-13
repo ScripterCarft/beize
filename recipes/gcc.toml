@@ -60,6 +60,6 @@ export LDFLAGS_FOR_TARGET="-Wl,-z,relro -Wl,-z,now -Wl,-z,pack-relative-relocs"
   --enable-linker-build-id --disable-nls --disable-multilib \
   --disable-bootstrap --disable-libsanitizer --disable-libvtv \
   --enable-languages=c,c++
-make
+MAKEFLAGS="$JOBSERVER" make
 make install
 '''

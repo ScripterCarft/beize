@@ -25,7 +25,7 @@ rm -rf "$prefix"
   --disable-libatomic --disable-libgomp --disable-libquadmath \
   --disable-libssp --disable-libvtv --disable-libstdcxx \
   --enable-languages=c,c++
-make
+MAKEFLAGS="$JOBSERVER" make
 make install
 
 # Without libc headers gcc installs an incomplete limits.h; use the full one.

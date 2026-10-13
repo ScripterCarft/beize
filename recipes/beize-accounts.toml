@@ -12,7 +12,7 @@ repo = ["os/beize-accounts", "os/beize-varlink", "Cargo.toml", "Cargo.lock"]
 [build]
 script = '''
 "$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
-"$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
+MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
   -p beize-accounts --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-account" \
   "$PKG/usr/bin/beize-account"

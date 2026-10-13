@@ -16,6 +16,6 @@ keyring = "acl"
 script = '''
 "$SRC/configure" --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
   --bindir=/usr/bin --disable-static --disable-nls
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''

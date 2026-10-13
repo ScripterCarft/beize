@@ -30,7 +30,7 @@ script = '''
   --disable-tcti-i2c-helper --disable-tcti-i2c-ftdi \
   --disable-doxygen-doc --disable-unit --disable-integration \
   ac_cv_prog_systemd_sysusers=yes ac_cv_prog_systemd_tmpfiles=yes
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 # The install hook creates the FAPI state directories even with FAPI off;
 # Beize ships only /usr (ADR 0007).

@@ -24,6 +24,6 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -DNO_SETCAP_OR_SUID=true -DSETCAP_OR_SUID_PING=false \
   -DUSE_CAP=true -DUSE_IDN=false -DUSE_GETTEXT=false \
   -DBUILD_MANS=false -DBUILD_HTML_MANS=false -DSKIP_TESTS=true
-meson compile
+MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 '''

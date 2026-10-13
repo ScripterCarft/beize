@@ -31,7 +31,7 @@ script = '''
 # result systemd never marks /dev/mapper/usr ready. Our udev (systemd) always
 # has the builtin, so say so.
 BLKID_RULE='IMPORT{builtin}=\"blkid\"'
-make BLKID_RULE="$BLKID_RULE" device-mapper
+MAKEFLAGS="$JOBSERVER" make BLKID_RULE="$BLKID_RULE" device-mapper
 make DESTDIR="$PKG" BLKID_RULE="$BLKID_RULE" install_device-mapper
 grep -qF 'IMPORT{builtin}="blkid"' "$PKG/usr/lib/udev/rules.d/13-dm-disk.rules" \
   || { echo "13-dm-disk.rules does not use udev's builtin blkid" >&2; exit 1; }

@@ -23,7 +23,7 @@ script = '''
   --disable-static --disable-nls --disable-asciidoc --disable-ssh-token \
   --disable-cryptsetup --disable-veritysetup --disable-integritysetup \
   ac_cv_lib_popt_poptConfigFileToString=yes
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 # Guard against the workaround leaking into the library.
 if "$TARGET-readelf" -d "$PKG"/usr/lib/libcryptsetup.so.* | grep -q libpopt; then

@@ -21,6 +21,6 @@ script = '''
 # The library keeps the compiler command (`openssl version -f`): written
 # first, without this build's sysroot.
 make crypto/buildinf.h CC="$TARGET-gcc"
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install_sw
 '''

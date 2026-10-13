@@ -477,8 +477,12 @@ fn build_one(
         .env("TOOLS", &paths.tools)
         .env("SYSROOT", sysroot)
         .env("TARGET", TARGET)
-        // make, ninja and cargo take their jobs from the shared pool.
-        .env("MAKEFLAGS", jobs.makeflags());
+        // MAKEFLAGS for the steps that may run jobs in parallel: make,
+        // meson compile (ninja), cmake --build and cargo then take their
+        // jobs from the shared pool. Everything else runs one job at a time,
+        // as before: installing in parallel races in some packages (lvm2
+        // linked dmsetup twice at once) – Fedora's %make_install is serial.
+        .env("JOBSERVER", jobs.makeflags());
     if let Some(src) = &src {
         cmd.env("SRC", src);
     }

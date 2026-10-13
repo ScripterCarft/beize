@@ -19,7 +19,7 @@ script = '''
   --disable-static --enable-pcre2-8 --disable-pcre2-16 --disable-pcre2-32 \
   --disable-jit --disable-pcre2grep-libz --disable-pcre2grep-libbz2 \
   --disable-pcre2test-libreadline --disable-pcre2test-libedit
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 rm -f "$PKG"/usr/bin/pcre2grep "$PKG"/usr/bin/pcre2test
 rm -rf "$PKG/usr/share/doc" "$PKG/usr/share/man"

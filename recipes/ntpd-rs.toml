@@ -21,7 +21,7 @@ script = '''
 # the headers with $CC (the cross compiler).
 export OPENSSL_LIB_DIR="$SYSROOT/usr/lib" OPENSSL_INCLUDE_DIR="$SYSROOT/usr/include"
 "$CARGO" fetch --locked --manifest-path "$SRC/Cargo.toml"
-"$CARGO" build --offline --locked --release --manifest-path "$SRC/Cargo.toml" \
+MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$SRC/Cargo.toml" \
   -p ntpd --no-default-features --features openssl \
   --target x86_64-unknown-linux-gnu
 for bin in ntp-daemon ntp-ctl; do

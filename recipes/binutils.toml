@@ -17,6 +17,6 @@ script = '''
   --prefix="$TOOLS" --target="$TARGET" --with-sysroot="$TOOLS/no-sysroot" \
   --disable-nls --disable-werror --enable-gprofng=no \
   --enable-new-dtags --enable-default-hash-style=gnu
-make
+MAKEFLAGS="$JOBSERVER" make
 make install
 '''

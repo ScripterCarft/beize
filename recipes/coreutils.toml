@@ -24,6 +24,6 @@ script = '''
   --disable-nls --without-selinux --without-openssl --enable-libcap \
   --enable-install-program=hostname --enable-no-install-program=kill,uptime \
   gl_cv_macro_MB_CUR_MAX_good=y
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 '''

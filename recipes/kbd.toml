@@ -28,7 +28,7 @@ cp -a "$SRC"/. .
   --datadir=/usr/share --disable-xkb --disable-vlock --disable-tests --disable-nls \
   --disable-compress --without-zlib --without-bzip2 --without-lzma --without-zstd \
   --disable-libkeymap --disable-libkfont
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 rm -rf "$PKG/usr/share/man"
 '''

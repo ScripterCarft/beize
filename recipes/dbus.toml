@@ -23,7 +23,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Druntime_dir=/run -Dsystem_socket=/run/dbus/system_bus_socket \
   -Dsystemd_system_unitdir=/usr/lib/systemd/system \
   -Dsystemd_user_unitdir=/usr/lib/systemd/user
-meson compile
+MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 # /etc/dbus-1/{system,session}.conf are empty legacy stubs; the real
 # configuration lives in /usr/share/dbus-1.

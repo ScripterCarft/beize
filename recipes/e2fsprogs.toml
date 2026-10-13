@@ -24,7 +24,7 @@ script = '''
   --disable-e2initrd-helper --disable-fuse2fs --without-libarchive \
   --with-systemd-unit-dir=/usr/lib/systemd/system \
   --with-udev-rules-dir=/usr/lib/udev/rules.d --without-crond-dir
-make
+MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 # mke2fs.conf defaults are compiled in; the sample in /etc is not needed.
 rm -rf "$PKG/etc"

@@ -39,9 +39,11 @@ Mal auflistet (`keys/README.md`).
 Quellen, die Build-Umgebung oder eine Abhängigkeit geändert haben (Fingerprint).
 
 **Parallel.** Unabhängige Pakete bauen nebeneinander, der Kernel neben ihnen. Die
-CPUs verteilt ein gemeinsamer GNU-make-Jobserver (make, ninja, cargo; Rezepte ohne
-`-j`), so groß, wie CPUs und verfügbarer Speicher erlauben (512 MiB je Job, 2 GiB
-Reserve). Ein Paket startet nur, wenn sein beim letzten Bau gemessener
+CPUs verteilt ein gemeinsamer GNU-make-Jobserver, so groß, wie CPUs und verfügbarer
+Speicher erlauben (512 MiB je Job, 2 GiB Reserve). Ein Rezept gibt ihn nur seinen
+Bauschritten (`MAKEFLAGS="$JOBSERVER"` vor make, meson compile, cmake --build,
+cargo); alles andere, auch das Installieren, läuft seriell wie Fedoras
+`%make_install` – parallel installiert, linkte lvm2 ein Programm zweimal zugleich. Ein Paket startet nur, wenn sein beim letzten Bau gemessener
 Speicherbedarf neben dem der laufenden passt und der Kernel nicht schon unter
 Speicherdruck steht (PSI) – wie Yoctos `BB_PRESSURE_MAX_MEMORY`. Jedes läuft in
 einer eigenen cgroup mit Speichergrenze (systemd-Scope; in der CI ohne): reicht der

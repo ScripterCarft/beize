@@ -26,7 +26,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" \
   -Dpam_module_dir=/usr/lib/security -Dprivileged_group=wheel \
   -Dintrospection=false -Dtests=false -Dexamples=false -Dman=false \
   -Dgtk_doc=false -Dgettext=false
-meson compile
+MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
 rm "$PKG/usr/bin/pkexec"
 # Upstream's meson_post_install.py makes the agent helper setuid root when
