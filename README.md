@@ -15,7 +15,7 @@ Meilenstein **M1 – Bootet in QEMU** ist erreicht.
 - [x] Build-Werkzeug `bz` mit gepinnten, geprüften Quellen
 - [x] Kernel aus dem Quellcode mit eigener, verifizierter Konfiguration
 - [x] Eigene Cross-Toolchain (binutils, gcc) und glibc aus dem Quellcode
-- [x] systemd, D-Bus, bash, coreutils, util-linux aus dem Quellcode
+- [x] systemd, D-Bus (dbus-broker), bash, coreutils, util-linux aus dem Quellcode
 - [x] Unified Kernel Image auf GPT-Disk, Start über UEFI
 - [x] Shell auf der seriellen Konsole in QEMU
 - [x] Automatischer Boot-Test: systemd `running`, keine fehlgeschlagene Unit
@@ -78,18 +78,11 @@ Standard) und für schnelle VMs die Gruppe `kvm`. Pakete des Buildroots ändern:
 ```sh
 ./bz build                  # Toolchain, Kernel, Pakete, /usr-Image, initrd und Disk bauen (nur Geändertes)
 ./bz smoke                  # Installieren, booten und alles prüfen, inkl. Gegentests (~2 min)
-./bz smoke --quick          # Nur Installation und zwei Starts (~30 s)
 ./bz run                    # In QEMU starten; der Zustand bleibt bis zum nächsten Build erhalten
 ./bz debug 'networkctl'     # Befehle in der VM ausführen und ihre Ausgabe zeigen
-./bz package systemd        # Ein Paket samt Abhängigkeiten bauen
-./bz owner /usr/bin/bash    # Welches Paket hat diese Datei installiert?
-./bz boot-times <journal>   # Wo ein Start Zeit verbraucht hat (docs/hardware.md)
-./bz hw-check <journal>     # Welche PCI-Geräte eines Rechners im Image einen Treiber haben
-./bz outdated               # Welche Quellen neuere Upstream-Releases haben
-./bz verify                 # Alle Quellen gegen Prüfsumme und Maintainer-Signatur prüfen
 ```
 
-Einzelschritte: `./bz kernel`, `./bz usr`, `./bz initrd`, `./bz image`; `-v` zeigt alle Ausgaben.
+Alle Befehle: [`CLAUDE.md`](CLAUDE.md) §6; `./bz --help`.
 
 `./bz smoke` installiert das Image wie auf einem PC mit gelöschten Secure-Boot-Schlüsseln,
 startet es zweimal und prüft dabei alles, was ein Start leisten muss (Secure Boot, dm-verity,
@@ -123,9 +116,9 @@ Logs in `build/work/logs/`.
 - Jede Upstream-Quelle ist auf Version und Prüfsumme (bzw. Commit) gepinnt und, wo
   ihre Maintainer signieren, gegen deren Signatur geprüft; `bz verify` nennt die
   wenigen unsignierten mit Grund.
-- Reproduzierbar angelegt (feste Zeitstempel, IDs, Metadaten). Noch nicht bit-gleich:
-  Binaries aus Container- und lokalem Bau unterscheiden sich, und Signaturen tragen die
-  Signierzeit (Issue #5).
+- Reproduzierbar: derselbe Stand ergibt dasselbe Disk-Image, Bit für Bit (feste Zeitstempel,
+  IDs, Signierzeit; kein Pfad der Baumaschine im Image). Ob CI und lokaler Bau übereinstimmen,
+  prüft Issue #5.
 - Private Schlüssel (Secure Boot, Signaturen) liegen nie im Repository, sondern in 1Password.
 - Größere Entscheidungen werden als ADR festgehalten.
 

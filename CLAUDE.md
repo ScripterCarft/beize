@@ -74,10 +74,10 @@ Neubinden, echte Hardware).
 | Pfad | Inhalt |
 | --- | --- |
 | `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste) |
-| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `smoke` `run` `debug` |
+| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset` aktivierte Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
+| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
 | `ci/buildroot/` | Buildroot (ADR 0021): `packages.txt` (einzige Liste der Werkzeuge) → `lock.sh` → `packages.lock` (Versionen + SHA-256, Snapshot-Datum in `snapshot`); `create.sh`, `hash.sh` |
@@ -114,13 +114,14 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   daneben das Journal jedes Starts mit Boot-Report als `.journal.json` (über eine leere virtio-Disk;
   `bz boot-times <datei>`). Smoke zeigt beim Start mit Zeitbudget die langsamsten Units.
   Die Konsolengröße der VM steht in der Kommandozeile (`systemd.tty.*`, sonst fragt PID 1 2× 333 ms).
-- Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Rezeptänderung an systemd
-  ~5 min (frisches Build-Verzeichnis, dazu dbus); Bau von null 14,8 min (2026-10-12, davon
-  Toolchain 7,7 min), Plattenspitze 7 GiB, danach `build/` 5,2 GB. Die CI baut wöchentlich von null.
-- Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke.rs` (Modul-Doku) und
+- Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Änderung nur an Test-/Berichtscode
+  von `bz` (`vm/`, `cve` …) baut nichts neu; Rezeptänderung an systemd ~5 min; Bau von null
+  9,6 min (2026-10-14, davon Toolchain 6 min, Kernel danach parallel zu den Paketen),
+  Plattenspitze 7 GiB. Gleicher Stand → bit-gleiches `disk.img`. Die CI baut wöchentlich von null.
+- Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke/` (Modul-Doku in `mod.rs`) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
-- Start in der VM: 3,7 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~105 s. Der zweite Start
+- Start in der VM: 3,8 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~105 s. Der zweite Start
   hat ein Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei
   Änderung neu messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): Job `buildroot` legt das Buildroot-Image in GHCR an, wenn
@@ -171,9 +172,13 @@ in die Endfassung einarbeiten, keine Nachträge.
   `sed`/`awk`/`grep` (Skripte in reinem Bash).
 - Autotools-Abfragen beim Host (`AC_CHECK_PROG`) im Rezept beantworten (`ac_cv_…=yes`).
 - Skripte unter `system/` müssen ausführbar sein (Test prüft das).
-- **Units aktivieren nur über `images/base.preset`** (mit Grund; `bz` legt die Links in
-  `/usr`), nie über Presets oder `.wants`-Links in `system/`. Ändert sich, was läuft,
-  `images/running-units.txt` mitpflegen (ADR 0013).
+- **Units aktivieren nur über `images/base.preset`** (Benutzer-Units: `images/user.preset`;
+  mit Grund; `bz` legt die Links in `/usr`), nie über Presets oder `.wants`-Links in
+  `system/`. Ändert sich, was läuft, `images/running-units.txt` mitpflegen (ADR 0013).
+- **Kein Pfad der Baumaschine im Image:** die Compiler bilden das Repo auf `/beize` ab;
+  Rezepte mit eigenen CFLAGS hängen `$PREFIX_MAP` an. `bz` bricht ab, wenn eine Datei in
+  `/usr` den Repo-Pfad nennt. Rust-Programme fremder Projekte (ntpd-rs) schreiben beim Bau
+  ihre Crates nach `usr/lib/beize-build/crates/` (SBOM).
 - **Härtung als Ratsche:** `images/security.toml` hält `systemd-analyze security` jedes
   eigenen Dienstes und jedes erreichbaren Daemons fest; `bz` bricht bei jeder Abweichung
   ab (schlechter = zurücknehmen, besser = Wert eintragen). Neuer `beize-*`-Dienst = Eintrag.
@@ -223,8 +228,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 - systemd-repart lässt Partitionen ohne `SizeMaxBytes=` wachsen, auch bestehende (Test
   `only_root_grows`). Vorab: `systemd-repart --definitions=… --dry-run=yes <Kopie>`.
 - systemd-Konsolenzeilen enthalten ANSI-Codes **mitten im Text** → `strip_ansi`.
-- `sbvarsign` signiert die `.auth`-Dateien mit der aktuellen Zeit: `disk.img` ist nie
-  bit-gleich (der Image-Stamp nimmt deshalb die Schlüssel, nicht die `.auth`).
+- Bit-gleiche Bauten: alles, was eine Zeit schreibt, bekommt `SOURCE_DATE_EPOCH`
+  (systemd-sbsign, mkfs.vfat, mtools) oder normalisierte mtimes (cpio). `sbvarsign` kann das
+  nicht: die `.auth` der Test-Schlüssel werden deshalb nur einmal je Schlüsselsatz signiert.
 - Smoke tippt in der initrd über QMP echte Tasten (Scancodes, die Keymap entscheidet):
   Tasten, bevor die Abfrage tty1 geöffnet hat, gehen verloren – daher `PASSWORD_PAUSE`
   (500 ms) nach dem Prompt auf der seriellen Konsole, auch vor jedem Tippen über QMP.
@@ -242,56 +248,44 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-13, abends)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-14)
 
 **Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.2 (`d4ee932`; Disks, Messwerte,
-Update-Test: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch mit
-dem Bootstrap-Compiler gebaut (Fund Phase 7) – beim Hardware-Test am Ende von Phase 7 ersetzen.
-Wiederherstellung auf der Hardware: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s`.
+Update vom Stick: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch
+mit dem Bootstrap-Compiler und einem Kernel vom Ubuntu-gcc gebaut – beim Hardware-Test (#8)
+ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s`.
 
-**PHASE 7 – Konsolidierung (seit 2026-10-12, Plan mit dem Besitzer abgestimmt).** Ausgangswerte
-und Rohdaten: WSL `~/p7/BASELINE.md`. Jede Änderung mit Vorher/Nachher, je Thema ein Commit.
-Erledigt (Einzelheiten in den Commits und ADRs):
-- 2026-10-12/13: Bau von null repariert (gcc-pass1 getrennt), `/usr` 80 → 41 MiB, Kernel/initrd
-  zstd, verity-Tor 91 → 1 s, **#3 parallel bauen** (Bau von null 15:20 → 9:18 lokal).
-- 2026-10-13, Grundgerüst auf Distributions-Niveau (Anlass: CI rot, weil Bauten den Host sahen):
-  pkg-config je Maschine (pkgconf-Personality, ADR 0005) · **Buildroot** gepinnt + abgeschottet,
-  lokal = CI (ADR 0021; Bau von null 557 s, unverändert) · Rezepte nennen ihre Dateien
-  (`[files]`, Fedoras `%files`; Header, bash-Makefiles und 66 funktionslose Dateien raus, #26) ·
-  cargo-deny · SBOM SPDX 2.3 · `bz cve` (NVD, 0 offen) (ADR 0022) · Härtungs-Ratsche
-  `images/security.toml`; 6 eigene Dienste gehärtet 9,4 → 1,1–1,9 (#23) · Lints (`SAFETY`, kein
-  `unwrap`) · Fuzzing (`fuzz/`, `ci/fuzz.sh`) · Lizenz MPL-2.0 (#25). Rohdaten WSL `~/p7/`.
+**PHASE 7 – Konsolidierung (seit 2026-10-12).** Ausgangswerte: WSL `~/p7/BASELINE.md`; jede
+Änderung mit Vorher/Nachher, je Thema ein Commit. Erledigt (Einzelheiten in Commits und ADRs):
+- 2026-10-12/13: Bau von null repariert, `/usr` 80 → 41 MiB, zstd, verity-Tor 91 → 1 s, paralleles
+  Bauen (#3), pkg-config je Maschine, Buildroot (ADR 0021), `[files]`, cargo-deny, SBOM, `bz cve`
+  (ADR 0022), Härtungs-Ratsche, Lints, Fuzzing, MPL-2.0.
+- 2026-10-14, Prüfung gegen etablierte Praxis (Funde als Issues #29–#36): Kernel mit Beizes
+  Toolchain (#29) · Hardlinks bleiben (#30) · gcc-pass1 nur C (#31) · Stempel nur am bauenden
+  Code (#27) · **dbus-broker** statt dbus-daemon, `DynamicUser=` geht wieder (#32, #28) ·
+  bit-gleiche Images (#5, lokal belegt) · ntpd-rs-Crates in der SBOM (#24) · Zeitbudget vom
+  2-CPU-Runner (#9) · `vm/smoke/` nach Themen (#7) · linux 7.2.10, curl 8.23, mpc 1.4.1 ·
+  ccache gemessen, lohnt nicht (#4). Bau von null jetzt 9,6 min lokal.
 
-**NÄCHSTER CHAT (1 von 2 vor M3) – Prüfen, Fehler suchen, M3 vorbereiten.**
-0. CI des letzten Pushs prüfen (`gh run list`); rot → zuerst das.
-1. **Stabilität gründlich durchgehen**, erst antworten, wenn nichts oder etwas Großes gefunden ist:
-   Bau von null lokal (`build/` außer `cache/` und `buildroot/` beiseite), `bz smoke` mehrmals
-   (Flakes?), `./bz exec cargo deny check`, `./bz cve`, `./bz exec ci/fuzz.sh 300`, `bz` selbst
-   (Fehlerpfade, Abbrüche mitten im Bau, erneuter Lauf danach, CI-Container-Pfad ohne cgroups).
-2. **Fehler suchen**: offene `bug`-Issues (#22 Journal-Warnungen, #28 D-Bus lehnt `DynamicUser=`
-   ab, #10 Smoke-Flake), Journal eines Starts, Review des eigenen Codes (#7). Beheben, was klein
-   ist; Großes als Issue mit Befund.
-3. **Alles auf M3 ausrichten**: offene phase-7-Issues abschließen oder bewusst nach M3 schieben
-   (#2 CI-Kosten, #4, #5 bit-genau, #6 Leerlauf, #8 Hardware-Test mit neuem Compiler-Stand, #24,
-   #27 Stempel), Lücken für einen Compositor benennen (GPU/DRM im Kernel, Mesa/Wayland-Pakete,
-   Eingabe, Fonts, Sitzung), `docs/VISION.md` zu M3 lesen, Hardware-Daten (`docs/hardware.md`).
-   Ergebnis: §11 so, dass der **übernächste Chat direkt den M3-Plan** macht (ADR-Entwürfe,
-   Reihenfolge, offene Fragen an den Besitzer).
+**NÄCHSTER CHAT**
+0. CI des Pushs vom 14.10. prüfen (Toolchain geändert → Bau von null, ~2,5 h). Dann #5: den
+   dm-verity-Root-Hash im CI-Log mit dem lokalen (`build/out/usr.roothash`, gleicher Commit)
+   vergleichen – gleich → #5 schließen, sonst die Ursache suchen.
+1. #33 Debug-Infos und elfutils (Absturzberichte mit Stacktrace; Fedora-Vorbild).
+2. Rest: #7 (`secureboot.rs`, `source.rs`, `select.rs`), #24 RustSec für ntpd-rs (mit der nächsten
+   Buildroot-Änderung), #22 growfs als Upstream-Bericht, #4 systemd-vmspawn, #2 CI-Kosten
+   (Besitzer), #6/#8 auf der Hardware mit dem Besitzer.
+3. **Label `m3-plan` (#14, #17, #34–#36) nur mit Zustimmung des Besitzers** – sie gehören in den
+   M3-Plan: Speicherdruck (zram, systemd-oomd), nftables, fwupd, BTF/BPF, Treiber.
 Runner: 2 CPUs, 7,8 GiB, root, kein systemd; Normallauf ~20 min, Bau von null ~2,5 h. Der
-`gh`-Token darf keine Workflows starten. In `~/beize` liegt ein überflüssiger `git stash`
-(Stand vom 13.10. morgens, in den Commits enthalten).
+`gh`-Token darf keine Workflows starten. In `~/beize` liegt ein alter `git stash` (13.10.; nicht
+sicher, dass alles davon in den Commits ist – nur mit dem Besitzer löschen).
 
 **ÜBERNÄCHSTER CHAT: M3 planen** (Compositor), mit dem Besitzer abstimmen, dann umsetzen.
 
-**Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase eigener Chat, ADR vorab abstimmen, nichts
-abschalten „weil unnötig“, keine fremden Patches – Ursachen sauber lösen; bei Fehlern zuerst
-fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad gebracht hat.
-1. ✓ Messen als Werkzeug (`bz boot-times`, Zeitbudget, `docs/hardware.md`); Was läuft (ADR 0013).
-2. ✓ Toolchain x86-64-v3 + Härtung (ADR 0014).
-3. ✓ Kernel (ADR 0015).
-4. ✓ Startpfad, initrd aus Funktionen, Notfall-Tor (ADR 0016).
-5. ✓ Grundfunktionen: Tastatur (0017), Rechte (0018), ping, Konten (0019).
-6. ✓ A/B-Updates (ADR 0020), auf der Hardware bestätigt (0.1 → 0.2 vom USB-Stick).
-7. **Konsolidierung vor M3** (läuft): auf der Hardware messen (Start, Leerlauf über Stunden –
-   nichts wächst), Review des eigenen Codes, offene Punkte; Funktionen bleiben, geändert wird
-   nur nachweislich Besseres. Nicht feinschleifen, was M3 ersetzt (Konsole, Setup-Oberfläche).
+**Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase ein Chat, ADR vorab abstimmen, nichts
+abschalten „weil unnötig“, keine fremden Patches; bei Fehlern zuerst fragen, welche eigene
+Entscheidung uns auf einen ungetesteten Pfad gebracht hat. Phasen 1–6 ✓ (Messen, Toolchain, Kernel,
+Startpfad, Grundfunktionen, A/B-Updates; ADR 0013–0020). **7. Konsolidierung vor M3** (läuft):
+Funktionen bleiben, geändert wird nur nachweislich Besseres; nicht feinschleifen, was M3 ersetzt
+(Konsole, Setup-Oberfläche).
