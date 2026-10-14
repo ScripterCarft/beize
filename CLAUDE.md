@@ -115,7 +115,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   `bz boot-times <datei>`). Smoke zeigt beim Start mit Zeitbudget die langsamsten Units.
   Die Konsolengröße der VM steht in der Kommandozeile (`systemd.tty.*`, sonst fragt PID 1 2× 333 ms).
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Änderung nur an Test-/Berichtscode
-  von `bz` (`vm/`, `cve` …) baut nichts neu; Rezeptänderung an systemd ~5 min; Bau von null
+  von `bz` (`vm/`, `cve` …) baut nichts neu; Rezeptänderung an systemd: 24 s für systemd, dazu was davon abhängt; Bau von null
   9,6 min (2026-10-14, davon Toolchain 6 min, Kernel danach parallel zu den Paketen),
   Plattenspitze 7 GiB. Gleicher Stand und Kernel-Bau → bit-gleiches `disk.img` (Module: Wegwerf-
   Schlüssel je Kernel-Bau). Die CI baut wöchentlich von null.
