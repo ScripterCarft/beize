@@ -2,12 +2,12 @@
 //! step has succeeded. A step whose fingerprint matches its stamp and whose
 //! outputs exist is skipped.
 //!
-//! bz itself is one of the inputs: a step is redone whenever the code that
-//! does it may have changed.
+//! bz's own code is one of the inputs: a step is redone whenever the code
+//! that decides what it produces may have changed (`build.rs`); a change to
+//! what only tests or reports redoes nothing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
@@ -20,11 +20,11 @@ use crate::util;
 pub struct Fingerprint(Sha256);
 
 impl Fingerprint {
-    /// Starts with the running bz binary and the buildroot it runs in (the
-    /// tools every step calls).
+    /// Starts with bz's build code and the buildroot it runs in (the tools
+    /// every step calls).
     pub fn new() -> Result<Self> {
         let mut hasher = Sha256::new();
-        hasher.update(format!("bz {}\n", bz_digest()?));
+        hasher.update(format!("bz {}\n", env!("BZ_BUILD_CODE")));
         hasher.update(format!("buildroot {}\n", buildroot::tools()?));
         Ok(Self(hasher))
     }
@@ -132,17 +132,6 @@ impl Stamp {
         fs::write(&self.path, &self.fingerprint)?;
         Ok(())
     }
-}
-
-/// SHA-256 of the running bz binary, computed once.
-fn bz_digest() -> Result<&'static str> {
-    static DIGEST: OnceLock<String> = OnceLock::new();
-    if let Some(digest) = DIGEST.get() {
-        return Ok(digest);
-    }
-    let exe = std::env::current_exe().context("locating the bz binary")?;
-    let digest = util::sha256_file(&exe)?;
-    Ok(DIGEST.get_or_init(|| digest))
 }
 
 #[cfg(test)]
