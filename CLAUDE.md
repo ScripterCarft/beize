@@ -101,7 +101,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz cve             # bekannte Lücken (NVD) im Image; rot ab CVSS 7 ohne Bewertung (~6 min)
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
 # --locked (CI): kernel/beize.config muss aktuell sein, statt neu geschrieben zu werden
-# nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys|new-update-key ·
+# nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys|new-update-key|new-module-key ·
 #   ./bz sign · ./bz release (signiertes Update nach build/out/release/<ver>) · ./bz install
 ```
 
@@ -117,8 +117,10 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Änderung nur an Test-/Berichtscode
   von `bz` (`vm/`, `cve` …) baut nichts neu; Rezeptänderung an systemd: 24 s für systemd, dazu was davon abhängt; Bau von null
   9,6 min (2026-10-14, davon Toolchain 6 min, Kernel danach parallel zu den Paketen),
-  Plattenspitze 7 GiB. Gleicher Stand und Kernel-Bau → bit-gleiches `disk.img` (Module: Wegwerf-
-  Schlüssel je Kernel-Bau). Die CI baut wöchentlich von null.
+  Plattenspitze 7 GiB. Alles Unsignierte ist auf jedem Rechner gleich (`ci/digest.sh`); signiert
+  wird je Schlüsselsatz beim Zusammensetzen, Signaturen bleiben bis zum nächsten Kernel-Bau
+  (ML-DSA signiert mit Zufall; ADR 0015) → gleicher Stand, gleiches `disk.img`. Die CI baut
+  wöchentlich von null.
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke/` (Modul-Doku in `mod.rs`) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
@@ -128,9 +130,11 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - CI (`.github/workflows/ci.yml`): Job `buildroot` legt das Buildroot-Image in GHCR an, wenn
   es fehlt (`beize-buildroot:<hash>`; `mirror.yml` liefert nur das Ubuntu dafür); darin
   fmt/clippy/test bei jedem Push; auf `main`, manuell und wöchentlich (dann von null)
-  `ci/system.sh` privilegiert mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum und Microcode
-  im Actions-Cache; `build/out` nicht, daher laufen die Schritte ab Kernel dort immer. Der
-  Runner ist klein (Smoke-Szenarien nacheinander, ~14 min). Repo privat: Actions-Minuten sparsam.
+  `ci/system.sh` privilegiert mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum, Microcode
+  und die Test-Schlüssel im Actions-Cache; `build/out` nicht, daher laufen die Schritte ab Kernel
+  dort immer. Der Runner ist klein (Smoke-Szenarien nacheinander, ~14 min). Das Repo ist
+  öffentlich (Besitzer, 2026-10-14) – Standard-Runner öffentlicher Repos haben 4 vCPU/16 GB;
+  `ci/system.sh` gibt die Größe aus (`build host:`), bis 2026-10-13 waren es 2 CPUs.
 
 ## 7. ADRs (`docs/adr/`)
 
@@ -264,26 +268,28 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
 - 2026-10-14, Prüfung gegen etablierte Praxis (Funde als Issues #29–#36): Kernel mit Beizes
   Toolchain (#29) · Hardlinks bleiben (#30) · gcc-pass1 nur C (#31) · Stempel nur am bauenden
   Code (#27) · **dbus-broker** statt dbus-daemon, `DynamicUser=` geht wieder (#32, #28) ·
-  bit-gleiche Images bei gleichem Kernel-Bau (#5) · ntpd-rs-Crates in der SBOM (#24) · Zeitbudget vom
-  2-CPU-Runner (#9) · `vm/smoke/` nach Themen (#7) · linux 7.2.10, curl 8.23, mpc 1.4.1 ·
-  ccache gemessen, lohnt nicht (#4). Bau von null jetzt 9,6 min lokal.
+  ntpd-rs-Crates in der SBOM (#24) · Zeitbudget vom 2-CPU-Runner (#9) · `vm/smoke/` nach Themen
+  (#7) · linux 7.2.10, curl 8.23, mpc 1.4.1 · ccache gemessen, lohnt nicht (#4). Bau von null 9,6 min.
+- 2026-10-14, #5 (Variante A, vom Besitzer gewählt): Module je Schlüsselsatz signiert, getrennt vom
+  Bau (ADR 0015, `f6116a8`); Unsigniertes überall gleich, `ci/digest.sh` vergleicht.
 
-**NÄCHSTER CHAT**
-0. CI des Pushs vom 14.10. prüfen (Toolchain geändert → Bau von null, ~2,5 h). #5: Bit-gleich ist
-   ein Image nur bei gleichem Kernel-Bau – die Module tragen die Signatur eines Wegwerf-Schlüssels
-   je Kernel-Bau (ADR 0015). CI gegen lokal also ohne Module vergleichen (Pakete, initrd ohne
-   Module), dann bewerten, wie Distributionen das lösen.
-1. #33 Debug-Infos und elfutils (Absturzberichte mit Stacktrace; Fedora-Vorbild).
-2. Rest: #7 (`secureboot.rs`, `source.rs`, `select.rs`), #24 RustSec für ntpd-rs (mit der nächsten
-   Buildroot-Änderung), #22 growfs als Upstream-Bericht, #4 systemd-vmspawn, #2 CI-Kosten
-   (Besitzer), #6/#8 auf der Hardware mit dem Besitzer.
-3. **Label `m3-plan` (#14, #17, #34–#36) nur mit Zustimmung des Besitzers** – sie gehören in den
-   M3-Plan: Speicherdruck (zram, systemd-oomd), nftables, fwupd, BTF/BPF, Treiber.
-Runner: 2 CPUs, 7,8 GiB, root, kein systemd; Normallauf ~20 min, Bau von null ~2,5 h. Der
-`gh`-Token darf keine Workflows starten. In `~/beize` liegt ein alter `git stash` (13.10.; nicht
+**PLAN BIS M3 (mit dem Besitzer abgestimmt 2026-10-14)**
+1. #5 abschließen: `ci/digest.sh` im CI-Log gegen lokal vergleichen (gleicher Commit!), dann
+   `Fixes #5`. **Besitzer:** `./bz secureboot new-module-key` + `module.crt` committen – ohne ihn
+   verweigert `bz sign` (vor #8 nötig).
+2. #33 Debug-Infos/elfutils: ADR 0023 entwerfen (Fedora: `-g`, Debug-Infos nach Build-ID außerhalb
+   des Images, MiniDebugInfo, systemd mit elfutils), Kosten gemessen vorlegen, dann umsetzen.
+3. Buildroot-Änderungen gebündelt in einem Push (#24 RustSec für ntpd-rs, was #33 braucht).
+4. 0.3 bauen (erste Version ganz mit Beizes Toolchain), Besitzer installiert: #8 Hardware-Test,
+   #6 Leerlauf messen → Phase 7 und M2 fertig.
+5. M3 planen. Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
+   +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird.
+Nebenbei: #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`). Zurückgestellt: #22 growfs-Bericht,
+#4 vmspawn. #10 seit 12 Läufen nicht wieder – beobachten. **Label `m3-plan` (#14, #17, #34–#36) nur
+mit Zustimmung des Besitzers** (zram/oomd, nftables, fwupd, BTF, Treiber).
+Runner: root, kein systemd; Normallauf ~20 min, Bau von null ~2 h (2 CPUs). Der `gh`-Token darf
+keine Workflows starten. In `~/beize` liegt ein alter `git stash` (13.10.; nicht
 sicher, dass alles davon in den Commits ist – nur mit dem Besitzer löschen).
-
-**ÜBERNÄCHSTER CHAT: M3 planen** (Compositor), mit dem Besitzer abstimmen, dann umsetzen.
 
 **Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase ein Chat, ADR vorab abstimmen, nichts
 abschalten „weil unnötig“, keine fremden Patches; bei Fehlern zuerst fragen, welche eigene
