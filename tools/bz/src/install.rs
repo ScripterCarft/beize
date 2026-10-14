@@ -4,9 +4,9 @@
 //! symlinks into `/usr`. Staged files are normalised to their `/usr` path, so
 //! every file has exactly one canonical location and exactly one owner.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{MetadataExt, symlink};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -114,8 +114,9 @@ pub fn merge(paths: &Paths, package: &str, staging: &Path) -> Result<()> {
     }
 
     remove_installed(paths, package)?;
+    let mut copier = Copier::default();
     for (target, rel) in &files {
-        copy_entry(&staging.join(rel), &paths.sysroot.join(target))?;
+        copier.copy(&staging.join(rel), &paths.sysroot.join(target))?;
     }
 
     let manifest: String = files
@@ -143,21 +144,44 @@ pub fn owner(paths: &Paths, path: &str) -> Result<String> {
         .with_context(|| format!("/{} is not owned by any package", target.display()))
 }
 
-/// Copies a regular file or symlink, replacing whatever is at `dest`.
-pub fn copy_entry(src: &Path, dest: &Path) -> Result<()> {
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    if dest.symlink_metadata().is_ok() {
-        fs::remove_file(dest).with_context(|| format!("replacing {}", dest.display()))?;
-    }
-    let meta = src.symlink_metadata()?;
-    if meta.file_type().is_symlink() {
-        symlink(fs::read_link(src)?, dest)?;
-    } else {
+/// Copies regular files and symlinks, replacing whatever is at the
+/// destination. Files that are hard links of each other stay hard links of
+/// each other, as rpm, tar and cpio keep them: e2fsprogs installs e2fsck and
+/// fsck.ext2/3/4 as one file, which would otherwise be in `/usr` four times.
+#[derive(Default)]
+pub struct Copier {
+    /// The first copy of each multiply linked source file, by device and inode.
+    copied: HashMap<(u64, u64), PathBuf>,
+}
+
+impl Copier {
+    /// Copies `src` to `dest`; returns false if `dest` became a hard link to
+    /// an earlier copy instead.
+    pub fn copy(&mut self, src: &Path, dest: &Path) -> Result<bool> {
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if dest.symlink_metadata().is_ok() {
+            fs::remove_file(dest).with_context(|| format!("replacing {}", dest.display()))?;
+        }
+        let meta = src.symlink_metadata()?;
+        if meta.file_type().is_symlink() {
+            symlink(fs::read_link(src)?, dest)?;
+            return Ok(true);
+        }
+        if meta.nlink() > 1 {
+            if let Some(first) = self.copied.get(&(meta.dev(), meta.ino())) {
+                fs::hard_link(first, dest).with_context(|| {
+                    format!("linking {} to {}", dest.display(), first.display())
+                })?;
+                return Ok(false);
+            }
+            self.copied
+                .insert((meta.dev(), meta.ino()), dest.to_owned());
+        }
         fs::copy(src, dest).with_context(|| format!("copying {}", src.display()))?;
+        Ok(true)
     }
-    Ok(())
 }
 
 /// Fills `dest`, an empty directory, with the files of `packages` as hard
@@ -392,6 +416,33 @@ mod tests {
         assert_eq!(ls, "new");
         assert!(!dir_left, "a file the new build no longer installs stays");
         assert_eq!(ls_running, "old");
+    }
+
+    #[test]
+    fn hard_links_stay_hard_links() {
+        let dir = std::env::temp_dir().join(format!("bz-links-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/e2fsck"), "fsck").unwrap();
+        fs::hard_link(dir.join("src/e2fsck"), dir.join("src/fsck.ext4")).unwrap();
+        fs::write(dir.join("src/other"), "fsck").unwrap();
+
+        let mut copier = Copier::default();
+        let copied: Vec<bool> = ["e2fsck", "fsck.ext4", "other"]
+            .iter()
+            .map(|name| {
+                copier
+                    .copy(&dir.join("src").join(name), &dir.join("dest").join(name))
+                    .unwrap()
+            })
+            .collect();
+        let inode = |name: &str| fs::metadata(dir.join("dest").join(name)).unwrap().ino();
+        let (e2fsck, fsck, other) = (inode("e2fsck"), inode("fsck.ext4"), inode("other"));
+        fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(copied, [true, false, true]);
+        assert_eq!(e2fsck, fsck);
+        assert_ne!(e2fsck, other, "equal content alone is no link");
     }
 
     #[test]

@@ -111,14 +111,15 @@ pub fn target_packages(recipes: &[Recipe]) -> impl Iterator<Item = &Recipe> {
     recipes.iter().filter(|r| r.stage == Some(Stage::Target))
 }
 
-/// Copies `files` (relative to the root) from the sysroot into `dest` and
-/// strips debug information. Returns the file count.
+/// Copies `files` (relative to the root) from the sysroot into `dest`,
+/// keeping hard links, and strips debug information. Returns the file count.
 pub fn copy_files(paths: &Paths, files: &[PathBuf], dest: &Path) -> Result<usize> {
+    let mut copier = install::Copier::default();
     let mut elf_files = Vec::new();
     for file in files {
         let target = dest.join(file);
-        install::copy_entry(&paths.sysroot.join(file), &target)?;
-        if is_elf(&target)? {
+        // A hard link is stripped once, through its first name.
+        if copier.copy(&paths.sysroot.join(file), &target)? && is_elf(&target)? {
             elf_files.push(target);
         }
     }
