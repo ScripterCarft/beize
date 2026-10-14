@@ -140,7 +140,10 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     let config = obj.join(".config");
     verify_config(&all, &config)?;
     check_resolved(paths, &config)?;
-    fs::copy(&cert, obj.join(TRUSTED_CERT))?;
+    // Where kbuild looks for it; a new object tree has no certs/ yet.
+    let trusted = obj.join(TRUSTED_CERT);
+    fs::create_dir_all(trusted.parent().context("the certificate's directory")?)?;
+    fs::copy(&cert, &trusted)?;
 
     util::step(&format!("Building linux {}", recipe.version));
     // Its jobs come from the pool the package builds share (bz build runs
