@@ -59,9 +59,14 @@ pub struct Sbom {
     /// CPE 2.3 prefixes (`cpe:2.3:<part>:<vendor>:<product>`) the NVD knows
     /// the package by; empty for what has none (data, firmware).
     pub cpe: Option<Vec<String>>,
-    /// Vulnerabilities assessed as not affecting Beize, with the reason.
+    /// Vulnerabilities assessed as not affecting Beize, with the reason:
+    /// CVE IDs from the NVD, RUSTSEC IDs from RustSec.
     #[serde(default, rename = "cve-ignore")]
     pub cve_ignore: std::collections::BTreeMap<String, String>,
+    /// For a Rust project's source: its Cargo.lock, whose crates `bz cve`
+    /// checks against RustSec (the workspace's own: cargo-deny).
+    #[serde(rename = "cargo-lock")]
+    pub cargo_lock: Option<String>,
 }
 
 /// The recipe's `[files]` table (`crate::files`).
@@ -311,7 +316,8 @@ mod tests {
             }
             for (cve, why) in &recipe.sbom.cve_ignore {
                 assert!(
-                    cve.starts_with("CVE-") && !why.trim().is_empty(),
+                    (cve.starts_with("CVE-") || cve.starts_with("RUSTSEC-"))
+                        && !why.trim().is_empty(),
                     "{name}: {cve}"
                 );
             }

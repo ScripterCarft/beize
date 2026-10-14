@@ -42,6 +42,8 @@ cp "$SRC/Cargo.lock" "$crates/ntpd-rs.lock"
 # As the project states it (Cargo.toml).
 license = "Apache-2.0 OR MIT"
 cpe = ["cpe:2.3:a:tweedegolf:ntpd-rs"]
+# Its crates, checked against RustSec by `bz cve`.
+cargo-lock = "Cargo.lock"
 
 [files]
 image = [

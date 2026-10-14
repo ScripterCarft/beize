@@ -4,11 +4,18 @@
 //! are left out. Fails when one of CVSS 7.0 or more is left: the weekly CI
 //! run then turns red.
 //!
+//! Rust projects' crates are not in the NVD: RustSec's advisories for the
+//! Cargo.lock of each such source (`[sbom] cargo-lock`), with cargo-audit as
+//! their upstreams run it. Every advisory of a vulnerability fails until it
+//! is assessed; unmaintained or unsound crates are shown. Beize's own crates
+//! are cargo-deny's (deny.toml).
+//!
 //! Without an API key the NVD allows 5 requests in 30 seconds; with one in
 //! `NVD_API_KEY`, 50.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -55,7 +62,7 @@ pub fn show(paths: &Paths) -> Result<()> {
             thread::sleep(pause);
         }
         for cve in recipe.sbom.cve_ignore.keys() {
-            if !findings.contains_key(cve) {
+            if cve.starts_with("CVE-") && !findings.contains_key(cve) {
                 stale.push(format!("{}: {cve}", recipe.name));
             }
         }
@@ -77,21 +84,123 @@ pub fn show(paths: &Paths) -> Result<()> {
             }
         }
     }
+    let nvd_serious = serious.len();
+    let mut crates_open = 0;
+    for recipe in sbom::image_recipes(paths)? {
+        if let Some(lock) = &recipe.sbom.cargo_lock {
+            let report = rustsec(paths, &recipe.unpack(paths)?.join(lock))
+                .with_context(|| format!("checking the crates of {}", recipe.name))?;
+            for (id, line) in report.vulnerabilities {
+                if recipe.sbom.cve_ignore.contains_key(&id) {
+                    continue;
+                }
+                let line = format!("  {} {}: {line}", recipe.name, recipe.version);
+                println!("{line}");
+                crates_open += 1;
+                serious.push(line);
+            }
+            for line in report.warnings {
+                println!("  {} {}: {line}", recipe.name, recipe.version);
+            }
+            for id in recipe.sbom.cve_ignore.keys() {
+                if id.starts_with("RUSTSEC-") && !report.reported.contains(id) {
+                    stale.push(format!("{}: {id}", recipe.name));
+                }
+            }
+        }
+    }
     for entry in &stale {
         println!("  assessed, but no longer reported (remove from [sbom.cve-ignore]): {entry}");
     }
     println!(
-        "{open} open vulnerabilities, {} of CVSS {FAIL_FROM} or more",
-        serious.len()
+        "NVD: {open} open vulnerabilities, {nvd_serious} of CVSS {FAIL_FROM} or more; \
+         RustSec: {crates_open} in crates"
     );
     if !serious.is_empty() {
         bail!(
-            "{} open vulnerabilities of CVSS {FAIL_FROM} or more: update the package, or \
-             assess them in its recipe's [sbom.cve-ignore] with the reason",
+            "{} open vulnerabilities to act on: update the package, or assess them in its \
+             recipe's [sbom.cve-ignore] with the reason",
             serious.len()
         );
     }
     Ok(())
+}
+
+/// What RustSec says about the crates of one Cargo.lock.
+#[derive(Debug, Default, PartialEq)]
+struct RustsecReport {
+    /// Vulnerabilities: advisory ID and a line to show.
+    vulnerabilities: Vec<(String, String)>,
+    /// Unmaintained, unsound or yanked crates, to show.
+    warnings: Vec<String>,
+    /// Every advisory ID it named.
+    reported: std::collections::BTreeSet<String>,
+}
+
+/// Runs cargo-audit on `lock`, with RustSec's advisory database fetched
+/// into `build/work/rustsec`.
+fn rustsec(paths: &Paths, lock: &Path) -> Result<RustsecReport> {
+    let out = Command::new("cargo")
+        .args(["audit", "--json", "--file"])
+        .arg(lock)
+        .arg("--db")
+        .arg(paths.work.join("rustsec/advisory-db"))
+        .output()
+        .context("starting cargo audit")?;
+    // It exits non-zero when it finds a vulnerability; the JSON says what.
+    serde_json::from_slice(&out.stdout)
+        .map_err(anyhow::Error::from)
+        .and_then(|json: Value| parse_rustsec(&json))
+        .with_context(|| {
+            format!(
+                "cargo audit gave no report: {}",
+                String::from_utf8_lossy(&out.stderr).trim_end()
+            )
+        })
+}
+
+/// Reads cargo-audit's `--json` report.
+fn parse_rustsec(json: &Value) -> Result<RustsecReport> {
+    let mut report = RustsecReport::default();
+    let line = |entry: &Value| -> Option<(String, String)> {
+        let advisory = &entry["advisory"];
+        let id = advisory["id"].as_str()?.to_owned();
+        let package = &entry["package"];
+        Some((
+            id.clone(),
+            format!(
+                "{} {} {id} {}",
+                package["name"].as_str()?,
+                package["version"].as_str()?,
+                advisory["title"].as_str().unwrap_or_default()
+            ),
+        ))
+    };
+    for entry in json["vulnerabilities"]["list"]
+        .as_array()
+        .context("no vulnerabilities in cargo audit's report")?
+    {
+        let (id, text) = line(entry).context("an unreadable vulnerability")?;
+        report.reported.insert(id.clone());
+        report.vulnerabilities.push((id, text));
+    }
+    for (kind, entries) in json["warnings"].as_object().into_iter().flatten() {
+        for entry in entries.as_array().into_iter().flatten() {
+            match line(entry) {
+                Some((id, text)) => {
+                    report.reported.insert(id);
+                    report.warnings.push(format!("{text} ({kind})"));
+                }
+                // Yanked crates come without an advisory.
+                None => report.warnings.push(format!(
+                    "{} {} ({kind})",
+                    entry["package"]["name"].as_str().unwrap_or("?"),
+                    entry["package"]["version"].as_str().unwrap_or("?")
+                )),
+            }
+        }
+    }
+    Ok(report)
 }
 
 /// The NVD's answer for the CPE name `cpe` (with version), retrying when it
@@ -223,6 +332,46 @@ fn shorten(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn reads_cargo_audits_report() {
+        // Shapes as cargo-audit 0.22 writes them (ntpd-rs 1.9.0, 2026-10-14).
+        let report = parse_rustsec(&json!({
+            "vulnerabilities": { "found": true, "count": 1, "list": [{
+                "advisory": { "id": "RUSTSEC-2026-0349", "title": "ServerHello downgrade" },
+                "package": { "name": "rustls", "version": "0.23.40" }
+            }]},
+            "warnings": {
+                "unsound": [{
+                    "kind": "unsound",
+                    "advisory": { "id": "RUSTSEC-2026-0190", "title": "Unsoundness" },
+                    "package": { "name": "anyhow", "version": "1.0.102" }
+                }],
+                "yanked": [{
+                    "kind": "yanked",
+                    "advisory": null,
+                    "package": { "name": "chacha20", "version": "0.10.0" }
+                }]
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            report.vulnerabilities,
+            [(
+                "RUSTSEC-2026-0349".to_owned(),
+                "rustls 0.23.40 RUSTSEC-2026-0349 ServerHello downgrade".to_owned()
+            )]
+        );
+        assert_eq!(
+            report.warnings,
+            [
+                "anyhow 1.0.102 RUSTSEC-2026-0190 Unsoundness (unsound)",
+                "chacha20 0.10.0 (yanked)"
+            ]
+        );
+        assert!(report.reported.contains("RUSTSEC-2026-0190"));
+        assert!(parse_rustsec(&json!({ "warnings": {} })).is_err());
+    }
 
     const SSL: &str = "cpe:2.3:a:openssl:openssl";
 

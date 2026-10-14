@@ -32,7 +32,8 @@ digitalen Elementen.
   - jedes Paket des Images, Kernel, Firmware und Microcode mit Version, Quelle, Pin
     (SHA-256 bzw. Commit), Lizenz und CPE;
   - Abhängigkeiten aus `deps`; Toolchain und reine Bau-Pakete als Bauwerkzeuge;
-  - die Rust-Crates der eigenen Dienste (aus `Cargo.lock`);
+  - die Rust-Crates der eigenen Dienste (aus `Cargo.lock`) und fremder Rust-Programme
+    (ntpd-rs schreibt beim Bau, was es gelinkt hat, wie Fedoras `%cargo_vendor_manifest`);
   - die Pakete des Buildroots (ADR 0021) als Bauwerkzeuge;
   - bewertete CVEs als Anmerkung.
 
@@ -45,7 +46,11 @@ digitalen Elementen.
   „behoben in 2.44 (NEWS: Bug 34033)“, wenn der Versionsbereich der NVD kein Ende hat.
   Der wöchentliche CI-Lauf führt es aus und scheitert bei neuen Einträgen ab CVSS 7.0.
 - **Rust-Abhängigkeiten.** cargo-deny prüft in jedem CI-Lauf RustSec-Advisories, Lizenzen
-  (Erlaubnisliste) und Herkunft (nur crates.io) (`deny.toml`).
+  (Erlaubnisliste) und Herkunft (nur crates.io) der eigenen Crates (`deny.toml`). Die Crates
+  fremder Rust-Programme stehen nicht in der NVD: `bz cve` prüft das `Cargo.lock` ihrer
+  Quelle (`[sbom] cargo-lock`) mit cargo-audit gegen RustSec, wie ihre Projekte selbst.
+  Jede Lücke dort scheitert, bis sie bewertet ist (`[sbom.cve-ignore]` mit `RUSTSEC-…`);
+  nicht gepflegte, unsichere oder zurückgezogene Crates werden gezeigt.
 
 ## Konsequenzen
 
@@ -54,5 +59,5 @@ digitalen Elementen.
 - Die NVD-Abfrage ist ein Netzdienst ohne Signatur; sie meldet nur und ändert nichts am Bau.
 - CPE-Namen sind ungenau (Produkte ohne CPE, Sammelnamen). Was die NVD nicht kennt, prüft
   die wöchentliche Upstream-Kontrolle (`bz outdated`) weiter mit.
-- Offen: die Crates in ntpd-rs (eigenes `Cargo.lock` in seiner Quelle) stehen noch nicht
-  in der SBOM und nicht unter cargo-deny.
+- Das `Cargo.lock` einer Quelle nennt auch Crates, die Beize nicht linkt (andere Features,
+  Entwicklung); ein Fund dort wird mit diesem Grund bewertet.
