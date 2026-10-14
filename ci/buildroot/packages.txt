@@ -48,6 +48,8 @@ git
 gpgv
 # ssh-keygen: SSH-signed sources (git's SSH signing, e.g. ntpd-rs)
 openssh-client
+# sources packed as .tar.bz2 (elfutils)
+bzip2
 xz-utils
 zstd
 

@@ -15,6 +15,11 @@ here=$(cd "$(dirname "$0")" && pwd)
 # release build, pinned by the checksum it publishes.
 CARGO_DENY=https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
 CARGO_DENY_SHA256=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+# cargo-audit for `bz cve`: RustSec advisories of every crate in the image,
+# also those of other projects' Cargo.lock (ntpd-rs), which cargo-deny cannot
+# read without their manifest. Pinned by the digest GitHub publishes.
+CARGO_AUDIT=https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz
+CARGO_AUDIT_SHA256=7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
 
 ARCHIVE=http://archive.ubuntu.com/ubuntu
 SNAPSHOT=https://snapshot.ubuntu.com/ubuntu/$(< "$here/snapshot")
@@ -63,6 +68,10 @@ if [ "${1:-}" = --customize ]; then
     echo "$CARGO_DENY_SHA256  $tools/cargo-deny.tar.gz" | sha256sum --check --status
     tar -x -z -f "$tools/cargo-deny.tar.gz" -C "$tools" --strip-components=1
     install -m 0755 "$tools/cargo-deny" "$root/opt/rust/bin/"
+    curl -fsSL -o "$tools/cargo-audit.tgz" "$CARGO_AUDIT"
+    echo "$CARGO_AUDIT_SHA256  $tools/cargo-audit.tgz" | sha256sum --check --status
+    tar -x -z -f "$tools/cargo-audit.tgz" -C "$tools" --strip-components=1
+    install -m 0755 "$tools/cargo-audit" "$root/opt/rust/bin/"
     rm -rf "$tools"
     # What the buildroot is (bz compares it with ci/buildroot/hash.sh) and
     # what it holds, as Debian's .buildinfo records a build's environment.
@@ -72,6 +81,7 @@ if [ "${1:-}" = --customize ]; then
         chroot "$root" dpkg-query -W -f '${Package} ${Version} ${Architecture}\n'
         in_root rustc --version
         in_root cargo deny --version
+        in_root cargo audit --version
     } > "$root/usr/share/beize-buildroot/buildinfo"
     exit 0
 fi
@@ -93,8 +103,11 @@ chmod -R a+rX "$stage"
 # apt resolves against the snapshot's indexes, as lock.sh did, and finds
 # every package already in its cache (checked again against the indexes).
 # The snapshot's Release files may be older than Valid-Until allows.
+# snapshot.ubuntu.com answers 5xx at times (2026-10-14: twice in an hour):
+# apt tries each download again, with growing pauses.
 mmdebstrap --variant=apt --components=main,universe \
     --include="$packages" \
+    --aptopt='Acquire::Retries "8"' \
     --dpkgopt='path-exclude=/usr/share/doc/*' \
     --dpkgopt='path-include=/usr/share/doc/*/copyright' \
     --dpkgopt='path-exclude=/usr/share/man/*' \

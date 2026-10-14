@@ -20,8 +20,10 @@ sources=()
 for pocket in "${pockets[@]}"; do
     sources+=("deb $mirror $pocket main universe")
 done
+# snapshot.ubuntu.com answers 5xx at times: every download is tried again.
 mmdebstrap --simulate --verbose --variant=apt --components=main,universe \
     --include="$packages" --aptopt='Acquire::Check-Valid-Until "false"' \
+    --aptopt='Acquire::Retries "8"' \
     resolute /dev/null "${sources[@]}" > "$work/simulate.log" 2>&1 ||
     { tail -40 "$work/simulate.log" >&2; exit 1; }
 # "Inst <package> (<version> <origins> [<arch>]) …"
@@ -29,11 +31,11 @@ sed -n 's/^Inst \([^ ]*\) (\([^ ]*\) [^[]*\[\([a-z0-9]\+\)\]).*/\1 \2 \3/p' "$wo
     sort -u > "$work/resolved"
 
 for pocket in "${pockets[@]}"; do
-    curl -fsS -o "$work/$pocket.InRelease" "$mirror/dists/$pocket/InRelease"
+    curl -fsS --retry 8 --retry-all-errors -o "$work/$pocket.InRelease" "$mirror/dists/$pocket/InRelease"
     gpgv --quiet --keyring /usr/share/keyrings/ubuntu-archive-keyring.gpg \
         --output "$work/$pocket.Release" "$work/$pocket.InRelease"
     for component in main universe; do
-        curl -fsS -o "$work/$pocket.$component.Packages.xz" \
+        curl -fsS --retry 8 --retry-all-errors -o "$work/$pocket.$component.Packages.xz" \
             "$mirror/dists/$pocket/$component/binary-amd64/Packages.xz"
     done
 done
