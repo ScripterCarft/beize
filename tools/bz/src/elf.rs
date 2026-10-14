@@ -5,7 +5,8 @@
 //! and crash reports (as Fedora requires); a file without one was linked by
 //! something other than Beize's compiler. And each must come from Beize's
 //! compilers, by what they write into `.comment`: the build host's gcc once
-//! compiled libcap unnoticed.
+//! compiled libcap unnoticed. Each carries MiniDebugInfo instead of its
+//! symbol table, so a crash names its functions (ADR 0023).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use anyhow::{Result, ensure};
 use crate::packages::TARGET;
 use crate::paths::Paths;
 use crate::recipe::Recipe;
-use crate::{say, tree, util};
+use crate::{debuginfo, say, tree, util};
 
 /// Files that cannot carry the CET properties, with the reason.
 const NO_CET: [(&str, &str); 9] = [
@@ -44,7 +45,12 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
         let relative = file.strip_prefix(root)?.to_path_buf();
         let output = util::output(
             Command::new(&readelf)
-                .args(["--wide", "--file-header", "--program-headers"])
+                .args([
+                    "--wide",
+                    "--file-header",
+                    "--program-headers",
+                    "--section-headers",
+                ])
                 .args(["--dynamic", "--notes", "--string-dump=.comment"])
                 .arg(file),
         )?;
@@ -66,7 +72,8 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     }
     ensure!(
         problems.is_empty(),
-        "{} of {} ELF files in {what} lack Beize's hardening or compilers (ADR 0014):\n  {}",
+        "{} of {} ELF files in {what} lack Beize's hardening, compilers (ADR 0014) or \
+         MiniDebugInfo (ADR 0023):\n  {}",
         problems.len(),
         files.len(),
         problems.join("\n  ")
@@ -78,7 +85,8 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     );
     say!(
         "  ok: all {} ELF files in {what} come from Beize's compilers, are hardened \
-         (PIE, RELRO, BIND_NOW, CET), have a build ID and find their libraries",
+         (PIE, RELRO, BIND_NOW, CET), have a build ID and MiniDebugInfo and find their \
+         libraries",
         files.len()
     );
     Ok(())
@@ -119,10 +127,14 @@ struct Hardening {
     runpath: Vec<String>,
     /// What the compilers wrote into `.comment`, e.g. `GCC: (GNU) 16.2.0`.
     compilers: Vec<String>,
+    /// MiniDebugInfo, and the full symbol table it replaces (ADR 0023).
+    mini_debug_info: bool,
+    symbol_table: bool,
 }
 
 impl Hardening {
-    /// Parses `readelf --wide --file-header --program-headers --dynamic --notes`.
+    /// Parses `readelf --wide --file-header --program-headers --section-headers
+    /// --dynamic --notes --string-dump=.comment`.
     fn parse(output: &str) -> Self {
         let mut h = Self::default();
         let mut in_comment = false;
@@ -140,6 +152,9 @@ impl Hardening {
                     .next()
                     .unwrap_or_default()
                     .to_owned();
+            } else if let Some(name) = section_name(line) {
+                h.mini_debug_info |= name == debuginfo::SECTION;
+                h.symbol_table |= name == ".symtab";
             } else if line.starts_with("DYNAMIC ") {
                 h.dynamic = true;
             } else if line.starts_with("GNU_RELRO ") {
@@ -262,8 +277,22 @@ impl Hardening {
         if !self.build_id {
             problems.push("no build ID");
         }
+        if !self.mini_debug_info {
+            problems.push("no MiniDebugInfo");
+        }
+        if self.symbol_table {
+            problems.push("a full symbol table");
+        }
         problems
     }
+}
+
+/// The name in a line of readelf's section headers: `[ 1] .interp PROGBITS ...`.
+fn section_name(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix('[')?;
+    let (index, rest) = rest.split_once(']')?;
+    index.trim().parse::<u32>().ok()?;
+    rest.split_whitespace().next()
 }
 
 /// An absolute path made relative to the root, `..` resolved by name.
@@ -297,6 +326,9 @@ mod tests {
   DYNAMIC        0x14dcd8 0x000000000014ecd8 0x000000000014ecd8 0x0001e0 0x0001e0 RW  0x8
   GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x10
   GNU_RELRO      0x14af70 0x000000000014bf70 0x000000000014bf70 0x003090 0x003090 R   0x1
+  [ 1] .interp           PROGBITS        0000000000000318 000318 00001c 00   A  0   0  1
+  [29] .comment          PROGBITS        0000000000000000 14f010 00001b 01  MS  0   0  1
+  [30] .gnu_debugdata    PROGBITS        0000000000000000 14f02b 0012a8 00      0   0  1
  0x000000000000001e (FLAGS)              BIND_NOW
  0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
   GNU                  0x00000014	NT_GNU_BUILD_ID (unique build ID bitstring)
@@ -342,6 +374,17 @@ mod tests {
         // Linked by a compiler without --enable-linker-build-id.
         let no_id = HARDENED.replace("NT_GNU_BUILD_ID", "NT_GNU_HWCAP");
         assert_eq!(Hardening::parse(&no_id).problems(true), ["no build ID"]);
+        // Stripped by its own build, or never prepared (ADR 0023).
+        let no_mini = HARDENED.replace(".gnu_debugdata", ".gnu_debuglink");
+        assert_eq!(
+            Hardening::parse(&no_mini).problems(true),
+            ["no MiniDebugInfo"]
+        );
+        let symtab = HARDENED.replace(".interp ", ".symtab ");
+        assert_eq!(
+            Hardening::parse(&symtab).problems(true),
+            ["a full symbol table"]
+        );
         let textrel = HARDENED.replace("BIND_NOW\n", "BIND_NOW TEXTREL\n");
         assert_eq!(
             Hardening::parse(&textrel).problems(true),

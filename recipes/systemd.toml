@@ -24,8 +24,10 @@ stage = "target"
 # them. Of importd only systemd-import stays (sysupdate writes a partition
 # with it). zstd: with xz present, systemd would compress the journal and
 # core dumps with xz by default; zstd is far faster and what Fedora uses.
+# elfutils: systemd-coredump writes the stack trace of a crashed program into
+# the journal (libdw, dlopen; ADR 0023).
 deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-tss", "linux-pam",
-        "kmod", "acl", "libxkbcommon", "libseccomp", "curl", "xz", "zlib", "zstd"]
+        "kmod", "acl", "libxkbcommon", "libseccomp", "curl", "xz", "zlib", "zstd", "elfutils"]
 
 # systemd publishes no signed tarballs; release tags are signed instead.
 [source]
@@ -44,6 +46,7 @@ meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   -Dlibcryptsetup=enabled \
   -Dopenssl=enabled -Dtpm2=enabled \
   -Dkmod=enabled -Dacl=enabled -Dxkbcommon=enabled -Dpolkit=enabled -Dseccomp=enabled \
+  -Delfutils=enabled \
   -Dpam=enabled -Dpamconfdir=/usr/lib/pam.d -Dpamlibdir=/usr/lib/security \
   -Dtests=false -Dinstall-tests=false \
   -Ddefault-dnssec=no \

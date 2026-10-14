@@ -22,6 +22,7 @@ Prüfen aller Quellen: `./bz verify`
 | `dbus-broker` | David Rheinsberg | `BE5F BC8C 9C1C 9F60 A4F0 AEAE 7A4F 3A09 EBDE FF26` | keyserver.ubuntu.com |
 | `duktape` | duktape signiert weder Archive noch Tags (geprüft 2026-10-11) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
 | `e2fsprogs` | Theodore Ts'o | `2B69 B954 DBFE 0879 2881 37C9 F2F9 5956 950D 81A3` | keys.openpgp.org |
+| `elfutils` | Aaron Merey (Red Hat) | `6C2B 6315 63B8 D330 578D 3CB4 74FD 3FA2 779E 7073` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org und Arch Linux' `validpgpkeys` |
 | `expat` | Sebastian Pipping | `CB8D E70A 90CF BF6C 3BF5 CC56 9626 2ACF FBD3 AEC6` | keyserver.ubuntu.com |
 | `gcc` | Richard Biener | `7F74 F97C 1034 68EE 5D75 0B58 3AB0 0996 FC26 A641` | GNU-Keyring |
 | `glib` | Philip Withnall (GNOME) | `923B 7025 EE03 C1C5 9F42 684C F094 2E89 4B2E AFA0` | keyserver.ubuntu.com; signierter Git-Tag (mit Git-EVTag), Unterschlüssel `6DFB 50D0 F26A E9F5 09B0 12CD C5C4 2CFB 2686 37CA`; das Submodul gvdb ist über den signierten Baum gepinnt |

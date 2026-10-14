@@ -2,15 +2,14 @@
 
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::install;
-use crate::packages::{self, BUILD_EPOCH, TARGET};
+use crate::packages::{self, BUILD_EPOCH};
 use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
@@ -112,24 +111,15 @@ pub fn target_packages(recipes: &[Recipe]) -> impl Iterator<Item = &Recipe> {
 }
 
 /// Copies `files` (relative to the root) from the sysroot into `dest`,
-/// keeping hard links, and strips debug information. Returns the file count.
+/// keeping hard links. Programs and libraries come as their packages left
+/// them: stripped, with MiniDebugInfo (ADR 0023). Returns the file count.
 pub fn copy_files(paths: &Paths, files: &[PathBuf], dest: &Path) -> Result<usize> {
     let mut copier = install::Copier::default();
-    let mut elf_files = Vec::new();
     for file in files {
-        let target = dest.join(file);
-        // A hard link is stripped once, through its first name.
-        if copier.copy(&paths.sysroot.join(file), &target)? && is_elf(&target)? {
-            elf_files.push(target);
-        }
+        copier.copy(&paths.sysroot.join(file), &dest.join(file))?;
     }
-    let count = files.len();
-    strip_debug_info(paths, &elf_files)?;
-    say!(
-        "  {count} files, debug info stripped from {} ELF files",
-        elf_files.len()
-    );
-    Ok(count)
+    say!("  {} files", files.len());
+    Ok(files.len())
 }
 
 /// Sets every timestamp in `dir` to the build epoch, for reproducible archives.
@@ -158,33 +148,6 @@ pub fn is_elf(path: &Path) -> Result<bool> {
     let mut magic = [0; 4];
     let read = fs::File::open(path)?.read(&mut magic)?;
     Ok(read == 4 && magic == *b"\x7fELF")
-}
-
-/// Removes debug information; symbols needed for dynamic linking stay.
-/// Some packages install read-only binaries; they are made writable for the
-/// strip and get their original mode back afterwards.
-fn strip_debug_info(paths: &Paths, files: &[PathBuf]) -> Result<()> {
-    let strip = paths.tools.join("bin").join(format!("{TARGET}-strip"));
-    let mut read_only = Vec::new();
-    for file in files {
-        let mode = fs::metadata(file)?.permissions().mode();
-        if mode & 0o200 == 0 {
-            fs::set_permissions(file, fs::Permissions::from_mode(mode | 0o200))?;
-            read_only.push((file, mode));
-        }
-    }
-    for chunk in files.chunks(256) {
-        let status = Command::new(&strip)
-            .arg("--strip-debug")
-            .args(chunk)
-            .status()
-            .with_context(|| format!("starting {}", strip.display()))?;
-        ensure!(status.success(), "{} failed with {status}", strip.display());
-    }
-    for (file, mode) in read_only {
-        fs::set_permissions(file, fs::Permissions::from_mode(mode))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

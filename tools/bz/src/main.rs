@@ -7,6 +7,7 @@ mod boottimes;
 mod buildroot;
 mod cgroup;
 mod cve;
+mod debuginfo;
 mod elf;
 mod files;
 mod hwcheck;

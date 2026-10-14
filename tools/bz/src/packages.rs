@@ -20,7 +20,7 @@ use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
 use crate::schedule::{self, Measured, Memory};
-use crate::{buildroot, cgroup, install, stamp, util};
+use crate::{buildroot, cgroup, debuginfo, install, stamp, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
@@ -48,7 +48,8 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 ///    host's for tools that run while building.
 /// 7: the repository's path mapped to /beize in what the compilers write
 ///    ([`prefix_map`]).
-const ENV_REVISION: u32 = 7;
+/// 8: what a package installs is stripped, with MiniDebugInfo (ADR 0023).
+const ENV_REVISION: u32 = 8;
 /// pkg-config for the target, as autoconf looks for it when cross-compiling.
 const TARGET_PKG_CONFIG: &str = "x86_64-beize-linux-gnu-pkg-config";
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
@@ -591,6 +592,10 @@ fn build_one(
             );
         }
         return Err(error);
+    }
+    // As rpmbuild runs find-debuginfo on what a package installed (ADR 0023).
+    if stage == Stage::Target {
+        debuginfo::prepare(paths, &pkg_dir)?;
     }
     let secs = started.elapsed().as_secs();
     say!("  {} built in {secs}s", recipe.name);

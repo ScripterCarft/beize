@@ -357,6 +357,25 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         "lsblk shows the owner no partition names and file systems: {lines:?}"
     );
     say!("  ok: lsblk shows the owner partition names and file systems");
+    // A crash of the owner's program, reported to the owner with its stack
+    // trace (ADR 0023): systemd-coredump unwinds it with libdw. main in
+    // sleep and __libc_start_call_main in glibc are in no dynamic symbol
+    // table; only MiniDebugInfo names them.
+    let (_, lines) = shell.capture(
+        "/usr/bin/sleep 600 & p=$!; /usr/bin/sleep 1; kill -SEGV $p; wait $p; \
+         for _ in {1..40}; do coredumpctl info --no-pager $p > /tmp/crash 2>&1 && break; \
+         /usr/bin/sleep 0.25; done; cat /tmp/crash",
+    )?;
+    let frame = |function: &str, object: &str| {
+        lines
+            .iter()
+            .any(|l| l.contains(&format!(" {function} ({object} + 0x")))
+    };
+    ensure!(
+        frame("main", "sleep") && frame("__libc_start_call_main", "libc.so.6"),
+        "the owner's crashed program has no stack trace with its functions' names: {lines:?}"
+    );
+    say!("  ok: a crash of the owner's program comes with a stack trace that names its functions");
 
     // Accounts (ADR 0019), through Beize's account service: the owner
     // changes their own password – a wrong current one changes nothing.

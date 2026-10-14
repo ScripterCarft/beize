@@ -1,0 +1,45 @@
+# ELF and DWARF libraries (ADR 0023): systemd-coredump unwinds a crashed
+# program with libdw and puts its stack trace into the journal, with the
+# function names from each program's MiniDebugInfo (xz, hence lzma).
+# Only libdw and libelf; the eu-* tools are not shipped. No debuginfod: Beize
+# asks no server about its programs. No C++ demangler: it would bring
+# libstdc++, and no program in Beize is C++ (gcc-runtime.toml) – turn it on
+# with the first C++ program.
+name = "elfutils"
+version = "0.196"
+stage = "target"
+deps = ["gcc", "glibc", "zlib", "xz", "zstd"]
+
+[source]
+latest = { release-monitoring = 5679 }
+url = "https://sourceware.org/elfutils/ftp/{version}/elfutils-{version}.tar.bz2"
+sha256 = "fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209"
+signature = "https://sourceware.org/elfutils/ftp/{version}/elfutils-{version}.tar.bz2.sig"
+keyring = "elfutils"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --prefix=/usr --libdir=/usr/lib --disable-nls \
+  --disable-debuginfod --disable-libdebuginfod --disable-demangler \
+  --with-zlib --with-lzma --with-zstd --without-bzlib
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+rm -rf "$PKG/usr/bin" "$PKG/usr/share/man"
+'''
+
+[sbom]
+# As Fedora's elfutils-libs and elfutils-libelf state it (2026-10-14).
+license = "GPL-2.0-or-later OR LGPL-3.0-or-later"
+cpe = ["cpe:2.3:a:elfutils_project:elfutils"]
+
+[files]
+image = [
+  "usr/lib/libdw.so.*",
+  "usr/lib/libdw-*.so",
+  "usr/lib/libelf.so.*",
+  "usr/lib/libelf-*.so",
+]
+build = [
+  { path = "usr/lib/libasm*", why = "an assembler library for tools; nothing in Beize uses it" },
+]
