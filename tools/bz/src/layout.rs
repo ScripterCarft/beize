@@ -11,7 +11,7 @@ use anyhow::{Result, ensure};
 pub const MIB: u64 = 1024 * 1024;
 
 /// Version of the OS image; part of partition labels and UKI names.
-pub const OS_VERSION: &str = "0.2";
+pub const OS_VERSION: &str = "0.3";
 
 /// Size of each `/usr` data slot. An update must fit into one slot, and the
 /// size is fixed for the life of an installation (ADR 0020): room for the
