@@ -5,6 +5,7 @@
 
 mod boottimes;
 mod buildroot;
+mod cargo;
 mod cgroup;
 mod cve;
 mod debuginfo;

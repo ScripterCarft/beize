@@ -15,6 +15,13 @@ tag = "v{version}"
 commit = "46ec9bb4d5b6cb24f814f5543d85b9138afb4cba"
 keyring = "ntpd-rs"
 
+# Crates moved on from ntpd-rs 1.9.0's Cargo.lock to the releases that fix
+# RustSec advisories (#37), until ntpd-rs releases with them: compatible
+# patch releases, as distributions build against their fixed crates.
+[cargo.update]
+rustls = { version = "0.23.46", why = "RUSTSEC-2026-0285, -0346, -0348, -0349" }
+crossbeam-epoch = { version = "0.9.20", why = "RUSTSEC-2026-0204" }
+
 [build]
 script = '''
 # openssl-sys: link against the sysroot's OpenSSL; its build script reads

@@ -20,7 +20,7 @@ use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
 use crate::schedule::{self, Measured, Memory};
-use crate::{buildroot, cgroup, debuginfo, install, stamp, util};
+use crate::{buildroot, cargo, cgroup, debuginfo, install, stamp, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
@@ -484,7 +484,7 @@ fn build_one(
         .with_context(|| format!("{} has no build script", recipe.name))?;
 
     let src = match recipe.source {
-        Some(_) => Some(recipe.unpack(paths)?),
+        Some(_) => Some(cargo::source(paths, recipe, &recipe.unpack(paths)?)?),
         None => None,
     };
     util::step(&format!("Building {} {}", recipe.name, recipe.version));

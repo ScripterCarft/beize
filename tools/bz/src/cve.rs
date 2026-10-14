@@ -5,8 +5,8 @@
 //! run then turns red.
 //!
 //! Rust projects' crates are not in the NVD: RustSec's advisories for the
-//! Cargo.lock of each such source (`[sbom] cargo-lock`), with cargo-audit as
-//! their upstreams run it. Every advisory of a vulnerability fails until it
+//! Cargo.lock of each such source (`[sbom] cargo-lock`) as Beize builds it
+//! (`[cargo.update]`), with cargo-audit as their upstreams run it. Every advisory of a vulnerability fails until it
 //! is assessed; unmaintained or unsound crates are shown. Beize's own crates
 //! are cargo-deny's (deny.toml).
 //!
@@ -23,6 +23,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+use crate::cargo;
 use crate::outdated::compare_versions;
 use crate::paths::Paths;
 use crate::sbom;
@@ -88,7 +89,8 @@ pub fn show(paths: &Paths) -> Result<()> {
     let mut crates_open = 0;
     for recipe in sbom::image_recipes(paths)? {
         if let Some(lock) = &recipe.sbom.cargo_lock {
-            let report = rustsec(paths, &recipe.unpack(paths)?.join(lock))
+            let src = cargo::source(paths, &recipe, &recipe.unpack(paths)?)?;
+            let report = rustsec(paths, &src.join(lock))
                 .with_context(|| format!("checking the crates of {}", recipe.name))?;
             for (id, line) in report.vulnerabilities {
                 if recipe.sbom.cve_ignore.contains_key(&id) {

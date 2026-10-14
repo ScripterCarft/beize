@@ -51,6 +51,11 @@ digitalen Elementen.
   Quelle (`[sbom] cargo-lock`) mit cargo-audit gegen RustSec, wie ihre Projekte selbst.
   Jede Lücke dort scheitert, bis sie bewertet ist (`[sbom.cve-ignore]` mit `RUSTSEC-…`);
   nicht gepflegte, unsichere oder zurückgezogene Crates werden gezeigt.
+- **Behobene Crates vor dem Projekt.** Hat ein gelinktes Crate eine Lücke und das Projekt
+  noch kein Release mit der Lösung, hebt das Rezept es auf das behobene, semver-kompatible
+  Release (`[cargo.update]` mit Version und Grund) – wie Distributionen Rust-Programme gegen
+  ihre gepflegten Crates bauen. `bz` setzt es auf einer Kopie der geprüften Quelle um, für
+  den Bau und `bz cve` gleich, und verlangt das Entfernen, sobald die Quelle es selbst hat.
 
 ## Konsequenzen
 

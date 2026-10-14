@@ -37,6 +37,8 @@ pub struct Recipe {
     /// their content is part of the build fingerprint.
     pub repo: Vec<String>,
     pub build: Option<Build>,
+    /// Crates moved on from the source's Cargo.lock (`crate::cargo`).
+    pub cargo: Cargo,
     /// What of the package goes into the image (`crate::files`).
     pub files: Files,
     /// License, product names and assessed vulnerabilities (ADR 0022).
@@ -92,6 +94,24 @@ pub struct BuildOnly {
 /// package builds. The first one starts the metadata.
 const METADATA_TABLES: [&str; 3] = ["[sbom]", "[sbom.cve-ignore]", "[files]"];
 
+/// The recipe's `[cargo]` table, for a Rust project's source.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cargo {
+    /// Crate name → the release to build with instead of the one in the
+    /// source's Cargo.lock.
+    #[serde(default)]
+    pub update: std::collections::BTreeMap<String, CargoUpdate>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CargoUpdate {
+    pub version: String,
+    /// Why: the advisories it fixes.
+    pub why: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Build {
@@ -115,6 +135,8 @@ struct RawRecipe {
     #[serde(default)]
     repo: Vec<String>,
     build: Option<Build>,
+    #[serde(default)]
+    cargo: Cargo,
     #[serde(default)]
     files: Files,
     #[serde(default)]
@@ -186,6 +208,7 @@ impl Recipe {
             extra,
             repo: raw.repo,
             build: raw.build,
+            cargo: raw.cargo,
             files: raw.files,
             sbom: raw.sbom,
             text: build_text
