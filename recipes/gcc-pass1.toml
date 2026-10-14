@@ -1,4 +1,4 @@
-# Minimal C/C++ cross compiler without libc, just enough to build glibc.
+# Minimal C cross compiler without libc, just enough to build glibc.
 # Installed into a prefix of its own ($TOOLS/pass1, the bootstrap compiler
 # kept apart from the final one, as in crosstool-NG): only glibc puts it on
 # its PATH. In the shared prefix a rebuild of this compiler silently replaced
@@ -23,8 +23,8 @@ rm -rf "$prefix"
   --enable-default-pie --enable-default-ssp --enable-linker-build-id \
   --disable-nls --disable-shared --disable-multilib --disable-threads \
   --disable-libatomic --disable-libgomp --disable-libquadmath \
-  --disable-libssp --disable-libvtv --disable-libstdcxx \
-  --enable-languages=c,c++
+  --disable-libssp --disable-libvtv \
+  --enable-languages=c
 MAKEFLAGS="$JOBSERVER" make
 make install
 
