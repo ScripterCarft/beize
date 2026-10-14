@@ -28,8 +28,9 @@ use crate::util;
 const USR_FS_UUID: &str = "6265697a-6500-4000-8000-000000000010";
 /// UUID in the dm-verity superblock; fixed for reproducibility.
 const USR_VERITY_UUID: &str = "6265697a-6500-4000-8000-000000000011";
-/// Which units the image enables (ADR 0013).
-const UNIT_PRESET: &str = "images/base.preset";
+/// Which units the image enables (ADR 0013): system units, and user units
+/// for every user (`systemctl --global`).
+const UNIT_PRESETS: [&str; 2] = ["images/base.preset", "images/user.preset"];
 /// The only preset file the image ships, system and user: `disable *`.
 const SHIPPED_PRESET: &str = "99-beize.preset";
 /// The units every boot runs (ADR 0013); in `/usr` for beize-boot-health,
@@ -61,7 +62,8 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         paths,
         STAMP,
         tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
-            .file(&paths.root.join(UNIT_PRESET))?
+            .file(&paths.root.join(UNIT_PRESETS[0]))?
+            .file(&paths.root.join(UNIT_PRESETS[1]))?
             .file(&paths.root.join(RUNNING_UNITS))?
             .file(&paths.root.join(security::DEFINITION))?
             .tree(&kernel.modules)?,
@@ -242,7 +244,7 @@ fn build_verity(image: &Path, hash_tree: &Path) -> Result<String> {
 }
 
 /// Enables the units of the image (ADR 0013): Beize's own systemctl applies
-/// `images/base.preset`, systemd's defaults and `disable *` to the tree, as
+/// [`UNIT_PRESETS`], systemd's defaults and `disable *` to the tree, as
 /// systemd would on first boot, and the links it creates in /etc move into
 /// /usr – what runs is part of the signed image, and an update changes it
 /// together with everything else. Only [`SHIPPED_PRESET`] stays in the image,
@@ -257,10 +259,9 @@ fn enable_units(paths: &Paths, root: &Path) -> Result<()> {
             dir.join(SHIPPED_PRESET).display()
         );
     }
-    fs::copy(
-        paths.root.join(UNIT_PRESET),
-        presets[0].join("10-beize.preset"),
-    )?;
+    for (preset, dir) in UNIT_PRESETS.iter().zip(&presets) {
+        fs::copy(paths.root.join(preset), dir.join("10-beize.preset"))?;
+    }
     for scope in [None, Some("--global")] {
         util::run(
             sysroot_command(paths, "usr/bin/systemctl")

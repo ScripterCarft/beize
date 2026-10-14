@@ -17,8 +17,8 @@
 "beize-update-fetch@.service" = 1.5
 # Beize's boot steps and first-boot setup, each in a sandbox that leaves it
 # exactly what it writes (see its unit); the smoke test checks each.
-"beize-boot-chain.service" = 1.1
-"beize-boot-health.service" = 1.1
+"beize-boot-chain.service" = 0.8
+"beize-boot-health.service" = 0.8
 "beize-boot-update.service" = 1.4
 "beize-keymap.service" = 1.3
 "beize-save-clock.service" = 1.1
@@ -28,7 +28,7 @@
 "beize-boot-report.service" = 9.4
 
 # Daemons from upstream, as their units come.
-"dbus.service" = 9.0
+"dbus-broker.service" = 8.7
 "ntpd-rs.service" = 2.1
 "polkit.service" = 1.2
 "polkit-agent-helper@.service" = 3.1

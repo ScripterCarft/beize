@@ -54,8 +54,8 @@ beize-boot-health.service beize-boot-update.service
 # demand over D-Bus (run0, localed, ...).
 polkit-agent-helper.socket
 
-# System basics: D-Bus, kernel settings, runtime files, host name.
-dbus.service dbus.socket systemd-sysctl.service systemd-hostnamed.socket
+# System basics: D-Bus (dbus-broker), kernel settings, runtime files, host name.
+dbus-broker.service dbus.socket systemd-sysctl.service systemd-hostnamed.socket
 systemd-tmpfiles-setup.service systemd-tmpfiles-setup-dev.service
 systemd-tmpfiles-setup-dev-early.service systemd-tmpfiles-clean.timer
 

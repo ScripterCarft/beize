@@ -1,4 +1,5 @@
-# D-Bus system and session bus. Required by logind and, later, the desktop.
+# D-Bus: configuration, sockets, libdbus and the tools; the bus itself is
+# dbus-broker. Required by logind and, later, the desktop.
 name = "dbus"
 version = "1.16.2"
 stage = "target"
@@ -32,6 +33,13 @@ rm -rf "$PKG/etc"
 # systemd starts every one (SystemdService=), and setuid is not allowed
 # (ADR 0018); installed without the bit, it would only be dead weight.
 rm "$PKG/usr/lib/dbus-1.0/dbus-daemon-launch-helper"
+# The bus itself is dbus-broker (recipes/dbus-broker.toml), which takes
+# dbus.service by alias for the system and the session; from here come the
+# configuration, the sockets, libdbus and the tools.
+rm "$PKG/usr/bin/dbus-daemon" \
+  "$PKG/usr/lib/systemd/system/dbus.service" \
+  "$PKG/usr/lib/systemd/system/multi-user.target.wants/dbus.service" \
+  "$PKG/usr/lib/systemd/user/dbus.service"
 '''
 
 [sbom]
@@ -42,7 +50,6 @@ cpe = ["cpe:2.3:a:freedesktop:dbus"]
 [files]
 image = [
   "usr/bin/dbus-cleanup-sockets",
-  "usr/bin/dbus-daemon",
   "usr/bin/dbus-launch",
   "usr/bin/dbus-monitor",
   "usr/bin/dbus-run-session",

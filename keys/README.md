@@ -19,6 +19,7 @@ Prüfen aller Quellen: `./bz verify`
 | `cryptsetup` | Milan Broz | `2A29 1824 3FDE 4664 8D06 86F9 D9B0 577B D93E 98FC` | kernel.org pgpkeys-Repository |
 | `curl` | Daniel Stenberg | `27ED EAF2 2F3A BCEB 50DB 9A12 5CC9 08FD B71E 12C2` | keyserver.ubuntu.com; deckungsgleich mit `daniel.haxx.se/mykey.asc` |
 | `dbus` | Simon McVittie | `7A07 3AD1 AE69 4FA2 5BFF 62E5 235C 099D 3EB3 3076` | keyserver.ubuntu.com |
+| `dbus-broker` | David Rheinsberg | `BE5F BC8C 9C1C 9F60 A4F0 AEAE 7A4F 3A09 EBDE FF26` | keyserver.ubuntu.com |
 | `duktape` | duktape signiert weder Archive noch Tags (geprüft 2026-10-11) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
 | `e2fsprogs` | Theodore Ts'o | `2B69 B954 DBFE 0879 2881 37C9 F2F9 5956 950D 81A3` | keys.openpgp.org |
 | `expat` | Sebastian Pipping | `CB8D E70A 90CF BF6C 3BF5 CC56 9626 2ACF FBD3 AEC6` | keyserver.ubuntu.com |

@@ -26,7 +26,8 @@ hätte den Start unter Secure Boot verhindert.
   legt die entstehenden Links nach `/usr/lib/systemd/{system,user}`. So macht es
   upstream-systemd mit seinen eigenen Kerndiensten. Ein Update ändert sie atomar mit.
 - **Regeln, in dieser Reihenfolge** (die erste passende gilt):
-  1. `images/base.preset` – Beizes eigene Units und Abweichungen, jede mit Grund;
+  1. `images/base.preset` – Beizes eigene Units und Abweichungen, jede mit Grund
+     (Benutzer-Units für alle Benutzer: `images/user.preset`, `systemctl --global`);
   2. die Vorgaben von systemd (`90-systemd.preset`) – das, was die systemd-Entwickler
      testen; davon abzuweichen braucht einen konkreten Grund;
   3. `disable *` – alles andere ist aus.

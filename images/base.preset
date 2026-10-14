@@ -5,6 +5,10 @@
 # image, /etc holds only the owner's changes. The first matching line wins,
 # so this file overrides systemd's defaults – only with a reason.
 
+# The system bus: dbus-broker (#32), as Fedora and Arch; its unit is
+# dbus.service by alias.
+enable dbus-broker.service
+
 # Beize's own units.
 enable beize-boot-chain.service
 enable beize-boot-report.service

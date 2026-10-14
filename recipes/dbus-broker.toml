@@ -1,0 +1,42 @@
+# The system and session bus (#32): dbus-broker, the bus of Fedora (since
+# 30) and Arch. It takes a peer's groups from the kernel (SO_PEERGROUPS)
+# instead of looking them up through NSS, so services with DynamicUser= can
+# use the bus (#28). The dbus package stays for its configuration, the
+# sockets, libdbus and the tools; dbus-broker-launch reads the same
+# configuration (/usr/share/dbus-1) as dbus-daemon.
+name = "dbus-broker"
+version = "37"
+stage = "target"
+deps = ["gcc", "glibc", "expat", "systemd"]
+
+[source]
+latest = { release-monitoring = 271475 }
+url = "https://github.com/bus1/dbus-broker/releases/download/v{version}/dbus-broker-{version}.tar.xz"
+sha256 = "f819a8db8795fa08c767612e3823fd594694a0990f2543ecf35d6a1a6bf2ab5b"
+signature = "https://github.com/bus1/dbus-broker/releases/download/v{version}/dbus-broker-{version}.tar.xz.asc"
+keyring = "dbus-broker"
+
+[build]
+script = '''
+# The c-* helper libraries come in the release archive (subprojects/);
+# linux-4-17: use what the kernel has had since then (SO_PEERGROUPS), as
+# Fedora.
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release --wrap-mode=nodownload \
+  -Dlauncher=true -Dlinux-4-17=true \
+  -Daudit=false -Dselinux=false -Dapparmor=false -Ddocs=false -Dtests=false
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-14).
+license = "Apache-2.0 AND LGPL-2.0-or-later AND LGPL-2.1-or-later AND (Apache-2.0 OR LGPL-2.1-or-later)"
+cpe = ["cpe:2.3:a:dbus-broker_project:dbus-broker"]
+
+[files]
+image = [
+  "usr/bin/dbus-broker",
+  "usr/bin/dbus-broker-launch",
+  "usr/lib/systemd/**",
+]

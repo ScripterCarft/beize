@@ -2,7 +2,7 @@
 # automatically; build-only files are filtered out. The initrd: initrd.toml.
 
 # The /usr image. All kernel modules go in (/usr/lib/modules).
-packages = ["gcc-runtime", "systemd", "dbus", "util-linux", "e2fsprogs", "bash", "coreutils", "beize-setup",
+packages = ["gcc-runtime", "systemd", "dbus", "dbus-broker", "util-linux", "e2fsprogs", "bash", "coreutils", "beize-setup",
             "tzdata", "ca-certificates", "ntpd-rs", "kmod", "beize-tpm",
             # Keyboard (ADR 0017): layouts, localed's check of them, console keymaps.
             "xkeyboard-config", "libxkbcommon", "kbd",

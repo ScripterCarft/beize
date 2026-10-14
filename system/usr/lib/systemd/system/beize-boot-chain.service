@@ -8,8 +8,9 @@ Documentation=file:/usr/lib/beize/boot-chain
 Type=exec
 ExecStart=/usr/lib/beize/boot-chain
 SyslogIdentifier=beize-boot-chain
-# Sandbox (images/security.toml): it only asks systemd over D-Bus. As root
-# without capabilities: D-Bus refuses DynamicUser= callers (#28).
+# Sandbox (images/security.toml): it only asks systemd over D-Bus, as a
+# user of its own for the time it runs.
+DynamicUser=yes
 ProtectSystem=strict
 CapabilityBoundingSet=
 PrivateDevices=yes
