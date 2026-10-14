@@ -74,7 +74,7 @@ Neubinden, echte Hardware).
 | Pfad | Inhalt |
 | --- | --- |
 | `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste) |
-| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
+| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
@@ -98,7 +98,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz boot-times ~/hw-logs/journal [--boot -1]   # Phasen, Kernel-Lücken, langsamste Units, Kette
 ./bz hw-check ~/hw-logs/journal   # welches PCI-Gerät des Rechners im Image einen Treiber hat
 ./bz outdated        # neuere Upstream-Releases aller Quellen
-./bz cve             # bekannte Lücken (NVD) im Image; rot ab CVSS 7 ohne Bewertung (~6 min)
+./bz cve             # bekannte Lücken im Image: NVD (rot ab CVSS 7) und RustSec für fremde
+                     #   Crates (`[sbom] cargo-lock`, rot bei jeder); Bewertung in [sbom.cve-ignore] (~6 min)
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
 # --locked (CI): kernel/beize.config muss aktuell sein, statt neu geschrieben zu werden
 # nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys|new-update-key|new-module-key ·
@@ -142,7 +143,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -159,6 +160,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   (jedes Meson-Rezept übergibt es). `bz` bricht ab, wenn ein Sysroot-Pfad in `/usr` landet.
 - `meson -Dauto_features=disabled`: jedes benötigte Feature ausdrücklich einschalten.
 - Abhängigkeitsschleifen vermeiden (libdevmapper ohne udev-Sync: systemd → cryptsetup → lvm2).
+- **Strippen ist Sache von `bz`** (ADR 0023): Nach jedem Paketbau bekommt jede ELF-Datei
+  MiniDebugInfo und wird gestrippt; ein Rezept strippt nie selbst (kein `install -s`,
+  `strip = true`), sonst scheitert der Bau. `.comment` bleibt (ELF-Prüfung).
 - **Eigener Rust-Code im Image:** Crate unter `os/<name>`, Rezept mit `repo = [...]`
   nach Vorbild `recipes/beize-tpm.toml`. Crates mit Build-Skript meiden (laufen mit
   dem Host-cc). Krypto nie selbst schreiben.
@@ -271,25 +275,29 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
   ntpd-rs-Crates in der SBOM (#24) · Zeitbudget vom 2-CPU-Runner (#9) · `vm/smoke/` nach Themen
   (#7) · linux 7.2.10, curl 8.23, mpc 1.4.1 · ccache gemessen, lohnt nicht (#4). Bau von null 9,6 min.
 - 2026-10-14, #5 (Variante A, vom Besitzer gewählt): Module je Schlüsselsatz signiert, getrennt vom
-  Bau (ADR 0015, `f6116a8`); Unsigniertes überall gleich, `ci/digest.sh` vergleicht.
+  Bau (ADR 0015); Produktions-Modulschlüssel vom Besitzer angelegt (`module.crt`). #33: MiniDebugInfo
+  je Paket, systemd mit elfutils, Stacktraces in `coredumpctl` (ADR 0023; `-g` gemessen, vorerst
+  nicht). #24: `bz cve` prüft fremde Crates mit cargo-audit (Buildroot: cargo-audit, bzip2,
+  Wiederholungen gegen Ausfälle von snapshot.ubuntu.com).
 
 **PLAN BIS M3 (mit dem Besitzer abgestimmt 2026-10-14)**
-1. #5 abschließen: `ci/digest.sh` im CI-Log gegen lokal vergleichen (gleicher Commit!), dann
-   `Fixes #5`. **Besitzer:** `./bz secureboot new-module-key` + `module.crt` committen – ohne ihn
-   verweigert `bz sign` (vor #8 nötig).
-2. #33 Debug-Infos/elfutils: ADR 0023 entwerfen (Fedora: `-g`, Debug-Infos nach Build-ID außerhalb
-   des Images, MiniDebugInfo, systemd mit elfutils), Kosten gemessen vorlegen, dann umsetzen.
-3. Buildroot-Änderungen gebündelt in einem Push (#24 RustSec für ntpd-rs, was #33 braucht).
-4. 0.3 bauen (erste Version ganz mit Beizes Toolchain), Besitzer installiert: #8 Hardware-Test,
-   #6 Leerlauf messen → Phase 7 und M2 fertig.
-5. M3 planen. Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
-   +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird.
+1. CI des Pushs vom 14.10. abends prüfen (neuer Buildroot, alle Pakete neu → ~2,5 h bei 2 CPUs):
+   `build host:` (4 vCPU seit Repo öffentlich? dann #2 schließen) und `ci/digest.sh` gegen lokal
+   (Commit `HEAD` des Pushs: modules 91c17015…, initrd 520ecb01…, initrd modules 4c341ac1…,
+   /usr tree dca39f8b…) – gleich → #5 schließen, sonst Unterschied suchen.
+2. **#37 Besitzer entscheidet:** rustls/crossbeam-epoch in ntpd-rs per `cargo update --precise`
+   (Empfehlung) oder auf ntpd-rs 1.9.1 warten. Bis dahin ist `bz cve` (wöchentlich) rot.
+3. 0.3 bauen (erste Version ganz mit Beizes Toolchain), Besitzer: `bz sign`, `bz install`,
+   #8 Hardware-Test, #6 Leerlauf messen → Phase 7 und M2 fertig.
+4. M3 planen. Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
+   +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
+   C++-Programm den Demangler von elfutils einschalten (ADR 0023).
 Nebenbei: #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`). Zurückgestellt: #22 growfs-Bericht,
-#4 vmspawn. #10 seit 12 Läufen nicht wieder – beobachten. **Label `m3-plan` (#14, #17, #34–#36) nur
+#4 vmspawn. #10 seit 14 Läufen nicht wieder – beobachten. **Label `m3-plan` (#14, #17, #34–#36) nur
 mit Zustimmung des Besitzers** (zram/oomd, nftables, fwupd, BTF, Treiber).
 Runner: root, kein systemd; Normallauf ~20 min, Bau von null ~2 h (2 CPUs). Der `gh`-Token darf
-keine Workflows starten. In `~/beize` liegt ein alter `git stash` (13.10.; nicht
-sicher, dass alles davon in den Commits ist – nur mit dem Besitzer löschen).
+keine Workflows starten. Der alte `git stash` (13.10.) ist der Zwischenstand von #3, ganz in
+`941f5c6` aufgegangen; Kopie `~/stash.patch` – Besitzer löscht ihn (`git stash drop`).
 
 **Fahrplan bis M2 (vom Besitzer freigegeben):** je Phase ein Chat, ADR vorab abstimmen, nichts
 abschalten „weil unnötig“, keine fremden Patches; bei Fehlern zuerst fragen, welche eigene
