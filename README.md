@@ -117,8 +117,8 @@ Logs in `build/work/logs/`.
   ihre Maintainer signieren, gegen deren Signatur geprüft; `bz verify` nennt die
   wenigen unsignierten mit Grund.
 - Reproduzierbar: derselbe Stand ergibt dasselbe Disk-Image, Bit für Bit (feste Zeitstempel,
-  IDs, Signierzeit; kein Pfad der Baumaschine im Image). Ob CI und lokaler Bau übereinstimmen,
-  prüft Issue #5.
+  IDs, Signierzeit; kein Pfad der Baumaschine im Image) – solange der Kernel nicht neu gebaut
+  wird: seine Module signiert ein Wegwerf-Schlüssel je Bau (Issue #5).
 - Private Schlüssel (Secure Boot, Signaturen) liegen nie im Repository, sondern in 1Password.
 - Größere Entscheidungen werden als ADR festgehalten.
 

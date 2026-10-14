@@ -117,7 +117,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Zeiten: nichts geändert 0,1 s; Datei in `system/usr` 1,6 s; Änderung nur an Test-/Berichtscode
   von `bz` (`vm/`, `cve` …) baut nichts neu; Rezeptänderung an systemd ~5 min; Bau von null
   9,6 min (2026-10-14, davon Toolchain 6 min, Kernel danach parallel zu den Paketen),
-  Plattenspitze 7 GiB. Gleicher Stand → bit-gleiches `disk.img`. Die CI baut wöchentlich von null.
+  Plattenspitze 7 GiB. Gleicher Stand und Kernel-Bau → bit-gleiches `disk.img` (Module: Wegwerf-
+  Schlüssel je Kernel-Bau). Die CI baut wöchentlich von null.
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke/` (Modul-Doku in `mod.rs`) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
@@ -263,14 +264,15 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
 - 2026-10-14, Prüfung gegen etablierte Praxis (Funde als Issues #29–#36): Kernel mit Beizes
   Toolchain (#29) · Hardlinks bleiben (#30) · gcc-pass1 nur C (#31) · Stempel nur am bauenden
   Code (#27) · **dbus-broker** statt dbus-daemon, `DynamicUser=` geht wieder (#32, #28) ·
-  bit-gleiche Images (#5, lokal belegt) · ntpd-rs-Crates in der SBOM (#24) · Zeitbudget vom
+  bit-gleiche Images bei gleichem Kernel-Bau (#5) · ntpd-rs-Crates in der SBOM (#24) · Zeitbudget vom
   2-CPU-Runner (#9) · `vm/smoke/` nach Themen (#7) · linux 7.2.10, curl 8.23, mpc 1.4.1 ·
   ccache gemessen, lohnt nicht (#4). Bau von null jetzt 9,6 min lokal.
 
 **NÄCHSTER CHAT**
-0. CI des Pushs vom 14.10. prüfen (Toolchain geändert → Bau von null, ~2,5 h). Dann #5: den
-   dm-verity-Root-Hash im CI-Log mit dem lokalen (`build/out/usr.roothash`, gleicher Commit)
-   vergleichen – gleich → #5 schließen, sonst die Ursache suchen.
+0. CI des Pushs vom 14.10. prüfen (Toolchain geändert → Bau von null, ~2,5 h). #5: Bit-gleich ist
+   ein Image nur bei gleichem Kernel-Bau – die Module tragen die Signatur eines Wegwerf-Schlüssels
+   je Kernel-Bau (ADR 0015). CI gegen lokal also ohne Module vergleichen (Pakete, initrd ohne
+   Module), dann bewerten, wie Distributionen das lösen.
 1. #33 Debug-Infos und elfutils (Absturzberichte mit Stacktrace; Fedora-Vorbild).
 2. Rest: #7 (`secureboot.rs`, `source.rs`, `select.rs`), #24 RustSec für ntpd-rs (mit der nächsten
    Buildroot-Änderung), #22 growfs als Upstream-Bericht, #4 systemd-vmspawn, #2 CI-Kosten
