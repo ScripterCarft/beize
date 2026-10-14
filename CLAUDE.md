@@ -163,6 +163,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 - **Strippen ist Sache von `bz`** (ADR 0023): Nach jedem Paketbau bekommt jede ELF-Datei
   MiniDebugInfo und wird gestrippt; ein Rezept strippt nie selbst (kein `install -s`,
   `strip = true`), sonst scheitert der Bau. `.comment` bleibt (ELF-Prüfung).
+- **Lücke in einem Crate eines fremden Rust-Programms** (`bz cve`): behobenes Patch-Release per
+  `[cargo.update]` im Rezept (Version, `why` mit RUSTSEC-IDs; ADR 0022), nie den Code patchen;
+  `bz` meldet, wenn der Eintrag überflüssig wird. Nicht gelinkte Crates (nur im Cargo.lock) nicht.
 - **Eigener Rust-Code im Image:** Crate unter `os/<name>`, Rezept mit `repo = [...]`
   nach Vorbild `recipes/beize-tpm.toml`. Crates mit Build-Skript meiden (laufen mit
   dem Host-cc). Krypto nie selbst schreiben.
@@ -285,10 +288,18 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
    `build host:` (4 vCPU seit Repo öffentlich? dann #2 schließen) und `ci/digest.sh` gegen lokal
    (Commit `HEAD` des Pushs: modules 91c17015…, initrd 520ecb01…, initrd modules 4c341ac1…,
    /usr tree dca39f8b…) – gleich → #5 schließen, sonst Unterschied suchen.
-2. **#37 Besitzer entscheidet:** rustls/crossbeam-epoch in ntpd-rs per `cargo update --precise`
-   (Empfehlung) oder auf ntpd-rs 1.9.1 warten. Bis dahin ist `bz cve` (wöchentlich) rot.
-3. 0.3 bauen (erste Version ganz mit Beizes Toolchain), Besitzer: `bz sign`, `bz install`,
-   #8 Hardware-Test, #6 Leerlauf messen → Phase 7 und M2 fertig.
+2. **Erst wenn 1. grün ist: pushen**, was danach lokal committet wurde (#37: rustls 0.23.46 und
+   crossbeam-epoch 0.9.20 in ntpd-rs per `[cargo.update]`; `bz cve` grün, Smoke grün). Dessen CI
+   wieder prüfen (Normallauf: ntpd-rs baut neu).
+3. **Hardware-Test 0.3** (#8, #6), sobald 2. grün ist. `OS_VERSION` steht schon auf 0.3 (lokal
+   committet). Weg wie bestätigt: `docs/hardware.md` „Update vom USB-Stick“ ab Schritt 1 Teil 2 –
+   Besitzer im eigenen Terminal `./bz build && ./bz release`, Stick, `beize-update install`, Neustart.
+   Neu gegenüber 0.2 und dort zu beobachten: Kernel mit Beizes Toolchain, Module mit dem
+   Produktions-Modulschlüssel (lädt kein Modul → zuerst `journalctl -k | grep -i sign`),
+   dbus-broker, Stacktraces (`coredumpctl`). Startet 0.3 nicht, kommt nach drei Versuchen 0.2
+   zurück (Boot-Counting, ADR 0020). Danach: Startzeit einmal ohne F8 (`docs/hardware.md`
+   „Startzeit messen“), Leerlauf über Stunden (#6), Vorher/Nachher in `docs/hardware.md` → #8, #6
+   schließen; Phase 7 und M2 fertig.
 4. M3 planen. Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
    +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
    C++-Programm den Demangler von elfutils einschalten (ADR 0023).
