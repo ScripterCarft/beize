@@ -159,10 +159,16 @@ enum Command {
 enum SecurebootCommand {
     /// Create the production keys: private halves into 1Password, public
     /// halves into keys/secureboot
-    NewKeys,
+    #[command(name = "new-keys")]
+    Keys,
     /// Create the update signing key (ADR 0020) for keys made before it:
     /// private half into 1Password, public half into keys/secureboot
-    NewUpdateKey,
+    #[command(name = "new-update-key")]
+    UpdateKey,
+    /// Create the kernel module signing key (ADR 0015) for keys made before
+    /// it: private half into 1Password, certificate into keys/secureboot
+    #[command(name = "new-module-key")]
+    ModuleKey,
 }
 
 fn main() -> Result<()> {
@@ -207,7 +213,7 @@ fn main() -> Result<()> {
         }
         Command::Verify => verify_sources(&paths),
         Command::Secureboot {
-            command: SecurebootCommand::NewKeys,
+            command: SecurebootCommand::Keys,
         } => secureboot::new_keys(
             &secureboot::Store::one_password()?,
             &secureboot::production_public_dir(&paths),
@@ -215,8 +221,14 @@ fn main() -> Result<()> {
             secureboot::Profile::WithWindows,
         ),
         Command::Secureboot {
-            command: SecurebootCommand::NewUpdateKey,
+            command: SecurebootCommand::UpdateKey,
         } => secureboot::new_update_key(
+            &secureboot::Store::one_password()?,
+            &secureboot::production_public_dir(&paths),
+        ),
+        Command::Secureboot {
+            command: SecurebootCommand::ModuleKey,
+        } => secureboot::new_module_key(
             &secureboot::Store::one_password()?,
             &secureboot::production_public_dir(&paths),
         ),

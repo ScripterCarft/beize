@@ -111,6 +111,10 @@ const PCR_PUBLIC: &str = "pcr.pub.pem";
 /// Signs the list of an update (ADR 0020); its public half goes into `/usr`.
 const UPDATE_KEY: &str = "update.key";
 pub const UPDATE_PUBLIC: &str = "update.pub.pem";
+/// Signs the kernel's modules (ADR 0015); the kernel of the same key set
+/// trusts its certificate and no other.
+const MODULE_KEY: &str = "module.key";
+const MODULE_CERT: &str = "module.crt";
 
 /// The owner's private keys in their key store: title and file name.
 const PK_SECRET: (&str, &str) = ("Beize Secure Boot platform key (PK)", PK_KEY);
@@ -118,6 +122,7 @@ const KEK_SECRET: (&str, &str) = ("Beize Secure Boot key exchange key (KEK)", KE
 const DB_SECRET: (&str, &str) = ("Beize Secure Boot signing key (db)", DB_KEY);
 const PCR_SECRET: (&str, &str) = ("Beize PCR policy signing key", PCR_KEY);
 const UPDATE_SECRET: (&str, &str) = ("Beize update signing key", UPDATE_KEY);
+const MODULE_SECRET: (&str, &str) = ("Beize kernel module signing key", MODULE_KEY);
 /// The 1Password vault that holds them.
 const VAULT: &str = "Beize";
 
@@ -137,10 +142,22 @@ pub fn test_keys_dir(paths: &Paths) -> PathBuf {
     paths.work.join("secureboot-test")
 }
 
+/// The certificate of the test keys' module key, created on demand: the
+/// kernel step builds the kernel that trusts it before anything else needs
+/// the test keys.
+pub fn test_module_cert(paths: &Paths) -> Result<PathBuf> {
+    let dir = test_keys_dir(paths);
+    fs::create_dir_all(&dir)?;
+    if !dir.join(MODULE_CERT).exists() {
+        generate_module_key(&dir, "Beize TEST ONLY kernel module signing key")?;
+    }
+    Ok(dir.join(MODULE_CERT))
+}
+
 /// What signs a build: the db key for boot binaries, the PCR key for the
 /// expected PCR 11 values of a UKI, and the enrollment files that make the
-/// firmware trust them; the update key's public half for `/usr`, and its
-/// private half for releases.
+/// firmware trust them; the module key for the kernel's modules; the update
+/// key's public half for `/usr`, and its private half for releases.
 pub struct Keys {
     dir: PathBuf,
     enroll: PathBuf,
@@ -168,6 +185,7 @@ impl Keys {
         if !dir.join(UPDATE_PUBLIC).exists() {
             generate_update_key(&dir)?;
         }
+        test_module_cert(paths)?;
         // Signed once for these keys and lists, as the owner's are: sbvarsign
         // dates each signature by the clock, and every image would differ.
         let enroll = dir.join("enroll");
@@ -190,8 +208,9 @@ impl Keys {
         })
     }
 
-    /// The owner's signing keys: db and PCR key from `store`, certificates
-    /// and enrollment files from `public`. Fails unless they belong together.
+    /// The owner's signing keys: db, PCR and module key from `store`,
+    /// certificates and enrollment files from `public`. Fails unless they
+    /// belong together.
     pub fn production(store: &Store, public: &Path) -> Result<Self> {
         for file in [DB_CERT, PCR_PUBLIC]
             .iter()
@@ -209,17 +228,28 @@ impl Keys {
             "{} is missing; create the update key with `bz secureboot new-update-key`",
             public.join(UPDATE_PUBLIC).display()
         );
+        ensure!(
+            public.join(MODULE_CERT).exists(),
+            "{} is missing; create the module key with `bz secureboot new-module-key`",
+            public.join(MODULE_CERT).display()
+        );
         let memory = MemoryDir::new()?;
-        for (title, file) in [DB_SECRET, PCR_SECRET] {
+        for (title, file) in [DB_SECRET, PCR_SECRET, MODULE_SECRET] {
             write_private(&memory.0.join(file), &store.get(title)?)?;
         }
-        for file in [DB_CERT, PCR_PUBLIC, UPDATE_PUBLIC] {
+        for file in [DB_CERT, PCR_PUBLIC, UPDATE_PUBLIC, MODULE_CERT] {
             fs::copy(public.join(file), memory.0.join(file))?;
         }
         ensure!(
             public_key_of(&memory.0.join(DB_KEY))? == cert_public_key(&memory.0.join(DB_CERT))?,
             "the signing key from the key store does not match {}",
             public.join(DB_CERT).display()
+        );
+        ensure!(
+            public_key_of(&memory.0.join(MODULE_KEY))?
+                == cert_public_key(&memory.0.join(MODULE_CERT))?,
+            "the module key from the key store does not match {}",
+            public.join(MODULE_CERT).display()
         );
         ensure!(
             public_key_of(&memory.0.join(PCR_KEY))?
@@ -250,6 +280,12 @@ impl Keys {
     /// its private half (ADR 0020).
     pub fn update_public(&self) -> PathBuf {
         self.dir.join(UPDATE_PUBLIC)
+    }
+
+    /// The module key and its certificate, which the kernel of these keys
+    /// has built in (ADR 0015).
+    pub fn module_key(&self) -> (PathBuf, PathBuf) {
+        (self.dir.join(MODULE_KEY), self.dir.join(MODULE_CERT))
     }
 
     /// Signs `file` with the update key into `signature` (a raw ML-DSA-65
@@ -542,8 +578,36 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
     if !public.join(UPDATE_PUBLIC).exists() {
         written.push(create_update_key(store, public)?);
     }
+    if !public.join(MODULE_CERT).exists() {
+        written.push(create_module_key(store, public)?);
+    }
     tell_to_commit(&written);
     Ok(())
+}
+
+/// Creates the production module key (ADR 0015), for owners whose Secure
+/// Boot keys predate it: the private half into `store`, the certificate to
+/// `public`. Refuses to replace an existing one.
+pub fn new_module_key(store: &Store, public: &Path) -> Result<()> {
+    ensure!(
+        !public.join(MODULE_CERT).exists(),
+        "the module key exists already ({}); replacing it is a deliberate key \
+         rotation, not something to do by accident",
+        public.join(MODULE_CERT).display()
+    );
+    let written = create_module_key(store, public)?;
+    tell_to_commit(&[written]);
+    Ok(())
+}
+
+fn create_module_key(store: &Store, public: &Path) -> Result<PathBuf> {
+    let memory = MemoryDir::new()?;
+    util::step("Generating the module key (in memory only)");
+    generate_module_key(&memory.0, "Beize kernel module signing key")?;
+    store_secrets(store, &memory.0, &[MODULE_SECRET])?;
+    fs::create_dir_all(public)?;
+    fs::copy(memory.0.join(MODULE_CERT), public.join(MODULE_CERT))?;
+    Ok(public.join(MODULE_CERT))
 }
 
 /// Creates the production update key (ADR 0020), for owners whose Secure
@@ -844,6 +908,27 @@ fn generate_update_key(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Creates the ML-DSA-87 key that signs kernel modules and its self-signed
+/// certificate, with the extensions kbuild gives the key it would generate
+/// (`certs/default_x509.genkey`). The kernel ignores the expiry date.
+fn generate_module_key(dir: &Path, common_name: &str) -> Result<()> {
+    let key = dir.join(MODULE_KEY);
+    util::output(
+        Command::new("openssl")
+            .args(["req", "-new", "-x509", "-newkey", "ml-dsa-87", "-nodes"])
+            .args(["-days", "36500", "-subj", &format!("/CN={common_name}/")])
+            .args(["-addext", "basicConstraints=critical,CA:FALSE"])
+            .args(["-addext", "keyUsage=digitalSignature"])
+            .arg("-keyout")
+            .arg(&key)
+            .arg("-out")
+            .arg(dir.join(MODULE_CERT)),
+    )
+    .context("generating the module signing key")?;
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 /// Creates `name.key` and its self-signed certificate `name.crt`. RSA-2048 is
 /// what every UEFI implementation must accept; larger keys fail on some
 /// mainboards. Firmware does not check certificate expiry.
@@ -918,9 +1003,11 @@ mod tests {
         let second_run_refused =
             new_keys(&store, &public, &microsoft, Profile::WithWindows).is_err();
         let second_update_key_refused = new_update_key(&store, &public).is_err();
+        let second_module_key_refused = new_module_key(&store, &public).is_err();
         let enroll_files = ENROLL_FILES.map(|file| public.join(file).exists());
         let profile_files = PROFILE_FILES.map(|file| public.join(file).exists());
-        let private_halves_public = [PK_KEY, KEK_KEY, DB_KEY, PCR_KEY, UPDATE_KEY]
+        let module_cert = public.join(MODULE_CERT).exists();
+        let private_halves_public = [PK_KEY, KEK_KEY, DB_KEY, PCR_KEY, UPDATE_KEY, MODULE_KEY]
             .iter()
             .any(|file| public.join(file).exists());
 
@@ -951,6 +1038,14 @@ mod tests {
             .and_then(|keys| keys.with_update_key(&store))
             .err()
             .map(|e| e.to_string());
+        generate_module_key(&other, "other").unwrap();
+        let module_secret = dir.join("store").join(MODULE_SECRET.0);
+        let own_module_key = fs::read(&module_secret).unwrap();
+        fs::copy(other.join(MODULE_KEY), &module_secret).unwrap();
+        let module_mismatch = Keys::production(&store, &public)
+            .err()
+            .map(|e| e.to_string());
+        fs::write(&module_secret, own_module_key).unwrap();
         generate_pcr_key(&other).unwrap();
         fs::copy(other.join(PCR_KEY), dir.join("store").join(PCR_SECRET.0)).unwrap();
         let mismatch = Keys::production(&store, &public)
@@ -961,6 +1056,12 @@ mod tests {
         assert!(fresh_keys_load);
         assert!(second_run_refused);
         assert!(second_update_key_refused);
+        assert!(second_module_key_refused);
+        assert!(module_cert, "new-keys made no module key");
+        assert!(
+            module_mismatch.is_some_and(|e| e.contains("module key")),
+            "a foreign module key was accepted"
+        );
         assert!(signed, "a signed list did not verify");
         assert!(!changed_accepted, "a changed list verified");
         assert!(

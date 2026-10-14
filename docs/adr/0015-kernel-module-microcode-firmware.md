@@ -51,9 +51,18 @@ Microcode und Firmware lieferte Beize nicht aus.
 - **Module signiert und erzwungen** (`MODULE_SIG_FORCE`), ML-DSA-87 wie Fedora (dazu wie
   dort `PKCS7_WAIVE_AUTHATTRS_REJECTION_FOR_MLDSA`: OpenSSL < 4.0 signiert ML-DSA nur
   mit Attributen), zstd-komprimiert, vom Kernel entpackt, unter dm-verity in
-  `/usr/lib/modules`. Den Schlüssel erzeugt kbuild bei jedem Kernel-Bau, `bz` löscht
-  ihn danach – nie ausgeliefert, nie im CI-Cache (wie Arch). Module außerhalb des
-  Kernelbaums (NVIDIA, später) baut und signiert `bz` im selben Schritt.
+  `/usr/lib/modules`. **Signiert wird getrennt vom Bau**, wie Upstream es für
+  reproduzierbare Kernel beschreibt (`Documentation/kbuild/reproducible-builds.rst`)
+  und Debian es macht (`linux-signed`): Jeder Schlüsselsatz (ADR 0010) hat einen
+  Modul-Schlüssel; der Kernel trägt nur dessen Zertifikat (`SYSTEM_TRUSTED_KEYS`),
+  kbuild erzeugt keinen Schlüssel und signiert nichts. Kernel und Module entstehen
+  unsigniert und auf jedem Rechner gleich; `bz` signiert die Module beim Zusammensetzen
+  eines Images für dessen Schlüssel (Test-Schlüssel beim Bau, Produktions-Schlüssel
+  bei `bz sign`/`bz release`, privater Teil nur in 1Password) und linkt für fremde
+  Schlüssel nur den Kernel neu. ML-DSA signiert mit Zufall: Signaturen werden wie
+  Gebautes aufbewahrt (einmal je Kernel-Bau und Schlüsselsatz). Die Module der initrd
+  liegen als zweites, unkomprimiertes Archiv im UKI. Module außerhalb des Kernelbaums
+  (NVIDIA, später) signiert `bz` genauso.
 - **Lockdown „integrity“ immer** (`LOCK_DOWN_KERNEL_FORCE_INTEGRITY`; Fedora und Ubuntu
   schalten es unter Secure Boot ein, Beize startet immer mit Secure Boot): Auch root kann
   den laufenden Kernel nicht verändern – kein unsigniertes Modul, kein `/dev/mem`, kein
@@ -93,6 +102,11 @@ Microcode und Firmware lieferte Beize nicht aus.
   10 MB Server); der Loader brauchte auf der Hardware trotzdem nur 0,65 s.
 - linux-firmware ist 632 MB groß und wird nie ganz entpackt; `bz` holt nur, was es
   braucht.
-- Der Wegwerf-Schlüssel macht Module nicht bit-genau reproduzierbar (offener Punkt
-  „bit-genaue Builds“). Sobald Upstream eine Prüfung per Modul-Hash statt Signatur
-  anbietet (7.2 hat keine), wechselt Beize dorthin.
+- Reproduzierbar ist alles Unsignierte: Module, initrd und `/usr` sind auf jedem
+  Rechner bit-gleich (`ci/digest.sh` zeigt es in CI und lokal); der Kernel unterscheidet
+  sich nur im Zertifikat. Signaturen sind Eingaben wie bei Debian: dasselbe Image
+  entsteht wieder aus demselben Bau mit denselben Signaturen.
+- Ein Modul-Schlüssel gilt dauerhaft; wer ihn hat, kann Module für jeden Beize-Kernel
+  dieses Schlüsselsatzes signieren. Er liegt deshalb wie db- und PCR-Schlüssel nur in
+  1Password (der frühere Wegwerf-Schlüssel je Bau verhinderte jede Reproduzierbarkeit).
+  Den Produktions-Schlüssel legt der Besitzer einmal an (`bz secureboot new-module-key`).

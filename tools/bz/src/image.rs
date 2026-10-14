@@ -18,7 +18,7 @@ use crate::packages::BUILD_EPOCH;
 use crate::paths::Paths;
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
-use crate::{initrd, microcode, sbom, secureboot, stamp, tree, usr, util};
+use crate::{initrd, kernel, microcode, sbom, secureboot, stamp, tree, usr, util};
 
 const SECTOR: u64 = 512;
 /// The ESP starts at 1 MiB; 1 MiB at the end holds the backup GPT.
@@ -164,6 +164,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         inputs = inputs.file(&paths.out.join(built))?;
     }
     inputs = inputs
+        .tree(&initrd::modules_tree(paths))?
         .file(&microcode)?
         // The /usr tree, by the fingerprint of the step that assembled it.
         .file(&stamp::file(paths, usr::STAMP))?
@@ -211,7 +212,8 @@ pub fn sign(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
 }
 
 /// What boots one version of Beize, signed with one set of keys: `/usr`
-/// packed for them, the UKI that pins it, and systemd-boot.
+/// packed for them, the UKI that pins it – with the kernel and modules of
+/// these keys – and systemd-boot.
 pub struct BootChain {
     pub usr: usr::Packed,
     pub uki: PathBuf,
@@ -226,14 +228,15 @@ pub fn boot_chain(
     target: Target,
     out: &Path,
 ) -> Result<BootChain> {
-    let kernel = paths.out.join("vmlinuz");
     let microcode = microcode::archive(paths);
     let initrd = paths.out.join("initrd.cpio.zst");
-    for input in [&kernel, &microcode, &initrd] {
+    for input in [&microcode, &initrd] {
         if !input.exists() {
             bail!("{} is missing; run `bz build`", input.display());
         }
     }
+    let kernel = kernel::image_for(paths, &keys.module_key().1, out)?;
+    let initrd_modules = initrd::pack_modules(paths, keys, out)?;
     let release = fs::read_to_string(paths.out.join("kernel.release"))
         .context("reading kernel.release; run `bz kernel`")?;
     // Boot loader and UKI stub come from Beize's own systemd build. The
@@ -269,6 +272,8 @@ pub fn boot_chain(
             .arg(&microcode)
             .arg("--initrd")
             .arg(&initrd)
+            .arg("--initrd")
+            .arg(&initrd_modules)
             // The Secure Boot profile of these keys, signed with the UKI.
             .arg("--initrd")
             .arg(&profile)

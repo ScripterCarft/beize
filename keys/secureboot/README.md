@@ -10,6 +10,7 @@ braucht. Tests und CI benutzen eigene Wegwerf-Schlüssel und brauchen nichts von
 | `PK.crt`, `KEK.crt`, `db.crt` | Zertifikate von Plattform-, Schlüsselaustausch- und Signaturschlüssel |
 | `pcr.pub.pem` | öffentlicher PCR-Schlüssel – steckt als `.pcrpkey` in jedem UKI |
 | `update.pub.pem` | öffentlicher Update-Schlüssel (ML-DSA-65) – liegt in `/usr`, beize-updated nimmt nur damit signierte Updates an (ADR 0020) |
+| `module.crt` | Zertifikat des Modul-Schlüssels (ML-DSA-87) – steckt im Kernel, der nur damit signierte Module lädt (ADR 0015) |
 | `PK.auth`, `KEK.auth`, `db.auth`, `dbx.auth` | signierte Firmware-Updates, die systemd-boot einschreibt (Profil „Beize + Windows“: inklusive Microsofts Zertifikaten und Sperrliste) |
 
 Alle Befehle unten führt **nur der Besitzer** aus, in einem eigenen Terminal
@@ -51,6 +52,17 @@ Für Schlüssel aus der Zeit vor ADR 0020 (`new-keys` legt ihn inzwischen mit an
 private Teil liegt als „Beize update signing key“ im Tresor; ohne `update.pub.pem`
 verweigert `bz sign` das Signieren.
 
+## 1c. Modul-Schlüssel erzeugen (einmalig, ADR 0015)
+
+```sh
+./bz secureboot new-module-key
+git add keys/secureboot/module.crt && git commit -m "Add the production module key (certificate)"
+```
+
+Für Schlüssel aus der Zeit, als jeder Kernel-Bau einen Wegwerf-Schlüssel erzeugte
+(`new-keys` legt ihn inzwischen mit an). Der private Teil liegt als „Beize kernel
+module signing key“ im Tresor; ohne `module.crt` verweigert `bz sign` das Signieren.
+
 ## 2. Image signieren (bei jeder Installation und jedem Update)
 
 ```sh
@@ -58,10 +70,10 @@ verweigert `bz sign` das Signieren.
 ./bz sign      # → build/out/production/disk.img
 ```
 
-Braucht nur db- und PCR-Schlüssel (1Password fragt per Windows Hello) und den
-öffentlichen Update-Schlüssel von hier. `bz sign`
-prüft, dass sie zu den Dateien hier passen, und löscht sie danach wieder aus dem
-Arbeitsspeicher. Dieses Image ist für echte Hardware gebaut: Konsole auf dem
+Braucht nur db-, PCR- und Modul-Schlüssel (1Password fragt per Windows Hello) und
+den öffentlichen Update-Schlüssel von hier. `bz sign` prüft, dass sie zu den Dateien
+hier passen, und löscht sie danach wieder aus dem Arbeitsspeicher; es linkt den Kernel
+mit dem Modul-Zertifikat neu (Sekunden) und signiert die Module. Dieses Image ist für echte Hardware gebaut: Konsole auf dem
 Bildschirm, keine Credentials aus der Firmware, keine Testhelfer.
 
 ## 2b. Auf die Ziel-SSD schreiben (einmalig pro Installation)

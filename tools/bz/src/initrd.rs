@@ -4,6 +4,8 @@
 //! partition. On first boot systemd-repart, running here, creates the second
 //! `/usr` slot and the root partition before the root is mounted (ADR 0007).
 //! What goes in follows from the functions in `images/initrd.toml` (ADR 0016).
+//! Its modules are a second archive, signed with each key set ([`pack_modules`]);
+//! the kernel unpacks both into one tree.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -22,25 +24,33 @@ use crate::packages::{self, TARGET};
 use crate::paths::Paths;
 use crate::privileges;
 use crate::say;
+use crate::secureboot::Keys;
 use crate::select::{self, Pool};
 use crate::stamp::Stamp;
 use crate::tree;
 use crate::usr;
 use crate::util;
 
-/// Builds `out/initrd.cpio.zst` from the functions of `images/initrd.toml`.
+/// The initrd's modules, unsigned, with their index.
+pub fn modules_tree(paths: &Paths) -> PathBuf {
+    paths.work.join("initrd-modules")
+}
+
+/// Builds `out/initrd.cpio.zst` from the functions of `images/initrd.toml`,
+/// and the tree of its modules ([`pack_modules`]).
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let definition: select::Definition = tree::read_toml(&paths.root.join(select::DEFINITION))?;
     let recipes = packages::build(paths, &definition.packages)?;
     let kernel = kernel::built(paths)?;
 
     let image = paths.out.join("initrd.cpio.zst");
+    let modules_root = modules_tree(paths);
     let stamp = Stamp::new(
         paths,
         "initrd",
         tree::assembly_inputs(paths, select::DEFINITION, &recipes, "initrd")?
             .tree(&kernel.modules)?,
-        &[&image],
+        &[&image, &modules_root],
     );
     if stamp.is_current() {
         say!("  initrd is up to date");
@@ -84,7 +94,9 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     symlink("usr/lib/systemd/systemd", root.join("init"))?;
     usr::write_repart_definitions(&root.join("usr"))?;
     let modules = with_dependencies(paths, &kernel, &definition.modules)?;
-    usr::install_modules(paths, &kernel, &root, |name| modules.contains(name))?;
+    usr::install_modules(paths, &kernel, &tree::recreate(&modules_root)?, |name| {
+        modules.contains(name)
+    })?;
     // sysusers does not run in the initrd, yet sockets and udev rules refer to
     // system groups (systemd-journal, disk, tty, ...). Generate the user and
     // group databases now from the packages' sysusers.d; password hashes are
@@ -111,6 +123,29 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         fs::metadata(&image)?.len() as f64 / layout::MIB as f64
     );
     Ok(image)
+}
+
+/// Writes `initrd-modules.cpio` into `out`: the initrd's modules, signed
+/// with `keys`. Uncompressed: the modules are compressed each.
+pub fn pack_modules(paths: &Paths, keys: &Keys, out: &Path) -> Result<PathBuf> {
+    let staging = out.join("initrd-modules-staging");
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    util::run(
+        Command::new("cp")
+            .arg("--archive")
+            .arg(modules_tree(paths))
+            .arg(&staging),
+    )?;
+    let signed = kernel::signed_modules(paths, keys.module_key(), out)?;
+    let release = kernel::built(paths)?.release;
+    kernel::use_signed(&signed, &staging.join(kernel::MODULE_DIR).join(release))?;
+    tree::normalize_mtimes(&staging)?;
+    let archive = out.join("initrd-modules.cpio");
+    pack_uncompressed(&staging, &archive)?;
+    fs::remove_dir_all(&staging)?;
+    Ok(archive)
 }
 
 /// The named modules and every module they need (`depends`, and the soft

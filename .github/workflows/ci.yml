@@ -175,7 +175,10 @@ jobs:
       # Built packages (cross toolchain, sysroot, ownership manifests, stamps,
       # what each build needed), the kernel object tree and the microcode. bz's
       # fingerprints decide what is still up to date, so restoring an older
-      # state is safe: only what changed is rebuilt.
+      # state is safe: only what changed is rebuilt. Also the throwaway test
+      # keys, trusted only by the test VMs: the kernel is built with their
+      # module certificate (ADR 0015), and new ones would link it again on
+      # every run and change every stamp after it.
       # The weekly run starts from nothing, so a build from scratch keeps
       # working (it broke once unnoticed: glibc's configure needed an old libc).
       - name: Restore build state
@@ -191,6 +194,7 @@ jobs:
             build/work/measured
             build/work/linux-obj
             build/work/microcode.cpio
+            build/work/secureboot-test
           key: build-
           restore-keys: build-
       # The weekly run checks every source's signature again, to notice when
@@ -219,6 +223,7 @@ jobs:
             build/work/measured
             build/work/linux-obj
             build/work/microcode.cpio
+            build/work/secureboot-test
           key: ${{ steps.state.outputs.key }}
       # The image for trying it out, when a run is started by hand.
       - name: Upload disk image

@@ -16,6 +16,7 @@ if [ "${VERIFY_SOURCES:-true}" = true ]; then
 fi
 # Free space after each step: a full build is close to what a runner has.
 ./bz build --locked
+ci/digest.sh
 df -h .
 ./bz smoke
 df -h .

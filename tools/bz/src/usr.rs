@@ -138,8 +138,8 @@ pub const SIGNED_BOOT_LOADER_PATH: &str = "lib/systemd/boot/efi/systemd-bootx64.
 
 /// Packs the `/usr` tree as `version` for `keys` into `out`: `usr.erofs`,
 /// `usr.verity` and `usr.roothash`. The version (os-release), the public
-/// update key and `boot_loader`, signed with `keys`, are what the images of
-/// one build differ in; the tree itself stays untouched.
+/// update key, `boot_loader` and the modules, signed with `keys`, are what
+/// the images of one build differ in; the tree itself stays untouched.
 pub fn pack(
     paths: &Paths,
     keys: &Keys,
@@ -166,6 +166,11 @@ pub fn pack(
     fs::create_dir_all(key.parent().context("update key path")?)?;
     fs::copy(keys.update_public(), &key)?;
     fs::copy(boot_loader, usr.join(SIGNED_BOOT_LOADER_PATH))?;
+    let signed = kernel::signed_modules(paths, keys.module_key(), out)?;
+    kernel::use_signed(
+        &signed,
+        &usr.join("lib/modules").join(&kernel::built(paths)?.release),
+    )?;
 
     let image = out.join("usr.erofs");
     let _ = fs::remove_file(&image);
