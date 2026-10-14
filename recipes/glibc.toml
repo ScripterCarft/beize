@@ -27,7 +27,7 @@ echo "rootsbindir=/usr/bin" > configparms
 # scratch failed. Answered here: level 3 needs __builtin_dynamic_object_size
 # (gcc 12 and later).
 export CFLAGS="-O2 -pipe -fstack-clash-protection -fcf-protection \
-  -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
+  -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer $PREFIX_MAP"
 unset CXXFLAGS LDFLAGS
 # glibc is C; C++ only builds some of its tests. The bootstrap compiler is C
 # only (as Buildroot's gcc-initial and crosstool-NG's core pass), so there is

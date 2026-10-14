@@ -24,9 +24,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, bail, ensure};
 
+use crate::packages::BUILD_EPOCH;
 use crate::paths::Paths;
 use crate::say;
-use crate::util;
+use crate::stamp::{Fingerprint, Stamp};
+use crate::{usr, util};
 
 /// Owner GUID recorded with Beize's certificates in the firmware databases.
 pub const OWNER_GUID: &str = "6265697a-6500-4000-8000-000000000100";
@@ -166,8 +168,21 @@ impl Keys {
         if !dir.join(UPDATE_PUBLIC).exists() {
             generate_update_key(&dir)?;
         }
+        // Signed once for these keys and lists, as the owner's are: sbvarsign
+        // dates each signature by the clock, and every image would differ.
         let enroll = dir.join("enroll");
-        enrollment_files(&dir, &enroll, &microsoft_dir(paths), profile)?;
+        let mut inputs = Fingerprint::new()?
+            .text(&format!("{profile:?}"))
+            .tree(&microsoft_dir(paths))?;
+        for cert in [PK_CERT, KEK_CERT, DB_CERT] {
+            inputs = inputs.file(&dir.join(cert))?;
+        }
+        let stamp = Stamp::new(paths, "test-enrollment", inputs, &[&enroll]);
+        if !stamp.is_current() {
+            stamp.clear()?;
+            enrollment_files(&dir, &enroll, &microsoft_dir(paths), profile)?;
+            stamp.write()?;
+        }
         Ok(Self {
             dir,
             enroll,
@@ -270,14 +285,19 @@ impl Keys {
         &self.enroll
     }
 
-    /// Signs an EFI binary with the db key and checks the signature.
-    pub fn sign(&self, input: &Path, output: &Path) -> Result<()> {
+    /// Signs an EFI binary with the db key and checks the signature. The
+    /// signer is systemd-sbsign from Beize's own systemd build: it dates the
+    /// signature by SOURCE_DATE_EPOCH (sbsign takes the current time), so
+    /// the same build gives the same signed binary (#5).
+    pub fn sign(&self, paths: &Paths, input: &Path, output: &Path) -> Result<()> {
         let cert = self.dir.join(DB_CERT);
         util::output(
-            Command::new("sbsign")
-                .arg("--key")
+            usr::sysroot_command(paths, "usr/lib/systemd/systemd-sbsign")
+                .env("SOURCE_DATE_EPOCH", BUILD_EPOCH.to_string())
+                .arg("sign")
+                .arg("--private-key")
                 .arg(self.dir.join(DB_KEY))
-                .arg("--cert")
+                .arg("--certificate")
                 .arg(&cert)
                 .arg("--output")
                 .arg(output)

@@ -46,7 +46,9 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// 5: pkg-config variables without the sysroot.
 /// 6: pkg-config for the target as pkgconf with a personality; the build
 ///    host's for tools that run while building.
-const ENV_REVISION: u32 = 6;
+/// 7: the repository's path mapped to /beize in what the compilers write
+///    ([`prefix_map`]).
+const ENV_REVISION: u32 = 7;
 /// pkg-config for the target, as autoconf looks for it when cross-compiling.
 const TARGET_PKG_CONFIG: &str = "x86_64-beize-linux-gnu-pkg-config";
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
@@ -419,6 +421,16 @@ fn sysroot_dir(paths: &Paths, name: &str) -> PathBuf {
     paths.work.join("sysroot").join(name)
 }
 
+/// Where the repository lies on the build machine (/home/joe/beize locally,
+/// another path in the CI) must not show in what is built: assert() and
+/// panic messages name their source file. The compilers write /beize
+/// instead, as reproducible-builds.org recommends and Debian's
+/// dpkg-buildflags does (-ffile-prefix-map; rustc's --remap-path-prefix).
+/// `$PREFIX_MAP` gives it to recipes that set their own CFLAGS.
+fn prefix_map(paths: &Paths) -> String {
+    format!("{}=/beize", paths.root.display())
+}
+
 /// Cargo for building Beize's own Rust code for the target: the toolchain
 /// running bz (rust-toolchain.toml), crates cached under build/cache.
 fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path, sysroot: &Path) {
@@ -433,8 +445,10 @@ fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path, sysroot: &Path)
         .env(
             "RUSTFLAGS",
             format!(
-                "-C linker={TARGET}-gcc -C link-arg=--sysroot={} {TARGET_RUSTFLAGS}",
-                sysroot.display()
+                "-C linker={TARGET}-gcc -C link-arg=--sysroot={} {TARGET_RUSTFLAGS} \
+                 --remap-path-prefix={}",
+                sysroot.display(),
+                prefix_map(paths)
             ),
         );
     if let Some(rustc) = cargo
@@ -506,6 +520,9 @@ fn build_one(
     if let Some(src) = &src {
         cmd.env("SRC", src);
     }
+    let file_prefix_map = format!("-ffile-prefix-map={}", prefix_map(paths));
+    let target_cflags = format!("{TARGET_CFLAGS} {file_prefix_map}");
+    cmd.env("PREFIX_MAP", &file_prefix_map);
     match stage {
         Stage::Toolchain => {
             cmd.env("CFLAGS", "-O2 -pipe").env("CXXFLAGS", "-O2 -pipe");
@@ -526,8 +543,8 @@ fn build_one(
             .env("RANLIB", format!("{TARGET}-ranlib"))
             .env("NM", format!("{TARGET}-nm"))
             .env("STRIP", format!("{TARGET}-strip"))
-            .env("CFLAGS", TARGET_CFLAGS)
-            .env("CXXFLAGS", TARGET_CFLAGS)
+            .env("CFLAGS", &target_cflags)
+            .env("CXXFLAGS", &target_cflags)
             .env("LDFLAGS", TARGET_LDFLAGS)
             // pkg-config for the target comes first: a build that calls
             // plain pkg-config gets the target's answer, never the host's.

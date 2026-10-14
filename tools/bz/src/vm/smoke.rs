@@ -1065,7 +1065,7 @@ fn older_boot_loader(paths: &Paths, keys: &secureboot::Keys, out: &Path) -> Resu
     ensure!(patched > 0, "the boot loader carries no version");
     let unsigned = out.with_extension("unsigned");
     fs::write(&unsigned, loader)?;
-    keys.sign(&unsigned, out)?;
+    keys.sign(paths, &unsigned, out)?;
     fs::remove_file(&unsigned)?;
     Ok(())
 }

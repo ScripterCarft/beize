@@ -19,8 +19,9 @@ script = '''
   --prefix=/usr --libdir=lib --openssldir=/etc/ssl \
   shared no-tests no-docs
 # The library keeps the compiler command (`openssl version -f`): written
-# first, without this build's sysroot.
-make crypto/buildinf.h CC="$TARGET-gcc"
+# first, without this build's sysroot and the path map, which name the
+# build machine's directories.
+make crypto/buildinf.h CC="$TARGET-gcc" CFLAGS="${CFLAGS//"$PREFIX_MAP"/}"
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install_sw
 '''

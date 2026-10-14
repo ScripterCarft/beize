@@ -14,10 +14,11 @@ use crate::layout::{
     self, ESP_CLUSTER_SIZE, ESP_SIZE, ESP_TYPE, MIB, USR_SLOT_SIZE, USR_TYPE, USR_VERITY_SLOT_SIZE,
     USR_VERITY_TYPE,
 };
+use crate::packages::BUILD_EPOCH;
 use crate::paths::Paths;
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
-use crate::{initrd, microcode, sbom, secureboot, stamp, usr, util};
+use crate::{initrd, microcode, sbom, secureboot, stamp, tree, usr, util};
 
 const SECTOR: u64 = 512;
 /// The ESP starts at 1 MiB; 1 MiB at the end holds the backup GPT.
@@ -239,7 +240,7 @@ pub fn boot_chain(
     // signed boot loader goes into /usr too, for its updates (ADR 0020).
     let efi_dir = paths.sysroot.join("usr/lib/systemd/boot/efi");
     let boot_loader = out.join("systemd-bootx64.efi");
-    keys.sign(&efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
+    keys.sign(paths, &efi_dir.join("systemd-bootx64.efi"), &boot_loader)?;
     let usr = usr::pack(paths, keys, version, &boot_loader, out)?;
 
     util::step("Building Unified Kernel Image");
@@ -296,7 +297,7 @@ pub fn boot_chain(
 
     util::step("Signing Unified Kernel Image");
     let uki = out.join("beize.efi");
-    keys.sign(&unsigned_uki, &uki)?;
+    keys.sign(paths, &unsigned_uki, &uki)?;
     Ok(BootChain {
         usr,
         uki,
@@ -328,7 +329,7 @@ pub fn assemble(
 
     partition(&disk, &usr.root_hash, version)?;
     util::run(
-        Command::new("mkfs.vfat")
+        fat_tool("mkfs.vfat")
             .args(["-F", "32", "-n", "BEIZE-ESP", "-i", ESP_VOLUME_ID])
             .args(["-S", &SECTOR.to_string()])
             .args(["-s", &(ESP_CLUSTER_SIZE / SECTOR).to_string()])
@@ -337,7 +338,7 @@ pub fn assemble(
             .arg((ESP_SIZE / 1024).to_string()),
     )?;
     let esp = format!("{}@@{ESP_OFFSET}", disk.display());
-    util::run(Command::new("mmd").args(["-i", &esp]).args([
+    util::run(fat_tool("mmd").args(["-i", &esp]).args([
         "::/EFI",
         "::/EFI/BOOT",
         "::/EFI/systemd",
@@ -359,11 +360,11 @@ pub fn assemble(
         (&uki, uki_path_on_esp(version)),
         (&loader_conf, "::/loader/loader.conf".to_owned()),
     ] {
-        util::run(Command::new("mcopy").args(["-i", &esp]).arg(file).arg(dest))?;
+        util::run(fat_tool("mcopy").args(["-i", &esp]).arg(file).arg(dest))?;
     }
     for file in secureboot::ENROLL_FILES {
         util::run(
-            Command::new("mcopy")
+            fat_tool("mcopy")
                 .args(["-i", &esp])
                 .arg(keys.enroll_dir().join(file))
                 .arg(format!("::/loader/keys/auto/{file}")),
@@ -395,9 +396,19 @@ fn profile_initrd(keys: &secureboot::Keys, out: &Path) -> Result<PathBuf> {
         fs::copy(keys.enroll_dir().join(file), dir.join(file))?;
     }
     let archive = out.join("profile.cpio.zst");
+    tree::normalize_mtimes(&root)?;
     initrd::pack(&root, &archive)?;
     fs::remove_dir_all(&root)?;
     Ok(archive)
+}
+
+/// A dosfstools or mtools command. Both date what they write – the file
+/// system, directories, files – by SOURCE_DATE_EPOCH: the same build gives
+/// the same ESP.
+fn fat_tool(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.env("SOURCE_DATE_EPOCH", BUILD_EPOCH.to_string());
+    cmd
 }
 
 fn partition(disk: &Path, root_hash: &str, version: &str) -> Result<()> {
