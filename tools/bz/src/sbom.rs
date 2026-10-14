@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
@@ -289,9 +289,9 @@ fn spdx_id(text: &str) -> String {
         .collect()
 }
 
-/// The crates linked into the programs of recipes built from this
-/// repository's workspace, for Linux on x86-64, with their checksums from
-/// Cargo.lock.
+/// The crates linked into the programs of `recipes`, with their checksums
+/// from Cargo.lock: of this repository's workspace for Linux on x86-64, and
+/// what the builds of other Rust projects recorded.
 fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
     let own: BTreeSet<&str> = recipes
         .iter()
@@ -351,6 +351,33 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
         .collect();
     let checksums = lock_checksums(&paths.root.join("Cargo.lock"))?;
     let mut crates: BTreeMap<(String, String), Crate> = BTreeMap::new();
+    let mut add = |name: &str, version: &str, checksum: Option<&String>, user: &str| {
+        crates
+            .entry((name.to_owned(), version.to_owned()))
+            .or_insert_with(|| Crate {
+                name: name.to_owned(),
+                version: version.to_owned(),
+                checksum: checksum.cloned(),
+                used_by: BTreeSet::new(),
+            })
+            .used_by
+            .insert(user.to_owned());
+    };
+    // Rust programs from other projects (ntpd-rs) record what they linked
+    // when they are built, as Fedora's %cargo_vendor_manifest.
+    for recipe in recipes {
+        let manifest = vendored_manifest(paths, &recipe.name);
+        if !manifest.exists() {
+            continue;
+        }
+        let checksums = lock_checksums(&manifest.with_extension("lock"))?;
+        for line in fs::read_to_string(&manifest)?.lines() {
+            if let Some((name, version)) = line.split_once(' ') {
+                let key = (name.to_owned(), version.to_owned());
+                add(name, version, checksums.get(&key), &recipe.name);
+            }
+        }
+    }
     for (root, (name, ..)) in &ids {
         if !own.contains(name) {
             continue;
@@ -365,21 +392,22 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
                 && *from_registry
             {
                 let key = ((*crate_name).to_owned(), (*version).to_owned());
-                crates
-                    .entry(key.clone())
-                    .or_insert_with(|| Crate {
-                        name: key.0.clone(),
-                        version: key.1.clone(),
-                        checksum: checksums.get(&key).cloned(),
-                        used_by: BTreeSet::new(),
-                    })
-                    .used_by
-                    .insert((*name).to_owned());
+                add(crate_name, version, checksums.get(&key), name);
             }
             pending.extend(deps.get(id).into_iter().flatten().copied());
         }
     }
     Ok(crates.into_values().collect())
+}
+
+/// The crates (`name version` per line) a Rust recipe from another project
+/// linked; its source's Cargo.lock lies beside it (`.lock`). Written by the
+/// recipe's build into a directory that is never shipped.
+fn vendored_manifest(paths: &Paths, recipe: &str) -> PathBuf {
+    paths
+        .sysroot
+        .join("usr/lib/beize-build/crates")
+        .join(format!("{recipe}.txt"))
 }
 
 /// `(name, version)` → SHA-256 of every crate in a Cargo.lock.

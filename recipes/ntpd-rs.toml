@@ -21,12 +21,21 @@ script = '''
 # the headers with $CC (the cross compiler).
 export OPENSSL_LIB_DIR="$SYSROOT/usr/lib" OPENSSL_INCLUDE_DIR="$SYSROOT/usr/include"
 "$CARGO" fetch --locked --manifest-path "$SRC/Cargo.toml"
-MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$SRC/Cargo.toml" \
-  -p ntpd --no-default-features --features openssl \
-  --target x86_64-unknown-linux-gnu
+select="--manifest-path $SRC/Cargo.toml -p ntpd --no-default-features --features openssl \
+  --target x86_64-unknown-linux-gnu"
+MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release $select
 for bin in ntp-daemon ntp-ctl; do
   install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/$bin" "$PKG/usr/bin/$bin"
 done
+# The crates this build linked, for the SBOM (ADR 0022), as Fedora's
+# %cargo_vendor_manifest: from crates.io, by name and version (ntpd-rs's own
+# crates, by path, are this package), with the source's Cargo.lock for their
+# checksums. In usr/lib/beize-build, which is never shipped.
+crates="$PKG/usr/lib/beize-build/crates"
+mkdir -p "$crates"
+"$CARGO" tree --offline --locked $select -e normal,build --prefix none --no-dedupe \
+  --format '{p}' | grep -v ' (' | sed 's/ v/ /' | sort -u > "$crates/ntpd-rs.txt"
+cp "$SRC/Cargo.lock" "$crates/ntpd-rs.lock"
 '''
 
 [sbom]
