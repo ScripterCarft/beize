@@ -14,6 +14,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 
 use crate::jobserver;
+use crate::packages::{self, TARGET};
 use crate::paths::Paths;
 use crate::recipe::Recipe;
 use crate::say;
@@ -64,8 +65,14 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     let unsigned_module = paths.out.join("unsigned-module.ko");
     let obj = paths.work.join("linux-obj");
     // The recipe pins the source (and with it upstream's fragments); Beize's
-    // fragments are the configuration.
+    // fragments are the configuration; the toolchain compiles it.
     let mut inputs = Fingerprint::new()?.text(&recipe.text);
+    for tool in TOOLCHAIN {
+        inputs = inputs.text(&format!(
+            "{tool} {}",
+            packages::built_fingerprint(paths, tool)?
+        ));
+    }
     for fragment in &fragments {
         inputs = inputs.file(fragment)?;
     }
@@ -101,6 +108,7 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     util::run(
         Command::new(src.join("scripts/kconfig/merge_config.sh"))
             .current_dir(&src)
+            .env("CROSS_COMPILE", cross_compile(paths))
             .arg("-O")
             .arg(&obj)
             .args(&all),
@@ -115,20 +123,20 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     let jobs = jobserver::shared(paths)?;
     let _token = jobs.acquire()?;
     util::run_logged(
-        make(&src, &obj)
+        make(paths, &src, &obj)
             .env("MAKEFLAGS", jobs.makeflags())
             .args(["bzImage", "modules"]),
         "linux",
         &paths.work.join("logs/linux.log"),
     )?;
-    let release = util::output(make(&src, &obj).args(["-s", "kernelrelease"]))?;
+    let release = util::output(make(paths, &src, &obj).args(["-s", "kernelrelease"]))?;
 
     util::step("Signing and installing modules");
     if modules_root.exists() {
         fs::remove_dir_all(&modules_root)?;
     }
     let installed = util::run(
-        make(&src, &obj)
+        make(paths, &src, &obj)
             .arg("modules_install")
             // kbuild installs into <prefix>/lib/modules: prefix /usr.
             .arg(format!(
@@ -218,10 +226,23 @@ fn own_fragments(paths: &Paths) -> Result<Vec<PathBuf>> {
     Ok(fragments)
 }
 
-fn make(src: &Path, obj: &Path) -> Command {
+/// What compiles the kernel: Beize's toolchain, the same as every package's
+/// (as Yocto, Buildroot and Fedora do), so out-of-tree modules can be built
+/// with the kernel's compiler. Only kbuild's helper programs, which run
+/// during the build, use the build host's compiler (HOSTCC).
+pub const TOOLCHAIN: [&str; 2] = ["binutils", "gcc"];
+
+/// The toolchain's prefix for kbuild. Kconfig asks the compiler what it
+/// supports, so configuring needs it too.
+fn cross_compile(paths: &Paths) -> String {
+    format!("{}/{TARGET}-", paths.tools.join("bin").display())
+}
+
+fn make(paths: &Paths, src: &Path, obj: &Path) -> Command {
     let mut cmd = Command::new("make");
     cmd.current_dir(src)
         .arg(format!("O={}", obj.display()))
+        .env("CROSS_COMPILE", cross_compile(paths))
         .env("KBUILD_BUILD_USER", BUILD_USER)
         .env("KBUILD_BUILD_HOST", BUILD_HOST)
         .env("KBUILD_BUILD_TIMESTAMP", BUILD_TIMESTAMP);

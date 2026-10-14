@@ -177,7 +177,7 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
-        Command::Kernel => kernel::build(&paths).map(drop),
+        Command::Kernel => build_toolchain(&paths).and_then(|()| kernel::build(&paths).map(drop)),
         Command::Package { names } => packages::build(&paths, &names).map(drop),
         Command::Usr => usr::build(&paths).map(drop),
         Command::Initrd => initrd::build(&paths).map(drop),
@@ -278,10 +278,18 @@ fn verify_sources(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-/// The kernel (built with the build host's compiler) and the packages of
-/// the image side by side, then the image's parts from them.
+/// The toolchain, then the kernel and the packages of the image side by
+/// side, then the image's parts from them.
+/// The toolchain the kernel is compiled with ([`kernel::TOOLCHAIN`]).
+fn build_toolchain(paths: &Paths) -> Result<()> {
+    packages::build(paths, &kernel::TOOLCHAIN.map(str::to_owned)).map(drop)
+}
+
 fn build_all(paths: &Paths) -> Result<()> {
     let image_packages = tree::image_definition(paths)?.packages;
+    // The kernel needs the toolchain, and so does every package but three
+    // small data packages: little could run beside building it.
+    build_toolchain(paths)?;
     std::thread::scope(|scope| {
         // What the kernel build says comes in one piece when it is done.
         let kernel = scope.spawn(|| util::capture(|| kernel::build(paths)));

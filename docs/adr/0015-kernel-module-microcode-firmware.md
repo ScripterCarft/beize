@@ -28,12 +28,17 @@ Microcode und Firmware lieferte Beize nicht aus.
   Option mit Begründung. Nicht `allnoconfig`: Das verneint auch Upstreams
   Sicherheitsstandards (im Versuch waren alle CPU-Mitigations aus). Ausnahmen von
   `hardening.config` stehen mit Grund im Fragment (kCFI und Stack-Erasing brauchen
-  clang; kein `/dev/mem` statt eines eingeschränkten). Die aufgelöste `.config` liegt
+  clang oder gcc-Plugins, die Beize wie Fedora nicht nutzt; kein `/dev/mem` statt eines
+  eingeschränkten). Die aufgelöste `.config` liegt
   als `kernel/beize.config` im Repo (ohne die Versionsnummern der Werkzeuge); `bz`
   schreibt sie bei Änderung neu, `bz --locked` (CI) bricht dann ab. Ein Versionssprung
   zeigt so jede neue oder geänderte Option im Diff (Vorbild: Fedora entscheidet jede
   Option ausdrücklich, Android GKI und ChromeOS führen ihre Konfiguration vollständig).
   `bz` bricht ab, wenn Kconfig eine gewünschte Option verwirft oder es sie nicht gibt.
+- **Compiler: Beizes Toolchain** (gcc, binutils), dieselbe wie für jedes Paket – wie
+  Yocto, Buildroot und Fedora. Nur kbuilds Hilfsprogramme, die beim Bau laufen, nimmt
+  der Host-Compiler. Out-of-tree-Module (NVIDIA) entstehen so mit dem Compiler des
+  Kernels. Bis 2026-10-14 baute unbemerkt der gcc des Buildroots (Ubuntu) den Kernel (#29).
 - **Treiber als Module, fest nur Infrastruktur:** Fest eingebaut ist, was jeder Start
   auf jedem Beize-Rechner braucht, bevor udev Module laden kann oder unabhängig vom
   Gerät: EFI, initrd, Konsole (seriell, simpledrm, fbcon), EROFS, ext4, dm-verity,
