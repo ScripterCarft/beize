@@ -290,9 +290,12 @@ Recovery-Key, `s`.
    775 statt 755). `ci/digest.sh` sah Rechte nicht: jetzt Typ, Rechte, Symlink und Inhalt je Eintrag,
    dazu initrd-Baum und /usr-Abbild; die Listen in `build/out/digest/`, die CI lädt sie hoch
    („digest-lists“). CI 38773182214 (`ae15fc3`) war grün, /usr und initrd wichen noch ab (umask
-   oder anderes). **Nächster Chat:** CI-Lauf 38789354237 (`b3289157`, Bau von null) prüfen: Artefakt „digest-lists“ laden
-   (`gh run download <id> -n digest-lists`) und mit lokal `./bz build && ci/digest.sh` Datei für
-   Datei vergleichen (`diff`); gleich → #5 schließen. Danach `~/repro` löschen (Wegwerf-Klone).
+   oder anderes). **Stand 15.10.:** CI 38789354237 gegen lokalen Bau von `b3289157` (Worktree `~/repro/b328`,
+   CI-Listen `~/repro/ci-digest`): alles gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2). Lokal
+   bitgleich über Pfad, Zeit, 4 CPUs (taskset) und root – übrig: Umgebung der CI (bz läuft dort ohne
+   bwraps `--clearenv`) oder Host. **Nächster Schritt:** die Datei als CI-Artefakt, abschnittsweise
+   vergleichen (Kommentar in #5). Danach #5 schließen und `~/repro` löschen (enthält root-Dateien:
+   `sudo rm -rf`, vorher `git worktree prune`).
    bz bricht jetzt ab, wenn `configure` Optionen ignoriert (fand curl `--disable-smb`, e2fsprogs
    `--disable-static`, util-linux `--enable-findmnt`).
    **Grundwerkzeuge (15.10., vom Besitzer gewollt):** grep (PCRE2), sed, gawk, findutils, diffutils,
