@@ -230,6 +230,11 @@ fn base_tools(shell: &Shell) -> Result<()> {
         ("ip", "ip -br link show lo | awk '{print $1}'", "lo"),
         ("ss", "ss -ltn > /dev/null && echo listed", "listed"),
         (
+            "journalctl --grep (pcre2)",
+            "journalctl -b -o cat -n 1 --grep '^Startup finished in' | cut -d' ' -f1",
+            "Startup",
+        ),
+        (
             "tar with zstd",
             "cd /tmp && tar --zstd -cf a.tzst a && tar -tf a.tzst",
             "a",
