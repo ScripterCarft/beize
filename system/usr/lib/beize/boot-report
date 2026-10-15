@@ -188,6 +188,21 @@ if [[ $network == routable ]]; then
     done
 fi
 
+# Boot loader (ADR 0024): the display mode the firmware handed the kernel –
+# lfb_width and lfb_height of screen_info, at the start of boot_params
+# (sysfs-kernel-boot_params) – which the console keeps until a graphics
+# driver takes over; systemd-boot's menu sets it (console-mode). And the
+# entry systemd-boot started (LoaderEntrySelected, UTF-16).
+display=none
+boot_params=/sys/kernel/boot_params/data
+if [[ -r $boot_params ]]; then
+    read -r width height < <(od -An -tu2 -j18 -N4 "$boot_params")
+    ((width > 0 && height > 0)) && display=${width}x${height}
+fi
+entry=none
+entry_var=/sys/firmware/efi/efivars/LoaderEntrySelected-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+[[ -r $entry_var ]] && entry=$(tail -c +5 "$entry_var" | tr -d '\0')
+
 # Lines beize-boot-chain wrote into the journal in this boot: the critical
 # chain `bz boot-times` shows. It starts with this script; wait until it is
 # done.
@@ -251,6 +266,7 @@ echo "BEIZE-BOOT-REPORT state=${state} secureboot=${secureboot} usr=${usr} root=
      "tz=${tz:-none} keymap=${keymap} yzkey=${yzkey} efikeymap=${efikeymap:-none} nts=${nts} clock=${clock}" \
      "kernel=${kernel} initrd=${initrd} userspace=${userspace} chain=${chain} shstk=${shstk}" \
      "lockdown=${lockdown} unsigned=${unsigned} signed=${signed}" \
+     "display=${display} entry=${entry:-none}" \
      "nodriver=$(IFS=,; echo "${nodriver[*]:-none}")" \
      "failed=${failed_list:-none} bootfailed=${boot_failed_list:-none}"
 

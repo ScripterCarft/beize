@@ -5,7 +5,8 @@ Documentation=man:bootctl(1)
 # (ADR 0020): a new boot loader has no previous version to fall back to.
 # systemd's unit runs before sysinit.target, which boot-complete.target
 # follows. bootctl takes the signed systemd-bootx64.efi.signed from /usr
-# and replaces the one on the ESP only by a newer version.
+# and replaces the one on the ESP only by a newer version. Then the boot
+# loader's configuration of this version (loader.conf, ADR 0024).
 # No default dependencies: multi-user.target must not wait for it (it is
 # ordered after boot-complete.target, which is after multi-user.target).
 DefaultDependencies=no
@@ -19,6 +20,7 @@ Before=shutdown.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=bootctl --variables=no --graceful update
+ExecStart=/usr/lib/beize/loader-conf
 # Sandbox (images/security.toml): it writes systemd-boot to the ESP, which
 # it finds by its block device.
 ProtectSystem=strict

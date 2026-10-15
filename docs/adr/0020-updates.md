@@ -78,7 +78,7 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   `boot-complete.target`: ein neuer Bootloader nur von einer bewährten Version, denn für ihn
   gibt es keine vorige. systemds Unit bleibt aus (ADR 0013), sie läuft vor `sysinit.target`
   und damit vor jeder Prüfung. bootctl nimmt die `.signed`-Datei, ersetzt atomar und nur
-  durch eine neuere Version.
+  durch eine neuere Version. Danach seine Konfiguration `loader.conf` (ADR 0024).
 - **Slot-Größe 4 GiB** je `/usr`-Slot (verity-Slot bleibt 64 MiB, der Baum braucht ~32 MiB).
   Heute 86 MB; Compositor, Mesa, NVIDIA-Firmware, Schriften und Audio kommen dazu. Vorbild
   ChromeOS: von 2 auf 4 GiB vergrößert, weil ältere Geräte Updates nicht mehr aufnehmen

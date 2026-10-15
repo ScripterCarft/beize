@@ -36,13 +36,9 @@ pub const DISK_GUID: &str = "6265697A-6500-4000-8000-000000000001";
 const ESP_GUID: &str = "6265697A-6500-4000-8000-000000000002";
 const ESP_VOLUME_ID: &str = "42454953";
 
-/// Boot loader configuration: boot the newest entry immediately; the menu
-/// appears while a key is held. No command line editing under Secure Boot.
-/// If the firmware is in setup mode (no keys, e.g. after "clear Secure Boot
-/// keys" in the firmware setup), enroll Beize's keys from `/loader/keys/auto`
-/// – after a 15 s warning that a key press aborts, at once in a VM – and
-/// reboot (ADR 0010).
-const LOADER_CONF: &str = "timeout 0\neditor no\nconsole-mode keep\nsecure-boot-enroll force\n";
+/// Boot loader configuration, explained in the file: the one in `/usr`,
+/// which a successful boot of a new version brings onto the ESP (ADR 0024).
+const LOADER_CONF: &str = include_str!("../../../system/usr/lib/beize/loader.conf");
 
 /// The UKI's profiles, entries of their own in systemd-boot's menu (ADR
 /// 0018). Only Beize's has a signed PCR 11 policy (`--sign-profile`). The

@@ -33,7 +33,7 @@ const NO_NEWER_UPDATE: &str = "There is no newer version.";
 /// right one goes into slot B; the next boot starts it, the TPM unlocks as
 /// before, and boot counting marks it good – but not a boot in which a unit
 /// of `images/running-units.txt` failed. A successful boot replaces an older
-/// boot loader with the signed one from `/usr`.
+/// boot loader and its configuration with the ones from `/usr`.
 pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
@@ -49,6 +49,10 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
     for path in BOOT_LOADER_ON_ESP {
         put_on_esp(&machine.disk, &older_loader, path)?;
     }
+    let older_conf = paths.work.join("smoke-update-loader.conf");
+    fs::write(&older_conf, OLDER_LOADER_CONF)?;
+    put_on_esp(&machine.disk, &older_conf, LOADER_CONF_ON_ESP)?;
+    fs::remove_file(&older_conf)?;
 
     let shell = Shell::boot(
         &machine,
@@ -75,6 +79,12 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
             "bootctl did not install the signed boot loader from /usr as {path}: {lines:?}"
         );
     }
+    ensure!(
+        lines.iter().any(|l| l.contains(&format!(
+            "{LOADER_CONF_ON_ESP} from /usr/lib/beize/loader.conf"
+        ))),
+        "beize-boot-update did not bring the loader.conf of /usr onto the ESP: {lines:?}"
+    );
     for (what, dir, says) in &refused {
         let server = Server::start(dir)?;
         let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
@@ -127,7 +137,14 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
         );
     }
     fs::remove_file(&older_loader)?;
-    say!("  ok: the boot replaced an older boot loader with the signed one from /usr");
+    ensure!(
+        read_from_esp(&machine.disk, LOADER_CONF_ON_ESP, &paths.work)?
+            == fs::read(paths.out.join("loader.conf"))?,
+        "the boot did not replace the older {LOADER_CONF_ON_ESP} with the one from /usr"
+    );
+    say!(
+        "  ok: the boot replaced an older boot loader and its loader.conf with the ones from /usr"
+    );
 
     // A unit every boot runs fails: the boot does not count as successful,
     // and nothing of it is kept.
@@ -402,6 +419,11 @@ fn usr_labels(disk: &Path) -> Result<Vec<String>> {
 /// Where the boot loader lies on the ESP: systemd-boot's own path and the
 /// removable-media path the firmware starts.
 const BOOT_LOADER_ON_ESP: [&str; 2] = ["/EFI/systemd/systemd-bootx64.efi", "/EFI/BOOT/BOOTX64.EFI"];
+/// The boot loader's configuration on the ESP, and the one Beize 0.3
+/// installed: no update brought another onto the ESP before ADR 0024.
+const LOADER_CONF_ON_ESP: &str = "/loader/loader.conf";
+const OLDER_LOADER_CONF: &str =
+    "timeout 0\neditor no\nconsole-mode keep\nsecure-boot-enroll force\n";
 /// Makes ntpd-rs, a unit every boot runs, fail: a drop-in as a credential
 /// (systemd-debug-generator), `[Service] ExecStartPre=/usr/bin/false`.
 const FAILING_NTP_CREDENTIAL: &str = "type=11,value=io.systemd.credential.binary:\

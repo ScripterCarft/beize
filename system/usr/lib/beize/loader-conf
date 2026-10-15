@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+# Brings systemd-boot's configuration on the ESP to the one of this version
+# (ADR 0024), as bootctl brings the boot loader itself before it
+# (beize-boot-update.service): only from a boot that succeeded, and only
+# when it differs. Written beside it and renamed over it, as bootctl
+# replaces the boot loader.
+set -eu
+
+new=/usr/lib/beize/loader.conf
+esp=$(bootctl --print-esp-path)
+conf=$esp/loader/loader.conf
+
+cmp -s "$new" "$conf" && exit 0
+mkdir -p "${conf%/*}"
+cp "$new" "$conf.new"
+sync "$conf.new"
+mv "$conf.new" "$conf"
+sync "$conf"
+echo "Updated $conf from $new."

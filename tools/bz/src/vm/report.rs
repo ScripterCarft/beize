@@ -89,6 +89,11 @@ pub(super) struct BootReport {
     /// Whether the same module, signed, loaded from the image: `loaded`,
     /// `failed` or `none`.
     pub(super) signed: String,
+    /// The display mode the firmware handed the kernel, e.g. `1280x800`, or
+    /// `none` (ADR 0024).
+    pub(super) display: String,
+    /// The boot loader entry systemd-boot started, or `none`.
+    pub(super) entry: String,
     /// PCI devices (vendor:device) without a driver, bridges excepted.
     pub(super) no_driver: Vec<String>,
     /// Units that are failed now, in the running system.
@@ -140,6 +145,8 @@ impl BootReport {
             lockdown: field("lockdown")?,
             unsigned: field("unsigned")?,
             signed: field("signed")?,
+            display: field("display")?,
+            entry: field("entry")?,
             no_driver: list("nodriver")?,
             failed: list("failed")?,
             boot_failed: list("bootfailed")?,
@@ -155,7 +162,8 @@ mod tests {
                          machineid=0123456789abcdef0123456789abcdef uptime=2.95s systemunlock=refused \
                          network=routable dns=10.0.2.3 lookup=10.0.2.2,fe80::2 tz=America/Sao_Paulo keymap=de-latin1-nodeadkeys yzkey=z efikeymap=de-latin1-nodeadkeys nts=4 \
                          clock=1791500000 kernel=612000 initrd=2100000 userspace=1400000 chain=12 \
-                         shstk=on lockdown=integrity unsigned=refused signed=loaded nodriver=none \
+                         shstk=on lockdown=integrity unsigned=refused signed=loaded \
+                         display=1280x800 entry=beize_0.4.efi nodriver=none \
                          failed=none bootfailed=none";
 
     #[test]
@@ -186,6 +194,8 @@ mod tests {
         assert_eq!(report.lockdown, "integrity");
         assert_eq!(report.unsigned, "refused");
         assert_eq!(report.signed, "loaded");
+        assert_eq!(report.display, "1280x800");
+        assert_eq!(report.entry, "beize_0.4.efi");
         assert!(report.no_driver.is_empty());
         assert!(report.failed.is_empty());
         assert!(report.boot_failed.is_empty());
@@ -196,7 +206,7 @@ mod tests {
         let line = "\x1b[0m[  3.1] BEIZE-BOOT-REPORT state=degraded secureboot=off usr=unprotected root=plain boot=2 \
                     machineid=x uptime=3.1s systemunlock=none \
                     network=timeout dns=none lookup=none tz=none keymap=none yzkey=y efikeymap=none nts=0 \
-                    clock=946684800 kernel=0 initrd=0 userspace=0 chain=0 shstk=nohw lockdown=none unsigned=none signed=none nodriver=1af4:1041,8086:2918 failed=systemd-logind.service,systemd-logind-varlink.socket \
+                    clock=946684800 kernel=0 initrd=0 userspace=0 chain=0 shstk=nohw lockdown=none unsigned=none signed=none display=none entry=none nodriver=1af4:1041,8086:2918 failed=systemd-logind.service,systemd-logind-varlink.socket \
                     bootfailed=systemd-logind.service,beize-tpm.service";
         let report = BootReport::parse(line).unwrap();
         assert_eq!(report.state, "degraded");

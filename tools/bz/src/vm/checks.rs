@@ -169,6 +169,14 @@ pub(super) fn boot_healthy(
         "PCI devices without a driver (vendor:device): {}",
         report.no_driver.join(", ")
     );
+    // ADR 0024: the boot report names the display mode and the entry.
+    ensure!(
+        report.display != "none" && report.entry != "none",
+        "the boot report misses the display mode or the boot loader entry \
+         (display={} entry={})",
+        report.display,
+        report.entry
+    );
     say!(
         "  ok: boot #{} running under Secure Boot after {} guest uptime \
          ({:.1}s including firmware; kernel {} + initrd {} + system {}), network via DHCP, \
@@ -584,7 +592,8 @@ mod tests {
                  machineid=x uptime=5.3s systemunlock=refused network=routable dns=none \
                  lookup=none tz=none keymap=none yzkey=y efikeymap=none nts=0 clock=0 kernel={kernel} initrd={initrd} \
                  userspace={userspace} chain=12 shstk=on lockdown=integrity \
-                 unsigned=refused signed=loaded nodriver=none failed=none bootfailed=none"
+                 unsigned=refused signed=loaded display=1280x800 entry=beize_0.4.efi \
+                 nodriver=none failed=none bootfailed=none"
             )
         };
         let [(_, kernel), (_, initrd), (_, system)] = BOOT_BUDGET;
