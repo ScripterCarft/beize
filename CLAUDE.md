@@ -260,7 +260,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-14)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-15)
 
 **Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.2 (`d4ee932`; Disks, Messwerte,
 Update vom Stick: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch
@@ -289,23 +289,28 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
    von gcc-pass1 den Bau-Pfad (DWARF → Build-ID von glibc). Behoben (`GIT_CEILING_DIRECTORIES`,
    ENV_REVISION 9; `CFLAGS_FOR_TARGET` in gcc-pass1); zwei Bauten unter verschiedenen Pfaden
    bitgleich: modules 91c17015…, initrd c364110e…, initrd modules 4c341ac1…, /usr 4b631a99…
-   CI dieses Pushs (Bau von null) prüfen: `ci/digest.sh` gleich → #5 schließen.
-3. **Hardware-Test 0.3** (#8, #6), sobald 2. grün ist. `OS_VERSION` steht schon auf 0.3 (lokal
-   committet). Weg wie bestätigt: `docs/hardware.md` „Update vom USB-Stick“ ab Schritt 1 Teil 2 –
-   Besitzer im eigenen Terminal `./bz build && ./bz release`, Stick, `beize-update install`, Neustart.
-   Neu gegenüber 0.2 und dort zu beobachten: Kernel mit Beizes Toolchain, Module mit dem
-   Produktions-Modulschlüssel (lädt kein Modul → zuerst `journalctl -k | grep -i sign`),
-   dbus-broker, Stacktraces (`coredumpctl`). Startet 0.3 nicht, kommt nach drei Versuchen 0.2
-   zurück (Boot-Counting, ADR 0020). Danach: Startzeit einmal ohne F8 (`docs/hardware.md`
-   „Startzeit messen“), Leerlauf über Stunden (#6), Vorher/Nachher in `docs/hardware.md` → #8, #6
-   schließen; Phase 7 und M2 fertig.
-4. M3 planen. Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
+   **Nächster Chat:** CI-Lauf 38773182214 (`ae15fc3`, Bau von null) – grün? Digests im Log
+   von „Build and boot“ (`gh api …/actions/jobs/<id>/logs`, `gh run view --log` liefert leer)
+   gleich den obigen → #5 schließen; sonst wie am 15.10.: zweiter Klon unter anderem Pfad,
+   `usr-tree` Datei für Datei vergleichen. Danach `~/repro` löschen (Wegwerf-Klone).
+3. **Hardware-Test 0.3** (#8, #6): Anleitung für den Besitzer in WSL `~/hw-test-0.3.md` (Bau mit
+   `ae15fc3`, Stick, Prüfungen, Absturz für `coredumpctl`, Leerlauf ≥ 3 h als `/var/tmp/idle-1.txt`
+   und `idle-2.txt`, ein Start ohne F8, Journal nach `~/hw-logs`; alte Logs `~/hw-logs-0.2`).
+   **Nächster Chat wertet aus:** `bz boot-times ~/hw-logs/journal` (letzter Start = ohne F8, der
+   davor = erster Start von 0.3), `bz hw-check`; Kernel-Signaturmeldungen, dbus-broker, Stacktrace
+   im Journal (systemd-coredump), `systemctl --failed`; idle-1 gegen idle-2 (MemoryCurrent und
+   CPUUsageNSec je Unit: nichts wächst). Messwerte-Tabelle in `docs/hardware.md` ersetzen (Spalte
+   „nach Phase 7“, Firmware jetzt ohne Menü) → #8, #6 schließen; Phase 7 und M2 fertig. Dann §11
+   für M3 aufräumen und dem Besitzer sagen, dass er den Chat leeren kann – M3 im nächsten Chat.
+   Im Image fehlen grep, awk, free: Befehle für den Besitzer nur mit systemd-Werkzeugen und cat.
+4. M3 planen (eigener Chat). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
    +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
    C++-Programm den Demangler von elfutils einschalten (ADR 0023).
 Nebenbei: #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`). Zurückgestellt: #22 growfs-Bericht,
 #4 vmspawn. #10 seit 14 Läufen nicht wieder – beobachten. **Label `m3-plan` (#14, #17, #34–#36) nur
 mit Zustimmung des Besitzers** (zram/oomd, nftables, fwupd, BTF, Treiber).
-Runner: root, kein systemd; Normallauf ~20 min, Bau von null ~2 h (2 CPUs). Der `gh`-Token darf
+Runner: root, kein systemd, 4 vCPU seit das Repo öffentlich ist (Bau von null zuvor ~2 h auf 2).
+Dieser CLAUDE.md-Stand ist lokal committet: pushen, wenn 38773182214 grün ist. Der `gh`-Token darf
 keine Workflows starten. Der alte `git stash` (13.10.) ist der Zwischenstand von #3, ganz in
 `941f5c6` aufgegangen; Kopie `~/stash.patch` – Besitzer löscht ihn (`git stash drop`).
 
