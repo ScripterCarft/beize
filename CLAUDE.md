@@ -290,7 +290,7 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
    775 statt 755). `ci/digest.sh` sah Rechte nicht: jetzt Typ, Rechte, Symlink und Inhalt je Eintrag,
    dazu initrd-Baum und /usr-Abbild; die Listen in `build/out/digest/`, die CI lädt sie hoch
    („digest-lists“). CI 38773182214 (`ae15fc3`) war grün, /usr und initrd wichen noch ab (umask
-   oder anderes). **Nächster Chat:** nach dem Push den CI-Lauf prüfen: Artefakt „digest-lists“ laden
+   oder anderes). **Nächster Chat:** CI-Lauf 38789354237 (`b3289157`, Bau von null) prüfen: Artefakt „digest-lists“ laden
    (`gh run download <id> -n digest-lists`) und mit lokal `./bz build && ci/digest.sh` Datei für
    Datei vergleichen (`diff`); gleich → #5 schließen. Danach `~/repro` löschen (Wegwerf-Klone).
    bz bricht jetzt ab, wenn `configure` Optionen ignoriert (fand curl `--disable-smb`, e2fsprogs
