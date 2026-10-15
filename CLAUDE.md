@@ -262,10 +262,10 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-15)
 
-**Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.2 (`d4ee932`; Disks, Messwerte,
-Update vom Stick: `docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). 0.2 ist noch
-mit dem Bootstrap-Compiler und einem Kernel vom Ubuntu-gcc gebaut – beim Hardware-Test (#8)
-ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key, `s`.
+**Beize läuft auf dem Rechner des Besitzers**, installiert ist 0.3 (Toolchain-Kernel 7.2.10;
+Disks, Messwerte, Update vom Stick: `docs/hardware.md`; neu installieren:
+`keys/secureboot/README.md`). Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“,
+Recovery-Key, `s`.
 
 **PHASE 7 – Konsolidierung (seit 2026-10-12).** Ausgangswerte: WSL `~/p7/BASELINE.md`; jede
 Änderung mit Vorher/Nachher, je Thema ein Commit. Erledigt (Einzelheiten in Commits und ADRs):
@@ -302,25 +302,23 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
    die Test-Shell schaltet den Pager ab (sonst hängt journalctl in less). Offen, Besitzer entscheidet:
    findmnt/flock (util-linux von `--disable-all-programs` auf eine ausdrückliche Liste umstellen?),
    Editor (vi oder nano), file, patch, strings.
-3. **Hardware-Test 0.3** (#8, #6): Anleitung für den Besitzer in WSL `~/hw-test-0.3.md` (Bau mit
-   `ae15fc3`, Stick, Prüfungen, Absturz für `coredumpctl`, Leerlauf ≥ 3 h als `/var/tmp/idle-1.txt`
-   und `idle-2.txt`, ein Start ohne F8, Journal nach `~/hw-logs`; alte Logs `~/hw-logs-0.2`).
-   **Nächster Chat wertet aus:** `bz boot-times ~/hw-logs/journal` (letzter Start = ohne F8, der
-   davor = erster Start von 0.3), `bz hw-check`; Kernel-Signaturmeldungen, dbus-broker, Stacktrace
-   im Journal (systemd-coredump), `systemctl --failed`; idle-1 gegen idle-2 (MemoryCurrent und
-   CPUUsageNSec je Unit: nichts wächst). Messwerte-Tabelle in `docs/hardware.md` ersetzen (Spalte
-   „nach Phase 7“, Firmware jetzt ohne Menü) → #8, #6 schließen; Phase 7 und M2 fertig. Dann §11
-   für M3 aufräumen und dem Besitzer sagen, dass er den Chat leeren kann – M3 im nächsten Chat.
-   Das installierte 0.3 hat noch kein grep, awk, free (kommen mit dem nächsten Release).
-   **Bootloader-Fix (Besitzer: im nächsten Chat umsetzen, Punkte 1–3):** Start über das
-   systemd-boot-Menü (Leertaste; auch jeder Recovery-Start) → Konsole in niedriger Auflösung.
-   Ursache belegt (systemd v262 `boot.c` menu_run → `console_set_mode(keep)`; simpledrm erbt den
-   GOP-Modus). Tiefer: `loader.conf` wird nur bei der Installation geschrieben, Updates erreichen
-   sie nie. 1) loader.conf ins Image, `beize-boot-update` gleicht sie nach erfolgreichem Start ab
-   (ADR vorab mit dem Besitzer); 2) `console-mode max`; 3) Anzeigemodus und Eintrag in
-   `boot-report`, Smoke-Test mit Menü (vorher prüfen, ob OVMF das Herunterschalten nachbildet).
-   Im Journal belegen: Menü-Start von 0.3 (niedrig) gegen den Start ohne F8 (voll). Auf der
-   Hardware mit dem nächsten Release (0.4) bestätigen.
+3. **Hardware-Test 0.3 ausgewertet (15.10., #8):** 0 fehlgeschlagene Units, Produktions-
+   Modulschlüssel geladen, dbus-broker läuft; ohne F8: Firmware 15,5 s, ab Loader 13,6 s
+   (`docs/hardware.md`). Behoben (`9aea966`…`8f26050`, Push erst nach grünem CI 38789354237): `bz boot-times`/`hw-check`
+   fanden Journale außerhalb des Repos nicht (seit ADR 0021); `journalctl --grep` ohne PCRE2;
+   **Bootloader-Fix ADR 0024** (loader.conf in `/usr`, `beize-boot-update` gleicht nach
+   erfolgreichem Start ab, `console-mode max`, Bericht `display=`/`entry=`). OVMF bildet das
+   Herunterschalten nicht nach (gemessen) – Beleg nur auf Hardware: 0.3 Menü-Start `128x48`
+   (1024×768), ohne Menü `160x45` (2560×1440). Die Absturz-Probe in `~/hw-test-0.3.md` war ein
+   Wettlauf (`kill` vor dem Start von sleep → nur `_start`); Smoke prüft es richtig. Bekannt,
+   unverändert: growfs `crypt_resize` EPERM, i2c ITE8853 -16 (#22). **Leerlauf fehlt (#6).**
+   **Besitzer:** Hardware-Test 0.4 nach WSL `~/hw-test-0.4.md` (Commit „Beize 0.4“): erster
+   Start, Menü-Start, Grundwerkzeuge, Leerlauf ≥ 3 h. **Nächster Chat wertet aus:** im ersten
+   Start von 0.4 `Updated /boot/loader/loader.conf`, Menü-Start `Console: switching … 160x45`,
+   idle-1 gegen idle-2 (MemoryCurrent und CPUUsageNSec je Unit, `free -m`: nichts wächst) →
+   #6 schließen; Phase 7 und M2 fertig, §11 für M3 aufräumen, Besitzer darf den Chat leeren.
+   Offene Frage des Besitzers: ~700 MB RAM „gut oder viel?“ – Quelle unklar (cgtop/meminfo
+   zählen den Seitencache mit); mit `idle-*.txt` beantworten.
 4. M3 planen (eigener Chat). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
    +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
    C++-Programm den Demangler von elfutils einschalten (ADR 0023).
