@@ -8,7 +8,7 @@ Monitor 1440p @ 240 Hz. Beize liegt auf der Samsung SSD 860 EVO (Disk 0 in Windo
 SanDisk 480 GB (E:, Daten) und Corsair (Windows) nie anfassen. Installieren:
 [`keys/secureboot/README.md`](../keys/secureboot/README.md).
 
-Treiber im Image (`bz hw-check`, Stand 2026-10-10): alle PCI-Geräte außer WLAN, Ton
+Treiber im Image (`bz hw-check`, Stand 2026-10-15): alle PCI-Geräte außer WLAN, Ton
 (HDA) und der NVIDIA-GPU – sie kommen mit ihren Phasen; SPI-Flash (BIOS) und Shared
 SRAM brauchen keinen.
 
@@ -68,28 +68,27 @@ schreibt (fehlt bei Images, die vor dieser Unit gebaut wurden).
 
 ## Messwerte
 
-Gewöhnlicher Start (nicht der erste) nach Phase 4 des Fahrplans (Kernel 7.2.9, Image
-`18b89a3`, 2026-10-11), daneben Phase 3 und das Image vor dem Fahrplan. VM-Werte:
-Kommentar zu `BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
+Gewöhnlicher Start nach Phase 7 (Beize 0.3, Kernel 7.2.10 mit Beizes Toolchain,
+2026-10-15), **ohne F8-Menü** gestartet; daneben Phase 4 und das Image vor dem Fahrplan.
+VM-Werte: Kommentar zu `BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
 
-| Phase | nach Phase 4 | nach Phase 3 | vor dem Fahrplan |
+| Phase | nach Phase 7 | nach Phase 4 | vor dem Fahrplan |
 | --- | --- | --- | --- |
-| Firmware | 21,8 s* | 18,5 s* | 16,9–17,5 s* |
-| Loader (systemd-boot) | 0,54 s | 0,65 s | 1,0–1,1 s |
-| Kernel | 7,2 s | 7,3 s | 11,7 s |
-| initrd | 4,0 s | 4,0 s | 4,0 s |
-| System | 1,7 s | 1,7 s | 1,6–1,7 s |
-| ab Loader | 13,5 s | 13,7 s | 18,4 s |
+| Firmware | 15,5 s | 21,8 s* | 16,9–17,5 s* |
+| Loader (systemd-boot) | 0,52 s | 0,54 s | 1,0–1,1 s |
+| Kernel | 7,2 s | 7,2 s | 11,7 s |
+| initrd | 4,1 s | 4,0 s | 4,0 s |
+| System | 1,8 s | 1,7 s | 1,6–1,7 s |
+| ab Loader | 13,6 s | 13,5 s | 18,4 s |
 
-\* Enthält die Zeit im F8-Bootmenü, also nicht vergleichbar. Für einen echten
-Firmware-Wert Beize einmal ohne Menü starten: in Windows (Administrator)
-`bcdedit /enum firmware`, den Eintrag der Samsung-SSD suchen, dann
-`bcdedit /set {fwbootmgr} bootsequence {<ID>}` und neu starten – nur der nächste Start
-geht zu Beize.
+\* Mit der Zeit im F8-Bootmenü (mit Menü 0.3: 20,6 und 23,6 s). Ohne Menü starten: in
+Windows (Administrator) `bcdedit /enum firmware`, den Eintrag der Samsung-SSD suchen,
+dann `bcdedit /set {fwbootmgr} bootsequence {<ID>}` und neu starten – nur der nächste
+Start geht zu Beize.
 
-Phase 4 verkleinerte die initrd von 19,3 auf 10,7 MiB: Der Loader lädt 0,1 s schneller.
-Die initrd-Phase bleibt bei 4,0 s, weil ihre Zeit fast ganz in den drei Punkten unten
-steckt, nicht in der Größe.
+Phase 7 hielt die Zeiten trotz neuer Toolchain, dbus-broker und MiniDebugInfo. Die initrd
+(10 MiB) lädt der Loader in 0,5 s; ihre Phase steckt fast ganz in den drei Punkten unten,
+nicht in der Größe.
 
 Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s, Fix in
 7.3), 1,9 s `mem auto-init` (`INIT_ON_FREE`, bewusst behalten, ADR 0015). initrd:
@@ -116,7 +115,7 @@ Wird nach jeder Phase des Fahrplans ersetzt, nicht ergänzt.
 
 ## Firmware (BIOS) einstellen
 
-Die Firmware ist der größte Posten (gemessen bisher nur mit F8-Menü, siehe oben). Je
+Die Firmware ist der größte Posten (15,5 s ohne Menü, siehe oben). Je
 Einstellung einzeln ändern und ohne F8 messen (`bz boot-times`), damit klar ist, was
 wirkt. Keine davon berührt
 PCR 7 (Secure-Boot-Zustand), der Recovery-Key wird also nicht verlangt.
