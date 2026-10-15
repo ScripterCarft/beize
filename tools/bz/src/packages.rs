@@ -12,7 +12,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
 
 use crate::jobserver::{self, Jobserver};
@@ -601,6 +601,15 @@ fn build_one(
         }
         return Err(error);
     }
+    let ignored = ignored_options(&fs::read_to_string(&log)?);
+    ensure!(
+        ignored.is_empty(),
+        "{}: configure ignored options it does not know – the switch does nothing, \
+         the feature stays as configure's default (log: {}):\n  {}",
+        recipe.name,
+        log.display(),
+        ignored.join("\n  ")
+    );
     // As rpmbuild runs find-debuginfo on what a package installed (ADR 0023).
     if stage == Stage::Target {
         debuginfo::prepare(paths, &pkg_dir)?;
@@ -611,6 +620,22 @@ fn build_one(
         anon_mib: (peak.anon > 0).then(|| peak.anon.div_ceil(1 << 20)),
         secs,
     })
+}
+
+/// What an autoconf configure reports as `unrecognized options` in a build's
+/// log. It only warns, so a misspelled switch, or one upstream dropped (curl's
+/// --disable-smb in 8.23) or never had (util-linux' --enable-findmnt), would
+/// pass unseen. meson fails on unknown options by itself.
+fn ignored_options(log: &str) -> Vec<String> {
+    let mut ignored: Vec<String> = log
+        .lines()
+        .filter_map(|line| line.split_once("WARNING: unrecognized options: "))
+        .flat_map(|(_, options)| options.split(", "))
+        .map(|option| option.trim().to_owned())
+        .collect();
+    ignored.sort();
+    ignored.dedup();
+    ignored
 }
 
 fn meson_file(paths: &Paths, name: &str, machine: &str) -> PathBuf {
@@ -714,6 +739,19 @@ fn recreate(dir: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// configure's warning, as util-linux 2.42 printed it twice (configure,
+    /// then config.status), and lines that merely look alike.
+    #[test]
+    fn ignored_configure_options_are_found() {
+        let log = "checking for gcc... yes\n\
+                   configure: WARNING: unrecognized options: --enable-findmnt, --enable-flock\n\
+                   config.status: creating Makefile\n\
+                   configure: WARNING: unrecognized options: --enable-findmnt, --enable-flock\n\
+                   checking whether unrecognized options are bad... yes\n";
+        assert_eq!(ignored_options(log), ["--enable-findmnt", "--enable-flock"]);
+        assert!(ignored_options("configure: WARNING: cache variable not set\n").is_empty());
+    }
 
     /// Recipes without `repo` must keep their fingerprints: anything else
     /// rebuilds the whole system (and invalidates every CI cache).

@@ -19,7 +19,7 @@ script = '''
 "$SRC/configure" \
   --host="$TARGET" --build="$("$SRC/config/config.guess")" \
   --prefix=/usr --libdir=/usr/lib --sbindir=/usr/bin --sysconfdir=/etc \
-  --enable-elf-shlibs --disable-static --disable-nls \
+  --enable-elf-shlibs --disable-nls \
   --disable-libuuid --disable-libblkid --disable-uuidd --disable-fsck \
   --disable-e2initrd-helper --disable-fuse2fs --without-libarchive \
   --with-systemd-unit-dir=/usr/lib/systemd/system \
