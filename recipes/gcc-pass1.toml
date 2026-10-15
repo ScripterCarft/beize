@@ -15,6 +15,11 @@ sed -e '/m64=/s/lib64/lib/' -i "$SRC/gcc/config/i386/t-linux64"
 
 prefix="$TOOLS/pass1"
 rm -rf "$prefix"
+# Its libgcc is linked into glibc (soft-fp, libgcc2.c): gcc's default flags
+# for target libraries, with the repository's path mapped as everywhere
+# else – its debug information otherwise names the build path, and glibc's
+# build ID changes with it.
+export CFLAGS_FOR_TARGET="-g -O2 $PREFIX_MAP"
 "$SRC/configure" \
   --target="$TARGET" --prefix="$prefix" --with-sysroot="$TOOLS/no-sysroot" \
   --with-as="$TOOLS/bin/$TARGET-as" --with-ld="$TOOLS/bin/$TARGET-ld" \

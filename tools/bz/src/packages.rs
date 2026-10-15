@@ -49,7 +49,8 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// 7: the repository's path mapped to /beize in what the compilers write
 ///    ([`prefix_map`]).
 /// 8: what a package installs is stripped, with MiniDebugInfo (ADR 0023).
-const ENV_REVISION: u32 = 8;
+/// 9: no package sees Beize's git repository (GIT_CEILING_DIRECTORIES).
+const ENV_REVISION: u32 = 9;
 /// pkg-config for the target, as autoconf looks for it when cross-compiling.
 const TARGET_PKG_CONFIG: &str = "x86_64-beize-linux-gnu-pkg-config";
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
@@ -512,6 +513,12 @@ fn build_one(
         .env("TOOLS", &paths.tools)
         .env("SYSROOT", sysroot)
         .env("TARGET", TARGET)
+        // Sources are unpacked inside Beize's repository: without a ceiling,
+        // `git describe` and build scripts (iputils, ntpd-rs) find Beize's
+        // commit and write it into what they build. A package sees no
+        // repository above its own trees, as in Debian's sbuild or Fedora's
+        // mock; it reports what a build from its release tarball reports.
+        .env("GIT_CEILING_DIRECTORIES", &paths.work)
         // MAKEFLAGS for the steps that may run jobs in parallel: make,
         // meson compile (ninja), cmake --build and cargo then take their
         // jobs from the shared pool. Everything else runs one job at a time,

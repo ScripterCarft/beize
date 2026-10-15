@@ -284,13 +284,12 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
   Wiederholungen gegen Ausfälle von snapshot.ubuntu.com).
 
 **PLAN BIS M3 (mit dem Besitzer abgestimmt 2026-10-14)**
-1. CI des Pushs vom 14.10. abends prüfen (neuer Buildroot, alle Pakete neu → ~2,5 h bei 2 CPUs):
-   `build host:` (4 vCPU seit Repo öffentlich? dann #2 schließen) und `ci/digest.sh` gegen lokal
-   (Commit `HEAD` des Pushs: modules 91c17015…, initrd 520ecb01…, initrd modules 4c341ac1…,
-   /usr tree dca39f8b…) – gleich → #5 schließen, sonst Unterschied suchen.
-2. **Erst wenn 1. grün ist: pushen**, was danach lokal committet wurde (#37: rustls 0.23.46 und
-   crossbeam-epoch 0.9.20 in ntpd-rs per `[cargo.update]`; `bz cve` grün, Smoke grün). Dessen CI
-   wieder prüfen (Normallauf: ntpd-rs baut neu).
+1. ✓ 2026-10-15: CI grün (#37 und 0.3 gepusht), Runner 4 vCPU (#2 geschlossen).
+2. #5: `/usr` und initrd wichen ab – iputils und ntpd-rs schrieben Beizes Commit hinein, libgcc
+   von gcc-pass1 den Bau-Pfad (DWARF → Build-ID von glibc). Behoben (`GIT_CEILING_DIRECTORIES`,
+   ENV_REVISION 9; `CFLAGS_FOR_TARGET` in gcc-pass1); zwei Bauten unter verschiedenen Pfaden
+   bitgleich: modules 91c17015…, initrd c364110e…, initrd modules 4c341ac1…, /usr 4b631a99…
+   CI dieses Pushs (Bau von null) prüfen: `ci/digest.sh` gleich → #5 schließen.
 3. **Hardware-Test 0.3** (#8, #6), sobald 2. grün ist. `OS_VERSION` steht schon auf 0.3 (lokal
    committet). Weg wie bestätigt: `docs/hardware.md` „Update vom USB-Stick“ ab Schritt 1 Teil 2 –
    Besitzer im eigenen Terminal `./bz build && ./bz release`, Stick, `beize-update install`, Neustart.
