@@ -303,6 +303,16 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
    „nach Phase 7“, Firmware jetzt ohne Menü) → #8, #6 schließen; Phase 7 und M2 fertig. Dann §11
    für M3 aufräumen und dem Besitzer sagen, dass er den Chat leeren kann – M3 im nächsten Chat.
    Im Image fehlen grep, awk, free: Befehle für den Besitzer nur mit systemd-Werkzeugen und cat.
+   **Fund 15.10.:** Start über das systemd-boot-Menü (Leertaste; auch jeder Recovery-Start) →
+   Konsole in niedriger Auflösung. Ursache belegt (systemd v262 `boot.c` menu_run →
+   `console_set_mode(keep)`; simpledrm erbt den GOP-Modus). Tiefer: `loader.conf` wird nur bei
+   der Installation geschrieben, Updates erreichen sie nie. Vorschlag an den Besitzer (Antwort
+   offen): loader.conf ins Image, `beize-boot-update` gleicht sie ab (ADR); `console-mode max`;
+   Anzeigemodus in `boot-report`, Smoke-Test mit Menü. Im Journal belegen: Menü-Start von 0.3
+   (niedrig) gegen den Start ohne F8 (voll).
+   **Fund 15.10.:** grep fehlt im Image – nie ein Rezept, keine Entscheidung dagegen (PCRE2 ist
+   da). Besitzer: wichtig. Vorschlag: GNU grep mit PCRE2; dazu einmal abgleichen, welche POSIX-/
+   Basiswerkzeuge fehlen (sed, awk, procps-ng, less …), Liste mit Empfehlung an den Besitzer.
 4. M3 planen (eigener Chat). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
    +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
    C++-Programm den Demangler von elfutils einschalten (ADR 0023).
