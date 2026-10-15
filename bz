@@ -121,5 +121,25 @@ case $command in
                 --setenv WSL_INTEROP "$WSL_INTEROP")
         fi
         ;;
+    # A journal copied from real hardware lies outside the repository
+    # (docs/hardware.md): bound in read-only, at the same path.
+    boot-times | hw-check)
+        for arg in "$@"; do
+            case $arg in
+                "$repo"/*) ;;
+                /*)
+                    if [ -d "$arg" ]; then
+                        mkdir -p "$root$arg"
+                    elif [ -f "$arg" ]; then
+                        mkdir -p "$root$(dirname "$arg")"
+                        : > "$root$arg"
+                    else
+                        continue
+                    fi
+                    args+=(--ro-bind "$arg" "$arg")
+                    ;;
+            esac
+        done
+        ;;
 esac
 exec bwrap "${args[@]}" -- ./bz "$@"
