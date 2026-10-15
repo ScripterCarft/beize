@@ -285,14 +285,23 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
 
 **PLAN BIS M3 (mit dem Besitzer abgestimmt 2026-10-14)**
 1. ✓ 2026-10-15: CI grün (#37 und 0.3 gepusht), Runner 4 vCPU (#2 geschlossen).
-2. #5: `/usr` und initrd wichen ab – iputils und ntpd-rs schrieben Beizes Commit hinein, libgcc
-   von gcc-pass1 den Bau-Pfad (DWARF → Build-ID von glibc). Behoben (`GIT_CEILING_DIRECTORIES`,
-   ENV_REVISION 9; `CFLAGS_FOR_TARGET` in gcc-pass1); zwei Bauten unter verschiedenen Pfaden
-   bitgleich: modules 91c17015…, initrd c364110e…, initrd modules 4c341ac1…, /usr 4b631a99…
-   **Nächster Chat:** CI-Lauf 38773182214 (`ae15fc3`, Bau von null) – grün? Digests im Log
-   von „Build and boot“ (`gh api …/actions/jobs/<id>/logs`, `gh run view --log` liefert leer)
-   gleich den obigen → #5 schließen; sonst wie am 15.10.: zweiter Klon unter anderem Pfad,
-   `usr-tree` Datei für Datei vergleichen. Danach `~/repro` löschen (Wegwerf-Klone).
+2. #5 (15.10.): behoben, was zwei Bauten unterschied – Beizes Git-Commit in iputils und ntpd-rs
+   (`GIT_CEILING_DIRECTORIES`), der Bau-Pfad in gcc-pass1s libgcc, die umask (`./bz` setzt 0022;
+   775 statt 755). `ci/digest.sh` sah Rechte nicht: jetzt Typ, Rechte, Symlink und Inhalt je Eintrag,
+   dazu initrd-Baum und /usr-Abbild; die Listen in `build/out/digest/`, die CI lädt sie hoch
+   („digest-lists“). CI 38773182214 (`ae15fc3`) war grün, /usr und initrd wichen noch ab (umask
+   oder anderes). **Nächster Chat:** nach dem Push den CI-Lauf prüfen: Artefakt „digest-lists“ laden
+   (`gh run download <id> -n digest-lists`) und mit lokal `./bz build && ci/digest.sh` Datei für
+   Datei vergleichen (`diff`); gleich → #5 schließen. Danach `~/repro` löschen (Wegwerf-Klone).
+   bz bricht jetzt ab, wenn `configure` Optionen ignoriert (fand curl `--disable-smb`, e2fsprogs
+   `--disable-static`, util-linux `--enable-findmnt`).
+   **Grundwerkzeuge (15.10., vom Besitzer gewollt):** grep (PCRE2), sed, gawk, findutils, diffutils,
+   gzip, procps-ng, less, ncurses (Terminals wie Fedoras ncurses-base), iproute2 (ohne tc), xz- und
+   zstd-Programme; `tar` ist bsdtar aus libarchive (wie macOS) – GNU tar hat seit 1.35 (2023) kein
+   Release, Fedora flickt 3 CVEs und den acl-2.4-Konflikt. Smoke prüft jedes Werkzeug mit Antwort;
+   die Test-Shell schaltet den Pager ab (sonst hängt journalctl in less). Offen, Besitzer entscheidet:
+   findmnt/flock (util-linux von `--disable-all-programs` auf eine ausdrückliche Liste umstellen?),
+   Editor (vi oder nano), file, patch, strings.
 3. **Hardware-Test 0.3** (#8, #6): Anleitung für den Besitzer in WSL `~/hw-test-0.3.md` (Bau mit
    `ae15fc3`, Stick, Prüfungen, Absturz für `coredumpctl`, Leerlauf ≥ 3 h als `/var/tmp/idle-1.txt`
    und `idle-2.txt`, ein Start ohne F8, Journal nach `~/hw-logs`; alte Logs `~/hw-logs-0.2`).
@@ -302,17 +311,16 @@ ersetzen. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recover
    CPUUsageNSec je Unit: nichts wächst). Messwerte-Tabelle in `docs/hardware.md` ersetzen (Spalte
    „nach Phase 7“, Firmware jetzt ohne Menü) → #8, #6 schließen; Phase 7 und M2 fertig. Dann §11
    für M3 aufräumen und dem Besitzer sagen, dass er den Chat leeren kann – M3 im nächsten Chat.
-   Im Image fehlen grep, awk, free: Befehle für den Besitzer nur mit systemd-Werkzeugen und cat.
-   **Fund 15.10.:** Start über das systemd-boot-Menü (Leertaste; auch jeder Recovery-Start) →
-   Konsole in niedriger Auflösung. Ursache belegt (systemd v262 `boot.c` menu_run →
-   `console_set_mode(keep)`; simpledrm erbt den GOP-Modus). Tiefer: `loader.conf` wird nur bei
-   der Installation geschrieben, Updates erreichen sie nie. Vorschlag an den Besitzer (Antwort
-   offen): loader.conf ins Image, `beize-boot-update` gleicht sie ab (ADR); `console-mode max`;
-   Anzeigemodus in `boot-report`, Smoke-Test mit Menü. Im Journal belegen: Menü-Start von 0.3
-   (niedrig) gegen den Start ohne F8 (voll).
-   **Fund 15.10.:** grep fehlt im Image – nie ein Rezept, keine Entscheidung dagegen (PCRE2 ist
-   da). Besitzer: wichtig. Vorschlag: GNU grep mit PCRE2; dazu einmal abgleichen, welche POSIX-/
-   Basiswerkzeuge fehlen (sed, awk, procps-ng, less …), Liste mit Empfehlung an den Besitzer.
+   Das installierte 0.3 hat noch kein grep, awk, free (kommen mit dem nächsten Release).
+   **Bootloader-Fix (Besitzer: im nächsten Chat umsetzen, Punkte 1–3):** Start über das
+   systemd-boot-Menü (Leertaste; auch jeder Recovery-Start) → Konsole in niedriger Auflösung.
+   Ursache belegt (systemd v262 `boot.c` menu_run → `console_set_mode(keep)`; simpledrm erbt den
+   GOP-Modus). Tiefer: `loader.conf` wird nur bei der Installation geschrieben, Updates erreichen
+   sie nie. 1) loader.conf ins Image, `beize-boot-update` gleicht sie nach erfolgreichem Start ab
+   (ADR vorab mit dem Besitzer); 2) `console-mode max`; 3) Anzeigemodus und Eintrag in
+   `boot-report`, Smoke-Test mit Menü (vorher prüfen, ob OVMF das Herunterschalten nachbildet).
+   Im Journal belegen: Menü-Start von 0.3 (niedrig) gegen den Start ohne F8 (voll). Auf der
+   Hardware mit dem nächsten Release (0.4) bestätigen.
 4. M3 planen (eigener Chat). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob geschätzt lokal
    +15 min Bau von null, CI auf 4 vCPU +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
    C++-Programm den Demangler von elfutils einschalten (ADR 0023).
@@ -320,7 +328,7 @@ Nebenbei: #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`). Zurückgestellt: 
 #4 vmspawn. #10 seit 14 Läufen nicht wieder – beobachten. **Label `m3-plan` (#14, #17, #34–#36) nur
 mit Zustimmung des Besitzers** (zram/oomd, nftables, fwupd, BTF, Treiber).
 Runner: root, kein systemd, 4 vCPU seit das Repo öffentlich ist (Bau von null zuvor ~2 h auf 2).
-Dieser CLAUDE.md-Stand ist lokal committet: pushen, wenn 38773182214 grün ist. Der `gh`-Token darf
+Der `gh`-Token darf
 keine Workflows starten. Der alte `git stash` (13.10.) ist der Zwischenstand von #3, ganz in
 `941f5c6` aufgegangen; Kopie `~/stash.patch` – Besitzer löscht ihn (`git stash drop`).
 
