@@ -5,6 +5,10 @@
 # when ci/buildroot/ changed. `./bz exec <command>` runs any command in it
 # (e.g. `./bz exec cargo deny check`, `./bz exec ci/fuzz.sh`).
 set -euo pipefail
+# What is built must not depend on the builder's umask: with 0002 (Ubuntu's
+# default for users) directories came out 775 instead of 755 (#5). Fixed as
+# dpkg-buildpackage fixes it.
+umask 0022
 cd "$(dirname "$0")"
 repo=$PWD
 

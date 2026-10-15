@@ -233,6 +233,16 @@ jobs:
           name: beize-disk-image
           path: build/out/disk.img
           retention-days: 7
+      # The lists behind ci/digest.sh's digests: a difference from a local
+      # build traced to its file (#5). Small text files.
+      - name: Upload digest lists
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-lists
+          path: build/out/digest/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload build logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

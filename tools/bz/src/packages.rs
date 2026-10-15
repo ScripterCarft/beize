@@ -50,7 +50,8 @@ pub const BUILD_EPOCH: u64 = 1_791_244_800;
 ///    ([`prefix_map`]).
 /// 8: what a package installs is stripped, with MiniDebugInfo (ADR 0023).
 /// 9: no package sees Beize's git repository (GIT_CEILING_DIRECTORIES).
-const ENV_REVISION: u32 = 9;
+/// 10: umask 0022 whoever builds (`./bz`).
+const ENV_REVISION: u32 = 10;
 /// pkg-config for the target, as autoconf looks for it when cross-compiling.
 const TARGET_PKG_CONFIG: &str = "x86_64-beize-linux-gnu-pkg-config";
 const HOST_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
