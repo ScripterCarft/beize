@@ -1,0 +1,37 @@
+# GNU diff, cmp, diff3 and sdiff.
+name = "diffutils"
+version = "3.12"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 436 }
+url = "https://mirrors.kernel.org/gnu/diffutils/diffutils-{version}.tar.xz"
+sha256 = "7c8b7f9fc8609141fdea9cece85249d308624391ff61dedaf528fcb337727dfd"
+signature = "https://mirrors.kernel.org/gnu/diffutils/diffutils-{version}.tar.xz.sig"
+keyring = "diffutils"
+
+[build]
+script = '''
+# 3.12's gnulib runs a test program for strcasecmp with no answer for cross
+# builds and fails; gnulib has one since (strcasecmp.m4, serial 3). Answered
+# here: the test looks for a Solaris and Cygwin bug, glibc's works.
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/build-aux/config.guess")" --prefix=/usr \
+  --disable-nls gl_cv_func_strcasecmp_works=yes
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "GPL-3.0-or-later"
+cpe = ["cpe:2.3:a:gnu:diffutils"]
+
+[files]
+image = [
+  "usr/bin/cmp",
+  "usr/bin/diff",
+  "usr/bin/diff3",
+  "usr/bin/sdiff",
+]

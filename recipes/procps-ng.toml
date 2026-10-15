@@ -1,0 +1,55 @@
+# Process tools: ps, top, free, kill, pgrep/pkill, uptime, vmstat, watch, w,
+# hugetop.
+# coreutils leaves kill and uptime to it (recipes/coreutils.toml).
+name = "procps-ng"
+version = "4.0.7"
+stage = "target"
+# systemd: ps shows each process's unit and session (-o unit,slice), w the
+# sessions of logind, as Fedora builds it. ncurses: top and watch.
+deps = ["gcc", "glibc", "ncurses", "systemd"]
+
+[source]
+latest = { release-monitoring = 3708 }
+url = "https://downloads.sourceforge.net/project/procps-ng/Production/procps-ng-{version}.tar.xz"
+sha256 = "9d2021f47a4501c667862c9942a92d1953694b21d11bcd1702e83eb594e3d67d"
+signature = "https://downloads.sourceforge.net/project/procps-ng/Production/procps-ng-{version}.tar.xz.asc"
+keyring = "procps-ng"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config.guess")" --prefix=/usr --libdir=/usr/lib \
+  --bindir=/usr/bin --sbindir=/usr/bin \
+  --disable-static --disable-nls --with-systemd --without-elogind \
+  --with-ncurses --enable-watch8bit
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "GPL-2.0-or-later AND LGPL-2.0-or-later AND LGPL-2.1-or-later"
+cpe = ["cpe:2.3:a:procps-ng_project:procps-ng"]
+
+[files]
+image = [
+  "usr/bin/free",
+  "usr/bin/hugetop",
+  "usr/bin/kill",
+  "usr/bin/pgrep",
+  "usr/bin/pidof",
+  "usr/bin/pidwait",
+  "usr/bin/pkill",
+  "usr/bin/pmap",
+  "usr/bin/ps",
+  "usr/bin/pwdx",
+  "usr/bin/slabtop",
+  "usr/bin/sysctl",
+  "usr/bin/tload",
+  "usr/bin/top",
+  "usr/bin/uptime",
+  "usr/bin/vmstat",
+  "usr/bin/w",
+  "usr/bin/watch",
+  "usr/lib/libproc2.so.*",
+]

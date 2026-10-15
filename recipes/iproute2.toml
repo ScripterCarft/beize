@@ -1,0 +1,55 @@
+# Network configuration and diagnosis: ip, ss, bridge. systemd-networkd
+# configures the network; these show and change it by hand.
+name = "iproute2"
+version = "7.2.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 1392 }
+url = "https://cdn.kernel.org/pub/linux/utils/net/iproute2/iproute2-{version}.tar.xz"
+sha256 = "4c2fa124c2cf0afd7ca34d1eeacba6ba048a56f6374e2aab93dafbdbd4eea9c0"
+signature = "https://cdn.kernel.org/pub/linux/utils/net/iproute2/iproute2-{version}.tar.sign"
+signed = "uncompressed"
+keyring = "iproute2"
+
+[build]
+script = '''
+# Its own configure script builds in the source tree. Without libmnl,
+# libbpf, libelf and SELinux: devlink, rdma, tipc, dcb and vdpa (which need
+# libmnl) are not built, ip and tc load no BPF programs.
+cp -a "$SRC"/. .
+./configure --prefix=/usr --libdir=/usr/lib --libbpf_force=off
+MAKEFLAGS="$JOBSERVER" make CC="$CC" AR="$AR" CCOPTS="$CFLAGS" LDFLAGS="$LDFLAGS"
+make DESTDIR="$PKG" PREFIX=/usr SBINDIR=/usr/bin LIBDIR=/usr/lib install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "GPL-2.0-or-later AND NIST-PD"
+cpe = ["cpe:2.3:a:iproute2_project:iproute2"]
+
+# As Fedora's iproute; tc is its iproute-tc.
+[files]
+image = [
+  "usr/bin/bridge",
+  "usr/bin/ctstat",
+  "usr/bin/genl",
+  "usr/bin/ifstat",
+  "usr/bin/ip",
+  "usr/bin/lnstat",
+  "usr/bin/nstat",
+  "usr/bin/routel",
+  "usr/bin/rtacct",
+  "usr/bin/rtmon",
+  "usr/bin/rtstat",
+  "usr/bin/ss",
+  "usr/share/iproute2/**",
+]
+build = [
+  { path = "usr/bin/tc", why = "traffic control (Fedora's iproute-tc): Beize shapes no traffic" },
+  { path = "usr/lib/tc/**", why = "tc's delay distributions" },
+  { path = "usr/share/bash-completion/completions/tc", why = "for tc" },
+  { path = "usr/share/bash-completion/completions/devlink", why = "devlink is not built (needs libmnl)" },
+  { path = "usr/share/bash-completion/completions/dpll", why = "dpll is not built (needs libmnl)" },
+]

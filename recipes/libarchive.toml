@@ -1,0 +1,46 @@
+# tar, as on macOS and FreeBSD: bsdtar from libarchive, with cpio, cat and
+# unzip of its own. GNU tar has had no release since 1.35 (2023); Fedora
+# carries 18 patches for it, among them three vulnerabilities and the clash
+# with acl 2.4 – Beize builds no other projects' patches.
+name = "libarchive"
+version = "3.8.10"
+stage = "target"
+# Archives with ACLs and extended attributes; compressed with gzip, xz and
+# zstd; OpenSSL for encrypted zip files and mtree digests. Without bzip2,
+# lz4 and XAR (libxml2), which Beize has no library for.
+deps = ["gcc", "glibc", "acl", "zlib", "xz", "zstd", "openssl"]
+
+[source]
+latest = { release-monitoring = 1558 }
+url = "https://github.com/libarchive/libarchive/releases/download/v{version}/libarchive-{version}.tar.xz"
+sha256 = "56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96"
+signature = "https://github.com/libarchive/libarchive/releases/download/v{version}/libarchive-{version}.tar.xz.asc"
+keyring = "libarchive"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/build/autoconf/config.guess")" \
+  --prefix=/usr --libdir=/usr/lib --disable-static \
+  --enable-acl --enable-xattr --with-zlib --with-lzma --with-zstd --with-openssl \
+  --without-bz2lib --without-lz4 --without-xml2 --without-expat \
+  --without-nettle --without-mbedtls --without-cng
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+ln -s bsdtar "$PKG/usr/bin/tar"
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "BSD-2-Clause AND FSFULLR AND GPL-2.0-or-later WITH Libtool-exception AND BSD-3-Clause AND FSFUL"
+cpe = ["cpe:2.3:a:libarchive:libarchive"]
+
+[files]
+image = [
+  "usr/bin/bsdcat",
+  "usr/bin/bsdcpio",
+  "usr/bin/bsdtar",
+  "usr/bin/bsdunzip",
+  "usr/bin/tar",
+  "usr/lib/libarchive.so.*",
+]

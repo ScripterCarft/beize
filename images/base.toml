@@ -14,5 +14,9 @@ packages = ["gcc-runtime", "systemd", "dbus", "dbus-broker", "util-linux", "e2fs
             "iputils",
             # Block devices with labels and file systems, for every user.
             "lsblk",
+            # The base tools every distribution has (POSIX and alike): text,
+            # files, archives, processes, the pager, the network by hand.
+            "grep", "sed", "gawk", "findutils", "diffutils", "libarchive", "gzip",
+            "procps-ng", "less", "ncurses", "iproute2",
             # Updates (ADR 0020): Beize's updater, its fetcher, beize-update.
             "beize-update"]

@@ -194,6 +194,60 @@ pub(super) fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
     machine.remove()
 }
 
+/// The base tools (images/base.toml) do their work for the owner: each
+/// command's answer must be the expected one, not only its exit status.
+fn base_tools(shell: &Shell) -> Result<()> {
+    let checks = [
+        ("grep -P", r"printf 'x\nyy\n' | grep -cP '^y+$'", "1"),
+        ("sed", "echo abc | sed s/b/X/", "aXc"),
+        ("awk", "echo '3 4' | awk '{print $1*$2}'", "12"),
+        (
+            "find, xargs",
+            "find /usr/bin -name grep -print0 | xargs -0 -n1 basename",
+            "grep",
+        ),
+        (
+            "diff, cmp",
+            "cd /tmp && echo a > a && cp a b && diff a b && cmp a b && echo same",
+            "same",
+        ),
+        (
+            "tar, gzip",
+            "cd /tmp && tar -czf a.tgz a && tar -tzf a.tgz",
+            "a",
+        ),
+        ("xz", "cd /tmp && xz -kf a && xzcat a.xz", "a"),
+        ("zstd", "cd /tmp && zstd -qf a && zstdcat a.zst", "a"),
+        ("ps", "ps -o comm= -p $$", "bash"),
+        (
+            "top, free, uptime, pgrep",
+            "top -bn1 > /dev/null && free -m > /dev/null && uptime > /dev/null \
+             && pgrep -cx systemd-journal",
+            "1",
+        ),
+        ("less", "echo paged | less", "paged"),
+        ("tput (ncurses)", "TERM=linux tput colors", "8"),
+        ("ip", "ip -br link show lo | awk '{print $1}'", "lo"),
+        ("ss", "ss -ltn > /dev/null && echo listed", "listed"),
+        (
+            "tar with zstd",
+            "cd /tmp && tar --zstd -cf a.tzst a && tar -tf a.tzst",
+            "a",
+        ),
+    ];
+    for (tools, command, answer) in checks {
+        let (_, lines) = shell.capture(&format!("echo BEIZE-TOOL-$({command})"))?;
+        ensure!(
+            lines.iter().any(|l| *l == format!("BEIZE-TOOL-{answer}")),
+            "{tools} did not answer `{command}` with {answer}: {lines:?}"
+        );
+    }
+    say!(
+        "  ok: the base tools work for the owner (grep, sed, awk, find, diff, tar, ps, less, ip, ...)"
+    );
+    Ok(())
+}
+
 /// Privileges (ADR 0018), as the owner at a terminal: run0 refuses a wrong
 /// password and gives root for the right one; a file made setuid or given a
 /// capability grants nothing, because / and /usr are mounted nosuid.
@@ -357,6 +411,7 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         "lsblk shows the owner no partition names and file systems: {lines:?}"
     );
     say!("  ok: lsblk shows the owner partition names and file systems");
+    base_tools(&shell)?;
     // A crash of the owner's program, reported to the owner with its stack
     // trace (ADR 0023): systemd-coredump unwinds it with libdw. main in
     // sleep and __libc_start_call_main in glibc are in no dynamic symbol

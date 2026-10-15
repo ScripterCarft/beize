@@ -1,5 +1,7 @@
 # Zstandard library: kmod reads and writes zstd-compressed kernel modules
-# (ADR 0015). Only the shared library; the command-line tools are not shipped.
+# (ADR 0015). And zstd with zstdgrep and zstdless, for the zstd format only:
+# gzip and xz have tools of their own (Fedora's zstd reads them too, through
+# zlib, liblzma and lz4).
 name = "zstd"
 version = "1.5.7"
 stage = "target"
@@ -16,7 +18,7 @@ keyring = "zstd"
 script = '''
 meson setup . "$SRC/build/meson" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   --prefix=/usr --libdir=/usr/lib --buildtype=release \
-  -Ddefault_library=shared -Dbin_programs=false -Dbin_contrib=false \
+  -Ddefault_library=shared -Dbin_programs=true -Dbin_contrib=false \
   -Dzlib=disabled -Dlzma=disabled -Dlz4=disabled
 MAKEFLAGS="$JOBSERVER" meson compile
 DESTDIR="$PKG" meson install --no-rebuild --quiet
@@ -29,5 +31,14 @@ cpe = ["cpe:2.3:a:facebook:zstandard"]
 
 [files]
 image = [
+  "usr/bin/unzstd",
+  "usr/bin/zstd",
+  "usr/bin/zstdcat",
+  "usr/bin/zstdgrep",
+  "usr/bin/zstdless",
+  "usr/bin/zstdmt",
   "usr/lib/libzstd.so.*",
+]
+build = [
+  { path = "usr/bin/zstd-frugal", why = "a zstd with fewer options for small systems; zstd itself is there" },
 ]

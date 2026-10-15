@@ -1,0 +1,45 @@
+# GNU awk, as Fedora and Arch Linux ship awk.
+name = "gawk"
+version = "5.4.1"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 868 }
+url = "https://mirrors.kernel.org/gnu/gawk/gawk-{version}.tar.xz"
+sha256 = "07f6f7342b7febe4313fc2c2542ad93d64fe20ad8717200109f105a826f5fd37"
+signature = "https://mirrors.kernel.org/gnu/gawk/gawk-{version}.tar.xz.sig"
+keyring = "gawk"
+
+[build]
+script = '''
+# No readline (Beize has none; it only edits gawk's debugger input), no
+# arbitrary precision (-M, MPFR is only the compiler's). No persistent
+# memory (--persist): it needs gawk linked without PIE, against Beize's
+# hardening (ADR 0014).
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/build-aux/config.guess")" --prefix=/usr \
+  --libexecdir=/usr/lib --sysconfdir=/etc --disable-nls --without-readline --without-mpfr --disable-pma
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+# Shell profiles that set AWKPATH and AWKLIBPATH to gawk's built-in
+# defaults; Beize ships only /usr (ADR 0007).
+rm -r "$PKG/etc"
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "GPL-3.0-or-later AND GPL-2.0-or-later AND LGPL-2.1-or-later AND BSD-3-Clause"
+cpe = ["cpe:2.3:a:gnu:gawk"]
+
+[files]
+image = [
+  "usr/bin/awk",
+  "usr/bin/gawk",
+  "usr/lib/awk/**",
+  "usr/lib/gawk/**",
+  "usr/share/awk/**",
+]
+build = [
+  { path = "usr/bin/gawk-*", why = "gawk again under its version, for scripts that pin one" },
+  { path = "usr/bin/gawkbug", why = "writes a bug report and mails it (Beize has no mail)" },]

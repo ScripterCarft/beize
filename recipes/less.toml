@@ -1,0 +1,36 @@
+# The pager: journalctl, systemctl and git show their output through it.
+name = "less"
+version = "710"
+stage = "target"
+deps = ["gcc", "glibc", "ncurses", "pcre2"]
+
+[source]
+latest = { release-monitoring = 1550 }
+url = "https://www.greenwoodsoftware.com/less/less-{version}.tar.gz"
+sha256 = "d1008fb78dcae1323ddab664bcb352a61f022b1b131bd8018548e021d975ec7a"
+signature = "https://www.greenwoodsoftware.com/less/less-{version}.sig"
+keyring = "less"
+
+[build]
+script = '''
+# Searches with PCRE2, as Fedora builds it.
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config.guess")" --prefix=/usr --sysconfdir=/etc \
+  --with-regex=pcre2
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "(GPL-3.0-only OR BSD-2-Clause) AND GPL-2.0-or-later"
+cpe = ["cpe:2.3:a:gnu:less", "cpe:2.3:a:greenwoodsoftware:less"]
+
+[files]
+image = [
+  "usr/bin/less",
+  "usr/libexec/lessecho",
+]
+build = [
+  { path = "usr/libexec/less-osc8-open", why = "opens hyperlinks with xdg-open, which Beize does not have" },
+]

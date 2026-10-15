@@ -1,0 +1,31 @@
+# GNU sed, the stream editor.
+name = "sed"
+version = "4.10"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 4789 }
+url = "https://mirrors.kernel.org/gnu/sed/sed-{version}.tar.xz"
+sha256 = "b8e72182b2ec96a3574e2998c47b7aaa64cc20ce000d8e9ac313cc07cecf28c7"
+signature = "https://mirrors.kernel.org/gnu/sed/sed-{version}.tar.xz.sig"
+keyring = "sed"
+
+[build]
+script = '''
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/build-aux/config.guess")" --prefix=/usr \
+  --disable-nls --without-selinux --disable-acl
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "GPL-3.0-or-later"
+cpe = ["cpe:2.3:a:gnu:sed"]
+
+[files]
+image = [
+  "usr/bin/sed",
+]

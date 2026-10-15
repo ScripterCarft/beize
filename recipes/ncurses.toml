@@ -1,0 +1,90 @@
+# Terminal handling and the terminal database: what less, top and watch
+# draw with, and tput, clear and reset.
+name = "ncurses"
+version = "6.6"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 373226 }
+url = "https://mirrors.kernel.org/gnu/ncurses/ncurses-{version}.tar.gz"
+sha256 = "355b4cbbed880b0381a04c46617b7656e362585d52e9cf84a67e2009b749ff11"
+signature = "https://mirrors.kernel.org/gnu/ncurses/ncurses-{version}.tar.gz.sig"
+keyring = "ncurses"
+
+[build]
+script = '''
+# The terminal database is compiled by tic of this very version, built for
+# the build machine first (as Linux From Scratch cross-builds it): the
+# buildroot's tic is another version.
+mkdir host
+(cd host && env -u CC -u CFLAGS -u LDFLAGS -u PKG_CONFIG -u PKG_CONFIG_PATH -u PKG_CONFIG_LIBDIR \
+  "$SRC/configure" --without-shared --without-debug --without-tests --without-ada --without-cxx \
+  && make -C include && MAKEFLAGS="$JOBSERVER" make -C progs tic)
+# One wide-character library (upstream's default and Arch Linux'; Fedora
+# splits off libtinfo for binaries of other distributions, which Beize does
+# not run). As Fedora: root ignores $TERMINFO and friends (setuid and root
+# programs read only the system's database), Backspace sends DEL as the
+# Linux console does; no C++ or Ada binding (nothing uses them).
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config.guess")" \
+  --prefix=/usr --libdir=/usr/lib --mandir=/usr/share/man \
+  --with-shared --without-normal --without-debug --without-tests \
+  --without-ada --without-cxx-binding --enable-widec \
+  --enable-pc-files --with-pkg-config-libdir=/usr/lib/pkgconfig \
+  --with-terminfo-dirs=/etc/terminfo:/usr/share/terminfo \
+  --with-default-terminfo-dir=/usr/share/terminfo \
+  --disable-root-access --disable-setuid-environ --with-xterm-kbs=DEL \
+  --disable-stripping \
+  BUILD_CC=gcc BUILD_CFLAGS=-O2 BUILD_LDFLAGS=
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" TIC_PATH="$BUILD/host/progs/tic" install
+# The terminals of Fedora's ncurses-base, with their aliases (the same file
+# under another name); the rest of the database is Fedora's ncurses-term,
+# for terminals Beize is not used from.
+db="$PKG/usr/share/terminfo"
+keep=$(mktemp)
+for name in alacritty ansi dumb 'foot*' linux vt100 vt100-nav vt102 vt220 vt52 \
+    'Eterm*' aterm bterm cons25 cygwin 'eterm*' gnome gnome-256color hurd jfbterm \
+    kitty konsole konsole-256color 'mach*' mlterm mrxvt nsterm putty putty-256color pcansi \
+    rxvt 'rxvt-*' screen screen5 'screen-*color' 'screen.*' \
+    st 'st-*color' sun teraterm teraterm2.3 tmux 'tmux-*' vte vte-256color vwmterm \
+    'wsvt25*' xfce xterm 'xterm-*'; do
+  for entry in "$db"/?/$name; do
+    [ -e "$entry" ] && find "$db" -samefile "$entry" >> "$keep"
+  done
+done
+find "$db" ! -type d | sort > all
+sort -u "$keep" | comm -23 all - | xargs -r rm
+find "$db" -type d -empty -delete
+rm "$keep" all
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-15).
+license = "MIT-open-group"
+cpe = ["cpe:2.3:a:gnu:ncurses", "cpe:2.3:a:invisible-island:ncurses"]
+
+[files]
+image = [
+  "usr/bin/captoinfo",
+  "usr/bin/clear",
+  "usr/bin/infocmp",
+  "usr/bin/infotocap",
+  "usr/bin/reset",
+  "usr/bin/tabs",
+  "usr/bin/tic",
+  "usr/bin/toe",
+  "usr/bin/tput",
+  "usr/bin/tset",
+  "usr/lib/libformw.so.*",
+  "usr/lib/libmenuw.so.*",
+  "usr/lib/libncursesw.so.*",
+  "usr/lib/libpanelw.so.*",
+  "usr/lib/terminfo",
+  "usr/share/tabset/**",
+  "usr/share/terminfo/**",
+]
+build = [
+  { path = "usr/bin/ncursesw6-config", why = "tells builds how to link ncurses" },
+]

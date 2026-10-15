@@ -1,5 +1,7 @@
 # LZMA library: systemd builds systemd-sysupdate only together with importd,
-# which requires it (ADR 0020). Only the shared library; no xz tools.
+# which requires it (ADR 0020). And xz with its scripts (xzgrep, xzless, ...),
+# as Fedora's xz; the small decoders and the lzma names are packages of their
+# own there (xz-lzma-compat).
 name = "xz"
 version = "5.8.4"
 stage = "target"
@@ -16,8 +18,8 @@ keyring = "xz"
 script = '''
 "$SRC/configure" \
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib --disable-static \
-  --disable-xz --disable-xzdec --disable-lzmadec --disable-lzmainfo \
-  --disable-lzma-links --disable-scripts --disable-doc --disable-nls
+  --disable-xzdec --disable-lzmadec --disable-lzmainfo \
+  --disable-lzma-links --disable-doc --disable-nls
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
 rm -rf "$PKG/usr/share/man"
@@ -30,5 +32,15 @@ cpe = ["cpe:2.3:a:tukaani:xz", "cpe:2.3:a:xz_project:xz"]
 
 [files]
 image = [
+  "usr/bin/unxz",
+  "usr/bin/xz",
+  "usr/bin/xzcat",
+  "usr/bin/xzcmp",
+  "usr/bin/xzdiff",
+  "usr/bin/xzegrep",
+  "usr/bin/xzfgrep",
+  "usr/bin/xzgrep",
+  "usr/bin/xzless",
+  "usr/bin/xzmore",
   "usr/lib/liblzma.so.*",
 ]

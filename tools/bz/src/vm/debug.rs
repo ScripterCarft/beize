@@ -128,6 +128,13 @@ impl Shell {
             REPORT_TIMEOUT.as_secs()
         );
         shell.wait_until_ready()?;
+        // The console is a terminal, so journalctl, systemctl and others
+        // would wait in less for a key; bz reads their output instead.
+        let (status, lines) = shell.capture("export SYSTEMD_PAGER=cat PAGER=cat")?;
+        ensure!(
+            status == 0,
+            "could not turn off the pager (exit status {status}): {lines:?}"
+        );
         Ok(shell)
     }
 
