@@ -18,7 +18,7 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 `<neu>`/`<alt>` = neue/installierte Version.
 
 1. `OS_VERSION` in `tools/bz/src/layout.rs` auf `"<neu>"` (Commit), dann
-   `./bz build && ./bz release` → `build/out/release/<neu>/` (5 Dateien).
+   `./bz build && ./bz release` → `build/out/release/<neu>/` (6 Dateien, davon die SBOM).
 2. USB-Stick (FAT32 oder exFAT) in Windows **BEIZE** benennen und den Ordner
    `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\release\<neu>` als `beize-<neu>`
    daraufkopieren.
