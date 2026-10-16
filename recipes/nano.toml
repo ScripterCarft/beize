@@ -1,0 +1,37 @@
+# The text editor (the owner's choice, 2026-10-16). systemd's tools
+# (systemctl edit, run0 sudoedit) start it without $EDITOR: nano is on
+# their list of editors to look for.
+name = "nano"
+version = "9.2"
+stage = "target"
+deps = ["gcc", "glibc", "ncurses"]
+
+[source]
+latest = { release-monitoring = 2046 }
+url = "https://mirrors.kernel.org/gnu/nano/nano-{version}.tar.xz"
+sha256 = "05ecb99247b782e8a5b3a25ed4101dd034b0236902f7449bc9795b717642f7e9"
+signature = "https://mirrors.kernel.org/gnu/nano/nano-{version}.tar.xz.sig"
+keyring = "nano"
+
+[build]
+script = '''
+# Without libmagic (Beize has no file(1)): nano then picks the syntax by the
+# file name and the first line, as for most files anyway.
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config.guess")" --prefix=/usr --sysconfdir=/etc \
+  --disable-nls --disable-libmagic
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-16).
+license = "GPL-3.0-or-later"
+cpe = ["cpe:2.3:a:gnu:nano"]
+
+[files]
+image = [
+  "usr/bin/nano",
+  "usr/bin/rnano",
+  "usr/share/nano/**",
+]

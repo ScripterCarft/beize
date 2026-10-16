@@ -18,5 +18,7 @@ packages = ["gcc-runtime", "systemd", "dbus", "dbus-broker", "util-linux", "e2fs
             # files, archives, processes, the pager, the network by hand.
             "grep", "sed", "gawk", "findutils", "diffutils", "libarchive", "gzip",
             "procps-ng", "less", "ncurses", "iproute2",
+            # The text editor (the owner's choice).
+            "nano",
             # Updates (ADR 0020): Beize's updater, its fetcher, beize-update.
             "beize-update"]

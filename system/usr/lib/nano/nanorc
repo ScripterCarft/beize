@@ -1,0 +1,8 @@
+## nano's settings for everyone (nanorc(5)), Beize's: /etc/nanorc links
+## here, so updates reach them. To change them for the whole computer,
+## replace the link with a file of your own; for yourself, write
+## ~/.config/nano/nanorc.
+
+## Syntax highlighting for every language nano knows, as Fedora and Debian
+## enable it.
+include "/usr/share/nano/*.nanorc"

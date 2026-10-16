@@ -230,6 +230,16 @@ fn base_tools(shell: &Shell) -> Result<()> {
         ("ip", "ip -br link show lo | awk '{print $1}'", "lo"),
         ("ss", "ss -ltn > /dev/null && echo listed", "listed"),
         (
+            "nano",
+            "nano --version | awk 'NR == 1 {print $1, $2}'",
+            "GNU nano,",
+        ),
+        (
+            "nano's settings (syntax highlighting)",
+            "test -r /usr/share/nano/sh.nanorc && readlink /etc/nanorc",
+            "../usr/lib/nano/nanorc",
+        ),
+        (
             "journalctl --grep (pcre2)",
             "journalctl -b -o cat -n 1 --grep '^Startup finished in' | cut -d' ' -f1",
             "Startup",
@@ -248,7 +258,7 @@ fn base_tools(shell: &Shell) -> Result<()> {
         );
     }
     say!(
-        "  ok: the base tools work for the owner (grep, sed, awk, find, diff, tar, ps, less, ip, ...)"
+        "  ok: the base tools work for the owner (grep, sed, awk, find, diff, tar, ps, less, ip, nano, ...)"
     );
     Ok(())
 }
