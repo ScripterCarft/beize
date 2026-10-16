@@ -255,43 +255,70 @@ in die Endfassung einarbeiten, keine Nachträge.
 
 ## 10. Offene Punkte
 
-**GitHub Issues** (`gh issue list`; Labels `phase-7`, `upstream`, `hardware`). Neue Punkte dort
+**GitHub Issues** (`gh issue list`; Labels `m3-plan`, `upstream`, `hardware`). Neue Punkte dort
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-16)
 
-**M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft, #6 geschlossen; Messwerte
-und Leerlauf: `docs/hardware.md`). Installiert ist 0.4: Neu installieren: `keys/secureboot/README.md`,
-Update vom Stick: `docs/hardware.md`. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“,
-Recovery-Key, `s`. Phase 7 (Konsolidierung) steht in Commits, ADR 0021–0024 und geschlossenen Issues.
+**M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
+`docs/hardware.md`). Installiert ist 0.4. Neu installieren: `keys/secureboot/README.md`, Update vom
+Stick: `docs/hardware.md`. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key,
+`s`. Phase 7 (Konsolidierung, Review #7) steht in Commits, ADR 0021–0024 und geschlossenen Issues.
 
-**Nächste Aufgabe: M3 – Compositor planen** (eigener Chat). Vorher `docs/VISION.md` lesen; offen
-sind dort Grafik-API des Compositors und UI-Toolkit (Anfang M3), Systemschrift und Icon-Stil.
-- Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc): grob lokal +15 min Bau von null,
-  CI +1–1,5 h. Erst messen, dann planen.
-- Mit dem ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
+**M3 – Compositor. Grundsatz (vom Besitzer am 16.10. entschieden): modular.** Beize besteht aus
+einer **Basis** (alles, was M2 ist: Kernel, systemd, Netz, Zeit, Updates, Konten, TPM/LUKS,
+Wiederherstellung – ein vollständiges System ohne Oberfläche) und dem **Desktop** darüber
+(Grafik, Compositor, Shell, Schriften, Ton). Ziel: jederzeit eine Variante ohne Oberfläche
+bauen können, später „Beize Server“. Vorbild: Windows Server Core (dasselbe System ohne
+Shell), Fedora-Editionen aus denselben Paketen. Kein Fork, sondern Varianten eines Baus.
+Keine Paketverwaltung für Nutzer (VISION: Apps als Bundles, Modell vor M4) – die Varianten
+entstehen beim Bauen.
+
+**Erste Aufgabe des neuen Chats: Varianten vorbereiten, bevor das erste Desktop-Paket kommt.**
+1. ADR „Varianten: Basis und Desktop“ entwerfen und **vorab mit dem Besitzer abstimmen**.
+   Inhalt: Abhängigkeiten nur Desktop → Basis, nie umgekehrt; der Desktop spricht mit der
+   Basis nur über ihre Schnittstellen (Varlink/D-Bus, wie heute beize-accountsd und
+   beize-updated); ein Kernel, ein Sicherheitsmodell für beide; je Variante eigenes Image und
+   eigener Update-Strom; `bz` und CI erzwingen die Richtung (die Basis-Variante baut und
+   besteht `bz smoke` ohne ein Desktop-Paket).
+2. Danach in `bz` umsetzen. Heute geht `bz` von einem Image aus, die Stellen:
+   `tree::IMAGE_DEFINITION` (`images/base.toml`), `usr.rs` (`UNIT_PRESETS`, `RUNNING_UNITS`),
+   `images/security.toml`, `layout.rs` (os-release mit `IMAGE_ID`, `usr_label`, `uki_name`,
+   Muster für sysupdate), `vm/checks.rs` (`EXPECTED_UNITS`), `sbom.rs`, `release.rs`, Smoke.
+   Vorschlag zum Abstimmen: `images/<variante>/` mit Paketliste, Presets, `running-units.txt`,
+   `security.toml`; die Desktop-Variante erweitert die Basis; `bz build --variant …`.
+   CI: Basis bei jedem Push wie heute, Desktop dazu, sobald es Desktop-Pakete gibt.
+3. Erst dann der Grafik-Stack: Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc),
+   grob lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Offen laut
+   `docs/VISION.md`: Grafik-API des Compositors, UI-Toolkit, Systemschrift, Icon-Stil. Mit dem
+   ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
+
+**Mit dem Besitzer abstimmen (M3):**
 - **Label `m3-plan`** (#14 BTF, #17 Hardware: NVIDIA/WLAN/BT/Ton/zweite SSD, #34 zram/oomd,
-  #35 nftables, #36 fwupd) nur mit Zustimmung des Besitzers.
-- Designfrage (mit dem Besitzer abstimmen, berührt ADR 0007): `/etc/profile` und `/etc/ld.so.conf`
-  werden beim 1. Start kopiert (`C` in `tmpfiles.d/beize.conf`), also erreichen Änderungen
-  von Beize installierte Rechner nie (dieselbe Klasse wie loader.conf, ADR 0024). Vorbild
-  ntp.toml/nanorc: Link nach `/usr`, den der Besitzer durch eine Datei ersetzen kann.
+  #35 nftables, #36 fwupd) nur mit seiner Zustimmung; dabei je Punkt: Basis oder Desktop?
+- `/etc/profile` und `/etc/ld.so.conf` werden beim 1. Start kopiert (`C` in
+  `tmpfiles.d/beize.conf`), Änderungen von Beize erreichen installierte Rechner also nie
+  (dieselbe Klasse wie loader.conf, ADR 0024). Vorbild ntp.toml/nanorc: Link nach `/usr`, den
+  der Besitzer durch eine Datei ersetzen kann (berührt ADR 0007).
+- findmnt/flock (util-linux von `--disable-all-programs` auf eine ausdrückliche Liste?), file,
+  patch, strings.
 
-**Aus Phase 7 offen (kein Hindernis für M3)**
+**Offen, kein Hindernis für M3**
 - #5 bitgleiche Bauten: CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).
   Lokal bitgleich über Pfad, Zeit, 4 CPUs und root. Übrig: Umgebung der CI (bz dort ohne bwraps
   `--clearenv`) oder Host. Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise
-  vergleichen. Lokaler Vergleichsbau unter `~/scratch/`: `git worktree add --detach …`,
-  Quellen aus `build/cache` kopieren, `./bz build && ci/digest.sh`.
+  vergleichen. Vergleichsbau unter `~/scratch/`: `git worktree add --detach …`, Quellen aus
+  `build/cache` kopieren, `./bz build && ci/digest.sh`.
 - #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 auf der
-  Hardware prüfen, #10 beobachten (seit 14 Läufen nicht).
+  Hardware prüfen, #10 beobachten (seit 14 Läufen nicht), #12/#13 Upstream (sendet der Besitzer).
 - ShellCheck in die CI (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
-- Besitzer entscheidet: findmnt/flock (util-linux von `--disable-all-programs` auf eine
-  ausdrückliche Liste?), file, patch, strings.
 - Besitzer, in Windows: `wsl --shutdown`, `wsl --manage Ubuntu-26.04 --set-sparse true` (vhdx
-  schrumpft erst dann). Alten `git stash` löschen (`git stash drop`; Kopie `~/stash.patch`).
+  schrumpft erst dann). Alten `git stash` löschen (`git stash drop`, dann `~/stash.patch`).
   Der `gh`-Token darf keine Workflows starten.
+
+**WSL-Home:** `~/beize`, `~/hw-logs` (Journal und Leerlauf des 0.4-Tests), `~/upstream`
+(Kernel-Bäume und Entwürfe für #12/#13 – behalten), `~/scratch` (leer halten).
 
 **Arbeitsweise (vom Besitzer freigegeben):** ADR vorab abstimmen, nichts abschalten „weil
 unnötig“, keine fremden Patches. Bei Fehlern zuerst fragen, welche eigene Entscheidung uns auf
