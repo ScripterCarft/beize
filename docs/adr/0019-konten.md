@@ -41,7 +41,10 @@ wie FileVault. Dazu Ballast: ein ständig laufender Dienst, `homectl` an Beize v
   - root darf alles ohne Passwort; root erreicht man nur mit dem Passwort eines Administrators
     (run0) oder dem Recovery-Key (Wiederherstellung). Konto entfernen: nur root.
   - Ein falscher Beweis kostet 2 s wie an der Anmeldung (`pam_faildelay`): Der Dienst ist
-    kein schnellerer Weg zum Raten.
+    kein schnellerer Weg zum Raten – auch nicht parallel: eine Verbindung je Benutzer
+    (`MaxConnectionsPerSource=1`; bei Unix-Sockets zählt systemd je UID).
+  - Ein Name ist nie ein Pfad: Jede Anfrage und der Speicher selbst nehmen nur Namen,
+    wie ein Konto sie hat (`is_name`; kein `/`, kein `..`).
 - **Ein Recovery-Key für alles, ohne ihn weiterzureichen:** Vergessenes Passwort →
   Wiederherstellung (ADR 0018) mit dem Recovery-Key → Root-Shell → `beize-account reset
   <name>`. Der Key steckt in keinem Konto.

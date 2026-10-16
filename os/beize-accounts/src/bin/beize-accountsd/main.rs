@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use beize_accounts::json::{self, Json, Object};
 use beize_accounts::protocol::{self, error};
-use beize_accounts::{crypt, validate_name, validate_password};
+use beize_accounts::{crypt, is_name, validate_name, validate_password};
 
 use store::Store;
 
@@ -121,6 +121,16 @@ fn string<'a>(params: Object<'a>, key: &str) -> Result<&'a str, Refused> {
         .ok_or_else(|| Refused(error::INVALID, format!("{key} is missing")))
 }
 
+/// The account a request names: a name as [`is_name`] has it, since it
+/// becomes part of file names in the store.
+fn account<'a>(params: Object<'a>) -> Result<&'a str, Refused> {
+    let name = string(params, "name")?;
+    if !is_name(name) {
+        return Err(Refused(error::INVALID, "not an account name".into()));
+    }
+    Ok(name)
+}
+
 fn create(store: &Store, caller: &Caller, params: Object) -> Result<(), Refused> {
     let name = string(params, "name")?;
     let password = string(params, "password")?;
@@ -146,7 +156,7 @@ fn create(store: &Store, caller: &Caller, params: Object) -> Result<(), Refused>
 }
 
 fn change_password(store: &Store, caller: &Caller, params: Object) -> Result<(), Refused> {
-    let name = string(params, "name")?;
+    let name = account(params)?;
     let current = string(params, "current")?;
     let new = string(params, "new")?;
     if !store.has(name) {
@@ -162,7 +172,7 @@ fn change_password(store: &Store, caller: &Caller, params: Object) -> Result<(),
 }
 
 fn reset_password(store: &Store, caller: &Caller, params: Object) -> Result<(), Refused> {
-    let name = string(params, "name")?;
+    let name = account(params)?;
     let new = string(params, "new")?;
     authorize_administrator(store, caller, params.str("auth"))?;
     if !store.has(name) {
@@ -177,7 +187,7 @@ fn reset_password(store: &Store, caller: &Caller, params: Object) -> Result<(), 
 }
 
 fn remove(store: &Store, caller: &Caller, params: Object) -> Result<(), Refused> {
-    let name = string(params, "name")?;
+    let name = account(params)?;
     if caller.uid != 0 {
         return Err(refused(error::NOT_ALLOWED));
     }
@@ -435,6 +445,35 @@ mod tests {
             &call(&store, &adm, "Remove", "\"name\":\"joe\""),
             error::NOT_ALLOWED
         ));
+
+        // A name is never a path: records the caller wrote outside the store,
+        // with their own user ID and a password they know, are not accounts.
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("x.user"), format!("{{\"uid\":{joe_uid}}}")).unwrap();
+        std::fs::copy(
+            root.join("userdb/joe.user-privileged"),
+            outside.join("x.user-privileged"),
+        )
+        .unwrap();
+        for method in ["ChangePassword", "ResetPassword", "Remove"] {
+            let params = "\"name\":\"../outside/x\",\"current\":\"recovered-password\",\
+                          \"new\":\"chosen-password\"";
+            assert!(
+                is_error(&call(&store, &joe, method, params), error::INVALID),
+                "{method}"
+            );
+            assert!(
+                is_error(&call(&store, &root_caller, method, params), error::INVALID),
+                "{method} as root"
+            );
+        }
+        assert!(!store.has("../outside/x"));
+        assert_eq!(
+            std::fs::read(outside.join("x.user-privileged")).unwrap(),
+            std::fs::read(root.join("userdb/joe.user-privileged")).unwrap(),
+            "nothing outside the store was written"
+        );
 
         // Nonsense is refused, not acted on.
         assert!(call(&store, &root_caller, "Delete", "").contains("MethodNotFound"));

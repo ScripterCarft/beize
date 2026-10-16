@@ -18,7 +18,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, chown, symlink};
 use std::path::{Path, PathBuf};
 
-use beize_accounts::{Secret, json};
+use beize_accounts::{Secret, is_name, json};
 
 /// IDs for people: above system users, below systemd's own ranges.
 const FIRST_ID: u32 = 1000;
@@ -76,11 +76,14 @@ impl Store {
 
     /// Whether `name` is an account Beize keeps.
     pub fn has(&self, name: &str) -> bool {
-        self.path(&format!("{name}.user")).is_file()
+        is_name(name) && self.path(&format!("{name}.user")).is_file()
     }
 
     /// The account's user ID.
     pub fn uid(&self, name: &str) -> Option<u32> {
+        if !is_name(name) {
+            return None;
+        }
         let text = fs::read_to_string(self.path(&format!("{name}.user"))).ok()?;
         let record = json::Json::parse(&text, false).ok()?;
         record
@@ -91,6 +94,9 @@ impl Store {
 
     /// The account's password hash.
     pub fn hash(&self, name: &str) -> Option<Secret> {
+        if !is_name(name) {
+            return None;
+        }
         let text =
             Secret::new(fs::read_to_string(self.path(&format!("{name}.user-privileged"))).ok()?);
         let record = json::Json::parse(text.expose(), true).ok()?;
@@ -111,6 +117,7 @@ impl Store {
         hash: &str,
         administrator: bool,
     ) -> Result<u32, String> {
+        checked(name)?;
         let id = self.free_id().ok_or("no free user ID")?;
         let home = self.homes.join(name);
         if home.exists() {
@@ -169,12 +176,14 @@ impl Store {
 
     /// A new password hash.
     pub fn set_hash(&self, _lock: &Lock, name: &str, hash: &str) -> Result<(), String> {
+        checked(name)?;
         self.write_privileged(name, hash)?;
         sync_dir(&self.dir)
     }
 
     /// Removes the account, its group and its home with everything in it.
     pub fn remove(&self, _lock: &Lock, name: &str) -> Result<(), String> {
+        checked(name)?;
         let id = self.uid(name);
         // The record first: from then on the account is gone.
         let mut files = vec![
@@ -230,6 +239,16 @@ impl Store {
                 && !self.path(&format!("{id}.user")).exists()
                 && !self.path(&format!("{id}.group")).exists()
         })
+    }
+}
+
+/// Every file of an account is named after it: only a name as
+/// [`is_name`] has it stays inside the store (no `/`, no `..`).
+fn checked(name: &str) -> Result<(), String> {
+    if is_name(name) {
+        Ok(())
+    } else {
+        Err(format!("{name:?} is not an account name"))
     }
 }
 

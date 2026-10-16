@@ -12,6 +12,9 @@ DirectoryMode=0755
 Accept=yes
 # Everyone may ask; the service decides with proof (ADR 0019).
 SocketMode=0666
+# One connection per user ID at a time: a wrong password costs 2 s, and
+# parallel connections must not make guessing faster.
+MaxConnectionsPerSource=1
 
 [Install]
 WantedBy=sockets.target

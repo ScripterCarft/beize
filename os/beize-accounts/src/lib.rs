@@ -20,17 +20,23 @@ use protocol::error;
 /// What a password needs at least, counted in characters.
 pub const MIN_PASSWORD_CHARS: usize = 8;
 
-/// Whether `name` is acceptable as a login name: portable characters only,
-/// starting with a letter, at most 32 characters, and not a system name.
+/// Whether `name` is written like a login name: portable characters only,
+/// starting with a letter, at most 32 characters. Such a name is safe in a
+/// file name – no `/`, no `..` – which the service relies on.
+pub fn is_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+        && name.len() <= 32
+}
+
+/// Whether `name` is acceptable for a new account: [`is_name`], and not a
+/// system name.
 pub fn validate_name(name: &str) -> Result<(), String> {
     const RESERVED: [&str; 8] = [
         "root", "admin", "daemon", "nobody", "bin", "sys", "wheel", "beize",
     ];
-    let mut chars = name.chars();
-    let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase());
-    let rest_ok =
-        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
-    if !first_ok || !rest_ok || name.len() > 32 {
+    if !is_name(name) {
         return Err(
             "use lowercase letters, digits, - and _, starting with a letter (at most 32)".into(),
         );
