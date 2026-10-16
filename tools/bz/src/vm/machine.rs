@@ -140,11 +140,13 @@ impl Machine {
         Ok(copy)
     }
 
+    /// Removes the machine's files, the control socket QEMU leaves behind
+    /// included.
     pub(super) fn remove(self) -> Result<()> {
         fs::remove_file(&self.disk)?;
         fs::remove_file(&self.vars)?;
         fs::remove_dir_all(&self.tpm)?;
-        Ok(())
+        tree::remove(&self.qmp())
     }
 }
 
