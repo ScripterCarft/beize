@@ -49,31 +49,39 @@ fn main() -> ExitCode {
 fn install(params: Object) -> Result<String, Refused> {
     let source = params.str("source").unwrap_or("");
     let _lock = lock()?;
-    call(
+    let fetched = call(
         FETCH_SOCKET,
         FETCH_INTERFACE,
         "Fetch",
         &format!("\"source\":{}", json::string(source)),
-    )?;
-    let copied = copy_checked();
+    );
+    let copied = fetched.and_then(|_| copy_checked());
     // The cache is the fetcher's; whatever happened, it empties it.
     let cleared = call(FETCH_SOCKET, FETCH_INTERFACE, "Clear", "");
-    let version = copied?;
-    cleared?;
-
-    let status = Command::new(SYSUPDATE)
-        .args(["update", &version])
-        .status()
-        .map_err(|e| Refused::failed(format!("{SYSUPDATE}: {e}")));
+    let installed = copied.and_then(|version| {
+        cleared?;
+        sysupdate(&version)?;
+        Ok(version)
+    });
+    // The copy too, whatever happened: a refused release may be gigabytes.
     let _ = fs::remove_dir_all(VERIFIED);
-    let status = status?;
+    let version = installed?;
+    eprintln!("installed {version}; it starts with the next boot");
+    Ok(version_reply(&version))
+}
+
+/// systemd-sysupdate writes the checked copy into the free slot and the ESP.
+fn sysupdate(version: &str) -> Result<(), Refused> {
+    let status = Command::new(SYSUPDATE)
+        .args(["update", version])
+        .status()
+        .map_err(|e| Refused::failed(format!("{SYSUPDATE}: {e}")))?;
     if !status.success() {
         return Err(Refused::failed(format!(
             "systemd-sysupdate could not install {version} ({status})"
         )));
     }
-    eprintln!("installed {version}; it starts with the next boot");
-    Ok(version_reply(&version))
+    Ok(())
 }
 
 /// Copies the fetched release into [`VERIFIED`] (only root's) and checks the

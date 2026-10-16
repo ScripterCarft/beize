@@ -98,6 +98,14 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
         !lines.iter().any(|l| l.contains(&version)),
         "a refused release was written: {lines:?}"
     );
+    // Nor is a copy of one kept (a changed file is refused while copying).
+    let (_, lines) = shell.capture("ls -A /var/lib/beize-update /var/cache/beize-update")?;
+    ensure!(
+        !lines
+            .iter()
+            .any(|l| l.contains("verified") || l.contains("beize_")),
+        "a refused release was left on the disk: {lines:?}"
+    );
     say!(
         "  ok: refused {}, nothing written",
         refused
