@@ -10,6 +10,7 @@ use anyhow::{Context, Result, bail, ensure};
 use super::Installed;
 use crate::paths::Paths;
 use crate::say;
+use crate::tree;
 use crate::vm::checks::{boot_healthy, expect_rebound, expect_refused, expect_root_locked};
 use crate::vm::console::{Answers, REPORT_TIMEOUT, TAMPER_TIMEOUT, watch_boot};
 use crate::vm::machine::{Machine, edit_firmware, new_tpm};
@@ -180,9 +181,7 @@ pub(super) fn unsigned_uki(paths: &Paths) -> Result<()> {
 /// with an empty BIOS battery.
 pub(super) fn owner_workflow(paths: &Paths) -> Result<()> {
     let dir = paths.work.join("owner-workflow");
-    if dir.exists() {
-        fs::remove_dir_all(&dir)?;
-    }
+    tree::remove(&dir)?;
     // What new-keys and sign tell the owner (files to commit, ...) is only
     // shown here when they fail.
     let (disk, said) = util::capture(|| -> Result<PathBuf> {

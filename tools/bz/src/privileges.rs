@@ -13,7 +13,7 @@ use std::path::Path;
 
 use anyhow::{Result, ensure};
 
-use crate::say;
+use crate::{say, tree};
 
 const SETUID: u32 = 0o4000;
 const SETGID: u32 = 0o2000;
@@ -22,7 +22,17 @@ const SETGID: u32 = 0o2000;
 pub fn check_tree(root: &Path, what: &str) -> Result<()> {
     let mut found = Vec::new();
     let mut count = 0;
-    collect(root, root, &mut found, &mut count)?;
+    // Directories may carry setgid (group inheritance), which grants
+    // nothing; symlinks carry no mode of their own.
+    for file in tree::walk(root)? {
+        let meta = fs::symlink_metadata(root.join(&file))?;
+        if !meta.is_symlink() {
+            count += 1;
+            if let Some(bits) = privileged(meta.permissions().mode()) {
+                found.push(format!("/{} ({bits})", file.display()));
+            }
+        }
+    }
     ensure!(
         found.is_empty(),
         "{} files in {what} are setuid or setgid (ADR 0018: privileges come from run0 \
@@ -31,23 +41,6 @@ pub fn check_tree(root: &Path, what: &str) -> Result<()> {
         found.join("\n  ")
     );
     say!("  ok: none of the {count} files in {what} is setuid or setgid");
-    Ok(())
-}
-
-fn collect(root: &Path, dir: &Path, found: &mut Vec<String>, count: &mut usize) -> Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        let meta = fs::symlink_metadata(&path)?;
-        if meta.is_dir() {
-            collect(root, &path, found, count)?;
-        } else if !meta.is_symlink() {
-            *count += 1;
-            if let Some(bits) = privileged(meta.permissions().mode()) {
-                found.push(format!("/{} ({bits})", path.strip_prefix(root)?.display()));
-            }
-        }
-        // Directories may carry setgid (group inheritance), which grants nothing.
-    }
     Ok(())
 }
 

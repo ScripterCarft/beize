@@ -388,9 +388,7 @@ pub fn assemble(
 /// shared initrd; inside the UKI it is signed like everything else.
 fn profile_initrd(keys: &secureboot::Keys, out: &Path) -> Result<PathBuf> {
     let root = out.join("profile-initrd");
-    if root.exists() {
-        fs::remove_dir_all(&root)?;
-    }
+    tree::remove(&root)?;
     let dir = root.join("usr/lib/beize/secureboot");
     fs::create_dir_all(&dir)?;
     for file in secureboot::PROFILE_FILES {

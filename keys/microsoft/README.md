@@ -3,7 +3,7 @@
 Öffentliche Zertifikate und die Sperrliste von Microsoft, die im Profil
 „Beize + Windows“ neben Beizes eigenen Schlüsseln in die Firmware kommen
 (ADR 0010). `bz` prüft jede Datei gegen die SHA-256-Werte in
-`tools/bz/src/secureboot.rs` und bricht bei einer Abweichung ab.
+`tools/bz/src/secureboot/mod.rs` und bricht bei einer Abweichung ab.
 
 Quelle: <https://github.com/microsoft/secureboot_objects>, Commit
 `106458910883aef8836aef293d1e4e43803a7be0` (2026-10-06). Gegengeprüft gegen die
@@ -22,5 +22,5 @@ Option ROM CA 2023 (dort noch nicht enthalten) sind identisch.
 | `dbx-update-amd64.bin` | dbx | Sperrliste, von Microsofts KEK signiert | gesperrte, angreifbare Bootloader bleiben gesperrt |
 
 Aktualisieren: Dateien aus einem neueren Commit holen, Prüfsummen in
-`secureboot.rs` und Commit hier anpassen, `./bz smoke` (prüft das Einschreiben).
+`tools/bz/src/secureboot/mod.rs` und Commit hier anpassen, `./bz smoke` (prüft das Einschreiben).
 Die neuen Einschreib-Dateien für echte Hardware erzeugt danach der Besitzer.

@@ -8,6 +8,7 @@ use crate::paths::Paths;
 #[cfg(test)]
 use crate::source::Trust;
 use crate::source::{Extra, RawSource, Source};
+use crate::tree;
 use crate::util;
 
 /// Where a recipe installs its result.
@@ -251,9 +252,7 @@ impl Recipe {
         }
 
         util::step(&format!("Unpacking {} {}", self.name, self.version));
-        if dir.exists() {
-            fs::remove_dir_all(&dir)?;
-        }
+        tree::remove(&dir)?;
         source.extract_into(paths, &dir)?;
         for extra in &self.extra {
             extra.source.extract_into(paths, &dir.join(&extra.dest))?;

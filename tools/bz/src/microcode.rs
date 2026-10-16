@@ -139,19 +139,10 @@ fn extract(paths: &Paths, recipe: &Recipe, dir: &Path, patterns: &[&str]) -> Res
             .arg("--wildcards")
             .args(patterns),
     )?;
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir)? {
-            let path = entry?.path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
+    let files: Vec<PathBuf> = tree::walk(dir)?
+        .into_iter()
+        .map(|file| dir.join(file))
+        .collect();
     ensure!(
         !files.is_empty(),
         "{} has no files matching {patterns:?}",

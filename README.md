@@ -96,7 +96,7 @@ Danach laufen parallel, jeweils auf einer Kopie der Installation, die Gegentests
 Secure Boot aus, Secure-Boot-Update, fremdes db-Zertifikat, hinzugefügter Kernel-Parameter,
 unsigniertes Kernel-Image, verändertes `/usr`, der Signier-Ablauf des Besitzers, Updates
 (abgewiesene, gelungene, kaputte mit Rückfall auf die vorige Version).
-Einzelheiten: `tools/bz/src/vm/smoke.rs`.
+Einzelheiten: `tools/bz/src/vm/smoke/`.
 Alles Erzeugte liegt unter `build/` und darf jederzeit gelöscht werden;
 Logs in `build/work/logs/`.
 

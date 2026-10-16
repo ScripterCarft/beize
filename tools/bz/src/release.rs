@@ -12,6 +12,7 @@ use crate::image::{self, Target};
 use crate::layout::{self, RELEASE_UKI, RELEASE_USR, RELEASE_USR_VERITY};
 use crate::paths::Paths;
 use crate::secureboot::{self, Keys};
+use crate::tree;
 use crate::{say, sbom, util};
 
 /// The list of a release's files: `<sha256>  <name>` per line, as
@@ -45,14 +46,9 @@ pub fn release(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
 /// Writes the release of `version` for `target`, signed with `keys`, into
 /// `dir` (replacing what is there).
 pub fn write(paths: &Paths, keys: &Keys, version: &str, target: Target, dir: &Path) -> Result<()> {
-    if dir.exists() {
-        fs::remove_dir_all(dir)?;
-    }
+    tree::remove(dir)?;
     let work = PathBuf::from(format!("{}.work", dir.display()));
-    if work.exists() {
-        fs::remove_dir_all(&work)?;
-    }
-    fs::create_dir_all(&work)?;
+    tree::recreate(&work)?;
     let chain = image::boot_chain(paths, keys, version, target, &work)?;
 
     util::step(&format!("Writing release {version}"));

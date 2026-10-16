@@ -16,6 +16,7 @@ use anyhow::{Context, Result, bail};
 use crate::outdated::compare_versions;
 use crate::paths::Paths;
 use crate::recipe::Recipe;
+use crate::tree;
 use crate::{say, util};
 
 /// `src`, the unpacked source of `recipe`, or – if the recipe moves crates
@@ -42,9 +43,7 @@ pub fn source(paths: &Paths, recipe: &Recipe, src: &Path) -> Result<PathBuf> {
     }
 
     let copy = paths.work.join("cargo-src").join(&recipe.name);
-    if copy.exists() {
-        fs::remove_dir_all(&copy)?;
-    }
+    tree::remove(&copy)?;
     fs::create_dir_all(copy.parent().context("cargo-src")?)?;
     util::run(Command::new("cp").arg("--archive").arg(src).arg(&copy))?;
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());

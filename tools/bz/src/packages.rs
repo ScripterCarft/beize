@@ -20,7 +20,7 @@ use crate::paths::Paths;
 use crate::recipe::{Recipe, Stage};
 use crate::say;
 use crate::schedule::{self, Measured, Memory};
-use crate::{buildroot, cargo, cgroup, debuginfo, install, stamp, util};
+use crate::{buildroot, cargo, cgroup, debuginfo, install, stamp, tree, util};
 
 /// Target triplet of the cross toolchain.
 pub const TARGET: &str = "x86_64-beize-linux-gnu";
@@ -194,7 +194,7 @@ fn build_planned(paths: &Paths, planned: &[Planned]) -> Result<()> {
 
                 let _ = fs::remove_file(paths.work.join("stamps").join(name));
                 install::uninstall(paths, name)?;
-                let sysroot = recreate(&sysroot_dir(paths, name))?;
+                let sysroot = tree::recreate(&sysroot_dir(paths, name))?;
                 install::link_packages(paths, &next.visible, &sysroot)?;
                 let holds = Arc::new(AtomicU64::new(0));
                 running.insert(
@@ -266,13 +266,13 @@ fn clean_up<'a>(
     still_needed: impl Iterator<Item = &'a Recipe>,
 ) -> Result<()> {
     for dir in ["build", "pkg", "home"] {
-        remove(&paths.work.join(dir).join(&recipe.name))?;
+        tree::remove(&paths.work.join(dir).join(&recipe.name))?;
     }
-    remove(&sysroot_dir(paths, &recipe.name))?;
+    tree::remove(&sysroot_dir(paths, &recipe.name))?;
     for machine in ["cross", "native"] {
-        remove(&meson_file(paths, &recipe.name, machine))?;
+        tree::remove(&meson_file(paths, &recipe.name, machine))?;
     }
-    remove(&pkg_config_dir(paths, &recipe.name))?;
+    tree::remove(&pkg_config_dir(paths, &recipe.name))?;
     let Some(source) = &recipe.source else {
         return Ok(());
     };
@@ -286,7 +286,7 @@ fn clean_up<'a>(
             return Ok(());
         }
     }
-    remove(&paths.work.join("src").join(stem))
+    tree::remove(&paths.work.join("src").join(stem))
 }
 
 /// After all packages built: removes the trees of earlier failed builds and
@@ -306,20 +306,11 @@ fn sweep(paths: &Paths) -> Result<()> {
         for entry in entries {
             let path = entry?.path();
             if dir != "src" || path.file_name().is_none_or(|name| *name != *keep) {
-                remove(&path)?;
+                tree::remove(&path)?;
             }
         }
     }
     Ok(())
-}
-
-fn remove(path: &Path) -> Result<()> {
-    let removed = match path.symlink_metadata() {
-        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
-        Err(_) => return Ok(()),
-    };
-    removed.with_context(|| format!("removing {}", path.display()))
 }
 
 /// The fingerprint a package was last built with: what a step that uses
@@ -331,8 +322,17 @@ pub fn built_fingerprint(paths: &Paths, name: &str) -> Result<String> {
 
 /// Loads the given recipes and their dependencies, dependencies first.
 pub fn resolve(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
-    let order = topological_order(names, |name| Ok(Recipe::load(paths, name)?.deps))?;
-    order.iter().map(|name| Recipe::load(paths, name)).collect()
+    let mut loaded = BTreeMap::new();
+    let order = topological_order(names, |name| {
+        let recipe = Recipe::load(paths, name)?;
+        let deps = recipe.deps.clone();
+        loaded.insert(name.to_owned(), recipe);
+        Ok(deps)
+    })?;
+    order
+        .iter()
+        .map(|name| loaded.remove(name).context("a recipe that was not loaded"))
+        .collect()
 }
 
 fn topological_order(
@@ -490,9 +490,9 @@ fn build_one(
         None => None,
     };
     util::step(&format!("Building {} {}", recipe.name, recipe.version));
-    let build_dir = recreate(&paths.work.join("build").join(&recipe.name))?;
-    let pkg_dir = recreate(&paths.work.join("pkg").join(&recipe.name))?;
-    let home = recreate(&paths.work.join("home").join(&recipe.name))?;
+    let build_dir = tree::recreate(&paths.work.join("build").join(&recipe.name))?;
+    let pkg_dir = tree::recreate(&paths.work.join("pkg").join(&recipe.name))?;
+    let home = tree::recreate(&paths.work.join("home").join(&recipe.name))?;
     let log = paths.work.join("logs").join(format!("{}.log", recipe.name));
 
     let mut cmd = Command::new("bash");
@@ -657,7 +657,7 @@ fn pkg_config_dir(paths: &Paths, name: &str) -> PathBuf {
 /// stays as it is, for tools that run while building. Returns the directory
 /// of the two commands.
 fn write_pkg_config(paths: &Paths, name: &str, sysroot: &Path) -> Result<PathBuf> {
-    let dir = recreate(&pkg_config_dir(paths, name))?;
+    let dir = tree::recreate(&pkg_config_dir(paths, name))?;
     let personality = dir.join(format!("{TARGET}.personality"));
     fs::write(&personality, personality_text(sysroot))?;
     // The FDO rule puts the sysroot only in front of -I and -L, as
@@ -728,12 +728,6 @@ fn write_meson_cross_file(
     let file = meson_file(paths, name, "cross");
     fs::write(&file, text)?;
     Ok(file)
-}
-
-fn recreate(dir: &Path) -> Result<PathBuf> {
-    remove(dir)?;
-    fs::create_dir_all(dir)?;
-    Ok(dir.to_owned())
 }
 
 #[cfg(test)]

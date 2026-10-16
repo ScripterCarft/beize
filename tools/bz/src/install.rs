@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use crate::paths::Paths;
-use crate::say;
+use crate::{say, tree};
 
 /// Merged-/usr symlinks and their targets, relative to the link's directory.
 const MERGED_LINKS: [(&str, &str); 6] = [
@@ -80,7 +80,7 @@ fn leaks_build_path(target: &Path, repo_root: &Path) -> bool {
 /// Fails if another package already owns one of the files.
 pub fn merge(paths: &Paths, package: &str, staging: &Path) -> Result<()> {
     let mut files = BTreeMap::new();
-    for rel in walk(staging)? {
+    for rel in tree::walk(staging)? {
         let target = canonical(&rel);
         if is_discarded(&rel, &target) {
             continue;
@@ -267,28 +267,6 @@ fn remove_installed(paths: &Paths, package: &str) -> Result<()> {
     Ok(())
 }
 
-/// Lists regular files and symlinks below `root`, relative to it.
-fn walk(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    let mut pending = vec![PathBuf::new()];
-    while let Some(rel) = pending.pop() {
-        for entry in fs::read_dir(root.join(&rel))? {
-            let entry = entry?;
-            let child = rel.join(entry.file_name());
-            let kind = entry.file_type()?;
-            if kind.is_dir() {
-                pending.push(child);
-            } else if kind.is_file() || kind.is_symlink() {
-                found.push(child);
-            } else {
-                bail!("{} is not a file, symlink or directory", child.display());
-            }
-        }
-    }
-    found.sort();
-    Ok(found)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,7 +345,7 @@ mod tests {
         let view = paths.work.join("sysroot/lvm2");
         let deps = BTreeSet::from(["gcc".to_owned(), "glibc".to_owned()]);
         link_packages(&paths, &deps, &view).unwrap();
-        let seen = walk(&view.join("usr")).unwrap();
+        let seen = tree::walk(&view.join("usr")).unwrap();
         let libc = fs::read_to_string(view.join("usr/lib/libc.so.6")).unwrap();
         let usr_bin = fs::read_link(view.join("bin")).unwrap();
 
@@ -443,22 +421,5 @@ mod tests {
         assert_eq!(copied, [true, false, true]);
         assert_eq!(e2fsck, fsck);
         assert_ne!(e2fsck, other, "equal content alone is no link");
-    }
-
-    #[test]
-    fn walk_lists_files_and_symlinks() {
-        let dir = std::env::temp_dir().join(format!("bz-walk-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join("usr/bin")).unwrap();
-        fs::write(dir.join("usr/bin/bash"), "").unwrap();
-        symlink("bash", dir.join("usr/bin/sh")).unwrap();
-        fs::create_dir_all(dir.join("empty")).unwrap();
-
-        let files = walk(&dir).unwrap();
-        fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(
-            files,
-            [PathBuf::from("usr/bin/bash"), PathBuf::from("usr/bin/sh")]
-        );
     }
 }

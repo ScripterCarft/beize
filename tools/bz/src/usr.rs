@@ -151,9 +151,7 @@ pub fn pack(
     ensure!(tree.is_dir(), "{} is missing; run `bz usr`", tree.display());
     util::step(&format!("Writing /usr image {version}"));
     let staging = out.join("usr-staging");
-    if staging.exists() {
-        fs::remove_dir_all(&staging)?;
-    }
+    tree::remove(&staging)?;
     util::run(
         Command::new("cp")
             .args(["--archive", "--reflink=auto"])

@@ -2,10 +2,10 @@
 
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use crate::install;
@@ -133,12 +133,62 @@ pub fn normalize_mtimes(dir: &Path) -> Result<()> {
     )
 }
 
+/// Removes `path` – a directory with all below it, a file or a symlink – if
+/// it is there.
+pub fn remove(path: &Path) -> Result<()> {
+    let removed = match path.symlink_metadata() {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(_) => return Ok(()),
+    };
+    removed.with_context(|| format!("removing {}", path.display()))
+}
+
+/// An empty directory `dir`, whatever was there before.
 pub fn recreate(dir: &Path) -> Result<PathBuf> {
-    if dir.exists() {
-        fs::remove_dir_all(dir).with_context(|| format!("removing {}", dir.display()))?;
-    }
-    fs::create_dir_all(dir)?;
+    remove(dir)?;
+    fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     Ok(dir.to_owned())
+}
+
+/// Every regular file and symlink below `root`, relative to it and sorted;
+/// anything else (a device, a socket) is an error.
+pub fn walk(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    let mut pending = vec![PathBuf::new()];
+    while let Some(rel) = pending.pop() {
+        let dir = root.join(&rel);
+        for entry in fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
+            let entry = entry?;
+            let child = rel.join(entry.file_name());
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                pending.push(child);
+            } else if kind.is_file() || kind.is_symlink() {
+                found.push(child);
+            } else {
+                bail!("{} is not a file, symlink or directory", child.display());
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// A path relative to the root, `.` and `..` resolved by name (not through
+/// symlinks); a leading `/` is dropped.
+pub fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::Normal(part) => out.push(part),
+            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+        }
+    }
+    out
 }
 
 pub fn is_elf(path: &Path) -> Result<bool> {
@@ -185,6 +235,35 @@ mod tests {
         assert!(!build_only("usr/bin/bash"));
         assert!(!build_only("usr/share/factory/etc/issue"));
         fs::remove_dir_all(&sysroot).unwrap();
+    }
+
+    #[test]
+    fn walk_lists_files_and_symlinks() {
+        let dir = std::env::temp_dir().join(format!("bz-walk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("usr/bin")).unwrap();
+        fs::write(dir.join("usr/bin/bash"), "").unwrap();
+        std::os::unix::fs::symlink("bash", dir.join("usr/bin/sh")).unwrap();
+        fs::create_dir_all(dir.join("empty")).unwrap();
+
+        let files = walk(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            files,
+            [PathBuf::from("usr/bin/bash"), PathBuf::from("usr/bin/sh")]
+        );
+    }
+
+    #[test]
+    fn resolves_paths_by_name() {
+        assert_eq!(
+            lexical(Path::new("usr/lib/../bin/./x")),
+            Path::new("usr/bin/x")
+        );
+        assert_eq!(
+            lexical(Path::new("/usr/lib/systemd/../../lib")),
+            Path::new("usr/lib")
+        );
     }
 
     #[test]

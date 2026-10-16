@@ -13,6 +13,7 @@ use super::Installed;
 use super::integrity::{damage_verity, failed_start};
 use crate::paths::Paths;
 use crate::say;
+use crate::tree;
 use crate::vm::checks;
 use crate::vm::checks::{boot_healthy, check_blessed};
 use crate::vm::console::Answers;
@@ -38,9 +39,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
     let mut machine = installed.machine.copy_as(paths, "smoke-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
     let releases = paths.work.join("smoke-releases");
-    if releases.exists() {
-        fs::remove_dir_all(&releases)?;
-    }
+    tree::remove(&releases)?;
     let good = releases.join(&version);
     test_release(paths, keys, &version, &good)?;
     let refused = refused_releases(&releases, &good, keys)?;
@@ -266,9 +265,7 @@ pub(super) fn broken_update(
     let machine = installed.machine.copy_as(paths, "smoke-broken-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
     let releases = paths.work.join("smoke-broken-releases");
-    if releases.exists() {
-        fs::remove_dir_all(&releases)?;
-    }
+    tree::remove(&releases)?;
     let broken = releases.join(&version);
     test_release(paths, keys, &version, &broken)?;
     // Damage the hash tree, then sign the list of the damaged files.

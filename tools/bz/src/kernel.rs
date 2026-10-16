@@ -166,9 +166,7 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     );
 
     util::step("Installing modules");
-    if modules_root.exists() {
-        fs::remove_dir_all(&modules_root)?;
-    }
+    tree::remove(&modules_root)?;
     util::run(
         make(paths, &src, &obj)
             .arg("modules_install")
@@ -351,20 +349,11 @@ pub fn built(paths: &Paths) -> Result<Kernel> {
 
 /// Every module file below `dir`, sorted.
 pub fn module_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
-            let path = entry?.path();
-            if path.is_dir() {
-                pending.push(path);
-            } else if path.to_string_lossy().ends_with(".ko.zst") {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    Ok(files)
+    Ok(tree::walk(dir)?
+        .into_iter()
+        .filter(|file| file.to_string_lossy().ends_with(".ko.zst"))
+        .map(|file| dir.join(file))
+        .collect())
 }
 
 /// A module's name as the kernel and kmod use it: `sd_mod` for

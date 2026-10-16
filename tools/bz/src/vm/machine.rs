@@ -14,6 +14,7 @@ use super::console::{Answers, TAMPER_TIMEOUT, watch_boot};
 use crate::layout::{self, MIB};
 use crate::paths::Paths;
 use crate::say;
+use crate::tree;
 use crate::{secureboot, util};
 
 /// OVMF build that enforces Secure Boot (requires SMM).
@@ -128,9 +129,7 @@ impl Machine {
     /// as machine `name`, to change and boot without touching this one.
     pub(super) fn copy_as(&self, paths: &Paths, name: &str) -> Result<Self> {
         let copy = Self::named(paths, name);
-        if copy.tpm.exists() {
-            fs::remove_dir_all(&copy.tpm)?;
-        }
+        tree::remove(&copy.tpm)?;
         for (from, to) in [
             (&self.disk, &copy.disk),
             (&self.vars, &copy.vars),
@@ -236,10 +235,7 @@ fn enrolled_certificates(firmware: &str) -> Vec<(String, String)> {
 
 /// Creates an empty TPM state directory; swtpm initialises a factory-new TPM in it.
 pub(super) fn new_tpm(dir: &Path) -> Result<()> {
-    if dir.exists() {
-        fs::remove_dir_all(dir)?;
-    }
-    fs::create_dir_all(dir)?;
+    tree::recreate(dir)?;
     Ok(())
 }
 
@@ -312,9 +308,7 @@ fn boot_logs(paths: &Paths) -> PathBuf {
 /// `bz debug` or `bz run`, numbered in the order of its boots.
 pub(super) fn clear_boot_logs(paths: &Paths) -> Result<()> {
     let logs = boot_logs(paths);
-    if logs.exists() {
-        fs::remove_dir_all(&logs)?;
-    }
+    tree::remove(&logs)?;
     Ok(())
 }
 

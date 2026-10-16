@@ -20,7 +20,7 @@ use crate::files;
 use crate::install;
 use crate::kernel::{self, Kernel};
 use crate::layout;
-use crate::packages::{self, TARGET};
+use crate::packages;
 use crate::paths::Paths;
 use crate::privileges;
 use crate::say;
@@ -71,7 +71,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         sysroot: paths.sysroot.clone(),
         own: own.clone(),
         files,
-        readelf: paths.tools.join("bin").join(format!("{TARGET}-readelf")),
+        readelf: elf::readelf(paths),
     };
     tree::copy_files(paths, &select::files(&definition, &pool)?, &root)?;
 
@@ -129,9 +129,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
 /// with `keys`. Uncompressed: the modules are compressed each.
 pub fn pack_modules(paths: &Paths, keys: &Keys, out: &Path) -> Result<PathBuf> {
     let staging = out.join("initrd-modules-staging");
-    if staging.exists() {
-        fs::remove_dir_all(&staging)?;
-    }
+    tree::remove(&staging)?;
     util::run(
         Command::new("cp")
             .arg("--archive")

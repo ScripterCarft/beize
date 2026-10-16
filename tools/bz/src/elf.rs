@@ -8,11 +8,11 @@
 //! compiled libcap unnoticed. Each carries MiniDebugInfo instead of its
 //! symbol table, so a crash names its functions (ADR 0023).
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
+use serde::Deserialize;
 
 use crate::packages::TARGET;
 use crate::paths::Paths;
@@ -35,10 +35,14 @@ const NO_CET: [(&str, &str); 9] = [
 
 /// Checks every ELF file under `root`; `what` names the tree in messages.
 pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
-    let readelf = paths.tools.join("bin").join(format!("{TARGET}-readelf"));
+    let readelf = readelf(paths);
     let gcc = format!("GCC: (GNU) {}", Recipe::load(paths, "gcc")?.version);
     let mut files = Vec::new();
-    collect_elf(root, &mut files)?;
+    for file in tree::walk(root)? {
+        if tree::is_elf(&root.join(&file))? {
+            files.push(root.join(file));
+        }
+    }
     let mut problems = Vec::new();
     let mut parsed = Vec::new();
     for file in &files {
@@ -55,7 +59,8 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
                 .arg(file),
         )?;
         let needs_cet = !NO_CET.iter().any(|(path, _)| relative == Path::new(path));
-        let hardening = Hardening::parse(&output);
+        let hardening = Hardening::parse(&output)
+            .with_context(|| format!("reading /{}", relative.display()))?;
         for problem in hardening.problems(needs_cet) {
             problems.push(format!("/{}: {problem}", relative.display()));
         }
@@ -92,18 +97,79 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     Ok(())
 }
 
-fn collect_elf(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        let meta = fs::symlink_metadata(&path)?;
-        if meta.is_dir() {
-            collect_elf(&path, files)?;
-        } else if tree::is_elf(&path)? {
-            files.push(path);
+/// The cross readelf that reads Beize's ELF files.
+pub fn readelf(paths: &Paths) -> PathBuf {
+    paths.tools.join("bin").join(format!("{TARGET}-readelf"))
+}
+
+/// How an ELF file is linked, from readelf's `--program-headers --dynamic
+/// --notes`: what the dynamic loader loads for it, and where it looks.
+#[derive(Debug, Default, PartialEq)]
+pub struct Linking {
+    pub interpreter: Option<String>,
+    /// Its name as a library (DT_SONAME).
+    pub soname: Option<String>,
+    /// The libraries it needs (DT_NEEDED).
+    pub needed: Vec<String>,
+    /// Where it looks for them first (DT_RUNPATH, or the older DT_RPATH).
+    pub runpath: Vec<String>,
+    /// dlopen features (`.note.dlopen`) and the sonames that provide them,
+    /// in preference order.
+    pub dlopen: Vec<(String, Vec<String>)>,
+}
+
+#[derive(Deserialize)]
+struct DlopenNote {
+    feature: String,
+    soname: Vec<String>,
+}
+
+impl Linking {
+    pub fn parse(output: &str) -> Result<Self> {
+        let mut linking = Self::default();
+        for line in output.lines() {
+            let line = line.trim();
+            if let Some(at) = line.find("Dlopen Metadata: ") {
+                let json = line[at + "Dlopen Metadata: ".len()..].trim();
+                let notes: Vec<DlopenNote> = serde_json::from_str(json)
+                    .with_context(|| format!("parsing the dlopen note {json}"))?;
+                linking
+                    .dlopen
+                    .extend(notes.into_iter().map(|n| (n.feature, n.soname)));
+            } else if let Some(path) = line
+                .strip_prefix("[Requesting program interpreter: ")
+                .and_then(|rest| rest.strip_suffix(']'))
+            {
+                linking.interpreter = Some(path.to_owned());
+            } else if line.contains("(SONAME)") {
+                linking.soname = bracketed(line);
+            } else if line.contains("(NEEDED)") {
+                linking.needed.extend(bracketed(line));
+            } else if line.contains("(RUNPATH)") || line.contains("(RPATH)") {
+                linking.runpath.extend(
+                    bracketed(line)
+                        .iter()
+                        .flat_map(|dirs| dirs.split(':'))
+                        .map(str::to_owned),
+                );
+            }
         }
+        Ok(linking)
     }
-    files.sort();
-    Ok(())
+
+    /// The directories of its run path, relative to the root; `$ORIGIN` is
+    /// the directory of `file` (relative to the root).
+    pub fn runpath_dirs(&self, file: &Path) -> Vec<PathBuf> {
+        let origin = Path::new("/").join(file.parent().unwrap_or(Path::new("")));
+        self.runpath
+            .iter()
+            .map(|dir| {
+                tree::lexical(Path::new(
+                    &dir.replace("$ORIGIN", &origin.to_string_lossy()),
+                ))
+            })
+            .collect()
+    }
 }
 
 /// What readelf says about one file.
@@ -120,11 +186,7 @@ struct Hardening {
     ibt: bool,
     shstk: bool,
     build_id: bool,
-    /// Its name as a library (DT_SONAME), the libraries it needs
-    /// (DT_NEEDED) and where it looks for them first (DT_RUNPATH).
-    soname: Option<String>,
-    needed: Vec<String>,
-    runpath: Vec<String>,
+    linking: Linking,
     /// What the compilers wrote into `.comment`, e.g. `GCC: (GNU) 16.2.0`.
     compilers: Vec<String>,
     /// MiniDebugInfo, and the full symbol table it replaces (ADR 0023).
@@ -135,8 +197,11 @@ struct Hardening {
 impl Hardening {
     /// Parses `readelf --wide --file-header --program-headers --section-headers
     /// --dynamic --notes --string-dump=.comment`.
-    fn parse(output: &str) -> Self {
-        let mut h = Self::default();
+    fn parse(output: &str) -> Result<Self> {
+        let mut h = Self {
+            linking: Linking::parse(output)?,
+            ..Self::default()
+        };
         let mut in_comment = false;
         for line in output.lines() {
             let line = line.trim();
@@ -172,17 +237,6 @@ impl Hardening {
                 h.bind_now |= line.split_whitespace().any(|f| f == "NOW");
             } else if line.contains("(TEXTREL)") {
                 h.textrel = true;
-            } else if line.contains("(SONAME)") {
-                h.soname = bracketed(line);
-            } else if line.contains("(NEEDED)") {
-                h.needed.extend(bracketed(line));
-            } else if line.contains("(RUNPATH)") || line.contains("(RPATH)") {
-                h.runpath.extend(
-                    bracketed(line)
-                        .iter()
-                        .flat_map(|dirs| dirs.split(':'))
-                        .map(str::to_owned),
-                );
             } else if line.contains("NT_GNU_BUILD_ID") {
                 h.build_id = true;
             } else if let Some(at) = line.find("x86 feature:") {
@@ -192,17 +246,13 @@ impl Hardening {
                 h.shstk |= features.split(',').any(|f| f.trim() == "SHSTK");
             }
         }
-        h
+        Ok(h)
     }
 
     /// The directories, relative to the root, where the dynamic loader
     /// looks for the libraries `file` needs: its runpath, then /usr/lib.
     fn search_dirs(&self, file: &Path) -> Vec<PathBuf> {
-        let origin = Path::new("/").join(file.parent().unwrap_or(Path::new("")));
-        let mut dirs = Vec::new();
-        for dir in &self.runpath {
-            dirs.push(lexical(&dir.replace("$ORIGIN", &origin.to_string_lossy())));
-        }
+        let mut dirs = self.linking.runpath_dirs(file);
         dirs.push(PathBuf::from("usr/lib"));
         dirs
     }
@@ -214,14 +264,15 @@ impl Hardening {
     /// libsystemd-shared from systemd's.
     fn unresolved(&self, root: &Path, file: &Path, all: &[(PathBuf, Hardening)]) -> Vec<String> {
         let mut dirs = self.search_dirs(file);
-        if let Some(soname) = &self.soname {
+        if let Some(soname) = &self.linking.soname {
             for (loader, parsed) in all {
-                if parsed.needed.contains(soname) {
+                if parsed.linking.needed.contains(soname) {
                     dirs.extend(parsed.search_dirs(loader));
                 }
             }
         }
-        self.needed
+        self.linking
+            .needed
             .iter()
             .filter(|library| {
                 !dirs
@@ -295,21 +346,6 @@ fn section_name(line: &str) -> Option<&str> {
     rest.split_whitespace().next()
 }
 
-/// An absolute path made relative to the root, `..` resolved by name.
-fn lexical(path: &str) -> PathBuf {
-    let mut parts: Vec<&str> = Vec::new();
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            part => parts.push(part),
-        }
-    }
-    parts.iter().collect()
-}
-
 /// The text between the brackets of a readelf line: `... [libc.so.6]`.
 fn bracketed(line: &str) -> Option<String> {
     let start = line.find('[')? + 1;
@@ -319,7 +355,13 @@ fn bracketed(line: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
+
+    fn parse(output: &str) -> Hardening {
+        Hardening::parse(output).unwrap()
+    }
 
     const HARDENED: &str = "\
   Type:                              DYN (Position-Independent Executable file)
@@ -336,8 +378,35 @@ mod tests {
 ";
 
     #[test]
+    fn parses_what_an_elf_file_needs() {
+        let output = r#"
+      [Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]
+ 0x0000000000000001 (NEEDED)             Shared library: [libsystemd-shared-262.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x000000000000001d (RUNPATH)            Library runpath: [/usr/lib/systemd]
+    Dlopen Metadata: [{"feature":"libcrypto","description":"x","priority":"suggested","soname":["libcrypto.so.4","libcrypto.so.3"]}]
+"#;
+        assert_eq!(
+            Linking::parse(output).unwrap(),
+            Linking {
+                interpreter: Some("/lib64/ld-linux-x86-64.so.2".to_owned()),
+                soname: None,
+                needed: vec![
+                    "libsystemd-shared-262.so".to_owned(),
+                    "libc.so.6".to_owned()
+                ],
+                runpath: vec!["/usr/lib/systemd".to_owned()],
+                dlopen: vec![(
+                    "libcrypto".to_owned(),
+                    vec!["libcrypto.so.4".to_owned(), "libcrypto.so.3".to_owned()]
+                )],
+            }
+        );
+    }
+
+    #[test]
     fn a_hardened_program_passes() {
-        let h = Hardening::parse(HARDENED);
+        let h = parse(HARDENED);
         assert!(h.ibt && h.shstk && h.bind_now && h.relro, "{h:?}");
         assert!(h.problems(true).is_empty(), "{:?}", h.problems(true));
     }
@@ -350,62 +419,41 @@ mod tests {
             .replace("Flags: NOW PIE", "Flags: PIE")
             .replace("x86 feature: IBT, SHSTK, ", "");
         assert_eq!(
-            Hardening::parse(&lazy).problems(true),
+            parse(&lazy).problems(true),
             ["no BIND_NOW", "no CET (IBT and SHSTK)"]
         );
         // A Rust program: CET is not required.
-        assert_eq!(Hardening::parse(&lazy).problems(false), ["no BIND_NOW"]);
+        assert_eq!(parse(&lazy).problems(false), ["no BIND_NOW"]);
 
         let exec = HARDENED.replace("DYN (Position-Independent", "EXEC (");
-        assert_eq!(
-            Hardening::parse(&exec).problems(true),
-            ["not position-independent"]
-        );
+        assert_eq!(parse(&exec).problems(true), ["not position-independent"]);
         let stack = HARDENED.replace("0x000000 RW  0x10", "0x000000 RWE 0x10");
-        assert_eq!(
-            Hardening::parse(&stack).problems(true),
-            ["executable stack"]
-        );
+        assert_eq!(parse(&stack).problems(true), ["executable stack"]);
         let no_stack = HARDENED.replace("  GNU_STACK", "  XNU_STACK");
-        assert_eq!(
-            Hardening::parse(&no_stack).problems(true),
-            ["executable stack"]
-        );
+        assert_eq!(parse(&no_stack).problems(true), ["executable stack"]);
         // Linked by a compiler without --enable-linker-build-id.
         let no_id = HARDENED.replace("NT_GNU_BUILD_ID", "NT_GNU_HWCAP");
-        assert_eq!(Hardening::parse(&no_id).problems(true), ["no build ID"]);
+        assert_eq!(parse(&no_id).problems(true), ["no build ID"]);
         // Stripped by its own build, or never prepared (ADR 0023).
         let no_mini = HARDENED.replace(".gnu_debugdata", ".gnu_debuglink");
-        assert_eq!(
-            Hardening::parse(&no_mini).problems(true),
-            ["no MiniDebugInfo"]
-        );
+        assert_eq!(parse(&no_mini).problems(true), ["no MiniDebugInfo"]);
         let symtab = HARDENED.replace(".interp ", ".symtab ");
-        assert_eq!(
-            Hardening::parse(&symtab).problems(true),
-            ["a full symbol table"]
-        );
+        assert_eq!(parse(&symtab).problems(true), ["a full symbol table"]);
         let textrel = HARDENED.replace("BIND_NOW\n", "BIND_NOW TEXTREL\n");
-        assert_eq!(
-            Hardening::parse(&textrel).problems(true),
-            ["text relocations"]
-        );
+        assert_eq!(parse(&textrel).problems(true), ["text relocations"]);
         // "x86 feature used: ... IBT" is not the property.
         let used_only = HARDENED.replace(
             "x86 feature: IBT, SHSTK, ",
             "x86 feature used: IBT, SHSTK, ",
         );
-        assert_eq!(
-            Hardening::parse(&used_only).problems(true),
-            ["no CET (IBT and SHSTK)"]
-        );
+        assert_eq!(parse(&used_only).problems(true), ["no CET (IBT and SHSTK)"]);
     }
 
     #[test]
     fn only_beizes_compilers_are_accepted() {
         let gcc = "GCC: (GNU) 16.2.0";
         let dump = |comments: &str| {
-            Hardening::parse(&format!(
+            parse(&format!(
                 "{HARDENED}\nString dump of section '.comment':\n{comments}\n"
             ))
         };
@@ -422,11 +470,11 @@ mod tests {
             dump("  [     0]  GCC: (Ubuntu 15.2.0-16ubuntu1) 15.2.0").foreign_compiler(gcc),
             Some("\"GCC: (Ubuntu 15.2.0-16ubuntu1) 15.2.0\"".into())
         );
-        assert!(Hardening::parse(HARDENED).foreign_compiler(gcc).is_some());
+        assert!(parse(HARDENED).foreign_compiler(gcc).is_some());
         // "[Requesting program interpreter: ...]" is no compiler.
         let interpreter = "      [Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]\n";
         assert!(
-            Hardening::parse(&format!("{interpreter}{HARDENED}"))
+            parse(&format!("{interpreter}{HARDENED}"))
                 .compilers
                 .is_empty()
         );
@@ -435,11 +483,8 @@ mod tests {
     #[test]
     fn kernel_modules_are_left_to_the_kernel() {
         let module = "  Type:                              REL (Relocatable file)\n";
-        assert!(Hardening::parse(module).problems(true).is_empty());
-        assert_eq!(
-            Hardening::parse(module).foreign_compiler("GCC: (GNU) 16.2.0"),
-            None
-        );
+        assert!(parse(module).problems(true).is_empty());
+        assert_eq!(parse(module).foreign_compiler("GCC: (GNU) 16.2.0"), None);
     }
 
     #[test]
@@ -454,7 +499,7 @@ mod tests {
  0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]
  0x000000000000001d (RUNPATH)            Library runpath: [$ORIGIN/../lib/systemd]
 ";
-        let h = Hardening::parse(program);
+        let h = parse(program);
         assert_eq!(
             h.unresolved(&root, Path::new("usr/bin/systemctl"), &[]),
             ["libstdc++.so.6"]
@@ -467,7 +512,7 @@ mod tests {
 
         // A library without a runpath finds what the program loading it
         // found (libsystemd-core, loaded by systemd); alone it would not.
-        let core = Hardening::parse(
+        let core = parse(
             " 0x000000000000000e (SONAME)             Library soname: [libsystemd-core-262.so]
  0x0000000000000001 (NEEDED)             Shared library: [libsystemd-shared-262.so]
 ",
@@ -477,7 +522,7 @@ mod tests {
             core.unresolved(&root, core_path, &[]),
             ["libsystemd-shared-262.so"]
         );
-        let systemd = Hardening::parse(&format!(
+        let systemd = parse(&format!(
             "{program} 0x0000000000000001 (NEEDED)             Shared library: [libsystemd-core-262.so]\n"
         ));
         let all = [(PathBuf::from("usr/bin/systemd-tool"), systemd)];

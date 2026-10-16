@@ -20,7 +20,7 @@ use anyhow::{Context, Result, ensure};
 
 use crate::packages::TARGET;
 use crate::paths::Paths;
-use crate::util;
+use crate::{tree, util};
 
 /// The section MiniDebugInfo lives in (what gdb and libdw look for).
 pub const SECTION: &str = ".gnu_debugdata";
@@ -149,19 +149,12 @@ fn names(
 /// building.
 fn linked_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            if kind.is_dir() {
-                pending.push(entry.path());
-            } else if kind.is_file() && elf_type(&entry.path())? == Some(ET_DYN) {
-                found.push(entry.path());
-            }
+    for file in tree::walk(dir)? {
+        let path = dir.join(file);
+        if path.symlink_metadata()?.is_file() && elf_type(&path)? == Some(ET_DYN) {
+            found.push(path);
         }
     }
-    found.sort();
     Ok(found)
 }
 
@@ -199,9 +192,6 @@ fn scratch_dir(pkg: &Path) -> Result<PathBuf> {
         .context("a staging tree without a name")?
         .to_string_lossy();
     let dir = pkg.with_file_name(format!("{name}.debuginfo"));
-    if dir.exists() {
-        fs::remove_dir_all(&dir)?;
-    }
-    fs::create_dir_all(&dir)?;
+    tree::recreate(&dir)?;
     Ok(dir)
 }
