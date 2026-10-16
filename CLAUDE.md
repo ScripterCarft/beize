@@ -77,7 +77,7 @@ Neubinden, echte Hardware).
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select.rs`) · `base.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
+| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select/`) · `base.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
 | `ci/buildroot/` | Buildroot (ADR 0021): `packages.txt` (einzige Liste der Werkzeuge) → `lock.sh` → `packages.lock` (Versionen + SHA-256, Snapshot-Datum in `snapshot`); `create.sh`, `hash.sh` |
@@ -211,9 +211,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   (Liste, gegen NVDs CPE-Wörterbuch geprüft; leer nur mit Begründung); Test verlangt beides.
   Die SBOM des Images: `build/out/sbom.spdx.json`.
 - **Eigener Rust-Code:** `unsafe` nur mit `// SAFETY:`, kein `unwrap`/`expect` außerhalb von
-  Tests (Lints). Was ein unprivilegierter Aufrufer schickt, läuft durch einen Fuzz-Einstieg
-  (`beize_varlink::fuzz_request`, `beize_update::list::fuzz_list`, Ziele in `fuzz/`); neue
-  Eingaben dorthin. Ein behobener Fund kommt nach `fuzz/regressions/<ziel>/` (cargo test).
+  Tests (Lints). Was ein unprivilegierter Aufrufer oder die Firmware schickt, läuft durch einen
+  Fuzz-Einstieg (`beize_varlink::fuzz_request`, `beize_update::list::fuzz_list`, beize-tpm
+  `efi::fuzz_firmware`, Ziele in `fuzz/`); neue Eingaben dorthin. Ein behobener Fund kommt nach `fuzz/regressions/<ziel>/` (cargo test).
 - Ausgaben in `bz` über `say!` (nicht `eprintln!`), damit parallele Szenarien sie
   gesammelt zeigen; Prüfungen im Smoke-Test müssen belegen, dass ihre Bedingung
   hergestellt wurde (Gegenprobe: Eigenschaft absichtlich brechen → rot).
@@ -284,10 +284,9 @@ sind dort Grafik-API des Compositors und UI-Toolkit (Anfang M3), Systemschrift u
   `--clearenv`) oder Host. Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise
   vergleichen. Lokaler Vergleichsbau unter `~/scratch/`: `git worktree add --detach …`,
   Quellen aus `build/cache` kopieren, `./bz build && ci/digest.sh`.
-- #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`), #4 vmspawn bewerten, #22 Hardware-Warnungen,
-  #11 PCIe-Retraining mit Kernel 7.3 auf der Hardware prüfen, #10 beobachten (seit 14 Läufen nicht).
-- Review-Empfehlungen: Fuzz-Ziel für den Event-Log-Parser von beize-tpm; ShellCheck in die CI
-  (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
+- #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 auf der
+  Hardware prüfen, #10 beobachten (seit 14 Läufen nicht).
+- ShellCheck in die CI (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
 - Besitzer entscheidet: findmnt/flock (util-linux von `--disable-all-programs` auf eine
   ausdrückliche Liste?), file, patch, strings.
 - Besitzer, in Windows: `wsl --shutdown`, `wsl --manage Ubuntu-26.04 --set-sparse true` (vhdx
