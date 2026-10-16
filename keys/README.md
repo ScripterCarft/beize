@@ -52,6 +52,7 @@ Prüfen aller Quellen: `./bz verify`
 | `lvm2` | Marian Csontos | `D501 A478 440A E2FD 130A 1BE8 B911 2431 E509 039F` | keys.openpgp.org |
 | `mpc` | Andreas Enge | `AD17 A21E F8AE D8F1 CC02 DBD9 F7D5 C9BF 765C 61E3` | GNU-Keyring |
 | `mpfr` | Vincent Lefèvre | `A534 BE3F 83E2 41D9 1828 0AEB 5831 D11A 0D4D B02A` | GNU-Keyring |
+| `nano` | Benno Schulenberg | `168E 6F42 97BF D7A7 9AFD 4496 514B BE2E B8E1 961F` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `ncurses` | Thomas E. Dickey | `1988 2D92 DDA4 C400 C22C 0D56 CC2A F447 2167 BE03` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `ntpd-rs` | David Venhoek (Tweede golf), SSH | `SHA256:xQQw30dT1YTuj8KC9IC7tJ9pGtcKOReK54ClMRIEABc` (RSA) | GitHub-Signaturschlüssel des Maintainers (seit 2023, Hardware-Token); signiert die Release-Commits, die Tags sind leichtgewichtig |
 | `openssl` | OpenSSL | `C46E D3F2 CBEF DA1F DAAD A442 64ED 7B1D CCE7 1CB2` | openssl-library.org/source/pubkeys.asc |
