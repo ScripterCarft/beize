@@ -123,7 +123,7 @@ Automatisierung/Claude greift nie auf 1Password zu (ADR 0006).]**
 
 ## Roadmap
 
-M1 Bootet in QEMU (✓) → **M2 Echte Hardware (in Arbeit)** → M3 Compositor
+M1 Bootet in QEMU (✓) → M2 Echte Hardware (✓) → **M3 Compositor**
 (Fenster, Terminal, erste Effekte) → M4 Alltagstauglich (Rider, Aspire,
 1Password, Audio, Standby; Wechsel zum Hauptsystem; App-Installationsmodell
 vorher entscheiden) → M5 Feinschliff (Settings, Updater, Installer, Effekte).

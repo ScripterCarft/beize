@@ -10,7 +10,7 @@ frei wie Windows, technisch so offen wie Linux.** Kernel, Treiber und
 Basisbibliotheken kommen aus Upstream (selbst gebaut), alles darüber –
 Compositor, Shell, Einstellungen, Dienste – wird eigener Code (Rust).
 **Lies vor größeren Entscheidungen `docs/VISION.md`.** Meilensteine: M1 Bootet in
-QEMU ✓ · **M2 Echte Hardware (in Arbeit)** · M3 Compositor · M4 Alltagstauglich ·
+QEMU ✓ · M2 Echte Hardware ✓ · **M3 Compositor (als Nächstes)** · M4 Alltagstauglich ·
 M5 Feinschliff. Stand im Detail: `README.md`.
 
 ## 2. Zusammenarbeit mit dem Besitzer
@@ -261,59 +261,39 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-16)
 
-**Beim Besitzer installiert:** 0.3 (Toolchain-Kernel 7.2.10; Disks, Messwerte, Update vom Stick:
-`docs/hardware.md`; neu installieren: `keys/secureboot/README.md`). Wiederherstellung: nach F8
-Leertaste halten, „(Recovery)“, Recovery-Key, `s`.
+**M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft, #6 geschlossen; Messwerte
+und Leerlauf: `docs/hardware.md`). Installiert ist 0.4: Neu installieren: `keys/secureboot/README.md`,
+Update vom Stick: `docs/hardware.md`. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“,
+Recovery-Key, `s`. Phase 7 (Konsolidierung) steht in Commits, ADR 0021–0024 und geschlossenen Issues.
 
-**Phase 7 – Konsolidierung, Abschluss von M2** (seit 2026-10-12; Ausgangswerte WSL
-`~/p7/BASELINE.md`). Funktionen bleiben, geändert wird nur nachweislich Besseres, jede Änderung mit
-Vorher/Nachher; nicht feinschleifen, was M3 ersetzt (Konsole, Setup-Oberfläche). Was erledigt ist,
-steht in Commits, ADR 0021–0024 und den geschlossenen Issues – nicht hier.
+**Nächste Aufgabe: M3 – Compositor planen** (eigener Chat). Vorher `docs/VISION.md` lesen; offen
+sind dort Grafik-API des Compositors und UI-Toolkit (Anfang M3), Systemschrift und Icon-Stil.
+- Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc): grob lokal +15 min Bau von null,
+  CI +1–1,5 h. Erst messen, dann planen.
+- Mit dem ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
+- **Label `m3-plan`** (#14 BTF, #17 Hardware: NVIDIA/WLAN/BT/Ton/zweite SSD, #34 zram/oomd,
+  #35 nftables, #36 fwupd) nur mit Zustimmung des Besitzers.
+- Designfrage (mit dem Besitzer abstimmen, berührt ADR 0007): `/etc/profile` und `/etc/ld.so.conf`
+  werden beim 1. Start kopiert (`C` in `tmpfiles.d/beize.conf`), also erreichen Änderungen
+  von Beize installierte Rechner nie (dieselbe Klasse wie loader.conf, ADR 0024). Vorbild
+  ntp.toml/nanorc: Link nach `/usr`, den der Besitzer durch eine Datei ersetzen kann.
 
-**Offen bis M3**
-1. **Hardware-Test 0.4 (Besitzer)** nach WSL `~/hw-test-0.4.md` (Version 0.4: Bootloader-Fix
-   ADR 0024, Grundwerkzeuge, nano, Review-Fixes; der Besitzer baut 0.4 erst jetzt). Danach auswerten: im ersten Start von 0.4
-   `Updated /boot/loader/loader.conf`; Menü-Start `Console: switching … 160x45` (0.3 hatte dort
-   `128x48` = 1024×768); idle-1 gegen idle-2 (MemoryCurrent und CPUUsageNSec je Unit, `free -m`:
-   nichts wächst) → #6 schließen, Messwerte in `docs/hardware.md`. Frage des Besitzers: „~700 MB RAM
-   gut oder viel?“ – gesehen in `/proc/meminfo` (wohl MemTotal − MemFree, also mit Seitencache);
-   belegt ist MemTotal − MemAvailable, je Dienst MemoryCurrent: mit `idle-*.txt` beantworten. Dann sind Phase 7 und M2 fertig: §11 für M3 neu schreiben.
-2. **#5 bitgleiche Bauten:** CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).
-   Lokal bitgleich über Pfad, Zeit, 4 CPUs und root; übrig: Umgebung der CI (bz läuft dort ohne
-   bwraps `--clearenv`) oder Host. Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise
-   vergleichen (Kommentar in #5). Lokaler Vergleichsbau (gelöscht): `git worktree add --detach
-   ~/repro/<x> <commit>`, Quellen aus `build/cache` kopieren (x.org, freedesktop.org und
-   gitlab.gnome.org brechen TLS gelegentlich ab, curl 35), `./bz build && ci/digest.sh`.
-3. **Review vom 15./16.10. (Besitzer: Bugs, Aufräumen, schlanke Docs, etablierte Struktur).**
-   Behoben: Pfad-Lücke in `beize-accountsd` (ein Name war ein Pfad → Passwort eines Administrators
-   setzbar → root; jetzt `is_name` in Dienst und Speicher, Test, ADR 0019) und Raten über parallele
-   Verbindungen (`MaxConnectionsPerSource=1`); `beize-updated` räumt Cache und Kopie auf jedem Weg
-   (Smoke prüft); JSON-Kopien mit Geheimnissen auf jedem Weg gelöscht; `tpm-srk.pem` atomar.
-   Gelesen und sauber: beize-update, beize-varlink, beize-accountsd, crypt, beize-tpm (main,
-   policy), alle Shell-Skripte (ShellCheck), Lints/Casts im ganzen Workspace. Nicht Zeile für Zeile:
-   beize-setup und bz (Logik zeigt sich in CI/Smoke; bz schreibt nur im Repo, Buildroot).
-   Empfehlungen: Fuzz-Ziel für den Event-Log-Parser von beize-tpm; ShellCheck in die CI (Paket im
-   Buildroot → mit der nächsten Lock-Änderung bündeln).
-4. **WSL aufgeräumt (16.10.):** 106 → 36 GB in WSL (meine alten Arbeitskopien und Logs gelöscht;
-   `~/p7` hat nur noch `BASELINE.md`). Die vhdx schrumpft erst, wenn der Besitzer in Windows
-   `wsl --shutdown` und `wsl --manage Ubuntu-26.04 --set-sparse true` ausführt. Künftig
-   Wegwerf-Arbeit nach `~/scratch/` und am Ende des Schritts löschen.
-5. **Besitzer entscheidet:** findmnt/flock (util-linux von `--disable-all-programs` auf eine
-   ausdrückliche Liste?), file, patch, strings. Editor entschieden: nano (`98c51004`).
-   Designfrage für M3: `/etc/profile` und `/etc/ld.so.conf` werden beim 1. Start kopiert (`C` in
-   `tmpfiles.d/beize.conf`) – Änderungen von Beize erreichen installierte Rechner nie (dieselbe
-   Klasse wie loader.conf, ADR 0024). Vorbild ntp.toml/nanorc: Link nach `/usr`, den der Besitzer
-   durch eine Datei ersetzen kann; vorab mit dem Besitzer abstimmen (berührt ADR 0007).
-6. **M3 planen** (eigener Chat). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob
-   lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
-   C++-Programm den Demangler von elfutils einschalten (ADR 0023). **Label `m3-plan`** (#14, #17,
-   #34–#36: zram/oomd, nftables, fwupd, BTF, Treiber) nur mit Zustimmung des Besitzers.
+**Aus Phase 7 offen (kein Hindernis für M3)**
+- #5 bitgleiche Bauten: CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).
+  Lokal bitgleich über Pfad, Zeit, 4 CPUs und root. Übrig: Umgebung der CI (bz dort ohne bwraps
+  `--clearenv`) oder Host. Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise
+  vergleichen. Lokaler Vergleichsbau unter `~/scratch/`: `git worktree add --detach …`,
+  Quellen aus `build/cache` kopieren, `./bz build && ci/digest.sh`.
+- #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`), #4 vmspawn bewerten, #22 Hardware-Warnungen,
+  #11 PCIe-Retraining mit Kernel 7.3 auf der Hardware prüfen, #10 beobachten (seit 14 Läufen nicht).
+- Review-Empfehlungen: Fuzz-Ziel für den Event-Log-Parser von beize-tpm; ShellCheck in die CI
+  (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
+- Besitzer entscheidet: findmnt/flock (util-linux von `--disable-all-programs` auf eine
+  ausdrückliche Liste?), file, patch, strings.
+- Besitzer, in Windows: `wsl --shutdown`, `wsl --manage Ubuntu-26.04 --set-sparse true` (vhdx
+  schrumpft erst dann). Alten `git stash` löschen (`git stash drop`; Kopie `~/stash.patch`).
+  Der `gh`-Token darf keine Workflows starten.
 
-Nebenbei: #7 Rest (`secureboot.rs`, `source.rs`, `select.rs`). Zurückgestellt: #22 growfs-Bericht,
-#4 vmspawn. #10 seit 14 Läufen nicht wieder – beobachten. Der `gh`-Token darf keine Workflows
-starten. Alter `git stash` (13.10., ganz in `941f5c6` aufgegangen; Kopie `~/stash.patch`) – der
-Besitzer löscht ihn (`git stash drop`).
-
-**Arbeitsweise bis M2 (vom Besitzer freigegeben):** ADR vorab abstimmen, nichts abschalten „weil
-unnötig“, keine fremden Patches; bei Fehlern zuerst fragen, welche eigene Entscheidung uns auf einen
-ungetesteten Pfad gebracht hat.
+**Arbeitsweise (vom Besitzer freigegeben):** ADR vorab abstimmen, nichts abschalten „weil
+unnötig“, keine fremden Patches. Bei Fehlern zuerst fragen, welche eigene Entscheidung uns auf
+einen ungetesteten Pfad gebracht hat. Wegwerf-Arbeit nach `~/scratch/` und am Ende des Schritts löschen.

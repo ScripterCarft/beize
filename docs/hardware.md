@@ -68,20 +68,20 @@ schreibt (fehlt bei Images, die vor dieser Unit gebaut wurden).
 
 ## Messwerte
 
-Gewöhnlicher Start nach Phase 7 (Beize 0.3, Kernel 7.2.10 mit Beizes Toolchain,
-2026-10-15), **ohne F8-Menü** gestartet; daneben Phase 4 und das Image vor dem Fahrplan.
-VM-Werte: Kommentar zu `BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
+Gewöhnlicher Start nach Phase 7 (Beize 0.4, Kernel 7.2.10 mit Beizes Toolchain,
+2026-10-16), ohne Bootmenü von systemd-boot; daneben Phase 4 und das Image vor dem
+Fahrplan. VM-Werte: Kommentar zu `BOOT_BUDGET` in `tools/bz/src/vm/checks.rs`.
 
 | Phase | nach Phase 7 | nach Phase 4 | vor dem Fahrplan |
 | --- | --- | --- | --- |
-| Firmware | 15,5 s | 21,8 s* | 16,9–17,5 s* |
-| Loader (systemd-boot) | 0,52 s | 0,54 s | 1,0–1,1 s |
+| Firmware | 15,5 s (0.3) | 21,8 s* | 16,9–17,5 s* |
+| Loader (systemd-boot) | 0,54 s | 0,54 s | 1,0–1,1 s |
 | Kernel | 7,2 s | 7,2 s | 11,7 s |
 | initrd | 4,1 s | 4,0 s | 4,0 s |
-| System | 1,8 s | 1,7 s | 1,6–1,7 s |
+| System | 1,7 s | 1,7 s | 1,6–1,7 s |
 | ab Loader | 13,6 s | 13,5 s | 18,4 s |
 
-\* Mit der Zeit im F8-Bootmenü (mit Menü 0.3: 20,6 und 23,6 s). Ohne Menü starten: in
+\* Mit der Zeit im F8-Bootmenü (0.4 über F8: 18,4–18,7 s). Ohne Menü starten: in
 Windows (Administrator) `bcdedit /enum firmware`, den Eintrag der Samsung-SSD suchen,
 dann `bcdedit /set {fwbootmgr} bootsequence {<ID>}` und neu starten – nur der nächste
 Start geht zu Beize.
@@ -110,6 +110,17 @@ Netz: Die DHCP-Adresse kommt 4,6 s (Boot 0) bzw. 12 s (Boot −1) nach dem Link;
 VM nach 11 ms. Die Verzögerung liegt im Netz (Router prüft die Adresse vor dem Angebot,
 oder Spanning Tree am Switch-Port). Sie verzögert den Start nicht (ADR 0011), nur die
 erste Zeitsynchronisierung.
+
+Konsole: Auch nach dem Bootmenü von systemd-boot läuft sie mit 160x45, also in der
+nativen Auflösung des Monitors (`console-mode max`, ADR 0024). 0.3 fiel dort auf 1024×768 zurück.
+
+Leerlauf (0.4, angemeldet auf tty1; Werte nach 2 min und nach 3 h): Die CPUs sind zu 99,99 %
+untätig, die Last liegt bei 0,00. Es wächst nichts, belegt sind 776 → 747 MB. Davon sind
+Prozesse nur ein kleiner Teil: Systemdienste 117 MB (udevd 24, journald 12, ntpd-rs 10,
+dbus-broker 6), PID 1 35 MB, die Anmeldung 12 MB. Anonymer Speicher aller Prozesse: 26 MB.
+Der Rest gehört dem Kernel (Slab 130 MB, davon 110 MB nicht rückgewinnbar; tmpfs 55 MB)
+und seinen Reserven, die `MemAvailable` abzieht. „Belegt“ = `MemTotal − MemAvailable`
+(Spalte `used` von `free`), je Dienst `systemd-cgtop -m`.
 
 Wird nach jeder Phase des Fahrplans ersetzt, nicht ergänzt.
 

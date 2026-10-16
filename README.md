@@ -20,7 +20,7 @@ Meilenstein **M1 – Bootet in QEMU** ist erreicht.
 - [x] Shell auf der seriellen Konsole in QEMU
 - [x] Automatischer Boot-Test: systemd `running`, keine fehlgeschlagene Unit
 
-Meilenstein **M2 – Echte Hardware** ist in Arbeit.
+Meilenstein **M2 – Echte Hardware** ist erreicht (2026-10-16, Beize 0.4).
 
 - [x] Alle Quellen gepinnt und von ihren Maintainern signiert (`bz verify`)
 - [x] CI baut und bootet das komplette System
@@ -49,12 +49,16 @@ Meilenstein **M2 – Echte Hardware** ist in Arbeit.
       keine Datei mit setuid oder Capabilities, `/` und `/usr` mit `nosuid` eingehängt;
       `ping` und `tracepath` ohne Sonderrechte; Dienste mit Systemaufruf-Filtern (seccomp)
 - [x] Wiederherstellung im Startmenü: Root-Shell nur mit dem Wiederherstellungsschlüssel
-- [ ] Startzeit auf echter Hardware
+- [x] Startzeit auf echter Hardware gemessen: 13,6 s vom Bootloader bis zur Anmeldung, davon
+      5 s PCIe-Retraining, das Kernel 7.3 behebt ([`docs/hardware.md`](docs/hardware.md))
 - [x] A/B-Updates: signiert (ML-DSA), aktiv beim nächsten Start; ein Update, das nicht
       startet, fällt nach drei Versuchen von selbst auf die vorige Version zurück
-      (auf der Hardware bestätigt: 0.1 → 0.2 vom USB-Stick, 2026-10-12)
-- [ ] NVIDIA, WLAN, Bluetooth, Ton
-- [ ] Start von der zweiten SSD
+      (auf der Hardware bestätigt: 0.1 → 0.2 → 0.3 → 0.4 vom USB-Stick)
+- [x] Über Stunden im Leerlauf stabil: nichts wächst, ~750 MB belegt, davon 26 MB anonymer
+      Speicher aller Prozesse
+
+Meilenstein **M3 – Compositor** ist der nächste. Dazu gehört auch, NVIDIA, WLAN, Bluetooth,
+Ton und den Start von der zweiten SSD zu planen.
 
 ## Voraussetzungen
 
