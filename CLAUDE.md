@@ -272,16 +272,18 @@ steht in Commits, ADR 0021–0024 und den geschlossenen Issues – nicht hier.
 
 **Offen bis M3**
 1. **Hardware-Test 0.4 (Besitzer)** nach WSL `~/hw-test-0.4.md` (Version 0.4: Bootloader-Fix
-   ADR 0024, Grundwerkzeuge, Review-Fixes). Danach auswerten: im ersten Start von 0.4
+   ADR 0024, Grundwerkzeuge, nano, Review-Fixes; der Besitzer baut 0.4 erst jetzt). Danach auswerten: im ersten Start von 0.4
    `Updated /boot/loader/loader.conf`; Menü-Start `Console: switching … 160x45` (0.3 hatte dort
    `128x48` = 1024×768); idle-1 gegen idle-2 (MemoryCurrent und CPUUsageNSec je Unit, `free -m`:
    nichts wächst) → #6 schließen, Messwerte in `docs/hardware.md`. Frage des Besitzers: „~700 MB RAM
-   gut oder viel?“ – Quelle unklar (cgtop/meminfo zählen den Seitencache mit), mit `idle-*.txt`
-   beantworten. Dann sind Phase 7 und M2 fertig: §11 für M3 neu schreiben.
+   gut oder viel?“ – gesehen in `/proc/meminfo` (wohl MemTotal − MemFree, also mit Seitencache);
+   belegt ist MemTotal − MemAvailable, je Dienst MemoryCurrent: mit `idle-*.txt` beantworten. Dann sind Phase 7 und M2 fertig: §11 für M3 neu schreiben.
 2. **#5 bitgleiche Bauten:** CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).
    Lokal bitgleich über Pfad, Zeit, 4 CPUs und root; übrig: Umgebung der CI (bz läuft dort ohne
    bwraps `--clearenv`) oder Host. Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise
-   vergleichen (Kommentar in #5). Lokaler Vergleichsbau: Worktree `~/repro/b328`.
+   vergleichen (Kommentar in #5). Lokaler Vergleichsbau (gelöscht): `git worktree add --detach
+   ~/repro/<x> <commit>`, Quellen aus `build/cache` kopieren (x.org, freedesktop.org und
+   gitlab.gnome.org brechen TLS gelegentlich ab, curl 35), `./bz build && ci/digest.sh`.
 3. **Review vom 15./16.10. (Besitzer: Bugs, Aufräumen, schlanke Docs, etablierte Struktur).**
    Behoben: Pfad-Lücke in `beize-accountsd` (ein Name war ein Pfad → Passwort eines Administrators
    setzbar → root; jetzt `is_name` in Dienst und Speicher, Test, ADR 0019) und Raten über parallele
@@ -292,15 +294,16 @@ steht in Commits, ADR 0021–0024 und den geschlossenen Issues – nicht hier.
    beize-setup und bz (Logik zeigt sich in CI/Smoke; bz schreibt nur im Repo, Buildroot).
    Empfehlungen: Fuzz-Ziel für den Event-Log-Parser von beize-tpm; ShellCheck in die CI (Paket im
    Buildroot → mit der nächsten Lock-Änderung bündeln).
-4. **WSL belegt 106 GB, Beize davon 11 GB.** Rest: meine alten Arbeitskopien (`~/p7` außer
-   `BASELINE.md`, `~/p8`, `~/repro`, `~/ci-x`, `~/ci-work`, `~/k3`, ~71 GB) und ~200 Log-/Backup-
-   Dateien in `~`. Behalten: `~/beize`, `~/hw-logs*`, `~/hw-test-0.4.md`, `~/upstream` (Patches;
-   7,2-GB-Kerneltree nur auf Wunsch weg), `~/stash.patch`, `~/.cache/JetBrains` (IDE). Löschen erst
-   nach OK des Besitzers (`~/repro` enthält root-Dateien: `git worktree prune`, `sudo rm -rf`).
-   Die vhdx schrumpft danach nicht von selbst: Besitzer in Windows `wsl --shutdown`, dann
-   `wsl --manage Ubuntu-26.04 --set-sparse true` (oder `Optimize-VHD`).
+4. **WSL aufgeräumt (16.10.):** 106 → 36 GB in WSL (meine alten Arbeitskopien und Logs gelöscht;
+   `~/p7` hat nur noch `BASELINE.md`). Die vhdx schrumpft erst, wenn der Besitzer in Windows
+   `wsl --shutdown` und `wsl --manage Ubuntu-26.04 --set-sparse true` ausführt. Künftig
+   Wegwerf-Arbeit nach `~/scratch/` und am Ende des Schritts löschen.
 5. **Besitzer entscheidet:** findmnt/flock (util-linux von `--disable-all-programs` auf eine
-   ausdrückliche Liste?), Editor (vi oder nano), file, patch, strings.
+   ausdrückliche Liste?), file, patch, strings. Editor entschieden: nano (`98c51004`).
+   Designfrage für M3: `/etc/profile` und `/etc/ld.so.conf` werden beim 1. Start kopiert (`C` in
+   `tmpfiles.d/beize.conf`) – Änderungen von Beize erreichen installierte Rechner nie (dieselbe
+   Klasse wie loader.conf, ADR 0024). Vorbild ntp.toml/nanorc: Link nach `/usr`, den der Besitzer
+   durch eine Datei ersetzen kann; vorab mit dem Besitzer abstimmen (berührt ADR 0007).
 6. **M3 planen** (eigener Chat). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc); grob
    lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Mit dem ersten
    C++-Programm den Demangler von elfutils einschalten (ADR 0023). **Label `m3-plan`** (#14, #17,
