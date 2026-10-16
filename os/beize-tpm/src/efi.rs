@@ -74,6 +74,31 @@ pub fn authority_data(signature_data: &[u8]) -> Result<&[u8], String> {
         .ok_or_else(|| "empty authority".into())
 }
 
+/// What the firmware hands beize-tpm, for the fuzzer (`fuzz/`, which takes
+/// this module and the event log's as they are): an event log, and the EFI
+/// variables and signature lists inside its events. Whatever the bytes, the
+/// parsers return an error and never panic.
+#[cfg(any(test, fuzzing))]
+pub fn fuzz_firmware(data: &[u8]) {
+    use crate::eventlog;
+
+    let variable = |bytes: &[u8]| {
+        if let Ok(var) = parse_variable(bytes) {
+            let _ = signature_entries(&var.data);
+            let _ = authority_data(&var.data);
+        }
+    };
+    if let Ok(events) = eventlog::parse(data) {
+        for event in &events {
+            let _ = eventlog::describe(&event.data);
+            variable(&event.data);
+        }
+        let _ = eventlog::replay(&events, 7);
+    }
+    variable(data);
+    let _ = signature_entries(data);
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -124,6 +149,21 @@ pub mod tests {
             signature_entries(&list(9, b"cert-a")).unwrap()[0],
             entries[0]
         );
+    }
+
+    /// Every input the fuzzer keeps (fuzz/corpus, and what once crashed in
+    /// fuzz/regressions) runs on every test, without a fuzzer.
+    #[test]
+    fn fuzz_inputs_still_pass() {
+        let fuzz = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz");
+        let mut inputs = 0;
+        for dir in ["corpus/firmware", "regressions/firmware"] {
+            for entry in std::fs::read_dir(fuzz.join(dir)).into_iter().flatten() {
+                fuzz_firmware(&std::fs::read(entry.unwrap().path()).unwrap());
+                inputs += 1;
+            }
+        }
+        assert!(inputs > 0);
     }
 
     #[test]

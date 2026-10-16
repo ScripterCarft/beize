@@ -12,6 +12,8 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4.13"
 beize-update = { path = "../os/beize-update" }
 beize-varlink = { path = "../os/beize-varlink" }
+# beize-tpm's parsers (firmware target), as beize-tpm has it.
+sha2 = "0.11.0"
 
 # Not part of the main workspace: it needs a nightly compiler (sanitizers).
 [workspace]
@@ -19,6 +21,13 @@ beize-varlink = { path = "../os/beize-varlink" }
 [[bin]]
 name = "varlink_request"
 path = "fuzz_targets/varlink_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "firmware"
+path = "fuzz_targets/firmware.rs"
 test = false
 doc = false
 bench = false

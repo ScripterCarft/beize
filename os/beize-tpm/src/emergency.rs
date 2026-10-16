@@ -34,7 +34,7 @@ use crate::{keyring, luks, trial};
 
 /// The root partition's LUKS2 volume, linked by udev (90-image-dissect.rules).
 const ROOT_LUKS: &str = "/dev/gpt-auto-root-luks";
-/// Shown first; the smoke test waits for it (tools/bz/src/vm/smoke.rs).
+/// Shown first; the smoke test waits for it (tools/bz/src/vm/console.rs).
 pub const HEADLINE: &str = "Beize could not start.";
 /// Shown first in the recovery instead.
 pub const RECOVERY_HEADLINE: &str = "Beize recovery.";

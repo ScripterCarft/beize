@@ -15,6 +15,7 @@ dependencies = [
  "beize-update",
  "beize-varlink",
  "libfuzzer-sys",
+ "sha2",
 ]
 
 [[package]]

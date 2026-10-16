@@ -11,6 +11,8 @@ license = "MPL-2.0"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+# cargo-fuzz builds with --cfg fuzzing (fuzz/).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
