@@ -42,7 +42,11 @@ impl Json {
     /// Parses an object. `sensitive`: it carries secrets, which sd-json then
     /// erases from memory when it frees them.
     pub fn parse(text: &str, sensitive: bool) -> Result<Self, String> {
-        let text = CString::new(text).map_err(|_| "a NUL byte in JSON")?;
+        // The copy may carry secrets: erased on every path.
+        let text = CString::new(text).map_err(|e| {
+            crate::wipe(&mut e.into_vec());
+            "a NUL byte in JSON"
+        })?;
         let mut v = ptr::null_mut();
         let flags = if sensitive {
             SD_JSON_PARSE_SENSITIVE
@@ -60,8 +64,7 @@ impl Json {
                 ptr::null_mut(),
             )
         };
-        let mut bytes = text.into_bytes();
-        bytes.fill(0);
+        crate::wipe(&mut text.into_bytes());
         if r < 0 {
             return Err("not valid JSON".into());
         }

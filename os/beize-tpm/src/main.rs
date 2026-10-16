@@ -224,12 +224,18 @@ fn secure_boot_on() -> bool {
         .is_ok_and(|v| v.get(4) == Some(&1))
 }
 
+/// Written beside it and renamed over it: a power cut leaves the old record
+/// or the new one, never an empty file (which would look like a new TPM).
 fn record_srk(srk: &[u8]) -> Result<(), String> {
     let path = Path::new(BOUND_SRK);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
     }
-    fs::write(path, srk).map_err(|e| format!("writing {BOUND_SRK}: {e}"))
+    let temporary = path.with_extension("pem.new");
+    fs::File::create(&temporary)
+        .and_then(|mut file| file.write_all(srk).and_then(|()| file.sync_all()))
+        .and_then(|()| fs::rename(&temporary, path))
+        .map_err(|e| format!("writing {BOUND_SRK}: {e}"))
 }
 
 /// Asks the owner on the console whether to adopt a different TPM.
