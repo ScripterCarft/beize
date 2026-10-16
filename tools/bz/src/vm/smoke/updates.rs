@@ -127,6 +127,18 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
         "beize-update did not install {version} (exit status {status}): {lines:?}"
     );
     drop(server);
+    // systemd-sysupdate warned of nothing and wrote its install database.
+    let (_, lines) = shell.capture(
+        "echo \"warnings=$(journalctl -b -p warning -o cat -t systemd-sysupdate | wc -l) \
+         installdb=$(ls /var/lib/systemd/sysupdate/installdb | wc -l)\"",
+    )?;
+    ensure!(
+        lines
+            .iter()
+            .any(|l| l.trim().starts_with("warnings=0 installdb=")
+                && !l.trim().ends_with("installdb=0")),
+        "systemd-sysupdate warned or wrote no install database: {lines:?}"
+    );
     shell.power_off()?;
     let listing = checks::uki_listing(&machine.disk)?;
     ensure!(

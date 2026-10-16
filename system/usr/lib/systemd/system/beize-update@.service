@@ -7,8 +7,11 @@ ExecStart=/usr/lib/beize/beize-updated
 StandardInput=socket
 StandardOutput=journal
 StandardError=journal
-# Its checked copy of a release and the lock (/var/lib/beize-update).
-StateDirectory=beize-update
+# Its checked copy of a release and the lock (/var/lib/beize-update), and
+# systemd-sysupdate's database of what it installed (/var/lib/systemd/
+# sysupdate); sysupdate deletes by it only on "cleanup", which Beize never
+# asks for.
+StateDirectory=beize-update systemd/sysupdate
 StateDirectoryMode=0700
 # No network: beize-update-fetch fetches. systemd-sysupdate runs as its
 # child and writes the free /usr slot (a block device) and the ESP; the
