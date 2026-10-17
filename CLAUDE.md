@@ -142,7 +142,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -259,7 +259,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-16)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-17)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.4. Neu installieren: `keys/secureboot/README.md`, Update vom
@@ -275,24 +275,17 @@ Shell), Fedora-Editionen aus denselben Paketen. Kein Fork, sondern Varianten ein
 Keine Paketverwaltung für Nutzer (VISION: Apps als Bundles, Modell vor M4) – die Varianten
 entstehen beim Bauen.
 
-**Erste Aufgabe des neuen Chats: Varianten vorbereiten, bevor das erste Desktop-Paket kommt.**
-1. ADR „Varianten: Basis und Desktop“ entwerfen und **vorab mit dem Besitzer abstimmen**.
-   Inhalt: Abhängigkeiten nur Desktop → Basis, nie umgekehrt; der Desktop spricht mit der
-   Basis nur über ihre Schnittstellen (Varlink/D-Bus, wie heute beize-accountsd und
-   beize-updated); ein Kernel, ein Sicherheitsmodell für beide; je Variante eigenes Image und
-   eigener Update-Strom; `bz` und CI erzwingen die Richtung (die Basis-Variante baut und
-   besteht `bz smoke` ohne ein Desktop-Paket).
-2. Danach in `bz` umsetzen. Heute geht `bz` von einem Image aus, die Stellen:
-   `tree::IMAGE_DEFINITION` (`images/base.toml`), `usr.rs` (`UNIT_PRESETS`, `RUNNING_UNITS`),
-   `images/security.toml`, `layout.rs` (os-release mit `IMAGE_ID`, `usr_label`, `uki_name`,
-   Muster für sysupdate), `vm/checks.rs` (`EXPECTED_UNITS`), `sbom.rs`, `release.rs`, Smoke.
-   Vorschlag zum Abstimmen: `images/<variante>/` mit Paketliste, Presets, `running-units.txt`,
-   `security.toml`; die Desktop-Variante erweitert die Basis; `bz build --variant …`.
-   CI: Basis bei jedem Push wie heute, Desktop dazu, sobald es Desktop-Pakete gibt.
-3. Erst dann der Grafik-Stack: Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc),
-   grob lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Offen laut
-   `docs/VISION.md`: Grafik-API des Compositors, UI-Toolkit, Systemschrift, Icon-Stil. Mit dem
-   ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
+**Nächste Aufgabe: ADR 0025 (Varianten, am 17.10. angenommen) in `bz` umsetzen**, bevor das
+erste Desktop-Paket kommt. Der Abschnitt „Umsetzung in `bz`“ im ADR nennt die Stellen.
+Reihenfolge: `images/<v>/` anlegen, Varianten in `tree`/`usr`/`security`/`layout`, dann
+`--variant` mit Vorgabe `desktop`, Release-Namen je Variante (`beize-update/list.rs` und die
+Fuzz-Korpora mit), dann das UKI-Profil „(ohne Oberfläche)“ und der Smoke-Test dazu. Den
+Übergang von 0.4 (einmal im alten Strom) mit dem Release planen. Ziel ist, dass das Image
+von `base` bis auf `VARIANT_ID`/`VARIANT` gleich bleibt (`ci/digest.sh` vergleichen).
+Danach kommt der Grafik-Stack: Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc),
+grob lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Offen laut
+`docs/VISION.md`: Grafik-API des Compositors, UI-Toolkit, Systemschrift, Icon-Stil. Mit dem
+ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
 
 **Mit dem Besitzer abstimmen (M3):**
 - **Label `m3-plan`** (#14 BTF, #17 Hardware: NVIDIA/WLAN/BT/Ton/zweite SSD, #34 zram/oomd,
@@ -313,9 +306,14 @@ entstehen beim Bauen.
 - #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 auf der
   Hardware prüfen, #10 beobachten (seit 14 Läufen nicht), #12/#13 Upstream (sendet der Besitzer).
 - ShellCheck in die CI (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
-- Besitzer, in Windows: `wsl --shutdown`, `wsl --manage Ubuntu-26.04 --set-sparse true` (vhdx
-  schrumpft erst dann). Alten `git stash` löschen (`git stash drop`, dann `~/stash.patch`).
-  Der `gh`-Token darf keine Workflows starten.
+- **vhdx verkleinern:** `wsl --manage … --set-sparse true` geht nicht (17.10.: „Sparse VHD
+  … wegen möglicher Datenbeschädigung deaktiviert“, `Wsl/Service/E_INVALIDARG`).
+  `--allow-unsafe` nicht verwenden. Stattdessen von Hand: in WSL `sudo fstrim -av`, dann
+  `wsl --shutdown`, dann `diskpart` als Administrator mit `select vdisk
+  file="C:\Users\Joe\AppData\Local\wsl\{4cae8202-1c42-41f8-840d-f8b846346de8}\ext4.vhdx"`,
+  `attach vdisk readonly`, `compact vdisk`, `detach vdisk`. Das muss wiederholt werden, wenn
+  der Platz wieder wächst. Alten `git stash` löschen (`git stash drop`, dann
+  `~/stash.patch`). Der `gh`-Token darf keine Workflows starten.
 
 **WSL-Home:** `~/beize`, `~/hw-logs` (Journal und Leerlauf des 0.4-Tests), `~/upstream`
 (Kernel-Bäume und Entwürfe für #12/#13 – behalten), `~/scratch` (leer halten).
