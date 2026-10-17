@@ -49,6 +49,11 @@ pub enum Latest {
     /// A URL that always serves upstream's current file; newer when its
     /// SHA-256 differs from the pin: `{ file = "https://…" }`.
     File(String),
+    /// An `[[extra]]` the main source pins itself, by a file of it that
+    /// names the archive's SHA-256 (a Meson wrap): it moves with the main
+    /// source, and unpacking fails when the recipe's pin differs:
+    /// `{ pinned-by = "subprojects/syn-2-rs.wrap" }`.
+    PinnedBy(String),
 }
 
 /// Why a source is trusted.
@@ -133,6 +138,10 @@ pub struct RawSource {
 impl RawSource {
     pub fn into_source(self, version: &str) -> Result<Source> {
         ensure!(self.dest.is_none(), "dest is only valid in [[extra]]");
+        ensure!(
+            !matches!(self.latest, Some(Latest::PinnedBy(_))),
+            "pinned-by is only valid in [[extra]]"
+        );
         self.build(version)
     }
 

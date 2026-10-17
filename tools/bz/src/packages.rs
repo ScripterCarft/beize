@@ -37,6 +37,8 @@ const TARGET_LDFLAGS: &str = "-Wl,-z,relro -Wl,-z,now -Wl,--as-needed -Wl,-z,pac
 /// rustc flags for Beize's own Rust code and Rust packages (ADR 0014); PIE,
 /// RELRO and BIND_NOW are rustc's defaults.
 const TARGET_RUSTFLAGS: &str = "-C target-cpu=x86-64-v3 -C force-frame-pointers=yes";
+/// Rust's name for Beize's machine: glibc on x86-64, as `TARGET` for gcc.
+const RUST_TARGET: &str = "x86_64-unknown-linux-gnu";
 /// Fixed timestamp handed to builds via SOURCE_DATE_EPOCH (2026-10-06 00:00 UTC).
 pub const BUILD_EPOCH: u64 = 1_791_244_800;
 /// Bump to force a full rebuild after changing the build environment below.
@@ -711,13 +713,37 @@ fn write_meson_cross_file(
     let sysroot = sysroot.display();
     let pkg_config = pkg_config_bin.join(TARGET_PKG_CONFIG);
     let pkg_config = pkg_config.display();
+    // Rust in Meson projects (Mesa's NVK compiler): rustc for the target
+    // links as cargo_env's target artifacts do; proc macros are built for
+    // the build machine by Meson itself. bindgen reads the C headers with
+    // libclang, which knows nothing of gcc's --sysroot.
+    let rust: Vec<String> = [
+        "rustc",
+        "--target",
+        RUST_TARGET,
+        "-C",
+        &format!("linker={TARGET}-gcc"),
+        "-C",
+        &format!("link-arg=--sysroot={sysroot}"),
+        &format!("--remap-path-prefix={}", prefix_map(paths)),
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain(TARGET_RUSTFLAGS.split_whitespace().map(str::to_owned))
+    .map(|arg| format!("'{arg}'"))
+    .collect();
+    let rust = rust.join(", ");
     let text = format!(
         "[binaries]\n\
          c = ['{TARGET}-gcc', '--sysroot={sysroot}']\n\
          cpp = ['{TARGET}-g++', '--sysroot={sysroot}']\n\
+         rust = [{rust}]\n\
          ar = '{TARGET}-ar'\n\
          strip = '{TARGET}-strip'\n\
          pkg-config = '{pkg_config}'\n\
+         \n\
+         [properties]\n\
+         bindgen_clang_arguments = ['--sysroot={sysroot}', '--target={RUST_TARGET}']\n\
          \n\
          [host_machine]\n\
          system = 'linux'\n\

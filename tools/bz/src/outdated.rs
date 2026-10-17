@@ -31,8 +31,11 @@ pub fn show(paths: &Paths) -> Result<()> {
         }
         for extra in &recipe.extra {
             let stem = extra.source.stem()?;
-            // Part of the same release (e.g. tzcode with tzdata).
-            if extra.source.latest.is_none() && stem.contains(&recipe.version) {
+            // Part of the same release (e.g. tzcode with tzdata), or pinned
+            // by it (Mesa's crates).
+            if matches!(extra.source.latest, Some(Latest::PinnedBy(_)))
+                || extra.source.latest.is_none() && stem.contains(&recipe.version)
+            {
                 continue;
             }
             let (extra_name, version) = stem
@@ -105,6 +108,8 @@ fn check(source: &Source, version: &str) -> Result<Option<String>> {
             let _ = fs::remove_file(&file);
             (digest? != source.pin()).then(|| format!("{url} has changed since the pin"))
         }
+        // Moves with the source that pins it (skipped above).
+        Latest::PinnedBy(_) => None,
     })
 }
 

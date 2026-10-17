@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use crate::elf;
 use crate::files;
+use crate::firmware;
 use crate::install;
 use crate::kernel::{self, Kernel};
 use crate::layout;
@@ -100,7 +101,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     enable_units(paths, &root)?;
     compile_hwdb(paths, &root)?;
     install_modules(paths, &kernel, &root, |_| true)?;
-    ensure_no_firmware_needed(paths, &kernel)?;
+    firmware::install(paths, &kernel, &root)?;
     elf::check_tree(paths, &root, "/usr")?;
     privileges::check_tree(&root, "/usr")?;
     security::check(paths, &root)?;
@@ -319,24 +320,6 @@ pub fn install_modules(
             .arg(format!("--basedir={}", root.display()))
             .arg(&kernel.release),
     )
-}
-
-/// Beize ships firmware only where a module asks for it (ADR 0015), and no
-/// module built so far does. The first one that does – WLAN, Bluetooth, a
-/// GPU – must come with the firmware selection, not work half.
-fn ensure_no_firmware_needed(paths: &Paths, kernel: &Kernel) -> Result<()> {
-    let modules = kernel::module_files(&kernel.modules)?;
-    let requested = util::output(
-        sysroot_command(paths, "usr/bin/modinfo")
-            .args(["--field", "firmware"])
-            .args(&modules),
-    )?;
-    ensure!(
-        requested.trim().is_empty(),
-        "kernel modules request firmware, which bz does not install yet: {}",
-        requested.split_whitespace().collect::<Vec<_>>().join(", ")
-    );
-    Ok(())
 }
 
 /// Compiles udev's hardware database into `/usr/lib/udev/hwdb.bin` with the

@@ -11,6 +11,7 @@ mod cve;
 mod debuginfo;
 mod elf;
 mod files;
+mod firmware;
 mod hwcheck;
 mod image;
 mod initrd;

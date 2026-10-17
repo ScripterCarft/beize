@@ -20,7 +20,7 @@ use crate::recipe::Recipe;
 use crate::{debuginfo, say, tree, util};
 
 /// Files that cannot carry the CET properties, with the reason.
-const NO_CET: [(&str, &str); 9] = [
+const NO_CET: [(&str, &str); 10] = [
     // Stable Rust cannot generate CET code yet (ADR 0014).
     ("usr/lib/beize/beize-setup", "Rust"),
     ("usr/lib/beize/beize-tpm", "Rust"),
@@ -31,7 +31,13 @@ const NO_CET: [(&str, &str); 9] = [
     ("usr/lib/beize/beize-update-fetch", "Rust"),
     ("usr/bin/ntp-daemon", "Rust"),
     ("usr/bin/ntp-ctl", "Rust"),
+    // NVK's shader compiler (NAK) is Rust, linked into the driver.
+    ("usr/lib/libvulkan_nouveau.so", "Rust"),
 ];
+
+/// Where ELF files are firmware: code for the processors of devices (the
+/// GPU's GSP is RISC-V), not for the CPU – none of this hardening applies.
+const FIRMWARE: &str = "usr/lib/firmware";
 
 /// Checks every ELF file under `root`; `what` names the tree in messages.
 pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
@@ -39,7 +45,7 @@ pub fn check_tree(paths: &Paths, root: &Path, what: &str) -> Result<()> {
     let gcc = format!("GCC: (GNU) {}", Recipe::load(paths, "gcc")?.version);
     let mut files = Vec::new();
     for file in tree::walk(root)? {
-        if tree::is_elf(&root.join(&file))? {
+        if !file.starts_with(FIRMWARE) && tree::is_elf(&root.join(&file))? {
             files.push(root.join(file));
         }
     }

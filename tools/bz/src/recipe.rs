@@ -1,13 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 
 use crate::paths::Paths;
 #[cfg(test)]
 use crate::source::Trust;
-use crate::source::{Extra, RawSource, Source};
+use crate::source::{Extra, Latest, RawSource, Source};
 use crate::tree;
 use crate::util;
 
@@ -257,9 +257,34 @@ impl Recipe {
         for extra in &self.extra {
             extra.source.extract_into(paths, &dir.join(&extra.dest))?;
         }
+        for extra in &self.extra {
+            if let Some(Latest::PinnedBy(file)) = &extra.source.latest {
+                check_pinned_by(&dir.join(file), extra.source.pin())
+                    .with_context(|| format!("{}: [[extra]] {}", self.name, extra.dest))?;
+            }
+        }
         fs::write(&stamp, fingerprint)?;
         Ok(dir)
     }
+}
+
+/// An extra pinned by the main source must carry the checksum the source's
+/// `file` names (a Meson wrap's `source_hash`): updating the main source
+/// without its extras fails here instead of building with stale ones.
+fn check_pinned_by(file: &Path, sha256: &str) -> Result<()> {
+    let text = fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+    let named = text
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .find(|(key, _)| key.trim() == "source_hash")
+        .map(|(_, value)| value.trim())
+        .with_context(|| format!("{} names no source_hash", file.display()))?;
+    ensure!(
+        named == sha256,
+        "{} pins {named}, the recipe {sha256}: update the recipe with the source",
+        file.display()
+    );
+    Ok(())
 }
 
 /// Recipes in `recipes/`, sorted by name.
@@ -291,6 +316,24 @@ mod tests {
         format!(
             "url = \"{url}\"\nsha256 = \"{DIGEST}\"\nsignature = \"{url}.sig\"\nkeyring = \"{keyring}\"\n"
         )
+    }
+
+    /// A Meson wrap pins its archive: the recipe's pin must be the same.
+    #[test]
+    fn pinned_by_compares_the_wrap_checksum() {
+        let dir = std::env::temp_dir().join(format!("bz-pinned-by-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let wrap = dir.join("syn-2-rs.wrap");
+        fs::write(
+            &wrap,
+            format!("[wrap-file]\nsource_filename = syn-2.0.87.tar.gz\nsource_hash = {DIGEST}\n"),
+        )
+        .unwrap();
+        assert!(check_pinned_by(&wrap, DIGEST).is_ok());
+        assert!(check_pinned_by(&wrap, &"0".repeat(64)).is_err());
+        fs::write(&wrap, "[wrap-file]\n").unwrap();
+        assert!(check_pinned_by(&wrap, DIGEST).is_err());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Adding or changing the metadata ([sbom], [files]) must not change
