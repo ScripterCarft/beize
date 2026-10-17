@@ -41,6 +41,27 @@ libgio-2.0-dev-bin
 # systemd-boot and the UKI stub
 python3-pyelftools
 
+# Mesa (ADR 0027). mesa-clc, which compiles NVK's OpenCL C kernels while
+# building, runs on the build host and links its LLVM, clang and the
+# SPIR-V translator – as Debian's cross builds take them from the host.
+# Nothing of them reaches the image.
+libclang-22-dev
+libllvmspirvlib-22-dev
+llvm-22-dev
+spirv-tools-dev
+# Vulkan's internal compute shaders, written in GLSL
+glslang-tools
+# NVK's compiler is Rust: bindings to Mesa's C headers and back
+bindgen
+cbindgen
+python3-mako
+python3-packaging
+python3-yaml
+# expat for wayland-scanner, built for the build host from Beize's wayland
+libexpat1-dev
+# mesa-clc built for the build host
+zlib1g-dev
+
 # Sources and verification
 ca-certificates
 curl
@@ -77,6 +98,9 @@ systemd-boot-efi
 # ukify itself comes from Beize's own systemd build (sysroot)
 python3-pefile
 util-linux
+
+# Checks of the repository's shell scripts in the CI
+shellcheck
 
 # Boot test
 ovmf
