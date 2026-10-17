@@ -307,26 +307,49 @@ nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 **`OS_VERSION` ist 0.5 (17.10.)** und läuft auf dem PC des Besitzers. „(Basis)“ zeigt dort
 `VARIANT_ID=desktop` – richtig, denn es ist dasselbe `/usr` mit anderem systemd-Ziel (ADR 0025);
 für den Besitzer steht das jetzt in `keys/secureboot/README.md`. **Zu Beginn des nächsten
-Chats:** den CI-Lauf von `e4622b1c` prüfen (erster Bau mit neuem Buildroot, von null) und
-den nächtlichen vollen Lauf (`gh run list --event schedule`).
+Chats:** den CI-Lauf von `e4622b1c` prüfen (erster Bau mit neuem Buildroot, von null; lief
+am 17.10. abends noch). Grün → `main` pushen (`b57d1842` und die Übergabe liegen lokal).
+Rot → Ursache beheben (CI-Fallstricke §9). Danach den nächtlichen vollen Lauf prüfen.
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
 1. **M3-Grafik nach ADR 0027 (Entwurf, mit dem Besitzer besprochen).** Compositor = Shell
    auf Smithay, nur Vulkan mit eigenem Renderer, Toolkit „Beize UI“, Inter + JetBrains Mono.
    **Schritt 1 ist umgesetzt (17.10.):** NVK (Mesa 26.2.5), Vulkan-Loader, Wayland, libdrm,
    nouveau mit GSP-Firmware; `bz` liefert Firmware nach Modul-Anforderung (ADR 0015).
-   Befunde stehen im ADR (NVIDIA baut auf 7.2.10, aber objtool-Lücke; `/usr` 159 MiB, davon
-   59 MiB Rückfall-Firmware GSP 535; NVK ohne CET wegen Rust).
-   **Offen: die Messung auf dem Rechner des Besitzers.** Zweig `measure/nvk` (nie nach `main`)
-   hat `beize-gpu-probe` (KMS ohne Compositor, höchste Bildrate bei nativer Auflösung,
-   compositor-ähnliche Last, Frame-Abstände, GPU-Zeit, Sensoren) und Version 0.5.90. Der
-   Besitzer: `git switch measure/nvk && ./bz build && ./bz release`, Update vom Stick
-   (`docs/hardware.md`), auf tty `run0 beize-gpu-probe 30`, Ausgabe abfotografieren oder
-   abschreiben; danach `git switch main`. Fällt NVK durch (240 Hz mit Shell-Budget nicht
-   gehalten), erst dann NVIDIA-Testbau (Fremdmodule signieren). Nach der Messung: Ergebnis
-   ins ADR, ADR „angenommen“, Zweig löschen, weiter mit Schritt 2 (lavapipe mit LLVM im
-   Image, Compositor-Gerüst).
-   **Entscheidung des Besitzers offen:** GSP-535-Rückfall (59 MiB, nie geladen) weglassen?
+   Befunde im ADR (NVIDIA baut auf 7.2.10, aber objtool-Lücke; `/usr` 159 MiB; NVK ohne CET
+   wegen Rust).
+
+   **Jetzt: die Messung auf dem Rechner des Besitzers (Zweig `measure/nvk`, nie nach
+   `main`).** Er hat `beize-gpu-probe` (`os/beize-gpu-probe`): wählt die native Auflösung
+   mit der höchsten Bildrate, rendert eine compositor-ähnliche Last (12 Fenster, Blur-Panel),
+   misst Frame-Abstände, verpasste Frames, GPU-Zeit, Sensoren.
+   - **Erster Versuch (0.5.90, 17.10.):** nouveau läuft auf der 3070 Ti (GSP 570.144 geladen,
+     8 GiB VRAM, Konsole über nouveaudrmfb, DP-1 `connected`, 2560×1440 bekannt). NVK
+     erkennt die GPU. Das Programm brach mit „A host memory allocation has failed“ ab.
+     Ursache: Mesa öffnet `card0` selbst und nutzt es für `VK_KHR_display` nur, wenn es dabei
+     DRM-Master wird (`drmAuthMagic`-Test in `wsi_display_init_wsi`). Das schlug fehl,
+     obwohl kein Prozess `card0` offen hatte (geprüft). Ohne Bildschirm landet Mesa in
+     einer Allokation der Größe 0, daher die irreführende Meldung. Warum Mesa nicht Master
+     wurde, ist noch offen.
+   - **Fix (0.5.91, Commit `faa891d6`):** Das Programm öffnet `card0` selbst wie ein
+     Compositor, meldet „DRM master: true/false“ (sonst Versuch mit SET_MASTER und dessen
+     Fehler) und übergibt den Bildschirm über `VK_EXT_acquire_drm_display` an Mesa. Jeder
+     Vulkan-Schritt nennt sich im Fehlerfall. In der VM bis Vulkan geprüft.
+   - **Was der Besitzer tun muss** (Schritt für Schritt erklären, er fragt nach): WSL-Terminal,
+     1Password entsperrt: `cd ~/beize && git switch measure/nvk && ./bz build && ./bz release`.
+     Ordner `build/out/desktop/release/0.5.91` als `beize-0.5.91` auf den Stick „BEIZE“.
+     In Beize (läuft 0.5.90): `run0 mkdir -p /run/stick`, `run0 mount -o ro
+     /dev/disk/by-label/BEIZE /run/stick`, `run0 beize-update install
+     /run/stick/beize-0.5.91`, `run0 umount /run/stick`, neu starten. Dann auf tty:
+     `run0 beize-gpu-probe 30` → Foto der Ausgabe. Danach `git switch main`.
+   - **Auswerten:** gut, wenn „Missed“ fast 0 ist und „GPU load“ deutlich unter dem
+     Frame-Budget (4,17 ms bei 240 Hz) liegt. „DRM master: false“ → die SET_MASTER-Meldung
+     zeigt die Ursache. Ein Fehler in einem Vulkan-Schritt nennt den Schritt.
+   - **Danach:** Ergebnis ins ADR, NVIDIA-Testbau nur, wenn NVK durchfällt (Fremdmodule
+     signieren); ADR „angenommen“, Zweig löschen; auf `main` **GSP-535-Rückfall weglassen**
+     (Besitzer hat zugestimmt, umsetzen erst nach der Messung: 59 MiB, nouveau lädt neben
+     570.144 nie 535.113); weiter mit Schritt 2 (lavapipe mit LLVM im Image,
+     Compositor-Gerüst über KMS wie die Probe).
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
