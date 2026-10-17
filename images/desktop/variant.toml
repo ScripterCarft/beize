@@ -9,4 +9,4 @@ name = "Desktop"
 extends = "base"
 
 # Graphics (ADR 0027): Vulkan with Mesa's drivers (NVK for NVIDIA).
-packages = ["mesa", "vulkan-loader"]
+packages = ["mesa", "vulkan-loader", "beize-gpu-probe"]

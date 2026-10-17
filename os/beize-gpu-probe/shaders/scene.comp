@@ -1,0 +1,31 @@
+#version 450
+// The desktop: a background and moving windows with rounded corners and soft
+// shadows, every pixel against every window – what composition costs.
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(binding = 1, rgba8) uniform writeonly image2D dst;
+layout(push_constant) uniform Push { vec4 a; ivec4 panel; } p; // a: time, width, height, windows
+
+float rounded_box(vec2 q, vec2 half_size, float radius) {
+    vec2 d = abs(q) - half_size + radius;
+    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - radius;
+}
+
+void main() {
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    vec2 size = p.a.yz;
+    if (px.x >= int(size.x) || px.y >= int(size.y)) return;
+    vec2 uv = vec2(px) / size;
+    vec3 c = mix(vec3(0.20, 0.32, 0.55), vec3(0.85, 0.55, 0.45), uv.y + 0.1 * sin(uv.x * 6.0 + p.a.x));
+    int windows = int(p.a.w);
+    for (int i = 0; i < windows; i++) {
+        float fi = float(i);
+        vec2 centre = size * vec2(0.5 + 0.35 * sin(p.a.x * 0.3 + fi * 1.7),
+                                  0.5 + 0.3 * cos(p.a.x * 0.25 + fi * 2.3));
+        vec2 half_size = size * vec2(0.16 + 0.03 * sin(fi), 0.14 + 0.02 * cos(fi));
+        float shadow = 1.0 - smoothstep(-8.0, 28.0, rounded_box(vec2(px) - centre - vec2(0.0, 8.0), half_size, 12.0));
+        c *= 1.0 - 0.35 * shadow;
+        float body = 1.0 - smoothstep(-0.5, 0.5, rounded_box(vec2(px) - centre, half_size, 12.0));
+        c = mix(c, mix(vec3(0.96), vec3(0.90, 0.92, 0.95), fract(fi * 0.37)), body);
+    }
+    imageStore(dst, px, vec4(c, 1.0));
+}

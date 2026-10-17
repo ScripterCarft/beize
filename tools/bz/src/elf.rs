@@ -20,7 +20,8 @@ use crate::recipe::Recipe;
 use crate::{debuginfo, say, tree, util};
 
 /// Files that cannot carry the CET properties, with the reason.
-const NO_CET: [(&str, &str); 10] = [
+const NO_CET: [(&str, &str); 11] = [
+    ("usr/bin/beize-gpu-probe", "Rust"),
     // Stable Rust cannot generate CET code yet (ADR 0014).
     ("usr/lib/beize/beize-setup", "Rust"),
     ("usr/lib/beize/beize-tpm", "Rust"),

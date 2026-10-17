@@ -1,0 +1,28 @@
+# Measurement for ADR 0027 (branch measure/nvk only): os/beize-gpu-probe.
+name = "beize-gpu-probe"
+version = "0.1.0"
+stage = "target"
+deps = ["gcc", "glibc", "gcc-runtime", "vulkan-loader"]
+repo = ["os/beize-gpu-probe", "Cargo.toml", "Cargo.lock"]
+
+[build]
+script = '''
+mkdir -p spv
+for shader in scene down glass; do
+  glslangValidator --quiet -V --target-env vulkan1.3 "$REPO/os/beize-gpu-probe/shaders/$shader.comp" -o "spv/$shader.spv"
+done
+export PROBE_SPV_DIR="$PWD/spv"
+"$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
+MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
+  -p beize-gpu-probe --target x86_64-unknown-linux-gnu
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-gpu-probe" \
+  "$PKG/usr/bin/beize-gpu-probe"
+'''
+
+[sbom]
+license = "MPL-2.0"
+
+[files]
+image = [
+  "usr/bin/beize-gpu-probe",
+]
