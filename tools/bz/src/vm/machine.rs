@@ -162,11 +162,20 @@ fn copy_sparse(from: &Path, to: &Path) -> Result<()> {
     )
 }
 
-/// How many VMs run side by side: each has 4 CPUs and 2 GiB (`qemu`), plus
-/// room for QEMU and swtpm themselves.
+/// How many VMs run side by side, on any machine: each has 4 virtual CPUs
+/// and 2 GiB (`qemu`), plus room for QEMU and swtpm themselves – as many as
+/// CPUs and memory hold, at least one. Not more VMs than CPUs allow: a boot
+/// computes for most of its time (firmware with Secure Boot, the kernel
+/// clearing memory, cryptography). Measured 2026-10-17 on 4 CPUs (the CI's
+/// runner, `taskset -c 0-3`): two VMs side by side took as long as one after
+/// the other (579 s against 585 s), each scenario twice as long, and one
+/// ran into its timeout.
 pub(super) fn parallel_vms() -> usize {
-    util::parallel(4, 3 * 1024)
+    util::parallel(VM_CPUS, 3 * 1024)
 }
+
+/// The virtual CPUs of a test VM.
+const VM_CPUS: usize = 4;
 
 /// Certificates the firmware must hold after enrollment (profile "with
 /// Windows"): Beize's own, Microsoft's KEK (Windows' Secure Boot updates)
@@ -372,7 +381,9 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         cmd.args(["-machine", "q35,smm=on,accel=tcg", "-cpu", "max"]);
     }
     cmd.args(["-global", "driver=cfi.pflash01,property=secure,value=on"])
-        .args(["-smp", "4", "-m", "2G", "-no-reboot"])
+        .arg("-smp")
+        .arg(VM_CPUS.to_string())
+        .args(["-m", "2G", "-no-reboot"])
         // The RAM exists before the guest starts, as on a real PC. Beize's
         // kernel clears all memory at boot (INIT_ON_FREE, ADR 0015); without
         // this the host would only then provide each page, and the kernel

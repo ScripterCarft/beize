@@ -35,14 +35,17 @@ const NO_NEWER_UPDATE: &str = "There is no newer version.";
 /// before, and boot counting marks it good – but not a boot in which a unit
 /// of the variant's `running-units.txt` failed. A successful boot replaces an older
 /// boot loader and its configuration with the ones from `/usr`.
-pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
+pub(super) fn update(
+    paths: &Paths,
+    keys: &secureboot::Keys,
+    installed: &Installed,
+    good: &Path,
+) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-update")?;
-    let version = format!("{}.1", layout::OS_VERSION);
+    let version = next_version();
     let releases = paths.variant_work.join("smoke-releases");
     tree::remove(&releases)?;
-    let good = releases.join(&version);
-    test_release(paths, keys, &version, &good)?;
-    let refused = refused_releases(&releases, &good, keys, &paths.variant.id)?;
+    let refused = refused_releases(&releases, good, keys, &paths.variant.id)?;
     let older_loader = paths.variant_work.join("smoke-update-loader.efi");
     older_boot_loader(paths, keys, &older_loader)?;
     for path in BOOT_LOADER_ON_ESP {
@@ -114,7 +117,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
             .join(", ")
     );
 
-    let server = Server::start(&good)?;
+    let server = Server::start(good)?;
     let started = Instant::now();
     let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
     let install_s = started.elapsed().as_secs_f64();
@@ -261,13 +264,20 @@ pub(super) fn broken_update(
     paths: &Paths,
     keys: &secureboot::Keys,
     installed: &Installed,
+    good: &Path,
 ) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-broken-update")?;
-    let version = format!("{}.1", layout::OS_VERSION);
+    let version = next_version();
     let releases = paths.variant_work.join("smoke-broken-releases");
     tree::remove(&releases)?;
+    fs::create_dir_all(&releases)?;
     let broken = releases.join(&version);
-    test_release(paths, keys, &version, &broken)?;
+    util::run(
+        Command::new("cp")
+            .args(["--archive", "--reflink=auto"])
+            .arg(good)
+            .arg(&broken),
+    )?;
     // Damage the hash tree, then sign the list of the damaged files.
     let list = fs::read_to_string(broken.join(release::LIST))?;
     let mut signed = String::new();
@@ -388,9 +398,19 @@ fn usb_stick(dir: &Path, name: &str, image: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The version the updates install: one after the image's.
+pub(super) fn next_version() -> String {
+    format!("{}.1", layout::OS_VERSION)
+}
+
 /// Writes the release of `version`, signed with the test keys `keys`, into
 /// `dir`; its output only if it fails.
-fn test_release(paths: &Paths, keys: &secureboot::Keys, version: &str, dir: &Path) -> Result<()> {
+pub(super) fn test_release(
+    paths: &Paths,
+    keys: &secureboot::Keys,
+    version: &str,
+    dir: &Path,
+) -> Result<()> {
     let (built, said) =
         util::capture(|| release::write(paths, keys, version, image::Target::Vm, dir));
     if built.is_err() {

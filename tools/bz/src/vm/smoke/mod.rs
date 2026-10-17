@@ -5,8 +5,9 @@
 //! that changes something – firmware variables, the TPM, the boot – then
 //! starts from its own copy of that installation, so they are independent
 //! and run side by side, as many as the machine has room for, together with
-//! the scenarios that install an image of their own. `--quick` stops after
-//! the two boots.
+//! the scenarios that install an image of their own. The installation runs
+//! alone, as its second boot is measured. `--quick` stops after the two
+//! boots.
 //!
 //! Each boot's console goes to `build/work/logs/boot/`. A scenario's output
 //! is shown in one piece when it is done; when it fails, with the end of its
@@ -20,6 +21,7 @@
 
 use std::collections::VecDeque;
 use std::panic::{self, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -37,7 +39,7 @@ use super::console::{
 use super::machine::{Machine, clear_boot_logs, parallel_vms};
 use crate::paths::Paths;
 use crate::say;
-use crate::{layout, secureboot, util};
+use crate::{layout, secureboot, tree, util};
 
 mod access;
 mod integrity;
@@ -66,22 +68,28 @@ enum Scenario {
 
 use Scenario::*;
 
-/// What starts right away; the longest first, so they finish together.
-const INDEPENDENT: [Scenario; 3] = [CorruptedUsr, OwnerKeys, UnsignedUki];
-/// What starts from a copy of the installation once [`Install`] passed
-/// (those that [`Scenario::applies`] to the variant).
-const ON_THE_INSTALLATION: [Scenario; 11] = [
-    BrokenUpdate,
+/// What runs once [`Install`] is done – it runs alone, as its second boot
+/// is the one held to the time budget, and work beside it (building an
+/// image takes every CPU) would measure the host. Then the longest first,
+/// so they finish together; the update first of all, since it builds the
+/// release the broken update waits for. Those that start from a copy of
+/// the installation only if it passed, and only those that
+/// [`Scenario::applies`] to the variant.
+const AFTER_INSTALL: [Scenario; 14] = [
     Update,
+    OwnerKeys,
+    BrokenUpdate,
     OtherTpm,
-    EmergencyGate,
-    Recovery,
-    WithoutAdditions,
-    Privileges,
     ForeignDb,
+    Privileges,
     SecureBootUpdate,
     SecureBootOff,
+    Recovery,
+    WithoutAdditions,
+    CorruptedUsr,
+    UnsignedUki,
     ChangedBoot,
+    EmergencyGate,
 ];
 
 impl Scenario {
@@ -130,6 +138,12 @@ impl Scenario {
         self != WithoutAdditions || paths.variant.extended().is_some()
     }
 
+    /// Whether it starts from a copy of the installation; the others
+    /// install an image of their own.
+    fn needs_installation(self) -> bool {
+        !matches!(self, OwnerKeys | CorruptedUsr | UnsignedUki)
+    }
+
     fn run(self, smoke: &Smoke) -> Result<()> {
         let paths = smoke.paths;
         match self {
@@ -150,8 +164,18 @@ impl Scenario {
             Privileges => access::privileges(paths, smoke.installed()?),
             Recovery => access::recovery(paths, smoke.installed()?),
             WithoutAdditions => access::without_additions(paths, smoke.installed()?),
-            Update => updates::update(paths, &smoke.test_keys, smoke.installed()?),
-            BrokenUpdate => updates::broken_update(paths, &smoke.test_keys, smoke.installed()?),
+            Update => updates::update(
+                paths,
+                &smoke.test_keys,
+                smoke.installed()?,
+                smoke.next_release()?,
+            ),
+            BrokenUpdate => updates::broken_update(
+                paths,
+                &smoke.test_keys,
+                smoke.installed()?,
+                smoke.next_release()?,
+            ),
         }
     }
 }
@@ -160,14 +184,12 @@ impl Scenario {
 pub fn smoke(paths: &Paths, quick: bool) -> Result<()> {
     clear_boot_logs(paths)?;
     let started = Instant::now();
-    let mut waiting = VecDeque::from([Install]);
-    if !quick {
-        waiting.extend(INDEPENDENT);
-    }
+    let waiting = VecDeque::from([Install]);
     let smoke = Smoke {
         paths,
         quick,
         installed: OnceLock::new(),
+        next_release: OnceLock::new(),
         test_keys: secureboot::Keys::test(paths, secureboot::Profile::WithWindows)?,
         state: Mutex::new(State {
             waiting,
@@ -192,7 +214,12 @@ pub fn smoke(paths: &Paths, quick: bool) -> Result<()> {
     if let Some(installed) = smoke.installed.into_inner() {
         installed.machine.remove()?;
     }
-    Ok(())
+    tree::remove(&next_release_dir(paths))
+}
+
+/// Where the release of the next version that the updates share lies.
+fn next_release_dir(paths: &Paths) -> PathBuf {
+    paths.variant_work.join("smoke-next-release")
 }
 
 /// The installation after its first two boots: what the scenarios that
@@ -207,6 +234,10 @@ struct Smoke<'a> {
     paths: &'a Paths,
     quick: bool,
     installed: OnceLock<Installed>,
+    /// The release of the next version, signed with the test keys, which
+    /// the updates install: built once, by the first scenario that needs it
+    /// (the other waits for it), as building one is most of their time.
+    next_release: OnceLock<Result<PathBuf, String>>,
     /// The test keys, loaded once: loading them may sign their enrollment
     /// files, which scenarios building releases read meanwhile.
     test_keys: secureboot::Keys,
@@ -226,6 +257,20 @@ impl Smoke<'_> {
         self.installed
             .get()
             .context("the installation the scenario starts from is missing")
+    }
+
+    /// The release of the next version, which only reading scenarios use
+    /// as it is; one that changes it changes a copy.
+    fn next_release(&self) -> Result<&Path> {
+        self.next_release
+            .get_or_init(|| {
+                let dir = next_release_dir(self.paths);
+                updates::test_release(self.paths, &self.test_keys, &updates::next_version(), &dir)
+                    .map(|()| dir)
+                    .map_err(|error| format!("{error:#}"))
+            })
+            .as_deref()
+            .map_err(|error| anyhow!("the release of the next version: {error}"))
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -277,11 +322,11 @@ impl Smoke<'_> {
         for line in said {
             eprintln!("{line}");
         }
-        if passed && scenario == Install && !self.quick {
-            let applying = ON_THE_INSTALLATION
+        if scenario == Install && !self.quick {
+            let next = AFTER_INSTALL
                 .into_iter()
-                .filter(|s| s.applies(self.paths));
-            state.waiting.extend(applying);
+                .filter(|s| s.applies(self.paths) && (passed || !s.needs_installation()));
+            state.waiting.extend(next);
         }
         state.running -= 1;
         state.done.push((scenario, took, passed));
@@ -306,9 +351,9 @@ impl Smoke<'_> {
             }
         }
         if !self.quick && self.installed.get().is_none() {
-            for scenario in ON_THE_INSTALLATION
+            for scenario in AFTER_INSTALL
                 .into_iter()
-                .filter(|s| s.applies(self.paths))
+                .filter(|s| s.applies(self.paths) && s.needs_installation())
             {
                 say!("  {:<6}        {}", "-", scenario.title());
             }
