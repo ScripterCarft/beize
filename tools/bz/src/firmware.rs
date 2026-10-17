@@ -13,9 +13,10 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+use crate::files;
 use crate::kernel::{self, Kernel};
 use crate::paths::Paths;
-use crate::recipe::Recipe;
+use crate::recipe::{Omitted, Recipe};
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
 use crate::tree;
@@ -62,6 +63,7 @@ fn build(paths: &Paths, requested: &BTreeSet<String>) -> Result<PathBuf> {
         .source
         .as_ref()
         .context("linux-firmware has no source")?;
+    let requested = &kept(&recipe.files.omit, requested)?;
     let out = paths.work.join("firmware");
     let list = requested.iter().cloned().collect::<Vec<_>>().join("\n");
     let stamp = Stamp::new(
@@ -121,6 +123,33 @@ fn build(paths: &Paths, requested: &BTreeSet<String>) -> Result<PathBuf> {
     );
     stamp.write()?;
     Ok(out)
+}
+
+/// `requested` without what linux-firmware's `[files] omit` leaves out. Each
+/// entry needs a reason and must match a request, so none outlives its cause.
+fn kept(omit: &[Omitted], requested: &BTreeSet<String>) -> Result<BTreeSet<String>> {
+    for entry in omit {
+        if entry.why.trim().is_empty() {
+            bail!(
+                "linux-firmware: omitting {} needs a reason (why)",
+                entry.path
+            );
+        }
+        if !requested
+            .iter()
+            .any(|name| files::matches(&entry.path, name))
+        {
+            bail!(
+                "linux-firmware: omit {} matches no firmware a module requests",
+                entry.path
+            );
+        }
+    }
+    Ok(requested
+        .iter()
+        .filter(|name| !omit.iter().any(|entry| files::matches(&entry.path, name)))
+        .cloned()
+        .collect())
 }
 
 /// Extracts exactly `members` from `archive` into `dir`; tar fails when one
@@ -217,6 +246,29 @@ mod tests {
         ] {
             assert_eq!(resolve(&links, name).unwrap(), file, "{name}");
         }
+    }
+
+    #[test]
+    fn omit_takes_out_what_it_names_and_must_match() {
+        let requested: BTreeSet<String> = [
+            "nvidia/ga102/gsp/gsp-535.113.01.bin",
+            "nvidia/ga102/gsp/gsp-570.144.bin",
+            "nvidia/tu102/gsp/booter_load-535.113.01.bin",
+        ]
+        .map(str::to_owned)
+        .into();
+        let omit = |path: &str, why: &str| Omitted {
+            path: path.to_owned(),
+            why: why.to_owned(),
+        };
+        let kept = kept(
+            &[omit("nvidia/*/gsp/*-535.113.01.bin", "older GSP")],
+            &requested,
+        )
+        .unwrap();
+        assert_eq!(kept, ["nvidia/ga102/gsp/gsp-570.144.bin".to_owned()].into());
+        assert!(super::kept(&[omit("nvidia/*/gsp/*-999.bin", "x")], &requested).is_err());
+        assert!(super::kept(&[omit("nvidia/*/gsp/*-535.113.01.bin", " ")], &requested).is_err());
     }
 
     #[test]

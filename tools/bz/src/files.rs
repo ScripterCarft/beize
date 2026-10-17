@@ -63,6 +63,13 @@ fn sort(recipe: &Recipe, files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let mut used = BTreeSet::new();
     let mut found = String::new();
     let mut shipped = Vec::new();
+    if !recipe.files.omit.is_empty() {
+        let _ = writeln!(
+            found,
+            "  {}: [files] omit is for linux-firmware only",
+            recipe.name
+        );
+    }
     for entry in &recipe.files.build {
         if entry.why.trim().is_empty() {
             let _ = writeln!(

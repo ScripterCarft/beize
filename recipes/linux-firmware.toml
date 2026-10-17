@@ -16,3 +16,11 @@ keyring = "linux-firmware"
 license = "GPL-1.0-or-later AND GPL-2.0-or-later AND MIT AND LicenseRef-Firmware"
 # No CPE: CVEs about firmware name the devices, not this package.
 cpe = []
+
+[files]
+omit = [
+  # nouveau requests every GSP release it knows and boots the newest it finds
+  # (570.144 before 535.113.01, nvkm/subdev/gsp/*.c); measured on the
+  # owner's RTX 3070 Ti (ADR 0027). Remove this when nouveau drops 535.
+  { path = "nvidia/*/gsp/*-535.113.01.bin", why = "older GSP release, never loaded beside 570.144 (59 MiB)" },
+]

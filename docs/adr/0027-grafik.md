@@ -1,7 +1,7 @@
 # 0027 – Grafik: Compositor, Vulkan, Toolkit, NVIDIA, Schrift
 
-Status: Entwurf · 2026-10-17 (mit dem Besitzer besprochen; NVIDIA entscheidet die Messung in
-Schritt 1)
+Status: Angenommen · 2026-10-17 (mit dem Besitzer besprochen; NVIDIA nach der Messung in
+Schritt 1: NVK)
 
 ## Kontext
 
@@ -9,8 +9,9 @@ M3 bringt die Oberfläche. `docs/VISION.md` lässt offen: Grafik-API des Composi
 Systemschrift, Icon-Stil, NVIDIA-Treiber (#17). Maßstab ist macOS: alles Sichtbare aus einem
 Guss, vom System selbst gebaut. Feste Regeln von Beize, die hier hineinspielen: immer der
 neueste stabile Kernel (zurzeit 7.2.10), keine fremden Patches, alles aus dem Quellcode und
-signiert, nur der Desktop bekommt Grafik (ADR 0025). Zielhardware: RTX 3070 Ti, 1440p @ 240 Hz,
-Budget 4,2 ms je Frame, Shell < 1 ms GPU-Zeit (VISION).
+signiert, nur der Desktop bekommt Grafik (ADR 0025). Zielhardware: RTX 3070 Ti; der Monitor
+des Besitzers kann 1440p bis 143,9 Hz (240 Hz nur in 1080p). Maßstab bleibt das strengere
+Budget der VISION: 4,2 ms je Frame (240 Hz), Shell < 1 ms GPU-Zeit.
 
 Stand der Bausteine (Oktober 2026):
 
@@ -55,37 +56,40 @@ physischen Pixeln (`wp_fractional_scale_v1` + `wp_viewporter`), der Compositor s
 herunter; Glyphen am Pixelraster gerastert, Kanten und Linien eingerastet. Unschärfe bei
 anderen Toolkits kommt fast immer vom Rendern mit ganzzahligem Faktor und Herunterskalieren.
 
-### 4. NVIDIA: beide messen, dann entscheiden
+### 4. NVIDIA: NVK, wie Fedora
 
 Der Besitzer will den stabileren und verbreiteteren Weg und orientiert sich an Fedora
 Workstation. Fedora hat dieselbe Lage wie Beize (neuester stabiler Kernel): ab Werk Nouveau +
 NVK, der NVIDIA-Treiber kommt von außen (RPM Fusion) und muss bei neuen Kernels nachziehen.
 Ubuntu liefert NVIDIA, aber mit älteren Kernels.
 
-Schritt 1 misst beide im Schnelldurchlauf auf dem Rechner des Besitzers, ohne Aufwand für
-den Verlierer:
+**Regel:** NVK wird Vorgabe, wenn es das Budget mit Compositor-Last hält. NVIDIA nur, wenn
+NVK das nicht schafft **und** der Treiber auf dem aktuellen Kernel ohne Patch baut.
 
-| Prüfung | NVK | NVIDIA (offene Kernel-Module + Bibliotheken) |
-|---|---|---|
-| baut auf 7.2.10 ohne Patch | – | ja/nein |
-| 1440p @ 240 Hz, Modeset | | |
-| Frame-Zeit (vkcube/vkmark, Compositor-Last) | | |
-| Takt und Leistungsaufnahme im Leerlauf | | |
+**Messung (2026-10-17, Beize 0.5.92, Tag `measure/nvk-0.5.92`):** `beize-gpu-probe`, direkt
+auf KMS über `VK_KHR_display`, FIFO, 30 s Compositor-Last (12 Fenster mit runden Ecken und
+Schatten, Live-Blur-Panel über ½ und ¼ Auflösung), NVK (Mesa 26.2.5) mit GSP 570.144:
 
-Stand 2026-10-17:
-- **NVIDIA 615.78.08** (offene Module) baut auf 7.2.10 ohne Patch. objtool meldet aber rund 20
-  Rücksprünge in `nvidia.ko` ohne Retbleed-Schutz („naked return in MITIGATION_RETHUNK
-  build“): eine Lücke in unserem gehärteten Kernel. Für ein Testimage müsste `bz` zudem
-  Fremdmodule signieren und die geschlossenen Bibliotheken packen. Das wird nur gebaut,
-  wenn NVK durchfällt.
-- **NVK** ist gebaut (Mesa 26.2.5, Abschnitt Reihenfolge). nouveau nutzt in 7.2 die
-  GSP-Firmware auf Turing/Ampere ab Werk (`NvGspRm`): Takt und Energiesparen erledigt
-  NVIDIAs Firmware auf der GPU.
+| | Ergebnis |
+|---|---|
+| Modus | 2560×1440 @ 143,912 Hz (Budget 6,949 ms) |
+| Bilder | 4306, 143,52/s |
+| Bildabstand | Median 6,949 ms, p99 7,013 ms, max 107 ms |
+| Verpasst | 1 (sehr wahrscheinlich der erste Modeset) |
+| GPU-Zeit der Last | Median 2,51 ms, p99 2,62 ms, max 3,0 ms |
+| Temperatur, Leistung | nouveau meldet für die Karte keine (kein hwmon) |
 
-**Regel:** NVK wird Vorgabe, wenn es die 240 Hz mit Shell-Budget hält – wie bei Fedora. NVIDIA
-nur, wenn NVK das nicht schafft **und** der Treiber auf dem aktuellen Kernel ohne Patch
-baut. Dann gilt: Ein Kernel-Update wartet, bis NVIDIA ihn unterstützt (eine Prüfung in
-`bz outdated`). Die Entscheidung kommt mit den Messwerten in dieses ADR.
+**Ergebnis: NVK.** Die Last braucht 36 % des Budgets bei 144 Hz und hielte auch 240 Hz
+(4,2 ms). Den NVIDIA-Testbau gibt es nicht: Er hätte `bz` Fremdmodule signieren lassen, und
+NVIDIA 615.78.08 baut zwar auf 7.2.10, objtool meldet aber rund 20 Rücksprünge in
+`nvidia.ko` ohne Retbleed-Schutz. Leistungsaufnahme im Leerlauf misst später ein
+Strommessgerät, da nouveau sie nicht meldet.
+
+**Atomic KMS:** nouveau bietet die atomare KMS-Schnittstelle nur mit `nouveau.atomic=1`
+(Vorgabe aus). Ohne sie fehlt dem Connector `CRTC_ID`, Mesas `VK_KHR_display` findet keinen
+Bildschirm (erste Messversuche: `VK_ERROR_UNKNOWN`). Moderne Compositoren (Smithay, KWin,
+Mutter) arbeiten bevorzugt atomar, Overlay-Ebenen und VRR setzen es voraus. Beize setzt den
+Upstream-Schalter in `/usr/lib/modprobe.d/beize-nouveau.conf`; die Messung lief damit.
 
 ### 5. Schrift und Icons
 
@@ -103,9 +107,9 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
      über die Cross-Datei von `bz`; Mesas Crates prüft `bz` gegen Mesas Wraps
      (`latest = { pinned-by = … }`).
    - Firmware: `bz` liefert genau, was Module anfordern (ADR 0015), Links wie in
-     linux-firmware' WHENCE, unkomprimiert (EROFS komprimiert). Für nouveau 519 Namen, 259
-     Dateien, 152 MiB; `/usr` wächst von ~50 auf 159 MiB. 59 MiB davon sind GSP 535.113,
-     die nouveau nur als Rückfall anfordert und neben 570.144 nie lädt.
+     linux-firmware' WHENCE, unkomprimiert (EROFS komprimiert). GSP 535.113.01 fordert
+     nouveau nur als Rückfall an und lädt es neben 570.144 nie: `[files] omit` in
+     `recipes/linux-firmware.toml` lässt es weg (59 MiB).
    - NVKs Compiler ist Rust, also ohne CET (ADR 0014): Jeder Prozess, der NVK lädt, läuft
      ohne Shadow Stack, bis Rust CET stabil erzeugt. Fedora hat denselben Stand.
    - Mesa ist das erste C++ im Image: libstdc++ und der Demangler von elfutils (ADR 0023).
@@ -123,5 +127,6 @@ Mit dem ersten C++-Programm (Mesa/LLVM) den Demangler von elfutils einschalten (
 - LLVM macht den Bau von null deutlich länger; die CI baut es nur bei Änderungen
   (Cache wie beim Kernel).
 - lavapipe macht die Oberfläche in jedem Smoke-Test prüfbar, ohne GPU im Runner.
-- Fällt NVK durch, hängt die Kernel-Version an NVIDIA – bewusst und sichtbar in
-  `bz outdated`.
+- NVK folgt dem Kernel von selbst; die Kernel-Version hängt nicht an NVIDIA.
+- `beize-gpu-probe` liegt im Tag `measure/nvk-0.5.92`: nach großen Mesa- oder
+  Kernel-Sprüngen dieselbe Messung wiederholen.

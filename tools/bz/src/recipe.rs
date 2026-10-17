@@ -82,11 +82,23 @@ pub struct Files {
     /// Files only for building other packages, each with its reason.
     #[serde(default)]
     pub build: Vec<BuildOnly>,
+    /// linux-firmware only: firmware the kernel's modules request that the
+    /// image leaves out, each with its reason (`crate::firmware`).
+    #[serde(default)]
+    pub omit: Vec<Omitted>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildOnly {
+    pub path: String,
+    pub why: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Omitted {
+    /// Pattern below `/usr/lib/firmware`, as the modules name the file.
     pub path: String,
     pub why: String,
 }
