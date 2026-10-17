@@ -36,6 +36,7 @@ mod stamp;
 mod tree;
 mod usr;
 mod util;
+mod variant;
 mod vm;
 
 use anyhow::Result;
@@ -54,6 +55,10 @@ struct Cli {
     /// kernel/beize.config (CI)
     #[arg(long, global = true)]
     locked: bool,
+    /// The variant to build or test, a directory of images/ (ADR 0025):
+    /// `desktop`, or `base` without the user interface
+    #[arg(long, global = true, default_value = variant::DEFAULT)]
+    variant: String,
     #[command(subcommand)]
     command: Command,
 }
@@ -80,13 +85,14 @@ enum Command {
     /// Boot a VM headless, run commands on its root shell and print their
     /// output, e.g. `bz debug 'journalctl -b -p warning'`
     Debug {
-        /// `run` (the VM of `bz run`) or a machine `bz smoke` left in build/work
+        /// `run` (the VM of `bz run`) or a machine `bz smoke` left in
+        /// build/work/variant-<variant>
         #[arg(long, default_value = "run")]
         machine: String,
         /// Typed when the boot asks for the recovery key
         #[arg(long)]
         recovery_key: Option<String>,
-        /// Another TPM state directory in build/work, e.g. `smoke-other-tpm`
+        /// Another TPM state directory beside the machine, e.g. `smoke-other-tpm`
         #[arg(long)]
         tpm: Option<String>,
         /// Commands for the root shell; `@wait N` pauses N seconds
@@ -137,10 +143,10 @@ enum Command {
         command: SecurebootCommand,
     },
     /// Sign the boot chain with the owner's keys from 1Password and write the
-    /// disk image for real hardware to build/out/production (owner only)
+    /// disk image for real hardware to build/out/<variant>/production (owner only)
     Sign,
     /// Write the release of this version for real hardware to
-    /// build/out/release/<version>, signed with the owner's keys from
+    /// build/out/<variant>/release/<version>, signed with the owner's keys from
     /// 1Password: what beize-update installs (owner only, ADR 0020)
     Release,
     /// Write the signed image for real hardware onto an empty disk, named by
@@ -177,7 +183,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     util::set_verbose(cli.verbose);
     util::set_locked(cli.locked);
-    let paths = Paths::new()?;
+    let paths = Paths::new(&cli.variant)?;
     // Everything runs in the buildroot (./bz enters it), except writing a
     // real disk: that needs sudo and the machine's disks, and builds nothing.
     if !matches!(cli.command, Command::Install { .. }) {
@@ -300,7 +306,7 @@ fn build_toolchain(paths: &Paths) -> Result<()> {
 }
 
 fn build_all(paths: &Paths) -> Result<()> {
-    let image_packages = tree::image_definition(paths)?.packages;
+    let image_packages = paths.variant.packages();
     // The kernel needs the toolchain, and so does every package but three
     // small data packages: little could run beside building it.
     build_toolchain(paths)?;

@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn a_stamp_is_current_only_with_the_same_inputs_and_its_outputs() {
         let dir = scratch("stamp");
-        let paths = Paths::new().unwrap();
+        let paths = Paths::new(crate::variant::DEFAULT).unwrap();
         let output = dir.join("out");
         let stamp = |input: &str| {
             let mut stamp = Stamp::new(

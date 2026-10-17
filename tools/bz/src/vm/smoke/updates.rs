@@ -33,22 +33,22 @@ const NO_NEWER_UPDATE: &str = "There is no newer version.";
 /// file – and an older version are refused, and nothing is written. The
 /// right one goes into slot B; the next boot starts it, the TPM unlocks as
 /// before, and boot counting marks it good – but not a boot in which a unit
-/// of `images/running-units.txt` failed. A successful boot replaces an older
+/// of the variant's `running-units.txt` failed. A successful boot replaces an older
 /// boot loader and its configuration with the ones from `/usr`.
 pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Installed) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
-    let releases = paths.work.join("smoke-releases");
+    let releases = paths.variant_work.join("smoke-releases");
     tree::remove(&releases)?;
     let good = releases.join(&version);
     test_release(paths, keys, &version, &good)?;
     let refused = refused_releases(&releases, &good, keys)?;
-    let older_loader = paths.work.join("smoke-update-loader.efi");
+    let older_loader = paths.variant_work.join("smoke-update-loader.efi");
     older_boot_loader(paths, keys, &older_loader)?;
     for path in BOOT_LOADER_ON_ESP {
         put_on_esp(&machine.disk, &older_loader, path)?;
     }
-    let older_conf = paths.work.join("smoke-update-loader.conf");
+    let older_conf = paths.variant_work.join("smoke-update-loader.conf");
     fs::write(&older_conf, OLDER_LOADER_CONF)?;
     put_on_esp(&machine.disk, &older_conf, LOADER_CONF_ON_ESP)?;
     fs::remove_file(&older_conf)?;
@@ -148,7 +148,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
         "the update's UKI with boot counter is not on the ESP: {listing:?}"
     );
     say!("  ok: beize-update installed {version} into slot B ({install_s:.1}s)");
-    let signed_loader = fs::read(paths.out.join("systemd-bootx64.efi"))?;
+    let signed_loader = fs::read(paths.image.join("systemd-bootx64.efi"))?;
     for path in BOOT_LOADER_ON_ESP {
         ensure!(
             read_from_esp(&machine.disk, path, &paths.work)? == signed_loader,
@@ -158,7 +158,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
     fs::remove_file(&older_loader)?;
     ensure!(
         read_from_esp(&machine.disk, LOADER_CONF_ON_ESP, &paths.work)?
-            == fs::read(paths.out.join("loader.conf"))?,
+            == fs::read(paths.image.join("loader.conf"))?,
         "the boot did not replace the older {LOADER_CONF_ON_ESP} with the one from /usr"
     );
     say!(
@@ -203,7 +203,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
     // share the computer, there is no other one to serve it.
     let next = format!("{}.2", layout::OS_VERSION);
     test_release(paths, keys, &next, &releases.join(&next))?;
-    let stick = paths.work.join("smoke-update-stick.img");
+    let stick = paths.variant_work.join("smoke-update-stick.img");
     usb_stick(&releases.join(&next), &format!("beize-{next}"), &stick)?;
     machine.usb_stick = Some(stick.clone());
     let shell = Shell::boot(
@@ -264,7 +264,7 @@ pub(super) fn broken_update(
 ) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-broken-update")?;
     let version = format!("{}.1", layout::OS_VERSION);
-    let releases = paths.work.join("smoke-broken-releases");
+    let releases = paths.variant_work.join("smoke-broken-releases");
     tree::remove(&releases)?;
     let broken = releases.join(&version);
     test_release(paths, keys, &version, &broken)?;

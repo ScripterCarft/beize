@@ -194,7 +194,7 @@ pub(super) fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
     machine.remove()
 }
 
-/// The base tools (images/base.toml) do their work for the owner: each
+/// The base tools (images/base/variant.toml) do their work for the owner: each
 /// command's answer must be the expected one, not only its exit status.
 fn base_tools(shell: &Shell) -> Result<()> {
     let checks = [

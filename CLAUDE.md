@@ -77,7 +77,7 @@ Neubinden, echte Hardware).
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
-| `images/` | `base.toml` Pakete für `/usr` · `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select/`) · `base.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste |
+| `images/` | je Variante ein Ordner (ADR 0025, `bz`: `variant.rs`): `base/`, `desktop/` (erweitert `base`, fügt nur hinzu) mit `variant.toml` Name und Pakete für `/usr` · `system.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste; eine Datei ohne Ergänzung fehlt beim Desktop. Gemeinsam: `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select/`) |
 | `system/usr/`, `system/initrd/` | eigene Dateien (Units, Boot-Report, Recovery-Key …); in der initrd bash, aber **keine coreutils** |
 | `kernel/config/` | Kernel-Fragmente nach Funktion, jede Option begründet, auf `alldefconfig` + Upstream-`hardening.config` (ADR 0015); `kernel/beize.config` = aufgelöste Konfiguration, Änderungen im Diff prüfen und mitcommitten |
 | `ci/buildroot/` | Buildroot (ADR 0021): `packages.txt` (einzige Liste der Werkzeuge) → `lock.sh` → `packages.lock` (Versionen + SHA-256, Snapshot-Datum in `snapshot`); `create.sh`, `hash.sh` |
@@ -90,6 +90,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz exec cargo deny check   # Rust-Abhängigkeiten: Advisories, Lizenzen, Herkunft (deny.toml)
 ./bz exec ci/fuzz.sh [s]     # Fuzzing (fuzz/), je Ziel s Sekunden; Funde in build/fuzz/artifacts
 ./bz build           # kernel → Pakete → usr → initrd → image; jeder Schritt nur, wenn sich seine Eingaben ändern
+#   --variant base|desktop (Vorgabe desktop, ADR 0025) gilt für alle Befehle; je Variante
+#   build/out/<variante>/ und build/work/variant-<variante>/ (usr-Baum, VMs); Kernel, initrd geteilt
 ./bz smoke --quick   # Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
 ./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
@@ -103,7 +105,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz verify · ./bz package <name> · ./bz owner /usr/bin/bash · ./bz -v …  (alles ausgeben)
 # --locked (CI): kernel/beize.config muss aktuell sein, statt neu geschrieben zu werden
 # nur der Besitzer, im Terminal, mit 1Password: ./bz secureboot new-keys|new-update-key|new-module-key ·
-#   ./bz sign · ./bz release (signiertes Update nach build/out/release/<ver>) · ./bz install
+#   ./bz sign · ./bz release (signiertes Update nach build/out/<variante>/release/<ver>) · ./bz install
 ```
 
 - `./bz` läuft im Buildroot (ADR 0021, bwrap; legt ihn bei Änderung an `ci/buildroot/` neu
@@ -183,14 +185,15 @@ in die Endfassung einarbeiten, keine Nachträge.
   keine coreutils, kein `sed`/`awk`/`grep`: Skripte dort in reinem Bash.
 - Autotools-Abfragen beim Host (`AC_CHECK_PROG`) im Rezept beantworten (`ac_cv_…=yes`).
 - Skripte unter `system/` müssen ausführbar sein (Test prüft das).
-- **Units aktivieren nur über `images/base.preset`** (Benutzer-Units: `images/user.preset`;
-  mit Grund; `bz` legt die Links in `/usr`), nie über Presets oder `.wants`-Links in
-  `system/`. Ändert sich, was läuft, `images/running-units.txt` mitpflegen (ADR 0013).
+- **Units aktivieren nur über `images/<variante>/system.preset`** (Benutzer-Units:
+  `user.preset`; mit Grund; `bz` legt die Links in `/usr`), nie über Presets oder
+  `.wants`-Links in `system/`. Ändert sich, was läuft, `running-units.txt` derselben
+  Variante mitpflegen (ADR 0013). Was nur der Desktop braucht, gehört nach `desktop/`.
 - **Kein Pfad der Baumaschine im Image:** die Compiler bilden das Repo auf `/beize` ab;
   Rezepte mit eigenen CFLAGS hängen `$PREFIX_MAP` an. `bz` bricht ab, wenn eine Datei in
   `/usr` den Repo-Pfad nennt. Rust-Programme fremder Projekte (ntpd-rs) schreiben beim Bau
   ihre Crates nach `usr/lib/beize-build/crates/` (SBOM).
-- **Härtung als Ratsche:** `images/security.toml` hält `systemd-analyze security` jedes
+- **Härtung als Ratsche:** `images/<variante>/security.toml` hält `systemd-analyze security` jedes
   eigenen Dienstes und jedes erreichbaren Daemons fest; `bz` bricht bei jeder Abweichung
   ab (schlechter = zurücknehmen, besser = Wert eintragen). Neuer `beize-*`-Dienst = Eintrag.
 - **initrd (ADR 0016):** Was hinein soll, steht als Funktion mit Grund in
@@ -209,7 +212,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 - Neue Quelle: `latest = { release-monitoring = <id> }` (ID auf release-monitoring.org
   suchen, Homepage prüfen) und `[sbom]` mit `license` (SPDX, Fedoras Angabe) und `cpe`
   (Liste, gegen NVDs CPE-Wörterbuch geprüft; leer nur mit Begründung); Test verlangt beides.
-  Die SBOM des Images: `build/out/sbom.spdx.json`.
+  Die SBOM des Images: `build/out/<variante>/sbom.spdx.json`.
 - **Eigener Rust-Code:** `unsafe` nur mit `// SAFETY:`, kein `unwrap`/`expect` außerhalb von
   Tests (Lints). Was ein unprivilegierter Aufrufer oder die Firmware schickt, läuft durch einen
   Fuzz-Einstieg (`beize_varlink::fuzz_request`, `beize_update::list::fuzz_list`, beize-tpm
@@ -275,27 +278,31 @@ Shell), Fedora-Editionen aus denselben Paketen. Kein Fork, sondern Varianten ein
 Keine Paketverwaltung für Nutzer (VISION: Apps als Bundles, Modell vor M4) – die Varianten
 entstehen beim Bauen.
 
-**Nächste Aufgabe: ADR 0025 (Varianten, am 17.10. angenommen) in `bz` umsetzen**, bevor das
-erste Desktop-Paket kommt. Der Abschnitt „Umsetzung in `bz`“ im ADR nennt die Stellen.
-Reihenfolge: `images/<v>/` anlegen, Varianten in `tree`/`usr`/`security`/`layout`, dann
-`--variant` mit Vorgabe `desktop`, Release-Namen je Variante (`beize-update/list.rs` und die
-Fuzz-Korpora mit), dann das UKI-Profil „(ohne Oberfläche)“ und der Smoke-Test dazu. Den
-Übergang von 0.4 (einmal im alten Strom) mit dem Release planen. Ziel ist, dass das Image
-von `base` bis auf `VARIANT_ID`/`VARIANT` gleich bleibt (`ci/digest.sh` vergleichen).
+**ADR 0025 (Varianten, am 17.10. angenommen) wird umgesetzt.** Erledigt ist Teil 1:
+`images/base/` und `images/desktop/`, `variant.rs`, `--variant` mit Vorgabe `desktop`, und
+die CI baut und prüft `base` und baut `desktop` dazu. Der Baum ist bitgleich zum alten bis
+auf os-release; der volle Smoke-Test von `base` ist lokal grün. Noch offen:
+2. Release-Namen je Variante (`layout.rs`, `release.rs`, `beize-update/list.rs` mit
+   `VARIANT_ID` aus os-release, Fuzz-Korpora `fuzz/corpus/update_list`). Den Übergang von
+   0.4 gibt es einmal: ein Satz mit den alten Namen `beize_<ver>…` und eigener signierter
+   Liste, danach wird er entfernt.
+3. Das UKI-Profil „(ohne Oberfläche)“ (signiert wie das Hauptprofil, `--sign-profile`). Der
+   Smoke-Test des Desktops startet es und verlangt die `running-units.txt` der Basis. Danach
+   bekommt die CI `bz smoke --variant desktop`.
+4. Die Entscheidungen vom 17.10. (Besitzer: „nur Consumer, wie macOS“) umsetzen: util-linux
+   mit ausdrücklicher Liste plus findmnt und flock, `file` neu dazu; patch und strings
+   bleiben draußen (Entwicklerwerkzeuge). `/etc/profile` und `/etc/ld.so.conf` als Link nach
+   `/usr` wie ntp.toml (ADR 0007 einarbeiten).
+5. Release 0.5 für den PC des Besitzers (Desktop-Strom, Übergang aus Punkt 2).
 Danach kommt der Grafik-Stack: Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc),
 grob lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Offen laut
 `docs/VISION.md`: Grafik-API des Compositors, UI-Toolkit, Systemschrift, Icon-Stil. Mit dem
 ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
 
-**Mit dem Besitzer abstimmen (M3):**
-- **Label `m3-plan`** (#14 BTF, #17 Hardware: NVIDIA/WLAN/BT/Ton/zweite SSD, #34 zram/oomd,
-  #35 nftables, #36 fwupd) nur mit seiner Zustimmung; dabei je Punkt: Basis oder Desktop?
-- `/etc/profile` und `/etc/ld.so.conf` werden beim 1. Start kopiert (`C` in
-  `tmpfiles.d/beize.conf`), Änderungen von Beize erreichen installierte Rechner also nie
-  (dieselbe Klasse wie loader.conf, ADR 0024). Vorbild ntp.toml/nanorc: Link nach `/usr`, den
-  der Besitzer durch eine Datei ersetzen kann (berührt ADR 0007).
-- findmnt/flock (util-linux von `--disable-all-programs` auf eine ausdrückliche Liste?), file,
-  patch, strings.
+**M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
+Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
+zram/oomd und #35 nftables (beide Basis). #36 fwupd kommt mit M4. Regel des Besitzers:
+nichts, was ohne Nutzen Leistung kostet.
 
 **Offen, kein Hindernis für M3**
 - #5 bitgleiche Bauten: CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What every build machine must produce alike from the same sources (#5):
 # the parts of a build that no key has touched yet – the kernel's modules,
-# the initrd with and without its modules, the /usr tree and its image. One
+# the initrd with and without its modules, the base's /usr tree and image. One
 # SHA-256 each; run it in the CI and locally and compare. The kernel image
 # and the signed parts differ by design: they carry each key set's
 # certificate and signatures (ADR 0015).
@@ -45,5 +45,5 @@ echo "  modules        $(tree out/modules modules)"
 echo "  initrd         $(file out/initrd.cpio.zst)"
 echo "  initrd tree    $(tree work/initrd-tree initrd-tree)"
 echo "  initrd modules $(tree work/initrd-modules initrd-modules)"
-echo "  /usr tree      $(tree work/usr-tree usr-tree)"
-echo "  /usr image     $(file out/usr.erofs)"
+echo "  /usr tree      $(tree work/variant-base/usr-tree usr-tree)"
+echo "  /usr image     $(file out/base/usr.erofs)"

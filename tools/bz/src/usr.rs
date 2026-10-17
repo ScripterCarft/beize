@@ -28,18 +28,15 @@ use crate::util;
 const USR_FS_UUID: &str = "6265697a-6500-4000-8000-000000000010";
 /// UUID in the dm-verity superblock; fixed for reproducibility.
 const USR_VERITY_UUID: &str = "6265697a-6500-4000-8000-000000000011";
-/// Which units the image enables (ADR 0013): system units, and user units
-/// for every user (`systemctl --global`).
-const UNIT_PRESETS: [&str; 2] = ["images/base.preset", "images/user.preset"];
 /// The only preset file the image ships, system and user: `disable *`.
 const SHIPPED_PRESET: &str = "99-beize.preset";
-/// The units every boot runs (ADR 0013); in `/usr` for beize-boot-health,
-/// which decides by them whether a boot succeeded (ADR 0020).
-const RUNNING_UNITS: &str = "images/running-units.txt";
+/// The units every boot runs (ADR 0013), the variant's; in `/usr` for
+/// beize-boot-health, which decides by them whether a boot succeeded (ADR 0020).
+const RUNNING_UNITS: &str = "lib/beize/running-units.txt";
 
-/// Where [`build`] assembles `/usr`, as a tree with `usr/` in it.
+/// Where [`build`] assembles the variant's `/usr`, as a tree with `usr/` in it.
 pub fn tree_dir(paths: &Paths) -> PathBuf {
-    paths.work.join("usr-tree")
+    paths.variant_work.join("usr-tree")
 }
 
 /// A packed `/usr`: the EROFS image, its dm-verity hash tree and root hash.
@@ -49,23 +46,18 @@ pub struct Packed {
     pub root_hash: String,
 }
 
-/// Builds the packages of `images/base.toml` and assembles and checks the
-/// `/usr` tree ([`tree_dir`]). What differs between images – the version
-/// and the keys – comes in with [`pack`].
+/// Builds the packages of the variant (ADR 0025) and assembles and checks
+/// its `/usr` tree ([`tree_dir`]). What differs between images of one
+/// variant – the version and the keys – comes in with [`pack`].
 pub fn build(paths: &Paths) -> Result<PathBuf> {
-    let definition = tree::image_definition(paths)?;
-    let recipes = packages::build(paths, &definition.packages)?;
+    let recipes = packages::build(paths, &paths.variant.packages())?;
     let kernel = kernel::built(paths)?;
 
     let root = tree_dir(paths);
     let stamp = Stamp::new(
         paths,
-        STAMP,
-        tree::assembly_inputs(paths, tree::IMAGE_DEFINITION, &recipes, "usr")?
-            .file(&paths.root.join(UNIT_PRESETS[0]))?
-            .file(&paths.root.join(UNIT_PRESETS[1]))?
-            .file(&paths.root.join(RUNNING_UNITS))?
-            .file(&paths.root.join(security::DEFINITION))?
+        &stamp_name(paths),
+        tree::assembly_inputs(paths, &paths.variant.definition_files(), &recipes, "usr")?
             .tree(&kernel.modules)?,
         &[&root],
     );
@@ -104,10 +96,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
             .arg(format!("{}/.", paths.root.join("system/usr").display()))
             .arg(&usr),
     )?;
-    fs::copy(
-        paths.root.join(RUNNING_UNITS),
-        usr.join("lib/beize/running-units.txt"),
-    )?;
+    fs::write(usr.join(RUNNING_UNITS), paths.variant.running_units()?)?;
     enable_units(paths, &root)?;
     compile_hwdb(paths, &root)?;
     install_modules(paths, &kernel, &root, |_| true)?;
@@ -125,9 +114,11 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     Ok(root)
 }
 
-/// The stamp of [`build`]; later steps take it as their input instead of
-/// hashing the whole tree again.
-pub const STAMP: &str = "usr";
+/// The stamp of [`build`] for the variant; later steps take it as their
+/// input instead of hashing the whole tree again.
+pub fn stamp_name(paths: &Paths) -> String {
+    format!("usr-{}", paths.variant.id)
+}
 
 /// Where the public update key lies in `/usr` (ADR 0020).
 pub const UPDATE_KEY_PATH: &str = "lib/beize/update.pub.pem";
@@ -159,7 +150,10 @@ pub fn pack(
             .arg(&staging),
     )?;
     let usr = staging.join("usr");
-    fs::write(usr.join("lib/os-release"), layout::os_release(version))?;
+    fs::write(
+        usr.join("lib/os-release"),
+        layout::os_release(version, &paths.variant),
+    )?;
     let key = usr.join(UPDATE_KEY_PATH);
     fs::create_dir_all(key.parent().context("update key path")?)?;
     fs::copy(keys.update_public(), &key)?;
@@ -247,7 +241,7 @@ fn build_verity(image: &Path, hash_tree: &Path) -> Result<String> {
 }
 
 /// Enables the units of the image (ADR 0013): Beize's own systemctl applies
-/// [`UNIT_PRESETS`], systemd's defaults and `disable *` to the tree, as
+/// the variant's presets, systemd's defaults and `disable *` to the tree, as
 /// systemd would on first boot, and the links it creates in /etc move into
 /// /usr – what runs is part of the signed image, and an update changes it
 /// together with everything else. Only [`SHIPPED_PRESET`] stays in the image,
@@ -262,8 +256,12 @@ fn enable_units(paths: &Paths, root: &Path) -> Result<()> {
             dir.join(SHIPPED_PRESET).display()
         );
     }
-    for (preset, dir) in UNIT_PRESETS.iter().zip(&presets) {
-        fs::copy(paths.root.join(preset), dir.join("10-beize.preset"))?;
+    let variant = &paths.variant;
+    for (preset, dir) in [variant.system_preset()?, variant.user_preset()?]
+        .iter()
+        .zip(&presets)
+    {
+        fs::write(dir.join("10-beize.preset"), preset)?;
     }
     for scope in [None, Some("--global")] {
         util::run(

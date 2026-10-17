@@ -68,8 +68,7 @@ pub fn write(paths: &Paths, version: &str, dest: &Path) -> Result<()> {
 /// The recipes an image is made of: its packages with everything they
 /// build from, and the kernel with its firmware and microcode.
 pub fn image_recipes(paths: &Paths) -> Result<Vec<Recipe>> {
-    let definition = tree::image_definition(paths)?;
-    let mut recipes = packages::resolve(paths, &definition.packages)?;
+    let mut recipes = packages::resolve(paths, &paths.variant.packages())?;
     for name in KERNEL_RECIPES {
         recipes.push(Recipe::load(paths, name)?);
     }
@@ -493,7 +492,7 @@ mod tests {
 
     #[test]
     fn the_image_contains_what_ships_and_names_its_licenses() {
-        let paths = Paths::new().unwrap();
+        let paths = Paths::new(crate::variant::DEFAULT).unwrap();
         let recipes: Vec<Recipe> = ["glibc", "gcc", "linux-headers"]
             .iter()
             .map(|n| Recipe::load(&paths, n).unwrap())

@@ -63,7 +63,7 @@ akzeptiert):
   legt die privaten Teile per 1Password-CLI ab, liest sie zur Kontrolle zurück und
   bricht ab, wenn es schon Schlüssel gibt (Schlüsselwechsel ist ein eigener Schritt).
 - `bz sign` holt nur db und PCR, prüft, dass sie zu den Zertifikaten im Repo
-  passen, baut nach `build/out/production/` und löscht sie wieder. PK und KEK
+  passen, baut nach `build/out/<variante>/production/` und löscht sie wieder. PK und KEK
   bleiben im Alltag unberührt – wie Wurzelschlüssel.
 - 1Password-CLI: unter WSL die Windows-CLI `op.exe` (nur sie spricht mit der
   Desktop-App, Freigabe per Windows Hello); `BZ_OP` kann ein anderes Programm setzen.

@@ -27,7 +27,7 @@ digitalen Elementen.
 
   Beides ist Pflicht für jede Quelle; ein Test verlangt es. Beizes eigener Code steht
   unter MPL-2.0 (`LICENSE`).
-- **SBOM je Image.** `bz` schreibt beim Image-Schritt `build/out/sbom.spdx.json` (SPDX 2.3,
+- **SBOM je Image.** `bz` schreibt beim Image-Schritt `build/out/<variante>/sbom.spdx.json` (SPDX 2.3,
   datiert mit `SOURCE_DATE_EPOCH`). Darin stehen:
   - jedes Paket des Images, Kernel, Firmware und Microcode mit Version, Quelle, Pin
     (SHA-256 bzw. Commit), Lizenz und CPE;

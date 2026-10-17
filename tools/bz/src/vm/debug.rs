@@ -50,7 +50,7 @@ pub fn debug(
         found
     };
     if let Some(tpm) = tpm {
-        machine.tpm = paths.work.join(tpm);
+        machine.tpm = paths.variant_work.join(tpm);
         ensure!(
             machine.tpm.is_dir(),
             "no TPM state in {}",

@@ -26,12 +26,13 @@ hätte den Start unter Secure Boot verhindert.
   legt die entstehenden Links nach `/usr/lib/systemd/{system,user}`. So macht es
   upstream-systemd mit seinen eigenen Kerndiensten. Ein Update ändert sie atomar mit.
 - **Regeln, in dieser Reihenfolge** (die erste passende gilt):
-  1. `images/base.preset` – Beizes eigene Units und Abweichungen, jede mit Grund
-     (Benutzer-Units für alle Benutzer: `images/user.preset`, `systemctl --global`);
+  1. `images/<variante>/system.preset` – Beizes eigene Units und Abweichungen, jede mit
+     Grund, die der Basis zuerst (ADR 0025); Benutzer-Units für alle Benutzer:
+     `user.preset` daneben, `systemctl --global`;
   2. die Vorgaben von systemd (`90-systemd.preset`) – das, was die systemd-Entwickler
      testen; davon abzuweichen braucht einen konkreten Grund;
   3. `disable *` – alles andere ist aus.
-- Abweichungen stehen mit Grund in `images/base.preset`, z. B. `systemd-boot-update.service`
+- Abweichungen stehen mit Grund in `images/base/system.preset`, z. B. `systemd-boot-update.service`
   aus (siehe Kontext): Den signierten Bootloader aus `/usr` installiert Beizes
   `beize-boot-update.service` nach einem gelungenen Start (ADR 0020).
 - Ausgeliefert wird nur `99-beize.preset` mit `disable *` (System und Benutzer): Der
@@ -45,7 +46,7 @@ hätte den Start unter Secure Boot verhindert.
 ## Konsequenzen
 
 - `bz smoke` verlangt beim zweiten Start genau die aktiven Units aus
-  `images/running-units.txt` (Dienste, Sockets, Timer, Pfade, nach Zweck gruppiert)
+  `images/*/running-units.txt` (Dienste, Sockets, Timer, Pfade, nach Zweck gruppiert)
   und keinen Unit-Link in `/etc`. Taucht mit einer neuen systemd-Version eine Unit
   auf oder verschwindet eine, ist der Test rot, bis Beize das entschieden hat.
 - systemd-Vorgaben ohne Nutzer in Beize (Container, Erweiterungen, Updates, lokale

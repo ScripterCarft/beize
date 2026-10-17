@@ -57,9 +57,9 @@ pub(super) struct Machine {
 impl Machine {
     pub(super) fn named(paths: &Paths, name: &str) -> Self {
         Self {
-            disk: paths.work.join(format!("{name}.img")),
-            vars: paths.work.join(format!("{name}-vars.fd")),
-            tpm: paths.work.join(format!("{name}-tpm")),
+            disk: paths.variant_work.join(format!("{name}.img")),
+            vars: paths.variant_work.join(format!("{name}-vars.fd")),
+            tpm: paths.variant_work.join(format!("{name}-tpm")),
             smbios: Vec::new(),
             rtc: None,
             logs: boot_logs(paths),
@@ -84,7 +84,7 @@ impl Machine {
     /// Installs the current image onto a fresh test disk (`name.img`); see
     /// [`Self::install_from`].
     pub(super) fn install(paths: &Paths, name: &str) -> Result<Self> {
-        Self::install_from(paths, name, &paths.out.join("disk.img"))
+        Self::install_from(paths, name, &paths.image.join("disk.img"))
     }
 
     /// Installs `image` onto a fresh test disk, with a factory-new TPM and

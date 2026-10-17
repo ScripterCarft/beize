@@ -23,7 +23,7 @@ pub const SIGNATURE: &str = "SHA256SUMS.sig";
 
 /// Where `bz release` puts the release of `version`.
 pub fn dir(paths: &Paths, version: &str) -> PathBuf {
-    paths.out.join("release").join(version)
+    paths.image.join("release").join(version)
 }
 
 /// `bz release`: the release of this build's version for real hardware,

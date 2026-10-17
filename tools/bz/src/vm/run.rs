@@ -39,7 +39,7 @@ pub fn run(paths: &Paths) -> Result<()> {
 /// new image is built, then it is installed afresh.
 pub(super) fn machine(paths: &Paths) -> Result<Machine> {
     clear_boot_logs(paths)?;
-    let image = paths.out.join("disk.img");
+    let image = paths.image.join("disk.img");
     let machine = Machine::named(paths, "run");
     let outdated = |p: &Path| -> Result<bool> {
         Ok(!p.exists() || fs::metadata(p)?.modified()? < fs::metadata(&image)?.modified()?)

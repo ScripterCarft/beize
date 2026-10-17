@@ -130,4 +130,4 @@ Logs in `build/work/logs/`.
 
 Beizes eigener Code steht unter der [Mozilla Public License 2.0](LICENSE). Die Pakete, aus
 denen Beize gebaut wird, behalten ihre Lizenzen; welche, steht in der SBOM jedes Images
-(`build/out/sbom.spdx.json`, ADR 0022).
+(`build/out/<variante>/sbom.spdx.json`, ADR 0022).

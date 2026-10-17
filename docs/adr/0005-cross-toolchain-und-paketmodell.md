@@ -76,7 +76,7 @@ trifft (Fedoras „Installed (but unpackaged) file(s) found“). So kommt nichts
 unbemerkt ins Image. `[files]` ist die letzte Tabelle des Rezepts und zählt nicht
 zum Bau-Fingerprint.
 
-**Image.** Das `/usr`-Image wird aus diesen Dateien der Pakete in `images/base.toml`
+**Image.** Das `/usr`-Image wird aus diesen Dateien der Pakete der Variante (`images/*/variant.toml`, ADR 0025)
 zusammengesetzt, ohne Debug-Informationen. Es ist ein read-only EROFS-Image (zstd).
 
 ## Konsequenzen

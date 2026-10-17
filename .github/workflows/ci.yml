@@ -210,7 +210,7 @@ jobs:
         id: state
         if: always()
         run: |
-          echo "key=build-${{ hashFiles('build/work/stamps/*', '!build/work/stamps/step-usr', '!build/work/stamps/step-initrd', '!build/work/stamps/step-image') }}" >> "$GITHUB_OUTPUT"
+          echo "key=build-${{ hashFiles('build/work/stamps/*', '!build/work/stamps/step-usr-*', '!build/work/stamps/step-initrd', '!build/work/stamps/step-image-*') }}" >> "$GITHUB_OUTPUT"
       - name: Save build state
         if: always() && steps.state.outputs.key != 'build-' && steps.state.outputs.key != steps.restore.outputs.cache-matched-key
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -231,7 +231,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beize-disk-image
-          path: build/out/disk.img
+          path: build/out/desktop/disk.img
           retention-days: 7
       # The lists behind ci/digest.sh's digests: a difference from a local
       # build traced to its file (#5). Small text files.

@@ -34,16 +34,16 @@ os-release. Beides sind Varianten eines Baus, keine Forks.
   Dieselben Schlüssel (ADR 0006, 0015, 0020), dieselbe TPM-Bindung (ADR 0009/0010),
   dieselbe Wiederherstellung.
 - **Definition je Variante in `images/<variante>/`:**
-  - `packages.toml` – die Pakete; die von `desktop` heißt `extends = "base"` und nennt
-    nur, was dazukommt.
-  - `system.preset` – Presets; die des Desktops kommen vor denen der Basis, dürfen aber
-    keine Unit der Basis umschalten.
-  - `running-units.txt`, `security.toml` – was läuft und wie offen es ist; beim Desktop
-    jeweils nur die zusätzlichen Einträge.
+  - `variant.toml` – Name (`VARIANT=`) und Pakete. Beim Desktop steht dort
+    `extends = "base"`, und er nennt nur, was dazukommt.
+  - `system.preset`, `user.preset` – Presets der System- und Benutzer-Units (ADR 0013).
+  - `running-units.txt`, `security.toml` – was läuft und wie offen es ist.
 
-  Gemeinsam bleiben `images/initrd.toml` und `images/user.preset`.
-  `bz` liest bei `desktop` erst die Basis und dann die Ergänzungen. Es scheitert, wenn eine
-  Ergänzung etwas aus der Basis wiederholt oder ändert.
+  Beim Desktop stehen in diesen Dateien nur die Ergänzungen, und eine Datei ohne Ergänzung
+  fehlt. Gemeinsam bleibt `images/initrd.toml`. `bz` (`variant.rs`) liest erst die Basis und
+  dann die Ergänzungen. Es scheitert, wenn eine Ergänzung ein Paket, eine Unit oder einen
+  Eintrag der Basis wiederholt. Die Presets der Basis stehen vorn, und systemd nimmt die
+  erste passende Zeile, also kann der Desktop keine Unit der Basis umschalten.
 - **Kennung in os-release:** `VARIANT_ID=base|desktop` und `VARIANT=` (Feld der
   os-release-Spezifikation, wie bei Fedora). `ID` und `IMAGE_ID` bleiben `beize`. Die initrd
   bleibt ohne Variante, weil sie gemeinsam ist.
@@ -71,21 +71,14 @@ os-release. Beides sind Varianten eines Baus, keine Forks.
   Desktop-Pakete gibt, ist `desktop` die Basis mit `VARIANT_ID=desktop`. Rechner, also auch
   der des Besitzers, bekommen ab der ersten Version mit Varianten den Desktop-Strom und
   müssen später nicht wechseln. Die Basis baut ihre Pakete ohne ein Paket des Desktops und
-  besteht `bz smoke`.
-  Das prüft die CI bei jedem Push wie heute. Ein zweiter Job für `desktop` kommt mit dem
-  ersten Desktop-Paket. Er nutzt den Cache der Basis, kostet also nur die Desktop-Pakete,
-  das Image und den Smoke-Test. Je Variante gibt es ein eigenes Image unter
-  `build/out/<v>/` und eine eigene SBOM (ADR 0022).
-
-## Umsetzung in `bz`
-
-`tree::IMAGE_DEFINITION` und `usr.rs` (`UNIT_PRESETS`, `RUNNING_UNITS`) lesen die Variante,
-`security.rs` ebenso. `layout.rs` bekommt `os_release(version, variant)` und
-Release-Muster je Variante. Die Namen auf dem Rechner (`usr_label`, `uki_name`) bleiben.
-`vm/checks.rs` nimmt `running-units.txt` der Variante zur Laufzeit statt per
-`include_str!`. Dazu kommen `release.rs`, `sbom.rs` und in `os/beize-update` `list.rs`
-(Muster mit Variante). Die Einführung ändert für die Basis nichts: Image und Release von
-`base` sind bis auf `VARIANT_ID`/`VARIANT` und die Release-Namen gleich wie bisher.
+  besteht `bz smoke`. Das prüft die CI bei jedem Push (`ci/system.sh`), und dazu baut sie den
+  Desktop aus denselben Paketen. Je Variante gibt es ein eigenes Image unter
+  `build/out/<v>/` (dort auch `production/` und `release/`) und eine eigene SBOM (ADR 0022).
+  Kernel, Module und initrd liegen gemeinsam in `build/out/`.
+- **Die Einführung ändert an der Basis nichts:** Der `/usr`-Baum von `base` ist bitgleich
+  zum bisherigen Image (gemessen am 17.10.), und der von `desktop` ist es ebenfalls, solange
+  der Desktop nichts hinzufügt. Sie unterscheiden sich nur in `VARIANT`/`VARIANT_ID` in
+  os-release.
 
 ## Konsequenzen
 

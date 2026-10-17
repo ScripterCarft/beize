@@ -1,4 +1,4 @@
-# What runs is decided when the image is built (images/base.preset, ADR 0013)
+# What runs is decided when the image is built (images/*/system.preset, ADR 0013)
 # and enabled in /usr. The presets systemd applies therefore enable nothing;
 # /etc holds only the owner's changes.
 disable *

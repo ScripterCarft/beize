@@ -318,7 +318,7 @@ mod tests {
     /// Every source names its license and its products in the NVD (ADR 0022).
     #[test]
     fn every_source_has_license_and_cpe() {
-        let paths = Paths::new().unwrap();
+        let paths = Paths::new(crate::variant::DEFAULT).unwrap();
         for name in all_names(&paths).unwrap() {
             let recipe = Recipe::load(&paths, &name).unwrap();
             if recipe.source.is_none() && recipe.repo.is_empty() {

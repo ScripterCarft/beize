@@ -74,7 +74,7 @@ pub(super) fn secure_boot_update(paths: &Paths, installed: &Installed) -> Result
 /// Like someone appending their own certificate in the firmware setup.
 pub(super) fn foreign_db(paths: &Paths, installed: &Installed) -> Result<()> {
     let machine = installed.machine.copy_as(paths, "smoke-db")?;
-    let approved = paths.work.join("smoke-db-vars-approved.fd");
+    let approved = paths.variant_work.join("smoke-db-vars-approved.fd");
     fs::copy(&machine.vars, &approved)?;
     let foreign = foreign_certificate(paths)?;
     edit_firmware(
@@ -180,7 +180,7 @@ pub(super) fn unsigned_uki(paths: &Paths) -> Result<()> {
 /// result: enrollment from setup mode, then a healthy first boot, then one
 /// with an empty BIOS battery.
 pub(super) fn owner_workflow(paths: &Paths) -> Result<()> {
-    let dir = paths.work.join("owner-workflow");
+    let dir = paths.variant_work.join("owner-workflow");
     tree::remove(&dir)?;
     // What new-keys and sign tell the owner (files to commit, ...) is only
     // shown here when they fail.
@@ -251,7 +251,7 @@ fn empty_battery(machine: &Machine) -> Result<()> {
 
 /// A self-signed certificate that is in no profile.
 fn foreign_certificate(paths: &Paths) -> Result<PathBuf> {
-    let dir = paths.work.join("smoke-foreign");
+    let dir = paths.variant_work.join("smoke-foreign");
     fs::create_dir_all(&dir)?;
     let cert = dir.join("foreign.crt");
     util::output(

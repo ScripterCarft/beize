@@ -1,5 +1,5 @@
-//! How exposed the services in `/usr` are, against `images/security.toml`
-//! (see there): `systemd-analyze security` from Beize's own systemd, offline
+//! How exposed the services in `/usr` are, against the variant's
+//! `images/*/security.toml` (see `images/base/`): `systemd-analyze security` from Beize's own systemd, offline
 //! on the assembled tree. Like a ratchet: a service may only become better
 //! sandboxed, and the file always says how well it is.
 
@@ -9,38 +9,28 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 
 use crate::paths::Paths;
 use crate::say;
-use crate::tree;
 use crate::util;
 
-/// The measured exposure of Beize's services.
-pub const DEFINITION: &str = "images/security.toml";
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Definition {
-    exposure: BTreeMap<String, f64>,
-}
+/// Where the measured exposure of Beize's services stands, for messages.
+const DEFINITION: &str = "the variant's security.toml";
 
 /// Checks the services of the `/usr` tree under `root`.
 pub fn check(paths: &Paths, root: &Path) -> Result<()> {
-    let definition: Definition = tree::read_toml(&paths.root.join(DEFINITION))?;
+    let exposure = paths.variant.exposure()?;
     let units = root.join("usr/lib/systemd/system");
     let mut problems = Vec::new();
     for entry in fs::read_dir(&units)? {
         let name = entry?.file_name().to_string_lossy().into_owned();
-        if name.starts_with("beize-")
-            && name.ends_with(".service")
-            && !definition.exposure.contains_key(&name)
+        if name.starts_with("beize-") && name.ends_with(".service") && !exposure.contains_key(&name)
         {
             problems.push(format!("{name}: Beize's service has no entry"));
         }
     }
-    let measured = measure(paths, root, definition.exposure.keys())?;
-    for (unit, expected) in &definition.exposure {
+    let measured = measure(paths, root, exposure.keys())?;
+    for (unit, expected) in &exposure {
         let Some(actual) = measured.get(unit) else {
             problems.push(format!(
                 "{unit}: not in /usr, or systemd-analyze gave no value"
@@ -66,7 +56,7 @@ pub fn check(paths: &Paths, root: &Path) -> Result<()> {
     }
     say!(
         "  ok: {} services as sandboxed as {DEFINITION} says",
-        definition.exposure.len()
+        exposure.len()
     );
     Ok(())
 }
@@ -129,14 +119,5 @@ mod tests {
         assert_eq!(parsed["beize-accounts@x.service"], 1.7);
         assert_eq!(parsed["dbus.service"], 9.0);
         assert_eq!(parsed.len(), 2);
-    }
-
-    #[test]
-    fn repository_definition_parses() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(DEFINITION);
-        let definition: Definition = tree::read_toml(&path).unwrap();
-        assert!(definition.exposure.contains_key("beize-accounts@.service"));
     }
 }

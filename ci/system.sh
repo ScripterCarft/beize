@@ -14,9 +14,15 @@ echo "buildroot: $(cat /etc/beize-buildroot)"
 if [ "${VERIFY_SOURCES:-true}" = true ]; then
     ./bz verify
 fi
-# Free space after each step: a full build is close to what a runner has.
-./bz build --locked
+# The base on its own (ADR 0025): it builds and passes the smoke test without
+# a package of the desktop. Free space after each step: a full build is close
+# to what a runner has.
+./bz build --locked --variant base
 ci/digest.sh
 df -h .
-./bz smoke
+./bz smoke --variant base
+df -h .
+# The desktop on top, from the same packages; its smoke test comes with the
+# first package of its own.
+./bz build --locked --variant desktop
 df -h .

@@ -109,14 +109,14 @@ pub fn uki_path_on_esp(version: &str) -> String {
 
 /// The UKI before signing; kept for the Secure Boot rejection test.
 pub fn unsigned_uki(paths: &Paths) -> PathBuf {
-    paths.out.join(UNSIGNED_UKI)
+    paths.image.join(UNSIGNED_UKI)
 }
 
 const UNSIGNED_UKI: &str = "beize.unsigned.efi";
 
 /// Where `bz sign` puts the boot chain and disk image for real hardware.
 pub fn production_dir(paths: &Paths) -> PathBuf {
-    paths.out.join("production")
+    paths.image.join("production")
 }
 
 /// ukify from Beize's own systemd build, using systemd-measure from the same
@@ -151,10 +151,11 @@ fn ukify(paths: &Paths) -> Result<Command> {
     Ok(cmd)
 }
 
-/// Builds the boot chain, signs it with the test keys and writes `out/disk.img`.
+/// Builds the variant's boot chain, signs it with the test keys and writes
+/// `out/<variant>/disk.img`.
 pub fn build(paths: &Paths) -> Result<PathBuf> {
     let microcode = microcode::build(paths)?;
-    let disk = paths.out.join("disk.img");
+    let disk = paths.image.join("disk.img");
     let mut inputs = Fingerprint::new()?;
     for built in ["vmlinuz", "kernel.release", "initrd.cpio.zst"] {
         inputs = inputs.file(&paths.out.join(built))?;
@@ -163,7 +164,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
         .tree(&initrd::modules_tree(paths))?
         .file(&microcode)?
         // The /usr tree, by the fingerprint of the step that assembled it.
-        .file(&stamp::file(paths, usr::STAMP))?
+        .file(&stamp::file(paths, &usr::stamp_name(paths)))?
         .tree(&paths.sysroot.join("usr/lib/systemd/boot/efi"))?
         .file(&paths.sysroot.join("usr/lib/beize-build/ukify"))?
         .tree(&secureboot::microsoft_dir(paths))?;
@@ -180,20 +181,20 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     }
     let stamp = Stamp::new(
         paths,
-        "image",
+        &format!("image-{}", paths.variant.id),
         inputs,
-        &[&disk, &unsigned_uki(paths), &paths.out.join("beize.efi")],
+        &[&disk, &unsigned_uki(paths), &paths.image.join("beize.efi")],
     );
     // The SBOM always: its inputs (recipes' metadata, the buildroot) are not
     // the image's, and writing it takes a moment.
-    sbom::write(paths, layout::OS_VERSION, &paths.out.join(sbom::FILE))?;
+    sbom::write(paths, layout::OS_VERSION, &paths.image.join(sbom::FILE))?;
     if stamp.is_current() {
         say!("  disk image is up to date");
         return Ok(disk);
     }
     stamp.clear()?;
     let keys = secureboot::Keys::test(paths, PROFILE)?;
-    let disk = assemble(paths, &keys, layout::OS_VERSION, &paths.out, Target::Vm)?;
+    let disk = assemble(paths, &keys, layout::OS_VERSION, &paths.image, Target::Vm)?;
     stamp.write()?;
     Ok(disk)
 }
@@ -244,7 +245,7 @@ pub fn boot_chain(
 
     util::step("Building Unified Kernel Image");
     let os_release = out.join("os-release");
-    fs::write(&os_release, layout::os_release(version))?;
+    fs::write(&os_release, layout::os_release(version, &paths.variant))?;
     let unsigned_uki = out.join(UNSIGNED_UKI);
     let (pcr_private, pcr_public) = keys.pcr_key();
     let profile = profile_initrd(keys, out)?;

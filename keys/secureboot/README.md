@@ -67,7 +67,7 @@ module signing key“ im Tresor; ohne `module.crt` verweigert `bz sign` das Sign
 
 ```sh
 ./bz build
-./bz sign      # → build/out/production/disk.img
+./bz sign      # → build/out/desktop/production/disk.img
 ```
 
 Braucht nur db-, PCR- und Modul-Schlüssel (1Password fragt per Windows Hello) und

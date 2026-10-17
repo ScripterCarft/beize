@@ -8,6 +8,8 @@
 
 use anyhow::{Result, ensure};
 
+use crate::variant::Variant;
+
 pub const MIB: u64 = 1024 * 1024;
 
 /// Version of the OS image; part of partition labels and UKI names.
@@ -81,12 +83,16 @@ pub fn blessed_uki_name(version: &str) -> String {
 }
 
 /// The os-release of `/usr` and of the UKI. systemd-sysupdate takes the
-/// running version from `IMAGE_VERSION` (ADR 0020).
-pub fn os_release(version: &str) -> String {
+/// running version from `IMAGE_VERSION` (ADR 0020); the variant is
+/// `VARIANT_ID`, as Fedora's editions (ADR 0025).
+pub fn os_release(version: &str, variant: &Variant) -> String {
     format!(
         "{}PRETTY_NAME=\"Beize {version} (Entwicklungsversion)\"\n\
-         VERSION_ID={version}\nIMAGE_VERSION={version}\n",
-        initrd_release()
+         VERSION_ID={version}\nIMAGE_VERSION={version}\n\
+         VARIANT=\"{}\"\nVARIANT_ID={}\n",
+        initrd_release(),
+        variant.name,
+        variant.id
     )
 }
 
@@ -257,7 +263,10 @@ mod tests {
         assert_eq!(usr_label("0.2"), "beize_0.2");
         assert_eq!(uki_name("0.2"), "beize_0.2+3.efi");
         assert_eq!(blessed_uki_name("0.2"), "beize_0.2.efi");
-        assert!(os_release("0.2").contains("\nIMAGE_VERSION=0.2\n"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let release = os_release("0.2", &Variant::load(&root, "desktop").unwrap());
+        assert!(release.contains("\nIMAGE_VERSION=0.2\n"));
+        assert!(release.contains("\nVARIANT=\"Desktop\"\nVARIANT_ID=desktop\n"));
         assert!(!initrd_release().contains("VERSION"));
     }
 

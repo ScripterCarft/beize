@@ -322,6 +322,13 @@ mod tests {
             sysroot: dir.join("sysroot"),
             manifests: dir.join("manifests"),
             out: dir.join("out"),
+            variant: crate::variant::Variant::load(
+                &Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+                crate::variant::DEFAULT,
+            )
+            .unwrap(),
+            image: dir.join("out/desktop"),
+            variant_work: dir.join("work/variant-desktop"),
         };
         fs::create_dir_all(paths.sysroot.join("usr/lib/pkgconfig")).unwrap();
         fs::create_dir_all(paths.sysroot.join("usr/bin")).unwrap();

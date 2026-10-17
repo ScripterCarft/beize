@@ -1,0 +1,11 @@
+# The desktop (ADR 0025): the base and the user interface on top – Beize
+# for a computer, what `bz` builds unless told otherwise. It only adds to
+# the base: packages here, presets in system.preset, what runs in
+# running-units.txt and its exposure in security.toml, each for what this
+# variant brings; a file without additions is left out.
+
+# VARIANT= in os-release.
+name = "Desktop"
+extends = "base"
+
+packages = []

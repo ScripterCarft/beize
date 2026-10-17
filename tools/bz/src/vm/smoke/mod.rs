@@ -377,7 +377,7 @@ fn install(paths: &Paths) -> Result<Installed> {
     // the one every later boot is like.
     show_slowest_units(&second)?;
     check_boot_budget(&second.report)?;
-    check_units(&second.console)?;
+    check_units(&second.console, &paths.variant.running_units()?)?;
     ensure!(
         second.report.machine_id == first.report.machine_id,
         "machine ID changed between boots ({} -> {}): the root partition did not persist",

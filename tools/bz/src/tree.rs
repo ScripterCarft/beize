@@ -6,7 +6,6 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 
 use crate::install;
 use crate::packages::{self, BUILD_EPOCH};
@@ -16,37 +15,25 @@ use crate::say;
 use crate::stamp::Fingerprint;
 use crate::util;
 
-/// The image definition of `/usr`.
-pub const IMAGE_DEFINITION: &str = "images/base.toml";
-
-/// `images/base.toml`: which packages go into the `/usr` image. Target
-/// dependencies (glibc, ...) are included automatically.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ImageDefinition {
-    pub packages: Vec<String>,
-}
-
-pub fn image_definition(paths: &Paths) -> Result<ImageDefinition> {
-    read_toml(&paths.root.join(IMAGE_DEFINITION))
-}
-
 pub fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 /// What a tree assembled from `recipes` and the repository's `system/<own>`
-/// files depends on: its definition (relative to the repository), the build
+/// files depends on: its definition files, the build
 /// of every package (including the toolchain that strips them), what each
 /// recipe's `[files]` lets in, and those files.
 pub fn assembly_inputs(
     paths: &Paths,
-    definition: &str,
+    definitions: &[PathBuf],
     recipes: &[Recipe],
     own: &str,
 ) -> Result<Fingerprint> {
-    let mut inputs = Fingerprint::new()?.file(&paths.root.join(definition))?;
+    let mut inputs = Fingerprint::new()?;
+    for definition in definitions {
+        inputs = inputs.file(definition)?;
+    }
     for recipe in recipes {
         inputs = inputs
             .text(&format!(
@@ -264,12 +251,5 @@ mod tests {
             lexical(Path::new("/usr/lib/systemd/../../lib")),
             Path::new("usr/lib")
         );
-    }
-
-    #[test]
-    fn repository_image_definition_parses() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../images/base.toml");
-        let def: ImageDefinition = read_toml(&path).unwrap();
-        assert!(def.packages.contains(&"systemd".to_owned()));
     }
 }

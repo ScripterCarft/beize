@@ -751,7 +751,7 @@ mod tests {
     /// rebuilds the whole system (and invalidates every CI cache).
     #[test]
     fn recipes_without_repo_sources_keep_their_fingerprint() {
-        let paths = Paths::new().unwrap();
+        let paths = Paths::new(crate::variant::DEFAULT).unwrap();
         let recipe = Recipe::parse("name = \"a\"\nversion = \"1\"\n").unwrap();
         let digest = repo_digest(&paths, &recipe).unwrap();
         assert_eq!(digest, "");

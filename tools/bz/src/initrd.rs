@@ -48,8 +48,13 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     let stamp = Stamp::new(
         paths,
         "initrd",
-        tree::assembly_inputs(paths, select::DEFINITION, &recipes, "initrd")?
-            .tree(&kernel.modules)?,
+        tree::assembly_inputs(
+            paths,
+            &[paths.root.join(select::DEFINITION)],
+            &recipes,
+            "initrd",
+        )?
+        .tree(&kernel.modules)?,
         &[&image, &modules_root],
     );
     if stamp.is_current() {

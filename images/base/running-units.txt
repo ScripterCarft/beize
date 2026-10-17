@@ -2,7 +2,7 @@
 # active services, sockets, timers and paths after the second boot of
 # `bz smoke`. The test requires exactly these – a unit that appears or
 # disappears (a new systemd release, a changed default) is a decision:
-# enable or disable it in images/base.preset with the reason, then update
+# enable or disable it in system.preset with the reason, then update
 # this list. Sockets are listening only; their service starts on demand.
 
 # Beize: the boot report (only with the test credential), time with NTS, the

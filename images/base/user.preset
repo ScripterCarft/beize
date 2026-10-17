@@ -1,5 +1,5 @@
 # Which user units of the image are enabled for every user (ADR 0013), as
-# images/base.preset for the system: the first matching line wins, so this
+# system.preset for the system: the first matching line wins, so this
 # file overrides systemd's defaults – only with a reason.
 
 # The session bus: dbus-broker (#32), as for the system.
