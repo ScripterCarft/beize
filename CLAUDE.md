@@ -308,7 +308,8 @@ nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 `measure/nvk-0.5.92`); der Updater nimmt nur Neueres, daher 0.6 als nächste Version von
 `main`. „(Basis)“ zeigt `VARIANT_ID=desktop` – richtig, dasselbe `/usr` mit anderem
 systemd-Ziel (ADR 0025, erklärt in `keys/secureboot/README.md`). **Zu Beginn des nächsten
-Chats:** den CI-Lauf des 0.6-Commits und den nächtlichen vollen Lauf prüfen.
+Chats:** den CI-Lauf des lavapipe-Commits prüfen (baut LLVM zum ersten Mal, ~30 min mehr)
+und den nächtlichen vollen Lauf.
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
 1. **M3-Grafik nach ADR 0027 (angenommen 17.10.).** Compositor = Shell auf Smithay, nur
@@ -322,11 +323,19 @@ Chats:** den CI-Lauf des 0.6-Commits und den nächtlichen vollen Lauf prüfen.
    Die Probe (Tag) wählt Modus, rendert Compositor-Last per Compute, misst Pacing und
    GPU-Zeit; ihr Renderer und der KMS-Weg sind die Vorlage für Schritt 2.
 
-   **Jetzt: Schritt 2** – lavapipe (LLVM im Image) als Vulkan ohne GPU für VM und CI, dann
-   das Compositor-Gerüst auf Smithay (`os/beize-compositor`): KMS atomar, libinput,
-   Vulkan-Renderer, ein Fenster eines Testclients, Smoke-Test mit Screenshot-Vergleich.
-   ADR-Abschnitt Reihenfolge vorab mit dem Besitzer abstimmen (LLVM-Bauzeit, Bundling der
-   Buildroot-Änderung).
+   **lavapipe ist fertig (17.10.):** LLVM 23.1.3 (`recipes/llvm.toml`, nur x86, ein
+   `libLLVM.so`), Mesa baut NVK + lavapipe, `/usr` 159 MiB. Im Sysroot geprüft (Compute-
+   Shader über den JIT); in der VM noch nicht – das leistet der Compositor-Smoke-Test.
+   Nutzen und Kosten sind dem Besitzer genannt (Tests ohne GPU, Rückfall wie WARP;
+   +40 MiB, ~30 min CI im Lauf von null); er ließ weitermachen.
+
+   **Jetzt: Compositor-Gerüst** auf Smithay (`os/beize-compositor`, ADR 0027 Schritt 2):
+   KMS atomar wie die Probe, libinput, Sitzung über logind/libseat (Compositor als
+   Nutzer, nicht root), eigener Vulkan-Renderer für Smithays `Renderer`-Schnittstelle,
+   ein Fenster eines Testclients, Start nach der Anmeldung auf dem tty per systemd-Unit.
+   Smoke-Test in der VM (virtio-gpu, lavapipe) mit Screenshot-Vergleich. Vor dem Code die
+   Eckpunkte (Sitzung, Start, Testclient, Screenshot-Weg) kurz mit dem Besitzer abstimmen.
+   Danach erster Hardware-Test beim Besitzer: Compositor auf NVK mit 144 Hz, Maus, Tastatur.
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34

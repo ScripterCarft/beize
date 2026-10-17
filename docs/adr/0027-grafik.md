@@ -99,9 +99,8 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 
 ## Reihenfolge
 
-1. **Mesa** in `images/desktop/`: NVK, dazu libdrm, Wayland, Vulkan-Loader; lavapipe
-   (braucht LLVM im Image) mit Schritt 2. Kernel: nouveau, GSP-Firmware. Messung nach
-   Abschnitt 4. Umgesetzt 2026-10-17:
+1. **Mesa** in `images/desktop/`: NVK und lavapipe, dazu libdrm, Wayland, Vulkan-Loader.
+   Kernel: nouveau, GSP-Firmware. Messung nach Abschnitt 4. Umgesetzt 2026-10-17:
    - mesa-clc (übersetzt NVKs OpenCL-C beim Bau) läuft auf der Baumaschine mit LLVM 22 aus
      dem Buildroot; im Image ist kein LLVM. NVK baut in 50 s. Rust in Meson-Projekten
      über die Cross-Datei von `bz`; Mesas Crates prüft `bz` gegen Mesas Wraps
@@ -113,20 +112,31 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
    - NVKs Compiler ist Rust, also ohne CET (ADR 0014): Jeder Prozess, der NVK lädt, läuft
      ohne Shadow Stack, bis Rust CET stabil erzeugt. Fedora hat denselben Stand.
    - Mesa ist das erste C++ im Image: libstdc++ und der Demangler von elfutils (ADR 0023).
+   - **lavapipe** mit LLVM 23.1.3 als JIT: nur das x86-Backend, ein `libLLVM.so` (94 MB,
+     wie Fedora eine Bibliothek), kein clang, keine Werkzeuge. `/usr` wächst um 40 MiB
+     auf 159 MiB. Bau lokal 10 min, auf dem CI-Runner (4 Kerne) geschätzt 30 min, nur bei
+     neuem LLVM, neuem Buildroot und im wöchentlichen Lauf von null. Zwei Stolpersteine:
+     LLVMs C++ braucht bis 1,5 GiB je Compiler, das Rezept begrenzt die Zahl nach dem
+     Speicherlimit (24 auf 16 GiB liefen in den Speicherdruck, 45 min je Datei); CMake
+     übergibt `CFLAGS` nicht an den Assembler, ohne `CMAKE_ASM_FLAGS` fehlte BLAKE3s
+     Assembler das CET-Kennzeichen und damit libLLVM. Mesa findet LLVM über seinen
+     dokumentierten „binary wrap“ statt `llvm-config`, das auf der Baumaschine nicht läuft.
+     Geprüft: Compute-Shader über den JIT im Sysroot („llvmpipe (LLVM 23.1.3, 256 bits)“,
+     Vulkan 1.4); in der VM prüft es der Smoke-Test des Compositors (Schritt 2).
 2. **Compositor-Gerüst:** KMS, libinput, Vulkan-Renderer, ein Fenster eines Testclients.
    Smoke-Test mit lavapipe, Screenshot-Vergleich.
 3. **Beize UI:** Text, Layout, erstes eigenes Fenster; das Terminal als erste App.
 4. **Shell:** Taskleiste (Dock- oder Windows-Stil vorher entscheiden), Glas, Icons.
 
-Mit dem ersten C++-Programm (Mesa/LLVM) den Demangler von elfutils einschalten (ADR 0023).
-
 ## Konsequenzen
 
 - Mehr eigener Code als bisher: Renderer, Toolkit, Shell. Das ist Beizes Kern laut VISION,
   der Rest bleibt Upstream.
-- LLVM macht den Bau von null deutlich länger; die CI baut es nur bei Änderungen
-  (Cache wie beim Kernel).
-- lavapipe macht die Oberfläche in jedem Smoke-Test prüfbar, ohne GPU im Runner.
+- LLVM verlängert den Bau von null um rund 30 min auf dem Runner; sonst kommt es aus dem
+  Cache wie der Kernel.
+- lavapipe macht die Oberfläche in jedem Smoke-Test prüfbar, ohne GPU im Runner, und ist
+  Rückfall für Rechner ohne Vulkan-Treiber in Beize (VMs ohne 3D, bisher Intel und AMD),
+  wie WARP unter Windows.
 - NVK folgt dem Kernel von selbst; die Kernel-Version hängt nicht an NVIDIA.
 - `beize-gpu-probe` liegt im Tag `measure/nvk-0.5.92`: nach großen Mesa- oder
   Kernel-Sprüngen dieselbe Messung wiederholen.

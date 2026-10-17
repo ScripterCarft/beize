@@ -50,6 +50,7 @@ Prüfen aller Quellen: `./bz verify`
 | `linux` | Greg Kroah-Hartman | `647F 2865 4894 E3BD 4571 99BE 38DB BDC8 6092 693E` | WKD kernel.org |
 | `linux-firmware` | Josh Boyer | `4CDE 8575 E547 BF83 5FE1 5807 A31B 6BD7 2486 CFD6` | keyserver.ubuntu.com |
 | `linux-pam` | Dmitry V. Levin | `7BEC FE3A F7B2 80BB 52FF 77F1 04BA 4521 C996 DDE1` | keyserver.ubuntu.com; signiert mit Unterschlüssel `FB3D CD19 FF87 4735 E4F6 1CE6 4E9F E852 2F16 0EC2` |
+| `llvm` | Die gültigen Release-Manager aus `releases.llvm.org/release-keys.asc`; 23.1.3 signiert Tobias Hieta | `D574 BD5D 1D0E 9889 5E3B F900 44F2 485E 45D5 9042` (Hieta); dazu Hans Wennborg, Omair Javaid, Cullen Rhodes, Douglas Yung | releases.llvm.org über HTTPS; Hieta deckungsgleich mit keyserver.ubuntu.com |
 | `lvm2` | Marian Csontos | `D501 A478 440A E2FD 130A 1BE8 B911 2431 E509 039F` | keys.openpgp.org |
 | `mesa` | Eric Engestrom (Release-Manager) | `5755 1DE1 5B96 8F63 41C2 48F6 8D8E 31AF C324 28A6` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org; die Rust-Crates für NVK pinnt Mesas signiertes Archiv mit SHA-256 (`subprojects/*.wrap`) |
 | `mpc` | Andreas Enge | `AD17 A21E F8AE D8F1 CC02 DBD9 F7D5 C9BF 765C 61E3` | GNU-Keyring |

@@ -1,18 +1,19 @@
-# Mesa: the GPU drivers for Vulkan (ADR 0027). For now NVK alone, Mesa's
-# Vulkan driver for NVIDIA (Turing and newer, through the GSP firmware the
-# nouveau kernel driver loads) – as Fedora Workstation ships it. Vulkan
-# only: no OpenGL, EGL or GBM until something in Beize needs them (OpenGL
-# will come through zink, as Mesa does for NVK). The Wayland surface for
-# applications; drirc for per-application driver settings.
+# Mesa: the GPU drivers for Vulkan (ADR 0027). NVK, Mesa's Vulkan driver
+# for NVIDIA (Turing and newer, through the GSP firmware the nouveau kernel
+# driver loads) – as Fedora Workstation ships it; and lavapipe, Vulkan on
+# the CPU, for machines without a Vulkan GPU (VMs, CI) as Windows has WARP.
+# Vulkan only: no OpenGL, EGL or GBM until something in Beize needs them
+# (OpenGL will come through zink, as Mesa does for NVK). The Wayland
+# surface for applications; drirc for per-application driver settings.
 name = "mesa"
 version = "26.2.5"
 stage = "target"
 # mesa-clc: NVK's OpenCL C kernels, compiled while building. expat:
 # drirc (xmlconfig). zstd: the shader cache, compressed as Fedora's.
 # gcc-runtime: libstdc++ of the C++ parts. elfutils: NVK reads the ELF
-# images of its shaders with libelf.
+# images of its shaders with libelf. llvm: lavapipe's JIT.
 deps = ["gcc", "glibc", "gcc-runtime", "libdrm", "wayland", "wayland-protocols",
-        "wayland-scanner", "mesa-clc", "expat", "zlib", "zstd", "elfutils"]
+        "wayland-scanner", "mesa-clc", "expat", "zlib", "zstd", "elfutils", "llvm"]
 
 [source]
 latest = { release-monitoring = 1970 }
@@ -82,12 +83,29 @@ for wrap in "$SRC"/subprojects/*-rs.wrap; do
     cp -r "$SRC/subprojects/packagefiles/$(basename "$wrap" .wrap)/." "$SRC/subprojects/$dir/"
   fi
 done
+# LLVM as Mesa's "binary wrap" (docs/meson.rst) instead of llvm-config,
+# which is a program for Beize and cannot run on the build machine: the
+# shared libLLVM and its headers from the sysroot, with LLVM's own
+# preprocessor flags (what llvm-config --cppflags names).
+llvm_version=$(sed -n 's/^#define LLVM_VERSION_STRING "\(.*\)"$/\1/p' \
+  "$SYSROOT/usr/include/llvm/Config/llvm-config.h")
+mkdir -p "$SRC/subprojects/llvm"
+cat > "$SRC/subprojects/llvm/meson.build" <<MESON
+project('llvm', ['cpp'], version : '$llvm_version')
+dep_llvm = declare_dependency(
+  dependencies : meson.get_compiler('cpp').find_library('LLVM'),
+  compile_args : ['-D_GNU_SOURCE', '-D__STDC_CONSTANT_MACROS',
+                  '-D__STDC_FORMAT_MACROS', '-D__STDC_LIMIT_MACROS'],
+  version : meson.project_version(),
+)
+has_rtti = true
+MESON
 meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
   -Dbuild.pkg_config_path="$TOOLS/lib/pkgconfig" \
   --prefix=/usr --libdir=/usr/lib --buildtype=release -Db_ndebug=true \
-  -Dauto_features=disabled --wrap-mode=nodownload \
-  -Dplatforms=wayland -Dvulkan-drivers=nouveau -Dgallium-drivers= \
-  -Dmesa-clc=system -Dllvm=disabled \
+  -Dauto_features=disabled --wrap-mode=nodownload --force-fallback-for=llvm \
+  -Dplatforms=wayland -Dvulkan-drivers=nouveau,swrast -Dgallium-drivers= \
+  -Dmesa-clc=system -Dllvm=enabled -Dshared-llvm=enabled \
   -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled \
   -Dxmlconfig=enabled -Dexpat=enabled -Dzstd=enabled -Dshader-cache=enabled \
   -Dvulkan-layers= -Dtools= -Dvideo-codecs= -Dbuild-tests=false
@@ -102,7 +120,9 @@ cpe = ["cpe:2.3:a:mesa3d:mesa"]
 
 [files]
 image = [
+  "usr/lib/libvulkan_lvp.so",
   "usr/lib/libvulkan_nouveau.so",
   "usr/share/drirc.d/**",
+  "usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
   "usr/share/vulkan/icd.d/nouveau_icd.x86_64.json",
 ]
