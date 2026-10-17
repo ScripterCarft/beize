@@ -59,6 +59,7 @@ enum Scenario {
     EmergencyGate,
     Privileges,
     Recovery,
+    WithoutAdditions,
     Update,
     BrokenUpdate,
 }
@@ -67,13 +68,15 @@ use Scenario::*;
 
 /// What starts right away; the longest first, so they finish together.
 const INDEPENDENT: [Scenario; 3] = [CorruptedUsr, OwnerKeys, UnsignedUki];
-/// What starts from a copy of the installation once [`Install`] passed.
-const ON_THE_INSTALLATION: [Scenario; 10] = [
+/// What starts from a copy of the installation once [`Install`] passed
+/// (those that [`Scenario::applies`] to the variant).
+const ON_THE_INSTALLATION: [Scenario; 11] = [
     BrokenUpdate,
     Update,
     OtherTpm,
     EmergencyGate,
     Recovery,
+    WithoutAdditions,
     Privileges,
     ForeignDb,
     SecureBootUpdate,
@@ -107,6 +110,9 @@ impl Scenario {
             Recovery => {
                 "The recovery in the boot menu opens a root shell with the recovery key only"
             }
+            WithoutAdditions => {
+                "The start without the desktop runs exactly the base, with the recovery key"
+            }
             Privileges => {
                 "The owner gets root with run0 and their password only; no file grants privileges"
             }
@@ -117,6 +123,11 @@ impl Scenario {
                 "An update that does not start falls back to the previous version after its last try"
             }
         }
+    }
+
+    /// Whether the scenario tests something the variant has.
+    fn applies(self, paths: &Paths) -> bool {
+        self != WithoutAdditions || paths.variant.extended().is_some()
     }
 
     fn run(self, smoke: &Smoke) -> Result<()> {
@@ -138,6 +149,7 @@ impl Scenario {
             EmergencyGate => access::emergency_gate(paths, smoke.installed()?),
             Privileges => access::privileges(paths, smoke.installed()?),
             Recovery => access::recovery(paths, smoke.installed()?),
+            WithoutAdditions => access::without_additions(paths, smoke.installed()?),
             Update => updates::update(paths, &smoke.test_keys, smoke.installed()?),
             BrokenUpdate => updates::broken_update(paths, &smoke.test_keys, smoke.installed()?),
         }
@@ -266,7 +278,10 @@ impl Smoke<'_> {
             eprintln!("{line}");
         }
         if passed && scenario == Install && !self.quick {
-            state.waiting.extend(ON_THE_INSTALLATION);
+            let applying = ON_THE_INSTALLATION
+                .into_iter()
+                .filter(|s| s.applies(self.paths));
+            state.waiting.extend(applying);
         }
         state.running -= 1;
         state.done.push((scenario, took, passed));
@@ -291,7 +306,10 @@ impl Smoke<'_> {
             }
         }
         if !self.quick && self.installed.get().is_none() {
-            for scenario in ON_THE_INSTALLATION {
+            for scenario in ON_THE_INSTALLATION
+                .into_iter()
+                .filter(|s| s.applies(self.paths))
+            {
                 say!("  {:<6}        {}", "-", scenario.title());
             }
         }

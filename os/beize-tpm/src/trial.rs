@@ -55,7 +55,8 @@ pub fn restart() -> Option<u32> {
 
 fn decide(entries: &[String], selected: &[String], count_path: &[String]) -> Option<u32> {
     let selected = selected.first()?;
-    // Another profile of the UKI: the recovery.
+    // Another profile of the UKI: the recovery or the start without the
+    // desktop, which the owner chose and which needs the recovery key.
     if selected.contains('@') || !selected.starts_with(ENTRY_PREFIX) {
         return None;
     }

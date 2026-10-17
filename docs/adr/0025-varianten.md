@@ -65,12 +65,23 @@ os-release. Beides sind Varianten eines Baus, keine Forks.
   wie bei Windows Server Core seit 2016. Ein späterer Weg dafür wäre eine eigene
   Entscheidung.
 - **Start ohne Oberfläche auf jedem Desktop-Rechner:** Das UKI des Desktops bekommt neben
-  der Wiederherstellung ein drittes Profil, „(ohne Oberfläche)“, mit
-  `systemd.unit=multi-user.target`. Units des Desktops hängen nur unter
-  `graphical.target`, also läuft dort genau die Basis, mit Netz, Konten und Updates. So
-  lässt sich klären, ob ein Fehler aus der Basis oder aus dem Desktop kommt, ohne neu zu
-  installieren. Vorbild ist der abgesicherte Modus von Windows und macOS. Die TPM-Bindung
-  bleibt wie beim normalen Start, denn es läuft dasselbe signierte System.
+  der Wiederherstellung ein drittes Profil, „(Basis)“ (Profil 2), mit
+  `systemd.unit=multi-user.target`. Es ist dasselbe signierte UKI und dasselbe
+  verifizierte `/usr`, kein eigener Kernel und kein eigenes Image, nur ein anderes
+  systemd-Ziel. Units des Desktops hängen nur unter `graphical.target`, also läuft dort
+  genau die Basis, mit Netz, Konten und Updates. So lässt sich klären, ob ein Fehler aus
+  der Basis oder aus dem Desktop kommt, ohne neu zu installieren. Vorbild ist der
+  abgesicherte Modus von Windows und macOS.
+- **Vorerst mit dem Recovery-Key** (Besitzer, 17.10.): Die Daten sind an PCR 7 und 12
+  eines normalen Starts gebunden (ADR 0009/0010). Ein anderes Profil verändert PCR 12
+  (`@2`), also verweigert das TPM. `beize-tpm` erkennt Profil 2 wie die Recovery als
+  legitim, fragt nach dem Recovery-Key und bindet danach nichts neu. Seine
+  PCR-11-Richtlinie ist signiert wie die von Beize selbst. Das braucht systemd, um die
+  NvPCRs des TPM einzurichten (sonst schlagen systemd-tpm2-setup-early und
+  systemd-pcrproduct fehl, gemessen am 17.10.). Die Daten öffnet das nicht, denn ihr
+  Schlüssel hängt zusätzlich an PCR 12. Ob es einen eigenen TPM-Schlüssel bekommt,
+  wird erst entschieden, wenn PCR-Richtlinie, Wiederherstellung bei misslungenem
+  Neubinden und Tests beschrieben und freigegeben sind.
 - **`bz` und CI erzwingen die Richtung:** `bz build|smoke|release --variant <v>`, Vorgabe
   `desktop`, denn das ist Beize für einen Rechner. `base` gibt man ausdrücklich an. Bis es
   Desktop-Pakete gibt, ist `desktop` die Basis mit `VARIANT_ID=desktop`. Rechner, also auch

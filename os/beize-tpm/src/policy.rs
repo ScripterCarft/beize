@@ -65,12 +65,17 @@ pub enum Boot {
     /// The UKI's recovery profile (ADR 0018), nothing added. Its PCR 11 has
     /// no signed policy: only the recovery key opens the data.
     Recovery,
+    /// The desktop's start without its additions, `(Basis)` (ADR 0025),
+    /// nothing added. The data is bound to the PCR 12 of an ordinary start:
+    /// only the recovery key opens it.
+    WithoutAdditions,
     /// Something was added (kernel parameters, credentials, add-ons).
     Changed,
 }
 
-/// The UKI profile of the recovery (image.rs builds it as profile 1).
+/// The UKI profiles besides Beize's own (image.rs builds them in this order).
 const RECOVERY_PROFILE: &str = "1";
+const WITHOUT_ADDITIONS_PROFILE: &str = "2";
 
 /// Reads PCR 12: what systemd-boot and systemd-stub add to the UKI's own
 /// measurements (kernel parameters from SMBIOS or the boot loader,
@@ -81,18 +86,27 @@ const RECOVERY_PROFILE: &str = "1";
 pub fn boot(pcr12: [u8; 32]) -> Boot {
     let separator: [u8; 32] = Sha256::digest(OS_SEPARATOR).into();
     let unchanged = [0u8; 32];
-    let options = format!("@{RECOVERY_PROFILE}");
-    let recovery = eventlog::extend(
-        eventlog::extend(unchanged, Sha256::digest(utf16z(&options)).into()),
-        Sha256::digest(utf16z(RECOVERY_PROFILE)).into(),
-    );
-    if pcr12 == unchanged || pcr12 == eventlog::extend(unchanged, separator) {
+    // PCR 12 before and after the separator.
+    let is = |value: [u8; 32]| pcr12 == value || pcr12 == eventlog::extend(value, separator);
+    if is(unchanged) {
         Boot::Unchanged
-    } else if pcr12 == recovery || pcr12 == eventlog::extend(recovery, separator) {
+    } else if is(profile_pcr12(RECOVERY_PROFILE)) {
         Boot::Recovery
+    } else if is(profile_pcr12(WITHOUT_ADDITIONS_PROFILE)) {
+        Boot::WithoutAdditions
     } else {
         Boot::Changed
     }
+}
+
+/// PCR 12 after systemd-boot started UKI profile `number` with nothing
+/// added: its load options `@<number>`, then the number from systemd-stub.
+fn profile_pcr12(number: &str) -> [u8; 32] {
+    let options = format!("@{number}");
+    eventlog::extend(
+        eventlog::extend([0u8; 32], Sha256::digest(utf16z(&options)).into()),
+        Sha256::digest(utf16z(number)).into(),
+    )
 }
 
 /// UTF-16LE with the terminating NUL: how systemd-boot and systemd-stub
@@ -301,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn the_recovery_profile_is_known_and_nothing_else() {
+    fn the_two_profiles_are_known_and_nothing_else() {
         let separator: [u8; 32] = Sha256::digest(OS_SEPARATOR).into();
         // systemd-boot's load options "@1", then systemd-stub's profile
         // number "1", each as UTF-16LE with NUL.
@@ -312,14 +326,27 @@ mod tests {
         let recovery = profile(&[0x40, 0, 0x31, 0, 0, 0], &[0x31, 0, 0, 0]);
         assert_eq!(boot(recovery), Boot::Recovery);
         assert_eq!(boot(eventlog::extend(recovery, separator)), Boot::Recovery);
+        let base = profile(&[0x40, 0, 0x32, 0, 0, 0], &[0x32, 0, 0, 0]);
+        assert_eq!(boot(base), Boot::WithoutAdditions);
         assert_eq!(
-            boot(profile(&[0x40, 0, 0x32, 0, 0, 0], &[0x32, 0, 0, 0])),
+            boot(eventlog::extend(base, separator)),
+            Boot::WithoutAdditions
+        );
+        // A profile Beize does not build, or numbers that do not match.
+        assert_eq!(
+            boot(profile(&[0x40, 0, 0x33, 0, 0, 0], &[0x33, 0, 0, 0])),
+            Boot::Changed
+        );
+        assert_eq!(
+            boot(profile(&[0x40, 0, 0x32, 0, 0, 0], &[0x31, 0, 0, 0])),
             Boot::Changed
         );
         let without_options = eventlog::extend([0u8; 32], Sha256::digest([0x31, 0, 0, 0]).into());
         assert_eq!(boot(without_options), Boot::Changed);
-        let added = eventlog::extend(recovery, Sha256::digest(b"systemd.debug_shell").into());
-        assert_eq!(boot(added), Boot::Changed);
+        for start in [recovery, base] {
+            let added = eventlog::extend(start, Sha256::digest(b"systemd.debug_shell").into());
+            assert_eq!(boot(added), Boot::Changed);
+        }
     }
 
     #[test]

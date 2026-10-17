@@ -18,6 +18,7 @@ use crate::packages::BUILD_EPOCH;
 use crate::paths::Paths;
 use crate::say;
 use crate::stamp::{Fingerprint, Stamp};
+use crate::variant::Variant;
 use crate::{initrd, kernel, microcode, sbom, secureboot, stamp, tree, usr, util};
 
 const SECTOR: u64 = 512;
@@ -41,11 +42,12 @@ const ESP_VOLUME_ID: &str = "42454953";
 const LOADER_CONF: &str = include_str!("../../../system/usr/lib/beize/loader.conf");
 
 /// The UKI's profiles, entries of their own in systemd-boot's menu (ADR
-/// 0018). Only Beize's has a signed PCR 11 policy (`--sign-profile`). The
-/// recovery starts the emergency gate in the system (rescue.target); the
-/// TPM refuses it, so only the recovery key opens the data – also when the
-/// owner forgot their password and the start itself works.
+/// 0018). The recovery has no signed PCR 11 policy (`--sign-profile`): it
+/// starts the emergency gate in the system (rescue.target); the TPM refuses
+/// it, so only the recovery key opens the data – also when the owner forgot
+/// their password and the start itself works.
 /// The menu shows the OS name, with the profile's title in parentheses.
+const MAIN_PROFILE_ID: &str = "beize";
 const MAIN_PROFILE: &str = "ID=beize";
 const RECOVERY_PROFILE: &str = "TITLE=Recovery\nID=recovery";
 /// systemd-boot's entry of the recovery profile.
@@ -53,6 +55,26 @@ pub const RECOVERY_ENTRY: &str = "@recovery";
 /// Added to the recovery's command line; beize-tpm's gate looks for
 /// `beize.recovery`.
 const RECOVERY_PARAMETERS: &str = "systemd.unit=rescue.target beize.recovery";
+
+/// A variant that extends another (the desktop) gets a third profile: the
+/// start without its additions, titled and named after the variant it
+/// extends, `(Basis)` (ADR 0025). Its units hang only under
+/// graphical.target, so this runs exactly the base – to tell a fault of
+/// the base from one of the desktop without reinstalling, as the safe mode
+/// of macOS and Windows. The same signed UKI and `/usr`, only another
+/// systemd target. Its PCR 11 policy is signed like Beize's own, so systemd
+/// sets up the TPM's NvPCRs as in an ordinary start (without it,
+/// systemd-tpm2-setup-early and systemd-pcrproduct fail). That does not open
+/// the data: it is bound to the PCR 12 of an ordinary start too, which this
+/// profile changes (`@2`), so the recovery key opens it here (beize-tpm
+/// knows the profile as profile 2). A TPM binding of its own needs its own
+/// decision.
+const WITHOUT_ADDITIONS_PARAMETERS: &str = "systemd.unit=multi-user.target";
+
+/// systemd-boot's entry of the start without `extended`'s additions.
+pub fn without_additions_entry(extended: &Variant) -> String {
+    format!("@{}", extended.id)
+}
 
 /// The trust profile every image is built for; selectable once there is a
 /// second one.
@@ -259,6 +281,26 @@ pub fn boot_chain(
             .arg("--output")
             .arg(&recovery_profile),
     )?;
+    let mut extra_profiles = vec![recovery_profile];
+    let mut signed_profiles = vec![MAIN_PROFILE_ID.to_owned()];
+    if let Some(extended) = paths.variant.extended() {
+        let without = out.join(format!("profile-{}.efi", extended.id));
+        util::run(
+            ukify(paths)?
+                .arg("build")
+                .arg(format!(
+                    "--profile=TITLE={}\nID={}",
+                    extended.name, extended.id
+                ))
+                .arg(format!(
+                    "--cmdline={cmdline} {WITHOUT_ADDITIONS_PARAMETERS}"
+                ))
+                .arg("--output")
+                .arg(&without),
+        )?;
+        extra_profiles.push(without);
+        signed_profiles.push(extended.id);
+    }
     util::run(
         ukify(paths)?
             .arg("build")
@@ -288,11 +330,19 @@ pub fn boot_chain(
             .arg(&pcr_public)
             .arg("--sign-initrd-pcrs")
             // Beize is the base profile (0), everything before it is shared;
-            // the recovery (1) overrides only the command line.
+            // the recovery (1) and the start without additions (2) override
+            // only the command line.
             .arg(format!("--profile={MAIN_PROFILE}"))
-            .arg("--join-profile")
-            .arg(&recovery_profile)
-            .arg("--sign-profile=beize")
+            .args(
+                extra_profiles
+                    .iter()
+                    .flat_map(|p| ["--join-profile".as_ref(), p.as_os_str()]),
+            )
+            .args(
+                signed_profiles
+                    .iter()
+                    .map(|id| format!("--sign-profile={id}")),
+            )
             .arg("--output")
             .arg(&unsigned_uki),
     )?;

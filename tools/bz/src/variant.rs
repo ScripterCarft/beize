@@ -39,15 +39,16 @@ struct Security {
 }
 
 /// One directory of `images/`: a variant without what it extends.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Layer {
     pub id: String,
+    pub name: String,
     pub dir: PathBuf,
     pub packages: Vec<String>,
 }
 
 /// A variant with everything it extends.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variant {
     /// `VARIANT_ID` in os-release, and the directory in `images/`.
     pub id: String,
@@ -83,10 +84,11 @@ impl Variant {
                 file.display()
             );
             let definition: Definition = tree::read_toml(&file)?;
-            name.get_or_insert(definition.name);
+            name.get_or_insert(definition.name.clone());
             next = definition.extends;
             layers.push(Layer {
                 id,
+                name: definition.name,
                 dir,
                 packages: definition.packages,
             });
@@ -99,6 +101,18 @@ impl Variant {
         };
         variant.check()?;
         Ok(variant)
+    }
+
+    /// The variant this one extends, as its own: what runs in the start
+    /// without this variant's additions (ADR 0025). `None` for the base.
+    pub fn extended(&self) -> Option<Self> {
+        let layers = self.layers[..self.layers.len() - 1].to_vec();
+        let top = layers.last()?;
+        Some(Self {
+            id: top.id.clone(),
+            name: top.name.clone(),
+            layers,
+        })
     }
 
     /// Every package the variant names, the base's first.
@@ -268,6 +282,18 @@ mod tests {
         let base = Variant::load(&repository(), "base").unwrap();
         assert_eq!(base.layers.len(), 1);
         assert!(base.packages().contains(&"systemd".to_owned()));
+        // Without its additions the desktop is the base.
+        assert!(base.extended().is_none());
+        let without = desktop.extended().unwrap();
+        assert_eq!(
+            (without.id.as_str(), without.name.as_str()),
+            ("base", "Basis")
+        );
+        assert_eq!(without.packages(), base.packages());
+        assert_eq!(
+            without.running_units().unwrap(),
+            base.running_units().unwrap()
+        );
         // The desktop's lists start with the base's.
         assert!(
             desktop

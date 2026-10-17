@@ -86,6 +86,11 @@ fn check_boot() -> Result<(), String> {
             println!("Beize recovery: enter the recovery key of this computer.");
             return Ok(());
         }
+        Ok(Boot::WithoutAdditions) => {
+            println!();
+            println!("Beize without the desktop: enter the recovery key of this computer.");
+            return Ok(());
+        }
         Ok(Boot::Changed) => {
             println!();
             println!("This start was changed: something was added to it (kernel parameters,");
@@ -146,9 +151,10 @@ fn reseal() -> Result<(), String> {
     }
     match policy::boot(read_pcr(PCR12)?) {
         Boot::Unchanged => {}
-        // The TPM refuses the recovery profile by design; binding to it
-        // would let the TPM open the data in every recovery start.
-        Boot::Recovery => return Ok(()),
+        // The TPM refuses the recovery profile and the start without the
+        // desktop by design; binding to one would take the binding from the
+        // ordinary start.
+        Boot::Recovery | Boot::WithoutAdditions => return Ok(()),
         Boot::Changed => {
             println!("The data stays bound to the previous state: the boot was changed (PCR 12).");
             return Ok(());

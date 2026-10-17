@@ -1,5 +1,6 @@
-//! Scenarios of access: the emergency gate, the recovery in the boot menu
-//! and privileges (ADR 0016, ADR 0018, ADR 0019).
+//! Scenarios of access: the emergency gate, the recovery and the start
+//! without the desktop in the boot menu, and privileges (ADR 0016, ADR
+//! 0018, ADR 0019, ADR 0025).
 
 use std::time::{Duration, Instant};
 
@@ -8,7 +9,7 @@ use anyhow::{Context, Result, bail, ensure};
 use super::Installed;
 use crate::paths::Paths;
 use crate::say;
-use crate::vm::checks::{boot_healthy, damage_root_file_system};
+use crate::vm::checks::{boot_healthy, check_units, damage_root_file_system};
 use crate::vm::console::{
     Answers, ConsoleEvent, EMERGENCY_HEADLINE, EMERGENCY_SHELL_STARTS, EMERGENCY_WRONG_KEY,
     OWNER_CONSOLE_CREDENTIALS, PASSWORD_PAUSE, RECOVERY_HEADLINE, SMOKE_CREDENTIALS,
@@ -17,6 +18,9 @@ use crate::vm::console::{
 use crate::vm::debug::Shell;
 use crate::vm::machine::boot_once;
 use crate::{image, layout};
+
+/// What beize-tpm shows in the start without the desktop (os/beize-tpm).
+const WITHOUT_ADDITIONS_HEADLINE: &str = "Beize without the desktop: enter the recovery key";
 
 /// Bounds a boot into the emergency gate, a wrong key (3 s penalty), a
 /// restart after Ctrl+C and the shell.
@@ -191,6 +195,46 @@ pub(super) fn recovery(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  ok: in the recovery root sets a new password for a forgotten one");
     boot_healthy(&machine, 3, &Answers::none())?;
     say!("  ok: after the recovery the TPM unlocks by itself again");
+    machine.remove()
+}
+
+/// The start without the variant's additions, chosen in the boot menu (ADR
+/// 0025): the TPM refuses it, so the recovery key opens the data; nothing
+/// fails, and exactly the units of the variant it extends run – none of
+/// the desktop's. It binds nothing to the TPM: the next ordinary start
+/// unlocks by the TPM again.
+pub(super) fn without_additions(paths: &Paths, installed: &Installed) -> Result<()> {
+    let extended = paths
+        .variant
+        .extended()
+        .context("the variant extends no other")?;
+    let machine = installed
+        .machine
+        .copy_as(paths, "smoke-without-additions")?;
+    let entry = format!(
+        "{}{}",
+        layout::blessed_uki_name(layout::OS_VERSION),
+        image::without_additions_entry(&extended)
+    );
+    boot_once(&machine, &entry)?;
+    let boot = boot_healthy(&machine, 3, &Answers::recovery(&installed.recovery_key))?;
+    ensure!(
+        boot.report.entry == entry,
+        "the boot started entry {}, not {entry}",
+        boot.report.entry
+    );
+    ensure!(
+        boot.prompts > 0
+            && boot
+                .console
+                .iter()
+                .any(|line| line.contains(WITHOUT_ADDITIONS_HEADLINE)),
+        "the start without the desktop did not ask for the recovery key"
+    );
+    say!("  ok: {entry} started with the recovery key");
+    check_units(&boot.console, &extended.running_units()?)?;
+    boot_healthy(&machine, 4, &Answers::none())?;
+    say!("  ok: the next ordinary start unlocks by the TPM");
     machine.remove()
 }
 
