@@ -307,7 +307,8 @@ nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 **`OS_VERSION` ist 0.5 (17.10.)** und läuft auf dem PC des Besitzers. „(Basis)“ zeigt dort
 `VARIANT_ID=desktop` – richtig, denn es ist dasselbe `/usr` mit anderem systemd-Ziel (ADR 0025);
 für den Besitzer steht das jetzt in `keys/secureboot/README.md`. **Zu Beginn des nächsten
-Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`).
+Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`), dann den
+Grafik-Plan (Aufgabe 1 unten) als ADR-Entwurf mit dem Besitzer erarbeiten – noch nichts bauen.
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
 1. M3-Grafik **planen, bevor gebaut wird**, mit dem Besitzer (ADR): offen sind laut
@@ -360,8 +361,7 @@ nichts, was ohne Nutzen Leistung kostet.
   `wsl --shutdown`, dann `diskpart` als Administrator mit `select vdisk
   file="C:\Users\Joe\AppData\Local\wsl\{4cae8202-1c42-41f8-840d-f8b846346de8}\ext4.vhdx"`,
   `attach vdisk readonly`, `compact vdisk`, `detach vdisk`. Das muss wiederholt werden, wenn
-  der Platz wieder wächst. Alten `git stash` löschen (`git stash drop`, dann
-  `~/stash.patch`). Der `gh`-Token darf keine Workflows starten.
+  der Platz wieder wächst. Der `gh`-Token darf keine Workflows starten.
 
 **WSL-Home:** `~/beize`, `~/hw-logs` (Journal und Leerlauf des 0.4-Tests), `~/upstream`
 (Kernel-Bäume und Entwürfe für #12/#13 – behalten), `~/scratch` (leer halten).
