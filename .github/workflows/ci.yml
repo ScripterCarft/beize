@@ -1,30 +1,66 @@
 name: CI
 
+# Two levels (ci/system.sh): every push gets the quick smoke test, the
+# night and a run by hand the full one – the one a release needs. A push
+# that changes only documentation builds nothing.
 on:
   push:
     branches: [main]
+    paths-ignore: ["**/*.md", "docs/**", LICENSE]
   pull_request:
+    paths-ignore: ["**/*.md", "docs/**", LICENSE]
   workflow_dispatch:
   schedule:
-    # Weekly, to notice when an upstream download or signature changes.
+    # Nightly: the full smoke test of what was pushed that day.
+    - cron: "17 3 * * *"
+    # Weekly: from scratch and every source's signature again, to notice
+    # when an upstream download or signature changes.
     - cron: "17 4 * * 1"
 
-# Read the repository and the buildroot image; only the buildroot job writes
-# (a new image). Caches and artifacts use the runner's own token.
+# Read the repository, the buildroot image and earlier runs; only the
+# buildroot job writes (a new image). Caches and artifacts use the runner's
+# own token.
 permissions:
   contents: read
   packages: read
+  actions: read
 
 # A newer push to the same branch makes older runs pointless: cancel them
-# instead of letting several multi-hour builds run side by side.
+# instead of letting several multi-hour builds run side by side. A push does
+# not cancel the night's run, which checks another commit.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
   BUILDROOT: ghcr.io/scriptercarft/beize-buildroot
+  # The weekly run (from scratch) among the scheduled ones.
+  WEEKLY: ${{ github.event.schedule == '17 4 * * 1' }}
 
 jobs:
+  # The nightly run checks a commit only once: not when a full run of it
+  # (nightly, weekly or by hand) already passed.
+  nightly:
+    name: Anything new tonight
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.new.outputs.run }}
+    steps:
+      - id: new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
+            --status success --json event \
+            -q '[.[] | select(.event == "schedule" or .event == "workflow_dispatch")] | length')
+          if [ "$WEEKLY" = true ] || [ "$passed" = 0 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$GITHUB_SHA passed a full run already"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Beize's buildroot (ADR 0021) as this repository's container image, named
   # by the hash of ci/buildroot/: created only when that changed. The other
   # jobs run in it – the Ubuntu, packages and Rust of a local ./bz.
@@ -92,7 +128,7 @@ jobs:
   cve:
     name: Known vulnerabilities
     needs: buildroot
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '17 4 * * 1' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.buildroot.outputs.image }}
@@ -115,7 +151,7 @@ jobs:
   fuzz:
     name: Fuzzing
     needs: buildroot
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '17 4 * * 1' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.buildroot.outputs.image }}
@@ -137,9 +173,12 @@ jobs:
 
   system:
     name: Build and boot
-    needs: [buildroot, check]
-    # The full build takes a while; run it for main, by hand and weekly.
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: [buildroot, check, nightly]
+    # For main and by hand; at night only for a commit not yet checked in full.
+    if: >-
+      !cancelled() && needs.check.result == 'success'
+      && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true')
+      && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 240
     container:
@@ -183,7 +222,7 @@ jobs:
       # working (it broke once unnoticed: glibc's configure needed an old libc).
       - name: Restore build state
         id: restore
-        if: github.event_name != 'schedule'
+        if: env.WEEKLY != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -197,12 +236,13 @@ jobs:
             build/work/secureboot-test
           key: build-
           restore-keys: build-
-      # The weekly run checks every source's signature again, to notice when
-      # an upstream download or signature changes; on other runs the build
-      # verifies new sources itself.
+      # The weekly run and one by hand check every source's signature again,
+      # to notice when an upstream download or signature changes; on other
+      # runs the build verifies new sources itself.
       - run: ci/system.sh
         env:
-          VERIFY_SOURCES: ${{ github.event_name != 'push' }}
+          VERIFY_SOURCES: ${{ env.WEEKLY == 'true' || github.event_name == 'workflow_dispatch' }}
+          SMOKE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'quick' }}
       # Named by the stamps of what it holds, so a run that rebuilt nothing
       # saves nothing; saved also after a failed or cancelled run, so a long
       # build is never lost.

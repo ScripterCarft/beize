@@ -30,7 +30,8 @@ M5 Feinschliff. Stand im Detail: `README.md`.
 - **1Password ist tabu.** Claude greift nie auf den Tresor zu (kein `op`) und führt
   `bz secureboot new-keys`, `bz sign`, `bz install` nie aus (ADR 0010).
 - CI prüft Claude nach jedem Push selbst (`gh run list`/`gh run view`), ohne
-  Polling-Schleifen – Actions-Minuten sind knapp.
+  Polling-Schleifen – Actions-Minuten sind knapp. Gepusht wird erst, wenn der vorige Lauf
+  (schnelle Stufe) grün ist; den nächtlichen vollen Lauf prüft Claude zu Beginn der Arbeit.
 - Der Besitzer leert den Chat zwischen größeren Schritten: vorher §11 aktuell halten.
 - Hardware des Besitzers, Journal von dort auslesen, Messwerte: `docs/hardware.md`.
 
@@ -132,8 +133,12 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   Änderung neu messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): Job `buildroot` legt das Buildroot-Image in GHCR an, wenn
   es fehlt (`beize-buildroot:<hash>`; `mirror.yml` liefert nur das Ubuntu dafür); darin
-  fmt/clippy/test bei jedem Push; auf `main`, manuell und wöchentlich (dann von null)
-  `ci/system.sh` privilegiert mit KVM. Toolchain, Sysroot, Stamps, Kernel-Objektbaum, Microcode
+  fmt/clippy/test bei jedem Push; auf `main` `ci/system.sh` privilegiert mit KVM, in zwei
+  Stufen (17.10., Besitzer): **jeder Push** `SMOKE=quick` (beide Varianten, Budget ~5 min),
+  **nachts** (nur für einen Commit ohne vollen Lauf), **manuell** und **wöchentlich** (dann
+  von null, mit `bz verify`, CVE, Fuzzing) `SMOKE=full` auf dem Desktop. Ein Push, der nur
+  Doku ändert (`*.md`, `docs/`), baut nichts. Neue Szenarien kommen in die volle Stufe,
+  nie in jeden Push. Ein Release nur von einem Commit mit grünem vollem Lauf. Toolchain, Sysroot, Stamps, Kernel-Objektbaum, Microcode
   und die Test-Schlüssel im Actions-Cache; `build/out` nicht, daher laufen die Schritte ab Kernel
   dort immer. Runner: 4 vCPU/16 GB (öffentliches Repo), Smoke-Szenarien nacheinander;
   `ci/system.sh` gibt die Größe aus (`build host:`).

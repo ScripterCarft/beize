@@ -17,8 +17,9 @@ SRAM brauchen keinen.
 Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (1Password);
 `<neu>`/`<alt>` = neue/installierte Version.
 
-1. `OS_VERSION` in `tools/bz/src/layout.rs` auf `"<neu>"` (Commit), dann
-   `./bz build && ./bz release` → `build/out/desktop/release/<neu>/` (6 Dateien, davon die
+1. `OS_VERSION` in `tools/bz/src/layout.rs` auf `"<neu>"` (Commit). Für diesen Commit muss
+   ein **voller** CI-Lauf grün sein, nachts oder per Hand (GitHub → Actions → CI → „Run
+   workflow“). Dann `./bz build && ./bz release` → `build/out/desktop/release/<neu>/` (6 Dateien, davon die
    SBOM, und `legacy/` für den Übergang von 0.4, ADR 0025).
 2. USB-Stick (FAT32 oder exFAT) in Windows **BEIZE** benennen und den Ordner
    `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\<neu>` als
