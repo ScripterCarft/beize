@@ -305,14 +305,24 @@ statt 585 s, ein Timeout): Starts rechnen. Nächster Hebel: 3–8 s Firmware je 
 (~35 Starts). Vorher mit Zeitstempeln je Konsolenzeile messen (ohne iPXE-ROM: kein
 Unterschied).
 
-**Nächste Aufgabe: Release 0.5 für den PC des Besitzers.** `OS_VERSION` auf 0.5 (Commit),
-dann muss ein voller CI-Lauf (nachts oder per Hand) dafür grün sein, dann `bz release`
-(Besitzer) und das Update von 0.4 aus über `…/legacy`. Danach einmal `run0 rm /etc/profile
-/etc/ld.so.conf` (`docs/hardware.md`, Schritt 5) und „(Basis)“ auf dem PC testen.
-Danach kommt der Grafik-Stack: Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc),
-grob lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Offen laut
-`docs/VISION.md`: Grafik-API des Compositors, UI-Toolkit, Systemschrift, Icon-Stil. Mit dem
-ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023).
+**`OS_VERSION` ist 0.5 (17.10.).** Der Besitzer testet es auf seinem PC: voller CI-Lauf
+grün, `bz release`, Update von 0.4 aus über `…/legacy`, `run0 rm /etc/profile
+/etc/ld.so.conf`, „(Basis)“ starten (`docs/hardware.md`). **Zu Beginn des nächsten Chats:**
+nach dem Ergebnis fragen und den nächtlichen vollen CI-Lauf prüfen (`gh run list --event
+schedule`). Bei Erfolg `legacy/` aus `release.rs`/`layout.rs` entfernen (ADR 0025,
+Übergang).
+
+**Nächste Aufgaben, in dieser Reihenfolge:**
+1. Die Firmware-Zeit je Start messen (3–8 s, siehe oben): Zeitstempel je Konsolenzeile vom
+   Einschalten bis zum Kernel, dann die größte Ursache angehen. Was zum gemessenen Start
+   gehört (Signaturprüfung, Messungen ins TPM), bleibt.
+2. ADR 0026, falls der Besitzer ihn freigegeben hat.
+3. M3-Grafik **planen, bevor gebaut wird**, mit dem Besitzer (ADR): offen sind laut
+   `docs/VISION.md` Grafik-API des Compositors, UI-Toolkit, Systemschrift und Icon-Stil,
+   dazu NVIDIA (#17: Treiber, Firmware). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe,
+   mesa-clc): grob lokal +15 min Bau von null, CI +1–1,5 h, also vorher messen. Mit dem
+   ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023). Desktop-Pakete
+   kommen nach `images/desktop/` (ADR 0025).
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
