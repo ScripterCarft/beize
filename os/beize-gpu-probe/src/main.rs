@@ -29,10 +29,19 @@ const IN_FLIGHT: usize = 2;
 const DRM_IOCTL_AUTH_MAGIC: u64 = 0x4004_6411;
 /// `_IO('d', 0x1e)`.
 const DRM_IOCTL_SET_MASTER: u64 = 0x641e;
+/// `_IOW('d', 0x0d, struct drm_set_client_cap)`.
+const DRM_IOCTL_SET_CLIENT_CAP: u64 = 0x4010_640d;
+const DRM_CLIENT_CAP_ATOMIC: u64 = 3;
 const EACCES: i32 = 13;
 
 unsafe extern "C" {
     fn ioctl(fd: i32, request: u64, ...) -> i32;
+}
+
+#[repr(C)]
+struct SetClientCap {
+    capability: u64,
+    value: u64,
 }
 
 #[repr(C)]
@@ -78,6 +87,20 @@ fn run() -> R<()> {
     if !master {
         return Err("cannot become DRM master of the card – is a graphical program running?".into());
     }
+    // Mesa's VK_KHR_display drives the display with atomic KMS only: without
+    // it the connector has no CRTC_ID property and vkGetDrmDisplayEXT fails
+    // with VK_ERROR_UNKNOWN. nouveau offers atomic only with nouveau.atomic=1
+    // (modprobe.d of this branch).
+    let cap = SetClientCap { capability: DRM_CLIENT_CAP_ATOMIC, value: 1 };
+    // SAFETY: SET_CLIENT_CAP reads the struct, which outlives the call.
+    let atomic = unsafe { ioctl(fd, DRM_IOCTL_SET_CLIENT_CAP, &raw const cap) } == 0;
+    let why = std::io::Error::last_os_error();
+    let param = fs::read_to_string("/sys/module/nouveau/parameters/atomic")
+        .map_or_else(|_| "-".to_owned(), |s| s.trim().to_owned());
+    println!("KMS:     atomic: {atomic} (nouveau.atomic={param})");
+    if !atomic {
+        return Err(format!("the driver offers no atomic KMS ({why}), which Mesa's VK_KHR_display needs").into());
+    }
 
     // SAFETY: loads the system's libvulkan.so.1; nothing else runs Vulkan.
     let entry = unsafe { ash::Entry::load()? };
@@ -89,18 +112,37 @@ fn run() -> R<()> {
         ash::khr::display::NAME.as_ptr(),
         ash::ext::direct_mode_display::NAME.as_ptr(),
         ash::ext::acquire_drm_display::NAME.as_ptr(),
+        ash::ext::debug_utils::NAME.as_ptr(),
     ];
+    // Mesa's own reason for an error (vk_errorf) reaches only a messenger.
+    let mut messenger_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
+        .message_severity(
+            vk::DebugUtilsMessageSeverityFlagsEXT::WARNING | vk::DebugUtilsMessageSeverityFlagsEXT::ERROR,
+        )
+        .message_type(
+            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+        )
+        .pfn_user_callback(Some(mesa_message));
     // SAFETY: valid create info with static strings.
     let instance = unsafe {
         entry.create_instance(
             &vk::InstanceCreateInfo::default()
                 .application_info(&app)
-                .enabled_extension_names(&extensions),
+                .enabled_extension_names(&extensions)
+                .push_next(&mut messenger_info),
             None,
-        )?
-    };
+        )
+    }
+    .map_err(|e| format!("vkCreateInstance: {e}"))?;
+    let debug_ext = ash::ext::debug_utils::Instance::new(&entry, &instance);
+    // SAFETY: the instance is valid; the messenger lives until the process exits.
+    let _messenger = unsafe { debug_ext.create_debug_utils_messenger(&messenger_info, None) }
+        .map_err(|e| format!("vkCreateDebugUtilsMessengerEXT: {e}"))?;
     // SAFETY: the instance is valid for the rest of the program.
-    let gpu = *unsafe { instance.enumerate_physical_devices()? }
+    let gpu = *unsafe { instance.enumerate_physical_devices() }
+        .map_err(|e| format!("vkEnumeratePhysicalDevices: {e}"))?
         .first()
         .ok_or("no Vulkan device")?;
 
@@ -159,7 +201,8 @@ fn run() -> R<()> {
             continue;
         }
         // SAFETY: index is below the plane count.
-        let supported = unsafe { display_ext.get_display_plane_supported_displays(gpu, index)? };
+        let supported = unsafe { display_ext.get_display_plane_supported_displays(gpu, index) }
+            .map_err(|e| format!("vkGetDisplayPlaneSupportedDisplaysKHR: {e}"))?;
         if supported.contains(&display) {
             plane = Some((index, props.current_stack_index));
             break;
@@ -178,8 +221,9 @@ fn run() -> R<()> {
                 .global_alpha(1.0)
                 .image_extent(extent),
             None,
-        )?
-    };
+        )
+    }
+    .map_err(|e| format!("vkCreateDisplayPlaneSurfaceKHR: {e}"))?;
     let surface_ext = ash::khr::surface::Instance::new(&entry, &instance);
 
     // A queue for compute, transfer and presentation.
@@ -189,7 +233,8 @@ fn run() -> R<()> {
     for (index, f) in families.iter().enumerate() {
         let index = u32::try_from(index)?;
         // SAFETY: surface and gpu come from this instance.
-        let present = unsafe { surface_ext.get_physical_device_surface_support(gpu, index, surface)? };
+        let present = unsafe { surface_ext.get_physical_device_surface_support(gpu, index, surface) }
+            .map_err(|e| format!("vkGetPhysicalDeviceSurfaceSupportKHR: {e}"))?;
         if present && f.queue_flags.contains(vk::QueueFlags::COMPUTE) {
             family = Some(index);
             break;
@@ -209,14 +254,16 @@ fn run() -> R<()> {
                 .queue_create_infos(&queues)
                 .enabled_extension_names(&device_extensions),
             None,
-        )?
-    };
+        )
+    }
+    .map_err(|e| format!("vkCreateDevice: {e}"))?;
     // SAFETY: the family was requested with one queue.
     let queue = unsafe { device.get_device_queue(family, 0) };
 
     // Swapchain: FIFO, the format the display offers in BGRA or RGBA.
     // SAFETY: surface and gpu come from this instance.
-    let formats = unsafe { surface_ext.get_physical_device_surface_formats(gpu, surface)? };
+    let formats = unsafe { surface_ext.get_physical_device_surface_formats(gpu, surface) }
+        .map_err(|e| format!("vkGetPhysicalDeviceSurfaceFormatsKHR: {e}"))?;
     let format = formats
         .iter()
         .find(|f| f.format == vk::Format::B8G8R8A8_UNORM)
@@ -224,7 +271,11 @@ fn run() -> R<()> {
         .copied()
         .ok_or("the surface has no format")?;
     // SAFETY: as above.
-    let caps = unsafe { surface_ext.get_physical_device_surface_capabilities(gpu, surface)? };
+    let caps = unsafe { surface_ext.get_physical_device_surface_capabilities(gpu, surface) }
+        .map_err(|e| format!("vkGetPhysicalDeviceSurfaceCapabilitiesKHR: {e}"))?;
+    if !caps.supported_usage_flags.contains(vk::ImageUsageFlags::TRANSFER_DST) {
+        return Err("the display's swapchain images cannot be copied into (no TRANSFER_DST)".into());
+    }
     let swapchain_ext = ash::khr::swapchain::Device::new(&instance, &device);
     let mut image_count = caps.min_image_count.max(3);
     if caps.max_image_count != 0 {
@@ -247,10 +298,12 @@ fn run() -> R<()> {
                 .present_mode(vk::PresentModeKHR::FIFO)
                 .clipped(true),
             None,
-        )?
-    };
+        )
+    }
+    .map_err(|e| format!("vkCreateSwapchainKHR: {e}"))?;
     // SAFETY: the swapchain was just created.
-    let swapchain_images = unsafe { swapchain_ext.get_swapchain_images(swapchain)? };
+    let swapchain_images = unsafe { swapchain_ext.get_swapchain_images(swapchain) }
+        .map_err(|e| format!("vkGetSwapchainImagesKHR: {e}"))?;
 
     // The images of the load: the desktop, its blur at 1/2 and 1/4.
     // SAFETY: gpu comes from this instance.
@@ -420,7 +473,8 @@ fn run() -> R<()> {
     while started.elapsed() < Duration::from_secs(seconds) {
         let slot = frame % IN_FLIGHT;
         // SAFETY: the fence belongs to this device.
-        unsafe { device.wait_for_fences(&[fences[slot]], true, u64::MAX)? };
+        unsafe { device.wait_for_fences(&[fences[slot]], true, u64::MAX) }
+            .map_err(|e| format!("vkWaitForFences (frame {frame}): {e}"))?;
         let now = Instant::now();
         if let Some(last) = last {
             intervals.push(now - last);
@@ -442,8 +496,9 @@ fn run() -> R<()> {
         }
         // SAFETY: the swapchain and semaphore are alive; the semaphore is unsignaled.
         let (index, _) = unsafe {
-            swapchain_ext.acquire_next_image(swapchain, u64::MAX, acquired[slot], vk::Fence::null())?
-        };
+            swapchain_ext.acquire_next_image(swapchain, u64::MAX, acquired[slot], vk::Fence::null())
+        }
+        .map_err(|e| format!("vkAcquireNextImageKHR (frame {frame}): {e}"))?;
         let index = usize::try_from(index)?;
         let cb = commands[slot];
         let push = Push {
@@ -567,7 +622,8 @@ fn run() -> R<()> {
                     .command_buffers(&cbs)
                     .signal_semaphores(&signal)],
                 fences[slot],
-            )?;
+            )
+            .map_err(|e| format!("vkQueueSubmit (frame {frame}): {e}"))?;
             let swapchains = [swapchain];
             let indices = [u32::try_from(index)?];
             swapchain_ext.queue_present(
@@ -576,7 +632,8 @@ fn run() -> R<()> {
                     .wait_semaphores(&signal)
                     .swapchains(&swapchains)
                     .image_indices(&indices),
-            )?;
+            )
+            .map_err(|e| format!("vkQueuePresentKHR (frame {frame}): {e}"))?;
         }
         submitted[slot] = true;
         frame += 1;
@@ -613,6 +670,20 @@ fn find_connector() -> R<(String, String, u32)> {
         return Ok((format!("/dev/dri/{card}"), connector.to_owned(), id));
     }
     Err("no connector with a monitor in /sys/class/drm".into())
+}
+
+/// Prints what the driver reports through VK_EXT_debug_utils.
+unsafe extern "system" fn mesa_message(
+    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    _: vk::DebugUtilsMessageTypeFlagsEXT,
+    data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
+    _: *mut std::ffi::c_void,
+) -> vk::Bool32 {
+    // SAFETY: the loader passes valid callback data for this call.
+    if let Some(message) = unsafe { data.as_ref() }.and_then(|d| unsafe { d.message_as_c_str() }) {
+        eprintln!("Vulkan {severity:?}: {}", message.to_string_lossy());
+    }
+    vk::FALSE
 }
 
 fn is_master(fd: i32) -> bool {

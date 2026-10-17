@@ -17,6 +17,11 @@ MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-pa
   -p beize-gpu-probe --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-gpu-probe" \
   "$PKG/usr/bin/beize-gpu-probe"
+# Mesa's VK_KHR_display needs atomic KMS; nouveau offers it only with this
+# upstream parameter (default off). For the measurement only – whether
+# Beize's compositor uses it is decided in ADR 0027.
+mkdir -p "$PKG/usr/lib/modprobe.d"
+printf 'options nouveau atomic=1\n' > "$PKG/usr/lib/modprobe.d/beize-gpu-probe.conf"
 '''
 
 [sbom]
@@ -25,4 +30,5 @@ license = "MPL-2.0"
 [files]
 image = [
   "usr/bin/beize-gpu-probe",
+  "usr/lib/modprobe.d/beize-gpu-probe.conf",
 ]
