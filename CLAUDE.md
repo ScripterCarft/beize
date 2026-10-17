@@ -150,7 +150,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Entwurf: Smithay, nur Vulkan, Beize UI, NVIDIA nach Messung, Inter). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -307,39 +307,17 @@ nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 **`OS_VERSION` ist 0.5 (17.10.)** und läuft auf dem PC des Besitzers. „(Basis)“ zeigt dort
 `VARIANT_ID=desktop` – richtig, denn es ist dasselbe `/usr` mit anderem systemd-Ziel (ADR 0025);
 für den Besitzer steht das jetzt in `keys/secureboot/README.md`. **Zu Beginn des nächsten
-Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`), dann den
-Grafik-Plan (Aufgabe 1 unten) als ADR-Entwurf mit dem Besitzer erarbeiten – noch nichts bauen.
+Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`), dann mit
+Schritt 1 von ADR 0027 beginnen.
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
-1. M3-Grafik **planen, bevor gebaut wird**, mit dem Besitzer (ADR): offen sind laut
-   `docs/VISION.md` Grafik-API des Compositors, UI-Toolkit, Systemschrift und Icon-Stil,
-   dazu NVIDIA (#17: Treiber, Firmware). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe,
-   mesa-clc): grob lokal +15 min Bau von null, CI +1–1,5 h, also vorher messen. Mit dem
-   ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023). Desktop-Pakete
-   kommen nach `images/desktop/` (ADR 0025).
-
-   **Was der Besitzer am 17.10. dazu gesagt hat** (Richtung für den ADR, noch nicht
-   entschieden; macOS als Maßstab, „alles aus einem Guss“):
-   - **Compositor:** ein eigener Beize-Compositor, der zugleich die Shell ist, auf
-     **Smithay** (Rust; Smithay übernimmt Wayland-Protokoll, DRM/KMS, Puffer und Eingabe,
-     Beize alles Sichtbare). Der Besitzer will das so.
-   - **Rendern mit Vulkan** (Besitzer: „Vulkan ist geil“).
-   - **NVIDIA:** Der Besitzer zieht offizielle Treiber vor, aber **wichtiger sind der
-     neueste Kernel und dass alles ohne Probleme läuft**. Für den ADR heißt das: NVIDIAs
-     offene Kernel-Module plus geschlossene Bibliotheken nur, wenn sie den jeweils
-     neuesten stabilen Kernel verlässlich unterstützen. Sonst Nouveau mit NVK (Mesa). Das
-     mit Daten prüfen: Wie lange brauchte NVIDIA in der Vergangenheit für neue Kernel,
-     und wie gut ist NVK auf der RTX 3070 Ti?
-   - **UI-Toolkit:** offen. Der Besitzer hätte am liebsten ein **eigenes**, wenn es weniger
-     Versuch und Irrtum braucht als der Rest des OS. Pflicht: **schnell und scharf**.
-     Slint war in den Versuchen des Besitzers unscharf und fehlerhaft, iced und Slint
-     gelten als zu eingeschränkt. Im ADR ehrlich bewerten: Aufwand eines eigenen Toolkits (Layout,
-     Text mit Shaping und Hinting, Barrierefreiheit, Eingabemethoden), worauf es aufsetzen
-     könnte, und woher Unschärfe kommt (Skalierung, Subpixel, Fraktional-Scaling).
-   - **Schrift und Icons:** noch offen. Richtung: nicht der typische Linux-Look (kein
-     Adwaita/Cantarell). Icons im Stil von macOS (weich, abgerundet, keine eckige
-     Material-Optik), aber eigene: Apples Icons, Symbole und SF Pro sind geschützt.
-     Vorschlag zum Besprechen: Inter als Systemschrift.
+1. **M3-Grafik nach ADR 0027 (Entwurf, am 17.10. mit dem Besitzer besprochen):** Compositor =
+   Shell auf Smithay, nur Vulkan mit eigenem Renderer (lavapipe in VM/CI), eigenes Toolkit
+   „Beize UI“ auf Parley/Skrifa/Taffy/AccessKit, Inter + JetBrains Mono. **NVIDIA:** Der
+   Besitzer will den stabileren, verbreiteteren Weg „wie Fedora Workstation“. Schritt 1 misst
+   NVK und NVIDIA im Schnelldurchlauf (Tabelle im ADR), die Regel dort entscheidet. Danach
+   ADR auf „angenommen“ setzen. Jetzt: Schritt 1 (Mesa + LLVM in `images/desktop/`, Bauzeit
+   messen).
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
