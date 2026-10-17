@@ -51,6 +51,7 @@ Prüfen aller Quellen: `./bz verify`
 | `linux-firmware` | Josh Boyer | `4CDE 8575 E547 BF83 5FE1 5807 A31B 6BD7 2486 CFD6` | keyserver.ubuntu.com |
 | `linux-pam` | Dmitry V. Levin | `7BEC FE3A F7B2 80BB 52FF 77F1 04BA 4521 C996 DDE1` | keyserver.ubuntu.com; signiert mit Unterschlüssel `FB3D CD19 FF87 4735 E4F6 1CE6 4E9F E852 2F16 0EC2` |
 | `lvm2` | Marian Csontos | `D501 A478 440A E2FD 130A 1BE8 B911 2431 E509 039F` | keys.openpgp.org |
+| `mesa` | Eric Engestrom (Release-Manager) | `5755 1DE1 5B96 8F63 41C2 48F6 8D8E 31AF C324 28A6` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org; die Rust-Crates für NVK pinnt Mesas signiertes Archiv mit SHA-256 (`subprojects/*.wrap`) |
 | `mpc` | Andreas Enge | `AD17 A21E F8AE D8F1 CC02 DBD9 F7D5 C9BF 765C 61E3` | GNU-Keyring |
 | `mpfr` | Vincent Lefèvre | `A534 BE3F 83E2 41D9 1828 0AEB 5831 D11A 0D4D B02A` | GNU-Keyring |
 | `nano` | Benno Schulenberg | `168E 6F42 97BF D7A7 9AFD 4496 514B BE2E B8E1 961F` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
@@ -65,6 +66,8 @@ Prüfen aller Quellen: `./bz verify`
 | `tpm2-tss` | Andreas Fuchs (Infineon) | `D533 275B 0123 D0A6 79F5  1FF4 8F4F 9A45 D7FF EE74` | keys.openpgp.org; deckungsgleich mit `MAINTAINERS.md` im Release und dem GitHub-Konto des Maintainers |
 | `tzdata` | Paul Eggert | `7E37 92A9 D8AC F7D6 33BC 1588 ED97 E90E 62AA 7E34` | keys.openpgp.org; derselbe Schlüssel steht (abgelaufen) im GNU-Keyring |
 | `util-linux` | Karel Zak | `B0C6 4D14 301C C6EF AEDF 60E4 E4B7 1D5E EC39 C284` | keyserver.ubuntu.com |
+| `vulkan` | Khronos signiert weder Tags noch Commits und veröffentlicht keine signierten Archive (Vulkan-Headers, Vulkan-Loader; geprüft 2026-10-17) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
+| `wayland` | Simon Ser (signiert wayland, wayland-protocols und libdrm) | `34FF 9526 CFEF 0E97 A340 E2E4 0FDE 7BE0 E88F 5E48` | keys.openpgp.org (keyserver.ubuntu.com hat eine 2025 abgelaufene Fassung; diese gilt bis 2027-04-12) |
 | `xkeyboard-config` | Sergey Udaltsov | `FFB4 CCD2 75AA A422 F5F9 808E 0661 D98F C933 A145` | keyserver.ubuntu.com |
 | `xz` | Lasse Collin | `3690 C240 CE51 B467 0D30 AD1C 38EE 757D 6918 4620` | keyserver.ubuntu.com; deckungsgleich mit `tukaani.org/misc/lasse_collin_pubkey.txt` |
 | `zlib` | Mark Adler | `5ED4 6A67 21D3 6558 7791 E2AA 783F CD8E 58BC AFBA` (DSA) | keyserver.ubuntu.com; signiert die Archive auf zlib.net |
