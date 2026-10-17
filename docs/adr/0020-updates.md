@@ -84,9 +84,10 @@ Version mit bekannter Lücke), oder Datenmüll in den Slot schreiben lassen.
   ChromeOS: von 2 auf 4 GiB vergrößert, weil ältere Geräte Updates nicht mehr aufnehmen
   konnten. Die Größe gilt ab der nächsten Neuinstallation – der letzten.
 - **Release:** `bz release` (Besitzer, mit 1Password) signiert Bootloader und UKI mit den
-  Produktionsschlüsseln, baut daraus `/usr`, schreibt `build/release/<ver>/` mit
-  `beize_<ver>.usr.erofs`, `beize_<ver>.usr.verity`, `beize_<ver>.efi`, `SHA256SUMS` und
-  `SHA256SUMS.sig`. Die Version steht in `layout.rs` und steigt mit jedem Release.
+  Produktionsschlüsseln, baut daraus `/usr`, schreibt `build/out/<variante>/release/<ver>/`
+  mit `beize-<variante>_<ver>_<uuid>.usr.erofs`, `….usr.verity`, `beize-<variante>_<ver>.efi`,
+  `SHA256SUMS` und `SHA256SUMS.sig` (ein Strom je Variante, ADR 0025). Die Version steht in
+  `layout.rs` und steigt mit jedem Release.
 
 ## Konsequenzen
 

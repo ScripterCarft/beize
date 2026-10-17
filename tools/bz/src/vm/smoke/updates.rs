@@ -42,7 +42,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
     tree::remove(&releases)?;
     let good = releases.join(&version);
     test_release(paths, keys, &version, &good)?;
-    let refused = refused_releases(&releases, &good, keys)?;
+    let refused = refused_releases(&releases, &good, keys, &paths.variant.id)?;
     let older_loader = paths.variant_work.join("smoke-update-loader.efi");
     older_boot_loader(paths, keys, &older_loader)?;
     for path in BOOT_LOADER_ON_ESP {
@@ -102,7 +102,7 @@ pub(super) fn update(paths: &Paths, keys: &secureboot::Keys, installed: &Install
     ensure!(
         !lines
             .iter()
-            .any(|l| l.contains("verified") || l.contains("beize_")),
+            .any(|l| l.contains("verified") || l.starts_with("beize")),
         "a refused release was left on the disk: {lines:?}"
     );
     say!(
@@ -513,6 +513,7 @@ fn refused_releases(
     releases: &Path,
     good: &Path,
     keys: &secureboot::Keys,
+    variant: &str,
 ) -> Result<Vec<(&'static str, PathBuf, &'static str)>> {
     let copy = |name: &str, all: bool| -> Result<PathBuf> {
         let dir = releases.join(name);
@@ -574,21 +575,33 @@ fn refused_releases(
         list.lines()
             .map(|line| {
                 let (sum, name) = line.split_once("  ").unwrap_or_default();
-                let version = name
-                    .strip_prefix("beize_")
-                    .and_then(|rest| rest.split(['_']).next())
-                    .map(|v| v.trim_end_matches(".efi"))
-                    .unwrap_or_default();
-                format!("{sum}  {}\n", name.replacen(version, "0.0.9", 1))
+                let (stream, rest) = name.split_once('_').unwrap_or_default();
+                let version = rest.split('_').next().unwrap_or_default();
+                let version = version.trim_end_matches(".efi");
+                format!("{sum}  {stream}_{}\n", rest.replacen(version, "0.0.9", 1))
             })
             .collect::<String>(),
     )?;
     keys.sign_update(&older.join(release::LIST), &older.join(release::SIGNATURE))?;
+
+    // Correctly signed, newer, but of another variant (ADR 0025).
+    let other = if variant == "base" { "desktop" } else { "base" };
+    let other_variant = releases.join("other-variant");
+    fs::create_dir_all(&other_variant)?;
+    fs::write(
+        other_variant.join(release::LIST),
+        list.replace(&format!("beize-{variant}_"), &format!("beize-{other}_")),
+    )?;
+    keys.sign_update(
+        &other_variant.join(release::LIST),
+        &other_variant.join(release::SIGNATURE),
+    )?;
 
     Ok(vec![
         ("a changed list", changed_list, UNTRUSTED_UPDATE),
         ("another key's signature", other_key, UNTRUSTED_UPDATE),
         ("a changed file", changed_file, UNTRUSTED_UPDATE),
         ("an older version", older, NO_NEWER_UPDATE),
+        ("another variant's release", other_variant, UNTRUSTED_UPDATE),
     ])
 }

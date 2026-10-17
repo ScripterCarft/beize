@@ -61,6 +61,15 @@ pub fn running_version() -> Result<String, String> {
         .ok_or_else(|| format!("{OS_RELEASE} has no valid IMAGE_VERSION"))
 }
 
+/// The running variant (ADR 0025), from `/usr/lib/os-release`.
+pub fn running_variant() -> Result<String, String> {
+    let text = fs::read_to_string(OS_RELEASE).map_err(|e| format!("{OS_RELEASE}: {e}"))?;
+    list::variant_id(&text)
+        .filter(|v| list::valid_variant(v))
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{OS_RELEASE} has no valid VARIANT_ID"))
+}
+
 /// Reads at most `max` bytes of `reader`; more is an error.
 pub fn read_limited(reader: impl Read, max: u64, what: &str) -> Result<Vec<u8>, String> {
     let mut data = Vec::new();
@@ -75,7 +84,7 @@ pub fn read_limited(reader: impl Read, max: u64, what: &str) -> Result<Vec<u8>, 
 }
 
 /// Checks `list` against `signature` with the update key in `/usr` and
-/// against the running version; the release it describes.
+/// against the running variant and version; the release it describes.
 pub fn check_list(list: &[u8], signature: &[u8]) -> Result<list::List, Refused> {
     let key = fs::read(KEY).map_err(|e| Refused::failed(format!("{KEY}: {e}")))?;
     match crypto::verify(&key, list, signature) {
@@ -90,7 +99,8 @@ pub fn check_list(list: &[u8], signature: &[u8]) -> Result<list::List, Refused> 
     }
     let text = std::str::from_utf8(list)
         .map_err(|_| Refused(error::UNTRUSTED, "the list is not text".into()))?;
-    let release = list::List::parse(text).map_err(|e| Refused(error::UNTRUSTED, e))?;
+    let variant = running_variant().map_err(Refused::failed)?;
+    let release = list::List::parse(text, &variant).map_err(|e| Refused(error::UNTRUSTED, e))?;
     let running = running_version().map_err(Refused::failed)?;
     if !list::newer(&release.version, &running) {
         return Err(Refused(

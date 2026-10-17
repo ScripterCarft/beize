@@ -51,11 +51,16 @@ os-release. Beides sind Varianten eines Baus, keine Forks.
   Ein Rechner trägt genau eine Variante. Das installierte 0.4 braucht deshalb keine
   Umstellung, und `beize-tpm` (`ENTRY_PREFIX`) bleibt, wie er ist.
 - **Ein Update-Strom je Variante:** `bz release --variant <v>` schreibt nach
-  `release/<v>/<ver>/`. Die Dateien tragen die Variante im Namen
+  `build/out/<v>/release/<ver>/`. Die Dateien tragen die Variante im Namen
   (`beize-<v>_<ver>_<uuid>.usr.erofs`, `….usr.verity`, `beize-<v>_<ver>.efi`). Die
-  signierte Liste (ADR 0020) nennt damit die Variante. `beize-updated` lehnt sie streng ab,
-  wenn die Variante nicht zur laufenden passt, bevor eine Datei geholt wird. In
-  `sysupdate.d` sucht die Quelle nach `beize-<v>_…`, das Ziel weiter nach `beize_…`.
+  signierte Liste (ADR 0020) nennt damit die Variante. `beize-updated` liest `VARIANT_ID`
+  aus seinem os-release und lehnt eine Liste mit anderen Namen ab, bevor eine Datei geholt
+  wird. Der Smoke-Test prüft das mit einem korrekt signierten Release der anderen Variante.
+  In `sysupdate.d` sucht die Quelle nach `beize-<v>_…`, das Ziel weiter nach `beize_…`.
+- **Übergang von 0.4:** Der Updater von 0.4 kennt nur die alten Namen. Ein Release des
+  Desktops enthält deshalb zusätzlich `legacy/`: dieselben Dateien als harte Links unter
+  den alten Namen, mit eigener signierter Liste. Das wird entfernt, sobald der Rechner des
+  Besitzers im Strom des Desktops ist.
 - **Kein Wechsel der Variante durch ein Update.** Ein Wechsel bedeutet neu installieren,
   wie bei Windows Server Core seit 2016. Ein späterer Weg dafür wäre eine eigene
   Entscheidung.

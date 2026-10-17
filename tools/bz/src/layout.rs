@@ -106,12 +106,29 @@ pub fn initrd_release() -> String {
 /// them; the only source systemd-sysupdate installs from (ADR 0020).
 pub const UPDATE_SOURCE_DIR: &str = "/var/lib/beize-update/verified";
 
-/// Release file names as systemd-sysupdate patterns: `@v` the version, `@u`
-/// the partition UUID, derived from the root hash like in the image
-/// ([`verity_partition_uuids`]), so that `usrhash=` finds an updated slot.
-pub const RELEASE_USR: &str = "beize_@v_@u.usr.erofs";
-pub const RELEASE_USR_VERITY: &str = "beize_@v_@u.usr.verity";
-pub const RELEASE_UKI: &str = "beize_@v.efi";
+/// Release file names of `variant`'s update stream (ADR 0025) as
+/// systemd-sysupdate patterns – `/usr`, its hash tree, the UKI: `@v` the
+/// version, `@u` the partition UUID, derived from the root hash like in the
+/// image ([`verity_partition_uuids`]), so that `usrhash=` finds an updated
+/// slot. beize-update takes only its own variant's names.
+pub fn release_patterns(variant: &str) -> [String; 3] {
+    patterns(&format!("beize-{variant}"))
+}
+
+/// The names of the one stream before variants, which Beize 0.4 installs
+/// from: the desktop's releases carry them too, beside their own, until
+/// the owner's computer is on the desktop's stream (ADR 0025).
+pub fn legacy_release_patterns() -> [String; 3] {
+    patterns("beize")
+}
+
+fn patterns(prefix: &str) -> [String; 3] {
+    [
+        format!("{prefix}_@v_@u.usr.erofs"),
+        format!("{prefix}_@v_@u.usr.verity"),
+        format!("{prefix}_@v.efi"),
+    ]
+}
 
 /// Fills a release file name pattern.
 pub fn release_file(pattern: &str, version: &str, uuid: &str) -> String {
@@ -123,8 +140,10 @@ pub fn release_file(pattern: &str, version: &str, uuid: &str) -> String {
 /// systemd-sysupdate transfers (`/usr/lib/sysupdate.d/`), as file name and
 /// content. sysupdate writes them in this order: the UKI last, so a slot is
 /// never booted before it is complete. The running version is protected;
-/// two versions are kept, the running one and the other slot.
-pub fn sysupdate_definitions() -> Vec<(&'static str, String)> {
+/// two versions are kept, the running one and the other slot. The source
+/// is `variant`'s stream; on the disk the names stay `beize_<version>`.
+pub fn sysupdate_definitions(variant: &str) -> Vec<(&'static str, String)> {
+    let [usr, usr_verity, uki] = release_patterns(variant);
     let source = |pattern: &str| {
         format!(
             "[Transfer]\nProtectVersion=%A\n\
@@ -143,11 +162,11 @@ pub fn sysupdate_definitions() -> Vec<(&'static str, String)> {
     vec![
         (
             "10-usr.transfer",
-            partition("The /usr data into the free slot.", RELEASE_USR, "usr"),
+            partition("The /usr data into the free slot.", &usr, "usr"),
         ),
         (
             "11-usr-verity.transfer",
-            partition("Its dm-verity hash tree.", RELEASE_USR_VERITY, "usr-verity"),
+            partition("Its dm-verity hash tree.", &usr_verity, "usr-verity"),
         ),
         (
             "20-uki.transfer",
@@ -156,7 +175,7 @@ pub fn sysupdate_definitions() -> Vec<(&'static str, String)> {
                  Type=regular-file\nPath=/EFI/Linux\nPathRelativeTo=boot\n\
                  MatchPattern=beize_@v+@l-@d.efi beize_@v+@l.efi beize_@v.efi\n\
                  Mode=0644\nTriesLeft={BOOT_TRIES}\nTriesDone=0\nInstancesMax=2\n",
-                source(RELEASE_UKI)
+                source(&uki)
             ),
         ),
     ]
@@ -289,7 +308,7 @@ mod tests {
 
     #[test]
     fn sysupdate_writes_what_the_image_names() {
-        let defs = sysupdate_definitions();
+        let defs = sysupdate_definitions("desktop");
         let names: Vec<_> = defs.iter().map(|(name, _)| *name).collect();
         let mut sorted = names.clone();
         sorted.sort();
@@ -305,14 +324,24 @@ mod tests {
         for (_, def) in &defs[..2] {
             assert!(def.contains(&format!("MatchPattern={}\n", usr_label("@v"))));
         }
-        for (_, def) in &defs {
+        // The source is the desktop's stream, each file under its own name.
+        for ((_, def), pattern) in defs.iter().zip(release_patterns("desktop")) {
             assert!(def.contains(&format!("Path={UPDATE_SOURCE_DIR}\n")));
+            assert!(def.contains(&format!(
+                "[Source]\nType=regular-file\nPath={UPDATE_SOURCE_DIR}\nMatchPattern={pattern}\n"
+            )));
             assert!(def.contains("ProtectVersion=%A\n"));
         }
+        let [usr, _, uki] = release_patterns("desktop");
         assert_eq!(
-            release_file(RELEASE_USR, "0.2", "ABCD-EF"),
-            "beize_0.2_abcd-ef.usr.erofs"
+            release_file(&usr, "0.2", "ABCD-EF"),
+            "beize-desktop_0.2_abcd-ef.usr.erofs"
         );
+        assert_eq!(release_file(&uki, "0.2", ""), "beize-desktop_0.2.efi");
+        // What Beize 0.4's sysupdate.d looks for.
+        let [usr, _, uki] = legacy_release_patterns();
+        assert_eq!(usr, "beize_@v_@u.usr.erofs");
+        assert_eq!(uki, "beize_@v.efi");
     }
 
     #[test]

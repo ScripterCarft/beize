@@ -18,10 +18,12 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 `<neu>`/`<alt>` = neue/installierte Version.
 
 1. `OS_VERSION` in `tools/bz/src/layout.rs` auf `"<neu>"` (Commit), dann
-   `./bz build && ./bz release` → `build/out/desktop/release/<neu>/` (6 Dateien, davon die SBOM).
+   `./bz build && ./bz release` → `build/out/desktop/release/<neu>/` (6 Dateien, davon die
+   SBOM, und `legacy/` für den Übergang von 0.4, ADR 0025).
 2. USB-Stick (FAT32 oder exFAT) in Windows **BEIZE** benennen und den Ordner
-   `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\release\<neu>` als `beize-<neu>`
-   daraufkopieren.
+   `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\<neu>` als
+   `beize-<neu>` daraufkopieren. **Nur von 0.4 aus** in Schritt 3
+   `/run/stick/beize-<neu>/legacy` angeben, danach immer `/run/stick/beize-<neu>`.
 3. Beize starten, Stick einstecken, anmelden:
    ```sh
    run0 mkdir -p /run/stick
@@ -31,7 +33,7 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
    ```
    Erwartet: „Beize <neu> is installed. It starts with the next restart.“
 4. Neu starten (`F8` → Samsung). Erwartet: **ohne** Recovery-Key, gleiches Passwort, Daten
-   unverändert; `(. /usr/lib/os-release; echo $IMAGE_VERSION)` → `<neu>`;
+   unverändert; `(. /usr/lib/os-release; echo $IMAGE_VERSION $VARIANT_ID)` → `<neu> desktop`;
    `run0 ls /boot/EFI/Linux` → `beize_<neu>.efi` (gelungen) und `beize_<alt>.efi`;
    `systemctl --failed` → 0 Units. Leertaste beim Start zeigt beide Versionen im Menü.
 

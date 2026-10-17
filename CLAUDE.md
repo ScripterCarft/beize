@@ -281,11 +281,11 @@ entstehen beim Bauen.
 **ADR 0025 (Varianten, am 17.10. angenommen) wird umgesetzt.** Erledigt ist Teil 1:
 `images/base/` und `images/desktop/`, `variant.rs`, `--variant` mit Vorgabe `desktop`, und
 die CI baut und prüft `base` und baut `desktop` dazu. Der Baum ist bitgleich zum alten bis
-auf os-release; der volle Smoke-Test von `base` ist lokal grün. Noch offen:
-2. Release-Namen je Variante (`layout.rs`, `release.rs`, `beize-update/list.rs` mit
-   `VARIANT_ID` aus os-release, Fuzz-Korpora `fuzz/corpus/update_list`). Den Übergang von
-   0.4 gibt es einmal: ein Satz mit den alten Namen `beize_<ver>…` und eigener signierter
-   Liste, danach wird er entfernt.
+auf os-release; der volle Smoke-Test von `base` ist lokal grün. Erledigt ist auch Teil 2:
+Release-Namen je Variante (`beize-<v>_…`). `beize-updated` nimmt nur die eigene Variante
+(`VARIANT_ID`), das prüft der Smoke-Test. Ein Release des Desktops trägt für 0.4 zusätzlich
+`legacy/` mit den alten Namen (`release.rs`, `layout::legacy_release_patterns`). Das wird
+entfernt, sobald der PC des Besitzers 0.5 hat. Noch offen:
 3. Das UKI-Profil „(ohne Oberfläche)“ (signiert wie das Hauptprofil, `--sign-profile`). Der
    Smoke-Test des Desktops startet es und verlangt die `running-units.txt` der Basis. Danach
    bekommt die CI `bz smoke --variant desktop`.

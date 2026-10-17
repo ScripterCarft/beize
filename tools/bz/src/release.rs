@@ -1,7 +1,7 @@
 //! Releases: what beize-updated installs (ADR 0020). One directory per
-//! version: `/usr`, its dm-verity hash tree and the UKI under the names
-//! systemd-sysupdate matches ([`layout::RELEASE_USR`], ...), and the list of
-//! their SHA-256 sums, signed with the update key.
+//! version of a variant: `/usr`, its dm-verity hash tree and the UKI under
+//! the names of the variant's stream ([`layout::release_patterns`], ADR
+//! 0025), and the list of their SHA-256 sums, signed with the update key.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, ensure};
 
 use crate::image::{self, Target};
-use crate::layout::{self, RELEASE_UKI, RELEASE_USR, RELEASE_USR_VERITY};
+use crate::layout;
 use crate::paths::Paths;
 use crate::secureboot::{self, Keys};
 use crate::tree;
@@ -20,14 +20,18 @@ use crate::{say, sbom, util};
 pub const LIST: &str = "SHA256SUMS";
 /// The update key's signature of [`LIST`].
 pub const SIGNATURE: &str = "SHA256SUMS.sig";
+/// Where a desktop release keeps the same files under the names of the
+/// stream before variants, for Beize 0.4 (ADR 0025).
+pub const LEGACY_DIR: &str = "legacy";
 
-/// Where `bz release` puts the release of `version`.
+/// Where `bz release` puts the variant's release of `version`.
 pub fn dir(paths: &Paths, version: &str) -> PathBuf {
     paths.image.join("release").join(version)
 }
 
-/// `bz release`: the release of this build's version for real hardware,
-/// signed with the owner's keys from `store`. A version is released once.
+/// `bz release`: the variant's release of this build's version for real
+/// hardware, signed with the owner's keys from `store`. A version is
+/// released once.
 pub fn release(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
     let version = layout::OS_VERSION;
     let dir = dir(paths, version);
@@ -40,6 +44,20 @@ pub fn release(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
     let keys = Keys::production(store, &secureboot::production_public_dir(paths))?
         .with_update_key(store)?;
     write(paths, &keys, version, Target::Hardware, &dir)?;
+    // Computers on 0.4 become desktops (ADR 0025): their updater knows only
+    // the old names. The same files, linked, with a list of their own.
+    if paths.variant.id == "desktop" {
+        let legacy = dir.join(LEGACY_DIR);
+        fs::create_dir_all(&legacy)?;
+        link_renamed(
+            &keys,
+            version,
+            &dir,
+            &legacy,
+            &layout::legacy_release_patterns(),
+        )?;
+        say!("  for Beize 0.4: {}", legacy.display());
+    }
     Ok(dir)
 }
 
@@ -54,12 +72,14 @@ pub fn write(paths: &Paths, keys: &Keys, version: &str, target: Target, dir: &Pa
     util::step(&format!("Writing release {version}"));
     fs::create_dir_all(dir)?;
     let (data_uuid, verity_uuid) = layout::verity_partition_uuids(&chain.usr.root_hash)?;
+    let names = layout::release_patterns(&paths.variant.id);
+    let files = [
+        (&chain.usr.image, data_uuid.as_str()),
+        (&chain.usr.verity, verity_uuid.as_str()),
+        (&chain.uki, ""),
+    ];
     let mut list = String::new();
-    for (file, pattern, uuid) in [
-        (&chain.usr.image, RELEASE_USR, data_uuid.as_str()),
-        (&chain.usr.verity, RELEASE_USR_VERITY, verity_uuid.as_str()),
-        (&chain.uki, RELEASE_UKI, ""),
-    ] {
+    for ((file, uuid), pattern) in files.into_iter().zip(&names) {
         let name = layout::release_file(pattern, version, uuid);
         fs::rename(file, dir.join(&name))?;
         list += &format!("{}  {name}\n", util::sha256_file(&dir.join(&name))?);
@@ -72,4 +92,30 @@ pub fn write(paths: &Paths, keys: &Keys, version: &str, target: Target, dir: &Pa
     fs::remove_dir_all(&work)?;
     say!("  release {version} -> {}", dir.display());
     Ok(())
+}
+
+/// Links the files of the release in `from` into `to` under `patterns` and
+/// writes and signs their list there.
+fn link_renamed(
+    keys: &Keys,
+    version: &str,
+    from: &Path,
+    to: &Path,
+    patterns: &[String; 3],
+) -> Result<()> {
+    let mut list = String::new();
+    for (line, pattern) in fs::read_to_string(from.join(LIST))?.lines().zip(patterns) {
+        let (sum, name) = line.split_once("  ").unwrap_or_default();
+        // The UUID, if any, stands between the version and the suffix.
+        let uuid = name
+            .rsplit_once('_')
+            .map(|(_, rest)| rest.split('.').next().unwrap_or_default())
+            .filter(|uuid| uuid.len() == 36)
+            .unwrap_or_default();
+        let renamed = layout::release_file(pattern, version, uuid);
+        fs::hard_link(from.join(name), to.join(&renamed))?;
+        list += &format!("{sum}  {renamed}\n");
+    }
+    fs::write(to.join(LIST), list)?;
+    keys.sign_update(&to.join(LIST), &to.join(SIGNATURE))
 }

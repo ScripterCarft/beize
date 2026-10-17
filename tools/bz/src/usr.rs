@@ -108,7 +108,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     write_repart_definitions(&usr)?;
     write_definitions(
         &usr.join("lib/sysupdate.d"),
-        layout::sysupdate_definitions(),
+        layout::sysupdate_definitions(&paths.variant.id),
     )?;
     stamp.write()?;
     Ok(root)
