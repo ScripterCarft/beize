@@ -23,9 +23,15 @@ Beize folgt dem von systemd empfohlenen Aufbau (`docs/ROOTFS_DISCOVERY.md`,
 | Root `/` | `/etc`, `/var`, `/home` – alles, was dem Besitzer gehört | erster Start |
 
 - **Nur `/usr` wird ausgeliefert.** `bz` bricht ab, wenn ein Paket etwas
-  außerhalb von `/usr` installieren will. Vorgaben für `/etc` liegen unter
-  `/usr/share/factory/etc` und werden per tmpfiles beim ersten Start kopiert.
-  systemd erzeugt den Rest selbst (Machine-ID, Benutzer, Symlinks).
+  außerhalb von `/usr` installieren will. Beizes eigene Vorgaben für Programme, die
+  in `/etc` lesen (`profile`, `ld.so.conf`, `nanorc`, `ntp.toml`, die Zertifikate),
+  sind Links nach `/usr` (`tmpfiles.d/beize.conf`). So bringt jede Version ihre eigenen
+  mit, wie bei der Bootloader-Konfiguration (ADR 0024). Der Besitzer ersetzt einen Link
+  durch eine Datei, wenn er etwas ändern will, und die bleibt dann. Kopiert würde eine
+  Vorgabe nie wieder erneuert: Das war bis 0.4 der Fall bei `profile` und `ld.so.conf`.
+  systemds eigene Vorgaben kopiert systemd beim ersten Start aus `/usr/share/factory/etc`
+  (`nsswitch.conf`, `pam.d`). systemd erzeugt den Rest selbst (Machine-ID, Benutzer,
+  Symlinks).
 - **Die initrd im UKI** legt beim ersten Start mit systemd-repart Slot B und
   die Root-Partition an (Definitionen erzeugt aus `tools/bz/src/layout.rs`),
   findet die Root-Partition auf der Boot-Disk und hängt `/usr` des eigenen

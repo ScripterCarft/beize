@@ -20,9 +20,12 @@ packages = ["gcc-runtime", "systemd", "dbus", "dbus-broker", "util-linux", "e2fs
             # Block devices with labels and file systems, for every user.
             "lsblk",
             # The base tools every distribution has (POSIX and alike): text,
-            # files, archives, processes, the pager, the network by hand.
+            # files, archives, processes, the pager, the network by hand, and
+            # what kind of file something is. What only developers need
+            # (patch, strings) stays out: Beize is for consumers first, as
+            # macOS without Xcode's tools (the owner, 2026-10-17).
             "grep", "sed", "gawk", "findutils", "diffutils", "libarchive", "gzip",
-            "procps-ng", "less", "ncurses", "iproute2",
+            "procps-ng", "less", "ncurses", "iproute2", "file",
             # The text editor (the owner's choice).
             "nano",
             # Updates (ADR 0020): Beize's updater, its fetcher, beize-update.

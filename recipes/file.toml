@@ -1,0 +1,47 @@
+# file(1): what kind of file something is, by its content – part of every
+# consumer system, macOS too (the owner's decision, 2026-10-17). It reads
+# untrusted data, so it runs in its own seccomp sandbox (libseccomp, as
+# upstream builds it when the library is there). Without the compression
+# libraries: `file` names a compressed file as such; looking inside it
+# (`file -z`) is not what an ordinary user needs.
+name = "file"
+version = "5.48"
+stage = "target"
+deps = ["gcc", "glibc", "libseccomp"]
+
+[source]
+latest = { release-monitoring = 807 }
+url = "https://astron.com/pub/file/file-{version}.tar.gz"
+sha256 = "ed14656883b23a364b4057c05595d93252da9bc473d30106519519d0da141283"
+signature = "https://astron.com/pub/file/file-{version}.tar.gz.asc"
+keyring = "file"
+
+[build]
+script = '''
+# The magic database is compiled by file of this very version, built for
+# the build machine first (as for ncurses' tic): the buildroot's file is
+# another version.
+mkdir host
+(cd host && env -u CC -u CFLAGS -u LDFLAGS -u PKG_CONFIG -u PKG_CONFIG_PATH -u PKG_CONFIG_LIBDIR \
+  "$SRC/configure" --disable-shared --disable-zlib --disable-bzlib --disable-xzlib \
+    --disable-zstdlib --disable-lzlib --disable-libseccomp \
+  && MAKEFLAGS="$JOBSERVER" make -C src)
+"$SRC/configure" \
+  --host="$TARGET" --build="$("$SRC/config.guess")" --prefix=/usr --libdir=/usr/lib \
+  --disable-static --disable-zlib --disable-bzlib --disable-xzlib --disable-zstdlib \
+  --disable-lzlib --enable-libseccomp
+MAKEFLAGS="$JOBSERVER" make FILE_COMPILE="$BUILD/host/src/file"
+make DESTDIR="$PKG" FILE_COMPILE="$BUILD/host/src/file" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "BSD-2-Clause-Darwin AND BSD-2-Clause"
+cpe = ["cpe:2.3:a:file_project:file"]
+
+[files]
+image = [
+  "usr/bin/file",
+  "usr/lib/libmagic.so.*",
+  "usr/share/misc/magic.mgc",
+]

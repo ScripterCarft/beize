@@ -65,7 +65,8 @@ Firmware (Secure Boot; PK/KEK/db von Beize + Microsoft im Profil „mit Windows�
 Partitionen: ESP 512 MiB · `/usr` A (1 GiB + 64 MiB verity, Label `beize_<ver>`) ·
 `/usr` B (`_empty`, 1. Start) · Root (1. Start, wächst in den Rest). Größen, Typen,
 Versionen, repart-Definitionen stehen **nur** in `tools/bz/src/layout.rs`. Nur `/usr`
-wird ausgeliefert; `/etc` entsteht beim 1. Start aus `/usr/share/factory/etc` und von
+wird ausgeliefert; `/etc` entsteht beim 1. Start aus Links nach `/usr` (Beizes Vorgaben,
+`tmpfiles.d/beize.conf`), systemds `/usr/share/factory/etc` und von
 systemd. Boot-Counting: 3 Versuche, `systemd-bless-boot` entfernt den Zähler.
 Sicherheitsmodell: ADR 0005 (Quellen), 0008 (verity), 0009 (Daten), 0010 (Schlüssel,
 Neubinden, echte Hardware).
@@ -283,22 +284,31 @@ Shell), Fedora-Editionen aus denselben Paketen. Kein Fork, sondern Varianten ein
 Keine Paketverwaltung für Nutzer (VISION: Apps als Bundles, Modell vor M4) – die Varianten
 entstehen beim Bauen.
 
-**ADR 0025 (Varianten, am 17.10. angenommen) wird umgesetzt.** Erledigt ist Teil 1:
-`images/base/` und `images/desktop/`, `variant.rs`, `--variant` mit Vorgabe `desktop`, und
-die CI baut und prüft `base` und baut `desktop` dazu. Der Baum ist bitgleich zum alten bis
-auf os-release; der volle Smoke-Test von `base` ist lokal grün. Erledigt ist auch Teil 2:
-Release-Namen je Variante (`beize-<v>_…`). `beize-updated` nimmt nur die eigene Variante
-(`VARIANT_ID`), das prüft der Smoke-Test. Ein Release des Desktops trägt für 0.4 zusätzlich
-`legacy/` mit den alten Namen (`release.rs`, `layout::legacy_release_patterns`). Das wird
-entfernt, sobald der PC des Besitzers 0.5 hat. Noch offen:
-3. Das UKI-Profil „(ohne Oberfläche)“ (signiert wie das Hauptprofil, `--sign-profile`). Der
-   Smoke-Test des Desktops startet es und verlangt die `running-units.txt` der Basis. Danach
-   bekommt die CI `bz smoke --variant desktop`.
-4. Die Entscheidungen vom 17.10. (Besitzer: „nur Consumer, wie macOS“) umsetzen: util-linux
-   mit ausdrücklicher Liste plus findmnt und flock, `file` neu dazu; patch und strings
-   bleiben draußen (Entwicklerwerkzeuge). `/etc/profile` und `/etc/ld.so.conf` als Link nach
-   `/usr` wie ntp.toml (ADR 0007 einarbeiten).
-5. Release 0.5 für den PC des Besitzers (Desktop-Strom, Übergang aus Punkt 2).
+**ADR 0025 (Varianten) ist umgesetzt** (17.10., alle Teile gepusht):
+- Varianten in `bz` (`variant.rs`, `--variant`, Vorgabe `desktop`). Der Baum von `base` ist
+  bitgleich zu vorher bis auf os-release.
+- Update-Strom je Variante (`beize-<v>_…`). Der Updater nimmt nur seine Variante, das prüft
+  der Smoke-Test. Ein Release des Desktops trägt für 0.4 zusätzlich `legacy/` mit den alten
+  Namen (`release.rs`, `layout::legacy_release_patterns`). Das wird entfernt, sobald der PC
+  des Besitzers 0.5 hat.
+- „(Basis)“ als UKI-Profil 2, vorerst mit dem Recovery-Key (Smoke-Szenario
+  `WithoutAdditions`). Option B, ein eigener TPM-Schlüssel, steht als Entwurf in ADR 0026
+  und **wartet auf die Prüfung des Besitzers**. Code dafür erst nach seiner Freigabe.
+- Werkzeuge (Besitzer: „nur Consumer, wie macOS“): findmnt und flock aus util-linux (jetzt
+  ohne `--disable-all-programs`; `[files] build` nennt jedes weggelassene Programm mit
+  Grund), `file` neu (eigene Sandbox mit seccomp). patch und strings bleiben draußen.
+  `/etc/profile` und `/etc/ld.so.conf` sind Links nach `/usr` (ADR 0007).
+
+**Smoke-Test, gemessen 17.10.:** Release für beide Update-Szenarien einmal gebaut;
+Installation läuft allein (ihre Startmessung). Zwei VMs auf 4 CPUs brachten nichts (579
+statt 585 s, ein Timeout): Starts rechnen. Nächster Hebel: 3–8 s Firmware je Start
+(~35 Starts). Vorher mit Zeitstempeln je Konsolenzeile messen (ohne iPXE-ROM: kein
+Unterschied).
+
+**Nächste Aufgabe: Release 0.5 für den PC des Besitzers.** `OS_VERSION` auf 0.5 (Commit),
+dann muss ein voller CI-Lauf (nachts oder per Hand) dafür grün sein, dann `bz release`
+(Besitzer) und das Update von 0.4 aus über `…/legacy`. Danach einmal `run0 rm /etc/profile
+/etc/ld.so.conf` (`docs/hardware.md`, Schritt 5) und „(Basis)“ auf dem PC testen.
 Danach kommt der Grafik-Stack: Mesa braucht sehr wahrscheinlich LLVM (llvmpipe, mesa-clc),
 grob lokal +15 min Bau von null, CI +1–1,5 h – messen, bevor geplant wird. Offen laut
 `docs/VISION.md`: Grafik-API des Compositors, UI-Toolkit, Systemschrift, Icon-Stil. Mit dem

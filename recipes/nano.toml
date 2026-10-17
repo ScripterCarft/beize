@@ -15,8 +15,8 @@ keyring = "nano"
 
 [build]
 script = '''
-# Without libmagic (Beize has no file(1)): nano then picks the syntax by the
-# file name and the first line, as for most files anyway.
+# Without libmagic: nano picks the syntax by the file name and the first
+# line, as for most files anyway, and loads no library for the rest.
 "$SRC/configure" \
   --host="$TARGET" --build="$("$SRC/config.guess")" --prefix=/usr --sysconfdir=/etc \
   --disable-nls --disable-libmagic

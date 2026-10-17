@@ -1,7 +1,13 @@
 # Core system libraries (libblkid, libmount for systemd) and a few tools,
 # among them login (through PAM) and sulogin (the emergency shell; checks
-# root's password with libxcrypt). Built before systemd, so without udev:
-# lsblk, which needs udev's database, is a recipe of its own.
+# root's password with libxcrypt), findmnt (what is mounted where) and
+# flock (scripts that must not run twice). Built as upstream and Fedora
+# build it; [files] is the list of what goes into the image, each program
+# chosen – the rest of util-linux is for administrators of other systems.
+# Not --disable-all-programs: findmnt and flock have no switch of their
+# own, so it left them out with no way back in. Not what other recipes
+# install: kill (procps-ng's), and lsblk – built before systemd, so without
+# udev, it is a recipe of its own, as it needs udev's database.
 name = "util-linux"
 version = "2.42.4"
 stage = "target"
@@ -20,11 +26,7 @@ script = '''
 "$SRC/configure" \
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib \
   --bindir=/usr/bin --sbindir=/usr/bin --runstatedir=/run \
-  --disable-all-programs \
-  --enable-libuuid --enable-libblkid --enable-libmount --enable-libsmartcols \
-  --enable-libfdisk \
-  --enable-agetty --enable-mount --enable-dmesg \
-  --enable-login --enable-sulogin --enable-nologin \
+  --disable-lsblk --disable-kill \
   --disable-nls --disable-static --disable-liblastlog2 --disable-pylibmount \
   --disable-makeinstall-chown --disable-makeinstall-setuid \
   --without-python --without-systemd --without-udev --without-econf \
@@ -44,6 +46,8 @@ cpe = ["cpe:2.3:a:kernel:util-linux", "cpe:2.3:a:util-linux_project:util-linux"]
 image = [
   "usr/bin/agetty",
   "usr/bin/dmesg",
+  "usr/bin/findmnt",
+  "usr/bin/flock",
   "usr/bin/login",
   "usr/bin/mount",
   "usr/bin/nologin",
@@ -54,5 +58,95 @@ image = [
   "usr/lib/libmount.so.*",
   "usr/lib/libsmartcols.so.*",
   "usr/lib/libuuid.so.*",
-  "usr/share/bash-completion/**",
+  "usr/share/bash-completion/completions/dmesg",
+  "usr/share/bash-completion/completions/findmnt",
+  "usr/share/bash-completion/completions/flock",
+  "usr/share/bash-completion/completions/mount",
+  "usr/share/bash-completion/completions/umount",
+]
+# The other programs, each with its completion (`usr/**/<name>`), by what
+# they are for: none is for a consumer, and Beize does it otherwise.
+build = [
+  # Disks and file systems by hand: Beize partitions and formats itself
+  # (systemd-repart, ADR 0007), the owner never does.
+  { path = "usr/**/addpart", why = "partitions by hand" },
+  { path = "usr/**/delpart", why = "partitions by hand" },
+  { path = "usr/**/partx", why = "partitions by hand" },
+  { path = "usr/**/resizepart", why = "partitions by hand" },
+  { path = "usr/**/*fdisk", why = "partitions by hand (fdisk, sfdisk)" },
+  { path = "usr/**/blk*", why = "block devices by hand (blkid: udev and lsblk tell it)" },
+  { path = "usr/**/blockdev", why = "block devices by hand" },
+  { path = "usr/**/fs*", why = "file systems by hand (fsck, fstrim, fsfreeze)" },
+  { path = "usr/**/mk*", why = "file systems and swap by hand (mkfs, mkswap)" },
+  { path = "usr/**/swap*", why = "swap by hand; zram comes with #34" },
+  { path = "usr/**/zramctl", why = "zram by hand; zram comes with #34" },
+  { path = "usr/**/wipefs", why = "file systems by hand" },
+  { path = "usr/**/losetup", why = "loop devices by hand" },
+  { path = "usr/**/isosize", why = "file systems by hand" },
+  { path = "usr/**/findfs", why = "file systems by hand" },
+  { path = "usr/**/eject", why = "removable media by hand" },
+  # The machine and its processes tuned by hand: what administrators of
+  # servers do; systemd does it for Beize's services.
+  { path = "usr/**/ls*", why = "listings for administrators (lscpu, lsns, ...)" },
+  { path = "usr/**/ipc*", why = "System V IPC by hand" },
+  { path = "usr/**/ch*", why = "CPUs, memory and scheduling by hand (chcpu, chrt, ...); chfn and chsh: accounts are Beize's (ADR 0019)" },
+  { path = "usr/**/coresched", why = "scheduling by hand" },
+  { path = "usr/**/ionice", why = "scheduling by hand" },
+  { path = "usr/**/renice", why = "scheduling by hand" },
+  { path = "usr/**/taskset", why = "scheduling by hand" },
+  { path = "usr/**/uclampset", why = "scheduling by hand" },
+  { path = "usr/**/prlimit", why = "limits by hand" },
+  { path = "usr/**/setarch", why = "personalities for old programs" },
+  { path = "usr/**/i386", why = "personalities for old programs" },
+  { path = "usr/**/linux32", why = "personalities for old programs" },
+  { path = "usr/**/linux64", why = "personalities for old programs" },
+  { path = "usr/**/x86_64", why = "personalities for old programs" },
+  { path = "usr/**/uname26", why = "personalities for old programs" },
+  { path = "usr/**/nsenter", why = "namespaces by hand" },
+  { path = "usr/**/unshare", why = "namespaces by hand" },
+  { path = "usr/**/setpgid", why = "process groups by hand" },
+  { path = "usr/**/setsid", why = "sessions by hand" },
+  { path = "usr/**/waitpid", why = "for scripts" },
+  { path = "usr/**/enosys", why = "for testing programs" },
+  { path = "usr/**/pipesz", why = "for testing programs" },
+  { path = "usr/**/fadvise", why = "page cache by hand" },
+  { path = "usr/**/fallocate", why = "files by hand" },
+  { path = "usr/**/fincore", why = "page cache by hand" },
+  { path = "usr/**/copyfilerange", why = "for testing programs" },
+  { path = "usr/**/getino", why = "for testing programs" },
+  { path = "usr/**/readprofile", why = "kernel profiling" },
+  { path = "usr/**/rtcwake", why = "power by hand" },
+  { path = "usr/**/hwclock", why = "the clock is systemd's (ADR 0012)" },
+  { path = "usr/**/ldattach", why = "serial line disciplines" },
+  { path = "usr/**/wdctl", why = "watchdogs by hand" },
+  { path = "usr/**/rfkill", why = "radios by hand; the desktop switches them" },
+  { path = "usr/**/ctrlaltdel", why = "systemd handles Ctrl+Alt+Del" },
+  { path = "usr/**/pivot_root", why = "systemd switches the root" },
+  { path = "usr/**/switch_root", why = "systemd switches the root" },
+  # Accounts and terminals: Beize's account service (ADR 0019) and run0
+  # (ADR 0018) instead.
+  { path = "usr/**/su", why = "run0 instead (ADR 0018)" },
+  { path = "usr/**/runuser", why = "run0 instead (ADR 0018)" },
+  { path = "usr/**/last*", why = "login records (utmp/wtmp), which Beize does not keep" },
+  { path = "usr/**/utmpdump", why = "login records (utmp/wtmp), which Beize does not keep" },
+  { path = "usr/**/wall", why = "messages to other terminals" },
+  { path = "usr/**/mesg", why = "messages to other terminals" },
+  # Text and scripting tools for developers (the owner: consumers first).
+  { path = "usr/**/col*", why = "text tools for developers (col, column, ...)" },
+  { path = "usr/**/rev", why = "text tools for developers" },
+  { path = "usr/**/look", why = "text tools for developers" },
+  { path = "usr/**/hexdump", why = "text tools for developers" },
+  { path = "usr/**/getopt", why = "for scripts" },
+  { path = "usr/**/logger", why = "for scripts; systemd-cat writes to the journal" },
+  { path = "usr/**/script*", why = "terminal recording" },
+  { path = "usr/**/rename", why = "file tools for developers" },
+  { path = "usr/**/namei", why = "file tools for developers" },
+  { path = "usr/**/whereis", why = "file tools for developers" },
+  { path = "usr/**/hardlink", why = "file tools for developers" },
+  { path = "usr/**/exch", why = "file tools for developers" },
+  { path = "usr/**/mcookie", why = "for X11, which Beize does not have" },
+  { path = "usr/**/uuid*", why = "UUIDs by hand (systemd-id128 makes them)" },
+  { path = "usr/**/cal", why = "a calendar for the terminal" },
+  { path = "usr/**/bits", why = "for developers" },
+  { path = "usr/**/mountpoint", why = "for scripts; findmnt says it" },
 ]

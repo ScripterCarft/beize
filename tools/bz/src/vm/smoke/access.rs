@@ -284,6 +284,18 @@ fn base_tools(shell: &Shell) -> Result<()> {
             "../usr/lib/nano/nanorc",
         ),
         (
+            "file (in its seccomp sandbox)",
+            "file -b --mime-type /usr/bin/bash",
+            "application/x-pie-executable",
+        ),
+        ("findmnt", "findmnt -no FSTYPE /usr", "erofs"),
+        ("flock", "cd /tmp && flock lock echo locked", "locked"),
+        (
+            "Beize's settings in /etc, from /usr (ADR 0007)",
+            "echo $(readlink /etc/profile) $(readlink /etc/ld.so.conf)",
+            "../usr/lib/beize/profile ../usr/lib/beize/ld.so.conf",
+        ),
+        (
             "journalctl --grep (pcre2)",
             "journalctl -b -o cat -n 1 --grep '^Startup finished in' | cut -d' ' -f1",
             "Startup",

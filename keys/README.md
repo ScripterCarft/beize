@@ -25,6 +25,7 @@ Prüfen aller Quellen: `./bz verify`
 | `e2fsprogs` | Theodore Ts'o | `2B69 B954 DBFE 0879 2881 37C9 F2F9 5956 950D 81A3` | keys.openpgp.org |
 | `elfutils` | Aaron Merey (Red Hat) | `6C2B 6315 63B8 D330 578D 3CB4 74FD 3FA2 779E 7073` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org und Arch Linux' `validpgpkeys` |
 | `expat` | Sebastian Pipping | `CB8D E70A 90CF BF6C 3BF5 CC56 9626 2ACF FBD3 AEC6` | keyserver.ubuntu.com |
+| `file` | Christos Zoulas. Der Schlüssel lief am 2026-08-15 ab, die Signatur von 5.48 ist vom 2026-06-07 (gültig). Beim nächsten Release den verlängerten Schlüssel holen | `BE04 995B A8F9 0ED0 C0C1 76C4 7111 2AB1 6CB3 3B3A` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org und Arch Linux' `validpgpkeys` |
 | `findutils` | James Youngman | `0CF4 E8D8 7159 3224 8428 32B8 88DD 9E08 C5DD ACB9` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `gawk` | Arnold Robbins | `D196 7C63 7887 1317 7D86 1ED7 DF59 7815 937E C0D2` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `gcc` | Richard Biener | `7F74 F97C 1034 68EE 5D75 0B58 3AB0 0996 FC26 A641` | GNU-Keyring |
