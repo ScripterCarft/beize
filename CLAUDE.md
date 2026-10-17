@@ -324,6 +324,29 @@ schedule`). Bei Erfolg `legacy/` aus `release.rs`/`layout.rs` entfernen (ADR 002
    ersten C++-Programm den Demangler von elfutils einschalten (ADR 0023). Desktop-Pakete
    kommen nach `images/desktop/` (ADR 0025).
 
+   **Was der Besitzer am 17.10. dazu gesagt hat** (Richtung für den ADR, noch nicht
+   entschieden; macOS als Maßstab, „alles aus einem Guss“):
+   - **Compositor:** ein eigener Beize-Compositor, der zugleich die Shell ist, auf
+     **Smithay** (Rust; Smithay übernimmt Wayland-Protokoll, DRM/KMS, Puffer und Eingabe,
+     Beize alles Sichtbare). Der Besitzer will das so.
+   - **Rendern mit Vulkan** (Besitzer: „Vulkan ist geil“).
+   - **NVIDIA:** Der Besitzer zieht offizielle Treiber vor, aber der **neueste Kernel ist
+     ihm wichtiger, und alles muss ohne Probleme laufen**. Für den ADR heißt das: NVIDIAs
+     offene Kernel-Module plus geschlossene Bibliotheken nur, wenn sie den jeweils
+     neuesten stabilen Kernel verlässlich unterstützen. Sonst Nouveau mit NVK (Mesa). Das
+     mit Daten prüfen: Wie lange brauchte NVIDIA in der Vergangenheit für neue Kernel,
+     und wie gut ist NVK auf der RTX 3070 Ti?
+   - **UI-Toolkit:** offen. Der Besitzer hätte am liebsten ein **eigenes**, wenn es weniger
+     Versuch und Irrtum braucht als der Rest des OS. Pflicht: **schnell und scharf**.
+     Slint war bei ihm unscharf und fehlerhaft, iced und Slint findet er zu
+     eingeschränkt. Im ADR ehrlich bewerten: Aufwand eines eigenen Toolkits (Layout,
+     Text mit Shaping und Hinting, Barrierefreiheit, Eingabemethoden), worauf es aufsetzen
+     könnte, und woher Unschärfe kommt (Skalierung, Subpixel, Fraktional-Scaling).
+   - **Schrift und Icons:** noch offen. Richtung: nicht der typische Linux-Look (kein
+     Adwaita/Cantarell). Icons im Stil von macOS (weich, abgerundet, keine eckige
+     Material-Optik), aber eigene: Apples Icons, Symbole und SF Pro sind geschützt.
+     Vorschlag zum Besprechen: Inter als Systemschrift.
+
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
 zram/oomd und #35 nftables (beide Basis). #36 fwupd kommt mit M4. Regel des Besitzers:
