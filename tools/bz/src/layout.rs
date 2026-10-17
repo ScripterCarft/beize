@@ -112,17 +112,7 @@ pub const UPDATE_SOURCE_DIR: &str = "/var/lib/beize-update/verified";
 /// image ([`verity_partition_uuids`]), so that `usrhash=` finds an updated
 /// slot. beize-update takes only its own variant's names.
 pub fn release_patterns(variant: &str) -> [String; 3] {
-    patterns(&format!("beize-{variant}"))
-}
-
-/// The names of the one stream before variants, which Beize 0.4 installs
-/// from: the desktop's releases carry them too, beside their own, until
-/// the owner's computer is on the desktop's stream (ADR 0025).
-pub fn legacy_release_patterns() -> [String; 3] {
-    patterns("beize")
-}
-
-fn patterns(prefix: &str) -> [String; 3] {
+    let prefix = format!("beize-{variant}");
     [
         format!("{prefix}_@v_@u.usr.erofs"),
         format!("{prefix}_@v_@u.usr.verity"),
@@ -338,10 +328,6 @@ mod tests {
             "beize-desktop_0.2_abcd-ef.usr.erofs"
         );
         assert_eq!(release_file(&uki, "0.2", ""), "beize-desktop_0.2.efi");
-        // What Beize 0.4's sysupdate.d looks for.
-        let [usr, _, uki] = legacy_release_patterns();
-        assert_eq!(usr, "beize_@v_@u.usr.erofs");
-        assert_eq!(uki, "beize_@v.efi");
     }
 
     #[test]

@@ -271,7 +271,8 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-17)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
-`docs/hardware.md`). Installiert ist 0.4. Neu installieren: `keys/secureboot/README.md`, Update vom
+`docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
+Update von 0.4, `/etc`-Links, „(Basis)“ – alles in Ordnung. Neu installieren: `keys/secureboot/README.md`, Update vom
 Stick: `docs/hardware.md`. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key,
 `s`. Phase 7 (Konsolidierung, Review #7) steht in Commits, ADR 0021–0024 und geschlossenen Issues.
 
@@ -288,9 +289,7 @@ entstehen beim Bauen.
 - Varianten in `bz` (`variant.rs`, `--variant`, Vorgabe `desktop`). Der Baum von `base` ist
   bitgleich zu vorher bis auf os-release.
 - Update-Strom je Variante (`beize-<v>_…`). Der Updater nimmt nur seine Variante, das prüft
-  der Smoke-Test. Ein Release des Desktops trägt für 0.4 zusätzlich `legacy/` mit den alten
-  Namen (`release.rs`, `layout::legacy_release_patterns`). Das wird entfernt, sobald der PC
-  des Besitzers 0.5 hat.
+  der Smoke-Test. Der Übergang von 0.4 (`legacy/` im Release 0.5) ist erledigt und entfernt.
 - „(Basis)“ als UKI-Profil 2, vorerst mit dem Recovery-Key (Smoke-Szenario
   `WithoutAdditions`). Option B, ein eigener TPM-Schlüssel, steht als Entwurf in ADR 0026
   und **wartet auf die Prüfung des Besitzers**. Code dafür erst nach seiner Freigabe.
@@ -305,12 +304,10 @@ statt 585 s, ein Timeout): Starts rechnen. Nächster Hebel: 3–8 s Firmware je 
 (~35 Starts). Vorher mit Zeitstempeln je Konsolenzeile messen (ohne iPXE-ROM: kein
 Unterschied).
 
-**`OS_VERSION` ist 0.5 (17.10.).** Der Besitzer testet es auf seinem PC: voller CI-Lauf
-grün, `bz release`, Update von 0.4 aus über `…/legacy`, `run0 rm /etc/profile
-/etc/ld.so.conf`, „(Basis)“ starten (`docs/hardware.md`). **Zu Beginn des nächsten Chats:**
-nach dem Ergebnis fragen und den nächtlichen vollen CI-Lauf prüfen (`gh run list --event
-schedule`). Bei Erfolg `legacy/` aus `release.rs`/`layout.rs` entfernen (ADR 0025,
-Übergang).
+**`OS_VERSION` ist 0.5 (17.10.)** und läuft auf dem PC des Besitzers. „(Basis)“ zeigt dort
+`VARIANT_ID=desktop` – richtig, denn es ist dasselbe `/usr` mit anderem systemd-Ziel (ADR 0025);
+für den Besitzer steht das jetzt in `keys/secureboot/README.md`. **Zu Beginn des nächsten
+Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`).
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
 1. Die Firmware-Zeit je Start messen (3–8 s, siehe oben): Zeitstempel je Konsolenzeile vom

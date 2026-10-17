@@ -57,10 +57,10 @@ os-release. Beides sind Varianten eines Baus, keine Forks.
   aus seinem os-release und lehnt eine Liste mit anderen Namen ab, bevor eine Datei geholt
   wird. Der Smoke-Test prüft das mit einem korrekt signierten Release der anderen Variante.
   In `sysupdate.d` sucht die Quelle nach `beize-<v>_…`, das Ziel weiter nach `beize_…`.
-- **Übergang von 0.4:** Der Updater von 0.4 kennt nur die alten Namen. Ein Release des
-  Desktops enthält deshalb zusätzlich `legacy/`: dieselben Dateien als harte Links unter
-  den alten Namen, mit eigener signierter Liste. Das wird entfernt, sobald der Rechner des
-  Besitzers im Strom des Desktops ist.
+- **Übergang von 0.4:** Der Updater von 0.4 kannte nur die alten Namen. Das Release 0.5
+  des Desktops enthielt deshalb zusätzlich `legacy/`: dieselben Dateien als harte Links
+  unter den alten Namen, mit eigener signierter Liste. Seit der Rechner des Besitzers 0.5
+  hat (17.10.), gibt es nur noch die Ströme je Variante.
 - **Kein Wechsel der Variante durch ein Update.** Ein Wechsel bedeutet neu installieren,
   wie bei Windows Server Core seit 2016. Ein späterer Weg dafür wäre eine eigene
   Entscheidung.
@@ -103,9 +103,6 @@ os-release. Beides sind Varianten eines Baus, keine Forks.
 - Jede Funktion muss einer Seite zugeordnet werden. Das gilt auch für die offenen Issues mit
   `m3-plan`: NVIDIA, Ton und Bluetooth gehören eher zum Desktop, nftables und zram/oomd zur
   Basis.
-- Der Übergang von 0.4 auf die erste Version mit Varianten braucht ein Update aus dem
-  bisherigen Strom (`beize_<ver>…`), einmal für `desktop`. Ab dann gibt es nur noch die
-  Ströme je Variante.
 - Der Smoke-Test des Desktops startet auch das Profil ohne Oberfläche und verlangt dort
   die `running-units.txt` der Basis.
 - Zwei Images bedeuten zwei Smoke-Tests und, sobald es Desktop-Pakete gibt, mehr

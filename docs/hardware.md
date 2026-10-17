@@ -20,11 +20,10 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 1. `OS_VERSION` in `tools/bz/src/layout.rs` auf `"<neu>"` (Commit). Für diesen Commit muss
    ein **voller** CI-Lauf grün sein, nachts oder per Hand (GitHub → Actions → CI → „Run
    workflow“). Dann `./bz build && ./bz release` → `build/out/desktop/release/<neu>/` (6 Dateien, davon die
-   SBOM, und `legacy/` für den Übergang von 0.4, ADR 0025).
+   SBOM).
 2. USB-Stick (FAT32 oder exFAT) in Windows **BEIZE** benennen und den Ordner
    `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\<neu>` als
-   `beize-<neu>` daraufkopieren. **Nur von 0.4 aus** in Schritt 3
-   `/run/stick/beize-<neu>/legacy` angeben, danach immer `/run/stick/beize-<neu>`.
+   `beize-<neu>` daraufkopieren.
 3. Beize starten, Stick einstecken, anmelden:
    ```sh
    run0 mkdir -p /run/stick
@@ -37,10 +36,6 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
    unverändert; `(. /usr/lib/os-release; echo $IMAGE_VERSION $VARIANT_ID)` → `<neu> desktop`;
    `run0 ls /boot/EFI/Linux` → `beize_<neu>.efi` (gelungen) und `beize_<alt>.efi`;
    `systemctl --failed` → 0 Units. Leertaste beim Start zeigt beide Versionen im Menü.
-5. **Nur einmal, nach 0.4 → 0.5:** 0.4 hat `/etc/profile` und `/etc/ld.so.conf` als Kopien
-   angelegt. Seit 0.5 sind es Links nach `/usr` (ADR 0007), aber vorhandene Dateien
-   ersetzt systemd nicht. Deshalb `run0 rm /etc/profile /etc/ld.so.conf` und neu starten.
-   Danach `readlink /etc/profile` → `../usr/lib/beize/profile`.
 
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.

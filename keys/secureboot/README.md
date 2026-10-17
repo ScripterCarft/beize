@@ -138,6 +138,11 @@ Wiederherstellungsschlüssel und zeigt dann „Beize recovery.“: `s` öffnet e
 Root-Shell mit den Daten, `r` startet neu. Der nächste normale Start entsperrt wieder
 ohne Eingabe (ADR 0018).
 
+**Ohne Oberfläche** (klären, ob ein Fehler aus der Basis oder dem Desktop kommt): im
+selben Menü „… (Basis)“ wählen. Vorerst fragt Beize dort nach dem
+Wiederherstellungsschlüssel. Es startet dasselbe System, nur ohne die Dienste des
+Desktops; os-release zeigt deshalb weiter `VARIANT_ID=desktop` (ADR 0025).
+
 **Wenn Beize meldet „This start was changed“:** Es wurde etwas zum Start hinzugefügt
 (Kernel-Parameter, Credentials oder Add-ons, z. B. über die Firmware). Beize öffnet
 die Daten dann nicht und schaltet nach 60 Sekunden aus – **den

@@ -20,9 +20,6 @@ use crate::{say, sbom, util};
 pub const LIST: &str = "SHA256SUMS";
 /// The update key's signature of [`LIST`].
 pub const SIGNATURE: &str = "SHA256SUMS.sig";
-/// Where a desktop release keeps the same files under the names of the
-/// stream before variants, for Beize 0.4 (ADR 0025).
-pub const LEGACY_DIR: &str = "legacy";
 
 /// Where `bz release` puts the variant's release of `version`.
 pub fn dir(paths: &Paths, version: &str) -> PathBuf {
@@ -44,20 +41,6 @@ pub fn release(paths: &Paths, store: &secureboot::Store) -> Result<PathBuf> {
     let keys = Keys::production(store, &secureboot::production_public_dir(paths))?
         .with_update_key(store)?;
     write(paths, &keys, version, Target::Hardware, &dir)?;
-    // Computers on 0.4 become desktops (ADR 0025): their updater knows only
-    // the old names. The same files, linked, with a list of their own.
-    if paths.variant.id == "desktop" {
-        let legacy = dir.join(LEGACY_DIR);
-        fs::create_dir_all(&legacy)?;
-        link_renamed(
-            &keys,
-            version,
-            &dir,
-            &legacy,
-            &layout::legacy_release_patterns(),
-        )?;
-        say!("  for Beize 0.4: {}", legacy.display());
-    }
     Ok(dir)
 }
 
@@ -92,30 +75,4 @@ pub fn write(paths: &Paths, keys: &Keys, version: &str, target: Target, dir: &Pa
     fs::remove_dir_all(&work)?;
     say!("  release {version} -> {}", dir.display());
     Ok(())
-}
-
-/// Links the files of the release in `from` into `to` under `patterns` and
-/// writes and signs their list there.
-fn link_renamed(
-    keys: &Keys,
-    version: &str,
-    from: &Path,
-    to: &Path,
-    patterns: &[String; 3],
-) -> Result<()> {
-    let mut list = String::new();
-    for (line, pattern) in fs::read_to_string(from.join(LIST))?.lines().zip(patterns) {
-        let (sum, name) = line.split_once("  ").unwrap_or_default();
-        // The UUID, if any, stands between the version and the suffix.
-        let uuid = name
-            .rsplit_once('_')
-            .map(|(_, rest)| rest.split('.').next().unwrap_or_default())
-            .filter(|uuid| uuid.len() == 36)
-            .unwrap_or_default();
-        let renamed = layout::release_file(pattern, version, uuid);
-        fs::hard_link(from.join(name), to.join(&renamed))?;
-        list += &format!("{sum}  {renamed}\n");
-    }
-    fs::write(to.join(LIST), list)?;
-    keys.sign_update(&to.join(LIST), &to.join(SIGNATURE))
 }
