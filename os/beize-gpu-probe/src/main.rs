@@ -9,9 +9,9 @@
 //! console: `run0 beize-gpu-probe [seconds] [windows]`.
 
 use std::error::Error;
-use std::ffi::CStr;
 use std::fs;
 use std::io::Cursor;
+use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
 
 use ash::vk;
@@ -23,6 +23,17 @@ const DOWN: &[u8] = include_bytes!(concat!(env!("PROBE_SPV_DIR"), "/down.spv"));
 const GLASS: &[u8] = include_bytes!(concat!(env!("PROBE_SPV_DIR"), "/glass.spv"));
 
 const IN_FLIGHT: usize = 2;
+
+/// `_IOW('d', 0x11, struct drm_auth)`: needs master, so it tells whether we
+/// are (EACCES if not) – the test Mesa and libdrm use.
+const DRM_IOCTL_AUTH_MAGIC: u64 = 0x4004_6411;
+/// `_IO('d', 0x1e)`.
+const DRM_IOCTL_SET_MASTER: u64 = 0x641e;
+const EACCES: i32 = 13;
+
+unsafe extern "C" {
+    fn ioctl(fd: i32, request: u64, ...) -> i32;
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -49,12 +60,36 @@ fn run() -> R<()> {
     let windows: u32 = args.next().map(|s| s.parse()).transpose()?.unwrap_or(12);
     report_sensors("before");
 
+    // KMS first, as a compositor: the connected connector, its card opened
+    // by us, which makes us DRM master; Mesa gets the display from that fd
+    // (VK_EXT_acquire_drm_display) instead of opening the card itself.
+    let (card, connector, connector_id) = find_connector()?;
+    let drm = fs::OpenOptions::new().read(true).write(true).open(&card)?;
+    let fd = drm.as_raw_fd();
+    let mut master = is_master(fd);
+    if !master {
+        // SAFETY: a DRM ioctl without arguments on our own fd.
+        let set = unsafe { ioctl(fd, DRM_IOCTL_SET_MASTER) };
+        let why = std::io::Error::last_os_error();
+        master = is_master(fd);
+        println!("KMS:     not master on open; SET_MASTER returned {set} ({why})");
+    }
+    println!("KMS:     {card}, {connector} (connector {connector_id}), DRM master: {master}");
+    if !master {
+        return Err("cannot become DRM master of the card – is a graphical program running?".into());
+    }
+
     // SAFETY: loads the system's libvulkan.so.1; nothing else runs Vulkan.
     let entry = unsafe { ash::Entry::load()? };
     let app = vk::ApplicationInfo::default()
         .application_name(c"beize-gpu-probe")
         .api_version(vk::API_VERSION_1_3);
-    let extensions = [ash::khr::surface::NAME.as_ptr(), ash::khr::display::NAME.as_ptr()];
+    let extensions = [
+        ash::khr::surface::NAME.as_ptr(),
+        ash::khr::display::NAME.as_ptr(),
+        ash::ext::direct_mode_display::NAME.as_ptr(),
+        ash::ext::acquire_drm_display::NAME.as_ptr(),
+    ];
     // SAFETY: valid create info with static strings.
     let instance = unsafe {
         entry.create_instance(
@@ -80,19 +115,20 @@ fn run() -> R<()> {
     println!("GPU:     {name}");
     println!("Driver:  {driver_name} {driver_info}");
 
-    // The first display, its native resolution at the highest refresh rate.
+    // The connector as a Vulkan display, acquired with our master fd; then
+    // its native resolution at the highest refresh rate.
     let display_ext = ash::khr::display::Instance::new(&entry, &instance);
-    // SAFETY: gpu comes from this instance.
-    let displays = unsafe { display_ext.get_physical_device_display_properties(gpu)? };
-    let display = displays.first().ok_or("no display (is a monitor connected?)")?;
-    let monitor = if display.display_name.is_null() {
-        "unnamed".to_owned()
-    } else {
-        // SAFETY: a NUL-terminated string the driver owns while the instance lives.
-        unsafe { CStr::from_ptr(display.display_name) }.to_string_lossy().into_owned()
-    };
+    let acquire_ext = ash::ext::acquire_drm_display::Instance::new(&entry, &instance);
+    // SAFETY: gpu comes from this instance; fd is our open card.
+    let display = unsafe { acquire_ext.get_drm_display(gpu, fd, connector_id) }
+        .map_err(|e| format!("vkGetDrmDisplayEXT: {e}"))?;
+    // SAFETY: as above; the fd stays open until the end of run().
+    unsafe { acquire_ext.acquire_drm_display(gpu, fd, display) }
+        .map_err(|e| format!("vkAcquireDrmDisplayEXT: {e}"))?;
+    let monitor = connector.clone();
     // SAFETY: the display comes from this device.
-    let modes = unsafe { display_ext.get_display_mode_properties(gpu, display.display)? };
+    let modes = unsafe { display_ext.get_display_mode_properties(gpu, display) }
+        .map_err(|e| format!("vkGetDisplayModePropertiesKHR: {e}"))?;
     for m in &modes {
         let r = m.parameters.visible_region;
         println!(
@@ -114,18 +150,17 @@ fn run() -> R<()> {
     println!("Monitor: {monitor}, using {}x{} @ {hz:.3} Hz", extent.width, extent.height);
 
     // SAFETY: gpu comes from this instance.
-    let planes = unsafe { display_ext.get_physical_device_display_plane_properties(gpu)? };
+    let planes = unsafe { display_ext.get_physical_device_display_plane_properties(gpu) }
+        .map_err(|e| format!("vkGetPhysicalDeviceDisplayPlanePropertiesKHR: {e}"))?;
     let mut plane = None;
     for (index, props) in planes.iter().enumerate() {
         let index = u32::try_from(index)?;
-        if props.current_display != vk::DisplayKHR::null()
-            && props.current_display != display.display
-        {
+        if props.current_display != vk::DisplayKHR::null() && props.current_display != display {
             continue;
         }
         // SAFETY: index is below the plane count.
         let supported = unsafe { display_ext.get_display_plane_supported_displays(gpu, index)? };
-        if supported.contains(&display.display) {
+        if supported.contains(&display) {
             plane = Some((index, props.current_stack_index));
             break;
         }
@@ -551,7 +586,40 @@ fn run() -> R<()> {
 
     report(frame, &intervals, &mut gpu_ms, period, hz);
     report_sensors("after");
+    // Mesa presents through this fd since the acquire: closed only now.
+    drop(drm);
     Ok(())
+}
+
+/// The first connector with a monitor: its card's device node, its name
+/// (`DP-1`) and its KMS object id, from sysfs.
+fn find_connector() -> R<(String, String, u32)> {
+    let mut names: Vec<String> = fs::read_dir("/sys/class/drm")?
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("card") && name.contains('-'))
+        .collect();
+    names.sort();
+    for name in names {
+        let dir = format!("/sys/class/drm/{name}");
+        if fs::read_to_string(format!("{dir}/status"))?.trim() != "connected" {
+            continue;
+        }
+        let id = fs::read_to_string(format!("{dir}/connector_id"))
+            .map_err(|e| format!("{dir}/connector_id: {e}"))?
+            .trim()
+            .parse()?;
+        let (card, connector) = name.split_once('-').ok_or("connector without a card")?;
+        return Ok((format!("/dev/dri/{card}"), connector.to_owned(), id));
+    }
+    Err("no connector with a monitor in /sys/class/drm".into())
+}
+
+fn is_master(fd: i32) -> bool {
+    let magic: u32 = 0;
+    // SAFETY: AUTH_MAGIC reads one u32 from the pointer, which outlives the call.
+    let result = unsafe { ioctl(fd, DRM_IOCTL_AUTH_MAGIC, &raw const magic) };
+    result == 0 || std::io::Error::last_os_error().raw_os_error() != Some(EACCES)
 }
 
 fn color_range() -> vk::ImageSubresourceRange {
