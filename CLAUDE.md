@@ -307,17 +307,26 @@ nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 **`OS_VERSION` ist 0.5 (17.10.)** und läuft auf dem PC des Besitzers. „(Basis)“ zeigt dort
 `VARIANT_ID=desktop` – richtig, denn es ist dasselbe `/usr` mit anderem systemd-Ziel (ADR 0025);
 für den Besitzer steht das jetzt in `keys/secureboot/README.md`. **Zu Beginn des nächsten
-Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`), dann mit
-Schritt 1 von ADR 0027 beginnen.
+Chats:** den CI-Lauf von `e4622b1c` prüfen (erster Bau mit neuem Buildroot, von null) und
+den nächtlichen vollen Lauf (`gh run list --event schedule`).
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
-1. **M3-Grafik nach ADR 0027 (Entwurf, am 17.10. mit dem Besitzer besprochen):** Compositor =
-   Shell auf Smithay, nur Vulkan mit eigenem Renderer (lavapipe in VM/CI), eigenes Toolkit
-   „Beize UI“ auf Parley/Skrifa/Taffy/AccessKit, Inter + JetBrains Mono. **NVIDIA:** Der
-   Besitzer will den stabileren, verbreiteteren Weg „wie Fedora Workstation“. Schritt 1 misst
-   NVK und NVIDIA im Schnelldurchlauf (Tabelle im ADR), die Regel dort entscheidet. Danach
-   ADR auf „angenommen“ setzen. Jetzt: Schritt 1 (Mesa + LLVM in `images/desktop/`, Bauzeit
-   messen).
+1. **M3-Grafik nach ADR 0027 (Entwurf, mit dem Besitzer besprochen).** Compositor = Shell
+   auf Smithay, nur Vulkan mit eigenem Renderer, Toolkit „Beize UI“, Inter + JetBrains Mono.
+   **Schritt 1 ist umgesetzt (17.10.):** NVK (Mesa 26.2.5), Vulkan-Loader, Wayland, libdrm,
+   nouveau mit GSP-Firmware; `bz` liefert Firmware nach Modul-Anforderung (ADR 0015).
+   Befunde stehen im ADR (NVIDIA baut auf 7.2.10, aber objtool-Lücke; `/usr` 159 MiB, davon
+   59 MiB Rückfall-Firmware GSP 535; NVK ohne CET wegen Rust).
+   **Offen: die Messung auf dem Rechner des Besitzers.** Zweig `measure/nvk` (nie nach `main`)
+   hat `beize-gpu-probe` (KMS ohne Compositor, höchste Bildrate bei nativer Auflösung,
+   compositor-ähnliche Last, Frame-Abstände, GPU-Zeit, Sensoren) und Version 0.5.90. Der
+   Besitzer: `git switch measure/nvk && ./bz build && ./bz release`, Update vom Stick
+   (`docs/hardware.md`), auf tty `run0 beize-gpu-probe 30`, Ausgabe abfotografieren oder
+   abschreiben; danach `git switch main`. Fällt NVK durch (240 Hz mit Shell-Budget nicht
+   gehalten), erst dann NVIDIA-Testbau (Fremdmodule signieren). Nach der Messung: Ergebnis
+   ins ADR, ADR „angenommen“, Zweig löschen, weiter mit Schritt 2 (lavapipe mit LLVM im
+   Image, Compositor-Gerüst).
+   **Entscheidung des Besitzers offen:** GSP-535-Rückfall (59 MiB, nie geladen) weglassen?
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
