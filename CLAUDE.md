@@ -150,7 +150,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -291,8 +291,8 @@ entstehen beim Bauen.
 - Update-Strom je Variante (`beize-<v>_…`). Der Updater nimmt nur seine Variante, das prüft
   der Smoke-Test. Der Übergang von 0.4 (`legacy/` im Release 0.5) ist erledigt und entfernt.
 - „(Basis)“ als UKI-Profil 2, vorerst mit dem Recovery-Key (Smoke-Szenario
-  `WithoutAdditions`). Option B, ein eigener TPM-Schlüssel, steht als Entwurf in ADR 0026
-  und **wartet auf die Prüfung des Besitzers**. Code dafür erst nach seiner Freigabe.
+  `WithoutAdditions`). Ein eigener TPM-Schlüssel dafür (ADR 0026) ist angenommen, kommt aber
+  erst mit M4 (#38).
 - Werkzeuge (Besitzer: „nur Consumer, wie macOS“): findmnt und flock aus util-linux (jetzt
   ohne `--disable-all-programs`; `[files] build` nennt jedes weggelassene Programm mit
   Grund), `file` neu (eigene Sandbox mit seccomp). patch und strings bleiben draußen.
@@ -300,9 +300,9 @@ entstehen beim Bauen.
 
 **Smoke-Test, gemessen 17.10.:** Release für beide Update-Szenarien einmal gebaut;
 Installation läuft allein (ihre Startmessung). Zwei VMs auf 4 CPUs brachten nichts (579
-statt 585 s, ein Timeout): Starts rechnen. Nächster Hebel: 3–8 s Firmware je Start
-(~35 Starts). Vorher mit Zeitstempeln je Konsolenzeile messen (ohne iPXE-ROM: kein
-Unterschied).
+statt 585 s, ein Timeout): Starts rechnen. Firmware-Zeit je Start gemessen (17.10.,
+#39): Der größte Posten ist die TPM-Emulation (QEMU/swtpm, ~1 s fest, bis 1 s zufällig),
+nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 
 **`OS_VERSION` ist 0.5 (17.10.)** und läuft auf dem PC des Besitzers. „(Basis)“ zeigt dort
 `VARIANT_ID=desktop` – richtig, denn es ist dasselbe `/usr` mit anderem systemd-Ziel (ADR 0025);
@@ -310,11 +310,7 @@ für den Besitzer steht das jetzt in `keys/secureboot/README.md`. **Zu Beginn de
 Chats:** den nächtlichen vollen CI-Lauf prüfen (`gh run list --event schedule`).
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
-1. Die Firmware-Zeit je Start messen (3–8 s, siehe oben): Zeitstempel je Konsolenzeile vom
-   Einschalten bis zum Kernel, dann die größte Ursache angehen. Was zum gemessenen Start
-   gehört (Signaturprüfung, Messungen ins TPM), bleibt.
-2. ADR 0026, falls der Besitzer ihn freigegeben hat.
-3. M3-Grafik **planen, bevor gebaut wird**, mit dem Besitzer (ADR): offen sind laut
+1. M3-Grafik **planen, bevor gebaut wird**, mit dem Besitzer (ADR): offen sind laut
    `docs/VISION.md` Grafik-API des Compositors, UI-Toolkit, Systemschrift und Icon-Stil,
    dazu NVIDIA (#17: Treiber, Firmware). Mesa braucht sehr wahrscheinlich LLVM (llvmpipe,
    mesa-clc): grob lokal +15 min Bau von null, CI +1–1,5 h, also vorher messen. Mit dem

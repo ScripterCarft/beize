@@ -1,6 +1,7 @@
 # 0026 – TPM-Schlüssel für den Basis-Start
 
-Status: Entwurf · 2026-10-17 (zur Prüfung durch den Besitzer, noch nicht umgesetzt)
+Status: angenommen · 2026-10-17 (Besitzer); umgesetzt wird mit M4 (#38), bis dahin gilt
+ADR 0025: „(Basis)“ mit dem Recovery-Key
 
 ## Kontext
 
