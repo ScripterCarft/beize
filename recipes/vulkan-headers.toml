@@ -1,0 +1,34 @@
+# Vulkan's C headers and registry, for building the loader (ADR 0027).
+name = "vulkan-headers"
+version = "1.4.365"
+stage = "target"
+# CMake checks the project's compilers even for headers.
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 88835 }
+git = "https://github.com/KhronosGroup/Vulkan-Headers.git"
+tag = "v{version}"
+commit = "c46850864f4661461b0f6cb9922c058ffea4915e"
+unsigned = "Khronos signs neither tags nor commits and publishes no signed archives (checked 2026-10-17); pinned to the commit of the release tag, the same one Arch Linux builds"
+
+[build]
+script = '''
+cmake -S "$SRC" -B . -G Ninja \
+  -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+  -DCMAKE_SYSROOT="$SYSROOT" -DCMAKE_C_COMPILER="$TARGET-gcc" -DCMAKE_CXX_COMPILER="$TARGET-g++" \
+  -DCMAKE_INSTALL_PREFIX=/usr -DVULKAN_HEADERS_ENABLE_MODULE=OFF
+DESTDIR="$PKG" cmake --install .
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "Apache-2.0 OR MIT"
+# No CPE: headers; the NVD's khronos:vulkan names the API specification.
+cpe = []
+
+[files]
+build = [
+  { path = "usr/share/cmake/**", why = "CMake's description of the headers, for builds" },
+  { path = "usr/share/vulkan/registry/**", why = "the API registry, which code generators read while building" },
+]

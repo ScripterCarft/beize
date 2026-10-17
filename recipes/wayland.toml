@@ -1,0 +1,43 @@
+# Wayland: the protocol between the compositor and applications (ADR 0027).
+# Only the libraries; wayland-scanner, which turns protocol descriptions
+# into C while building, comes for the build host from the same release
+# (recipes/wayland-scanner.toml). No DTD validation (libxml2), no docs.
+name = "wayland"
+version = "1.26.0"
+stage = "target"
+deps = ["gcc", "glibc", "expat", "libffi", "wayland-scanner"]
+
+[source]
+latest = { release-monitoring = 10061 }
+url = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/{version}/downloads/wayland-{version}.tar.xz"
+sha256 = "64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3"
+signature = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/{version}/downloads/wayland-{version}.tar.xz.sig"
+keyring = "wayland"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  -Dbuild.pkg_config_path="$TOOLS/lib/pkgconfig" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release \
+  -Dlibraries=true -Dscanner=false -Ddtd_validation=false \
+  -Ddocumentation=false -Dtests=false
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "MIT"
+cpe = ["cpe:2.3:a:wayland:wayland"]
+
+[files]
+# The libraries applications link against (Linux desktop ABI, VISION);
+# libwayland-server only once Beize's compositor uses it.
+image = [
+  "usr/lib/libwayland-client.so.*",
+  "usr/lib/libwayland-cursor.so.*",
+  "usr/lib/libwayland-egl.so.*",
+]
+build = [
+  { path = "usr/lib/libwayland-server.so.*", why = "for compositors; Beize's comes with ADR 0027 step 2" },
+]

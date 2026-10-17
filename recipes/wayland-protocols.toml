@@ -1,0 +1,33 @@
+# wayland-protocols: the protocol descriptions beyond the core (xdg-shell,
+# linux-dmabuf, presentation-time …), XML read while building. Nothing of
+# it is needed at run time.
+name = "wayland-protocols"
+version = "1.49"
+stage = "target"
+deps = ["wayland-scanner"]
+
+[source]
+latest = { release-monitoring = 13997 }
+url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/{version}/downloads/wayland-protocols-{version}.tar.xz"
+sha256 = "ec4c8f74942d6dff7ace8b4ce4764f0ef9ff618a935d974ea77edee2ad240b14"
+signature = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/{version}/downloads/wayland-protocols-{version}.tar.xz.sig"
+keyring = "wayland"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  -Dbuild.pkg_config_path="$TOOLS/lib/pkgconfig" \
+  --prefix=/usr --libdir=/usr/lib -Dtests=false
+DESTDIR="$PKG" meson install --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "MIT"
+# No CPE: protocol descriptions; the NVD lists no product for them.
+cpe = []
+
+[files]
+build = [
+  { path = "usr/share/wayland-protocols/**", why = "protocol descriptions, turned into code while building" },
+]

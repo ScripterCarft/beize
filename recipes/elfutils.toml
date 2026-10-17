@@ -2,13 +2,13 @@
 # program with libdw and puts its stack trace into the journal, with the
 # function names from each program's MiniDebugInfo (xz, hence lzma).
 # Only libdw and libelf; the eu-* tools are not shipped. No debuginfod: Beize
-# asks no server about its programs. No C++ demangler: it would bring
-# libstdc++, and no program in Beize is C++ (gcc-runtime.toml) – turn it on
-# with the first C++ program.
+# asks no server about its programs. With the C++ demangler since Mesa,
+# the first C++ in Beize (libstdc++ is shipped anyway): its frames show
+# their names, not `_Z…`.
 name = "elfutils"
 version = "0.196"
 stage = "target"
-deps = ["gcc", "glibc", "zlib", "xz", "zstd"]
+deps = ["gcc", "glibc", "gcc-runtime", "zlib", "xz", "zstd"]
 
 [source]
 latest = { release-monitoring = 5679 }
@@ -21,7 +21,7 @@ keyring = "elfutils"
 script = '''
 "$SRC/configure" \
   --host="$TARGET" --prefix=/usr --libdir=/usr/lib --disable-nls \
-  --disable-debuginfod --disable-libdebuginfod --disable-demangler \
+  --disable-debuginfod --disable-libdebuginfod \
   --with-zlib --with-lzma --with-zstd --without-bzlib
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install

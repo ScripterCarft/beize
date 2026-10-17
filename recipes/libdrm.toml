@@ -1,0 +1,39 @@
+# libdrm: the kernel's graphics interface (DRM/KMS) for user space – modes,
+# buffers, devices (ADR 0027). Only the core library: Mesa's NVK talks to
+# nouveau through the kernel's own headers, and the hardware-specific
+# libraries (amdgpu, intel, radeon …) come with a driver that needs them.
+name = "libdrm"
+version = "2.4.134"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 1596 }
+url = "https://dri.freedesktop.org/libdrm/libdrm-{version}.tar.xz"
+sha256 = "ac5e74d157830eb8bee44c6a6bf3ad49774ef0dd2a72bdad74a8f20308b52a95"
+signature = "https://dri.freedesktop.org/libdrm/libdrm-{version}.tar.xz.sig"
+keyring = "wayland"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release -Dauto_features=disabled \
+  -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled -Dnouveau=disabled \
+  -Dvmwgfx=disabled -Domap=disabled -Dexynos=disabled -Dfreedreno=disabled \
+  -Dtegra=disabled -Dvc4=disabled -Detnaviv=disabled \
+  -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled \
+  -Dtests=false -Dinstall-test-programs=false -Dudev=false
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "MIT"
+# No CPE: the NVD lists no product for libdrm (checked 2026-10-17).
+cpe = []
+
+[files]
+image = [
+  "usr/lib/libdrm.so.*",
+]

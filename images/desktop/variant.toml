@@ -8,4 +8,5 @@
 name = "Desktop"
 extends = "base"
 
-packages = []
+# Graphics (ADR 0027): Vulkan with Mesa's drivers (NVK for NVIDIA).
+packages = ["mesa", "vulkan-loader"]

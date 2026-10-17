@@ -1,0 +1,108 @@
+# Mesa: the GPU drivers for Vulkan (ADR 0027). For now NVK alone, Mesa's
+# Vulkan driver for NVIDIA (Turing and newer, through the GSP firmware the
+# nouveau kernel driver loads) – as Fedora Workstation ships it. Vulkan
+# only: no OpenGL, EGL or GBM until something in Beize needs them (OpenGL
+# will come through zink, as Mesa does for NVK). The Wayland surface for
+# applications; drirc for per-application driver settings.
+name = "mesa"
+version = "26.2.5"
+stage = "target"
+# mesa-clc: NVK's OpenCL C kernels, compiled while building. expat:
+# drirc (xmlconfig). zstd: the shader cache, compressed as Fedora's.
+# gcc-runtime: libstdc++ of the C++ parts. elfutils: NVK reads the ELF
+# images of its shaders with libelf.
+deps = ["gcc", "glibc", "gcc-runtime", "libdrm", "wayland", "wayland-protocols",
+        "wayland-scanner", "mesa-clc", "expat", "zlib", "zstd", "elfutils"]
+
+[source]
+latest = { release-monitoring = 1970 }
+url = "https://archive.mesa3d.org/mesa-{version}.tar.xz"
+sha256 = "794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5"
+signature = "https://archive.mesa3d.org/mesa-{version}.tar.xz.sig"
+keyring = "mesa"
+
+# The crates of NVK's Rust compiler, as Mesa's wraps name them (checked
+# against the wrap on every unpack): from crates.io, pinned by the SHA-256
+# that Mesa's signed archive carries.
+[[extra]]
+latest = { pinned-by = "subprojects/proc-macro2-1-rs.wrap" }
+url = "https://static.crates.io/crates/proc-macro2/1.0.86/download"
+file = "proc-macro2-1.0.86.tar.gz"
+sha256 = "5e719e8df665df0d1c8fbfd238015744736151d4445ec0836b8e628aae103b77"
+unsigned = "crates.io; pinned by the checksum in Mesa's signed release (subprojects/*.wrap)"
+dest = "subprojects/proc-macro2-1.0.86"
+
+[[extra]]
+latest = { pinned-by = "subprojects/quote-1-rs.wrap" }
+url = "https://static.crates.io/crates/quote/1.0.35/download"
+file = "quote-1.0.35.tar.gz"
+sha256 = "291ec9ab5efd934aaf503a6466c5d5251535d108ee747472c3977cc5acc868ef"
+unsigned = "crates.io; pinned by the checksum in Mesa's signed release (subprojects/*.wrap)"
+dest = "subprojects/quote-1.0.35"
+
+[[extra]]
+latest = { pinned-by = "subprojects/syn-2-rs.wrap" }
+url = "https://static.crates.io/crates/syn/2.0.87/download"
+file = "syn-2.0.87.tar.gz"
+sha256 = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
+unsigned = "crates.io; pinned by the checksum in Mesa's signed release (subprojects/*.wrap)"
+dest = "subprojects/syn-2.0.87"
+
+[[extra]]
+latest = { pinned-by = "subprojects/unicode-ident-1-rs.wrap" }
+url = "https://static.crates.io/crates/unicode-ident/1.0.12/download"
+file = "unicode-ident-1.0.12.tar.gz"
+sha256 = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+unsigned = "crates.io; pinned by the checksum in Mesa's signed release (subprojects/*.wrap)"
+dest = "subprojects/unicode-ident-1.0.12"
+
+[[extra]]
+latest = { pinned-by = "subprojects/paste-1-rs.wrap" }
+url = "https://static.crates.io/crates/paste/1.0.14/download"
+file = "paste-1.0.14.tar.gz"
+sha256 = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
+unsigned = "crates.io; pinned by the checksum in Mesa's signed release (subprojects/*.wrap)"
+dest = "subprojects/paste-1.0.14"
+
+[[extra]]
+latest = { pinned-by = "subprojects/rustc-hash-2-rs.wrap" }
+url = "https://static.crates.io/crates/rustc-hash/2.1.1/download"
+file = "rustc-hash-2.1.1.tar.gz"
+sha256 = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+unsigned = "crates.io; pinned by the checksum in Mesa's signed release (subprojects/*.wrap)"
+dest = "subprojects/rustc-hash-2.1.1"
+
+[build]
+script = '''
+# Each crate gets the Meson build file Mesa ships for it, as Meson does
+# when it sets up a wrap itself.
+for wrap in "$SRC"/subprojects/*-rs.wrap; do
+  dir=$(sed -n 's/^directory = //p' "$wrap")
+  if [ -d "$SRC/subprojects/$dir" ]; then
+    cp -r "$SRC/subprojects/packagefiles/$(basename "$wrap" .wrap)/." "$SRC/subprojects/$dir/"
+  fi
+done
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  -Dbuild.pkg_config_path="$TOOLS/lib/pkgconfig" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release -Db_ndebug=true \
+  -Dauto_features=disabled --wrap-mode=nodownload \
+  -Dplatforms=wayland -Dvulkan-drivers=nouveau -Dgallium-drivers= \
+  -Dmesa-clc=system -Dllvm=disabled \
+  -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled -Dgles2=disabled \
+  -Dxmlconfig=enabled -Dexpat=enabled -Dzstd=enabled -Dshader-cache=enabled \
+  -Dvulkan-layers= -Dtools= -Dvideo-codecs= -Dbuild-tests=false
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "MIT AND BSD-3-Clause AND SGI-B-2.0"
+cpe = ["cpe:2.3:a:mesa3d:mesa"]
+
+[files]
+image = [
+  "usr/lib/libvulkan_nouveau.so",
+  "usr/share/drirc.d/**",
+  "usr/share/vulkan/icd.d/nouveau_icd.x86_64.json",
+]

@@ -1,0 +1,31 @@
+# mesa_clc and vtn_bindgen2 for the build host: compile the OpenCL C
+# kernels of Mesa's drivers (NVK's queries and copies) to SPIR-V while
+# building Mesa (ADR 0027). Upstream's way to cross-build Mesa: these tools
+# from the same release, built natively. They link LLVM, clang and the
+# SPIR-V translator of the buildroot (Ubuntu's LLVM 22), which never reach
+# the image – NVK runs no LLVM.
+name = "mesa-clc"
+source_from = "mesa"
+stage = "toolchain"
+
+[build]
+script = '''
+cat > native.ini <<'INI'
+[binaries]
+llvm-config = '/usr/lib/llvm-22/bin/llvm-config'
+INI
+meson setup . "$SRC" --native-file native.ini \
+  --prefix="$TOOLS" --libdir=lib --buildtype=release -Dauto_features=disabled \
+  --wrap-mode=nodownload \
+  -Dmesa-clc=enabled -Dinstall-mesa-clc=true -Dllvm=enabled -Dshared-llvm=enabled \
+  -Dspirv-tools=enabled \
+  -Dplatforms= -Dgallium-drivers= -Dvulkan-drivers= -Dvulkan-layers= -Dtools= \
+  -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false -Dgles1=disabled \
+  -Dgles2=disabled -Dvideo-codecs= -Dbuild-tests=false
+MAKEFLAGS="$JOBSERVER" meson compile
+meson install --no-rebuild --quiet
+'''
+
+[sbom]
+license = "MIT AND BSD-3-Clause AND SGI-B-2.0"
+cpe = ["cpe:2.3:a:mesa3d:mesa"]

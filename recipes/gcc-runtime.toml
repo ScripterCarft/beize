@@ -19,9 +19,8 @@ license = "GPL-3.0-or-later WITH GCC-exception-3.1"
 cpe = ["cpe:2.3:a:gnu:gcc"]
 
 [files]
+# libstdc++ since Mesa, the first C++ in Beize (and elfutils' demangler).
 image = [
   "usr/lib/libgcc_s.so.*",
-]
-build = [
-  { path = "usr/lib/libstdc++.so*", why = "no program is C++ (checked 2026-10-12)" },
+  "usr/lib/libstdc++.so.*",
 ]

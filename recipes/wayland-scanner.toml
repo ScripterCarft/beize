@@ -1,0 +1,20 @@
+# wayland-scanner for the build host: generates the C code of Wayland
+# protocols while building (wayland, Mesa, the Vulkan loader). From the
+# release the image's libwayland comes from, as ukify comes from Beize's
+# own systemd: code it generates matches the library it links against.
+name = "wayland-scanner"
+source_from = "wayland"
+stage = "toolchain"
+
+[build]
+script = '''
+meson setup . "$SRC" --prefix="$TOOLS" --libdir=lib --buildtype=release \
+  -Dlibraries=false -Dscanner=true -Ddtd_validation=false \
+  -Ddocumentation=false -Dtests=false
+MAKEFLAGS="$JOBSERVER" meson compile
+meson install --no-rebuild --quiet
+'''
+
+[sbom]
+license = "MIT"
+cpe = ["cpe:2.3:a:wayland:wayland"]

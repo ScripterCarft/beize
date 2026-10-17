@@ -72,6 +72,16 @@ den Verlierer:
 | Frame-Zeit (vkcube/vkmark, Compositor-Last) | | |
 | Takt und Leistungsaufnahme im Leerlauf | | |
 
+Stand 2026-10-17:
+- **NVIDIA 615.78.08** (offene Module) baut auf 7.2.10 ohne Patch. objtool meldet aber rund 20
+  Rücksprünge in `nvidia.ko` ohne Retbleed-Schutz („naked return in MITIGATION_RETHUNK
+  build“): eine Lücke in unserem gehärteten Kernel. Für ein Testimage müsste `bz` zudem
+  Fremdmodule signieren und die geschlossenen Bibliotheken packen. Das wird nur gebaut,
+  wenn NVK durchfällt.
+- **NVK** ist gebaut (Mesa 26.2.5, Abschnitt Reihenfolge). nouveau nutzt in 7.2 die
+  GSP-Firmware auf Turing/Ampere ab Werk (`NvGspRm`): Takt und Energiesparen erledigt
+  NVIDIAs Firmware auf der GPU.
+
 **Regel:** NVK wird Vorgabe, wenn es die 240 Hz mit Shell-Budget hält – wie bei Fedora. NVIDIA
 nur, wenn NVK das nicht schafft **und** der Treiber auf dem aktuellen Kernel ohne Patch
 baut. Dann gilt: Ein Kernel-Update wartet, bis NVIDIA ihn unterstützt (eine Prüfung in
@@ -85,9 +95,20 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 
 ## Reihenfolge
 
-1. **Mesa** in `images/desktop/`: NVK, lavapipe, dazu libdrm, Wayland, LLVM (lavapipe,
-   mesa-clc). Bauzeit messen (Schätzung lokal +15 min von null, CI +1–1,5 h). Kernel-DRM für
-   Nouveau, GSP-Firmware. Messung nach Abschnitt 4.
+1. **Mesa** in `images/desktop/`: NVK, dazu libdrm, Wayland, Vulkan-Loader; lavapipe
+   (braucht LLVM im Image) mit Schritt 2. Kernel: nouveau, GSP-Firmware. Messung nach
+   Abschnitt 4. Umgesetzt 2026-10-17:
+   - mesa-clc (übersetzt NVKs OpenCL-C beim Bau) läuft auf der Baumaschine mit LLVM 22 aus
+     dem Buildroot; im Image ist kein LLVM. NVK baut in 50 s. Rust in Meson-Projekten
+     über die Cross-Datei von `bz`; Mesas Crates prüft `bz` gegen Mesas Wraps
+     (`latest = { pinned-by = … }`).
+   - Firmware: `bz` liefert genau, was Module anfordern (ADR 0015), Links wie in
+     linux-firmware' WHENCE, unkomprimiert (EROFS komprimiert). Für nouveau 519 Namen, 259
+     Dateien, 152 MiB; `/usr` wächst von ~50 auf 159 MiB. 59 MiB davon sind GSP 535.113,
+     die nouveau nur als Rückfall anfordert und neben 570.144 nie lädt.
+   - NVKs Compiler ist Rust, also ohne CET (ADR 0014): Jeder Prozess, der NVK lädt, läuft
+     ohne Shadow Stack, bis Rust CET stabil erzeugt. Fedora hat denselben Stand.
+   - Mesa ist das erste C++ im Image: libstdc++ und der Demangler von elfutils (ADR 0023).
 2. **Compositor-Gerüst:** KMS, libinput, Vulkan-Renderer, ein Fenster eines Testclients.
    Smoke-Test mit lavapipe, Screenshot-Vergleich.
 3. **Beize UI:** Text, Layout, erstes eigenes Fenster; das Terminal als erste App.

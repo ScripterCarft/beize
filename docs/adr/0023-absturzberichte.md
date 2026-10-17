@@ -29,8 +29,8 @@ ins Journal, ohne dass etwas nachgeladen wird.
   MiniDebugInfo und keine volle Symboltabelle.
 - **systemd mit elfutils** (`-Delfutils=enabled`; libdw und libelf, dlopen). elfutils
   ohne debuginfod (Beize fragt keinen Server nach seinen Programmen), ohne die `eu-*`-
-  Werkzeuge und ohne C++-Demangler (er brächte libstdc++, und kein Programm in Beize ist
-  C++; mit dem ersten C++-Programm, etwa Mesa, einschalten).
+  Werkzeuge. Mit C++-Demangler, seit Mesa als erstes C++ libstdc++ ins Image bringt
+  (2026-10-17); vorher ohne, solange er libstdc++ allein dafür gebracht hätte.
 - **Keine vollen Debug-Infos (`-g`), vorerst.** Gemessen (2026-10-14, alle Pakete): keine
   messbare Bauzeit, aber 244 MiB mehr im Sysroot. Sie brächten Zeilennummern und
   Variablen – nur mit gdb oder debuginfod, und beides hat Beize nicht. Kommt eines davon,
@@ -42,7 +42,7 @@ ins Journal, ohne dass etwas nachgeladen wird.
 ## Konsequenzen
 
 - Jeder Absturz steht mit Stacktrace im Journal, auch auf dem Rechner des Besitzers.
-  Rust-Funktionen erscheinen mit ihrem Symbolnamen (`_ZN…`), C++-Namen undemangelt.
+  Rust-Funktionen erscheinen mit ihrem Symbolnamen (`_ZN…`), C++-Namen lesbar.
 - Kleiner trotz elfutils (2026-10-14): `/usr` 40,8 → 40,3 MiB (unkomprimiert 128 → 110 MiB),
   initrd 10,3 → 10,1 MiB; Bau von null 9,6 → 9,2 min (der Schritt läuft je Paket parallel).
 - Ein Stacktrace nennt Funktionen, keine Zeilen; dafür braucht es später `-g` (oben).

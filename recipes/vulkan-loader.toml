@@ -1,0 +1,39 @@
+# The Vulkan loader (libvulkan): finds the installed drivers (ICDs, here
+# Mesa's) and hands an application the one for its GPU (ADR 0027). With the
+# Wayland surface, the only window system Beize has; no X11.
+name = "vulkan-loader"
+version = "1.4.365"
+stage = "target"
+deps = ["gcc", "glibc", "vulkan-headers", "wayland"]
+
+[source]
+latest = { release-monitoring = 230557 }
+git = "https://github.com/KhronosGroup/Vulkan-Loader.git"
+tag = "v{version}"
+commit = "f866657ff687a36d767cd7783bab800e31ebafaa"
+unsigned = "Khronos signs neither tags nor commits and publishes no signed archives (checked 2026-10-17); pinned to the commit of the release tag, the same one Arch Linux builds"
+
+[build]
+script = '''
+cmake -S "$SRC" -B . -G Ninja \
+  -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+  -DCMAKE_SYSROOT="$SYSROOT" -DCMAKE_C_COMPILER="$TARGET-gcc" -DCMAKE_CXX_COMPILER="$TARGET-g++" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib \
+  -DCMAKE_INSTALL_SYSCONFDIR=/usr/share/factory/etc \
+  -DBUILD_WSI_XCB_SUPPORT=OFF -DBUILD_WSI_XLIB_SUPPORT=OFF -DBUILD_WSI_WAYLAND_SUPPORT=ON \
+  -DBUILD_TESTS=OFF
+MAKEFLAGS="$JOBSERVER" cmake --build .
+DESTDIR="$PKG" cmake --install .
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-17).
+license = "Apache-2.0"
+# No CPE: the NVD lists no product for the loader; khronos:vulkan names
+# the API specification (checked 2026-10-17).
+cpe = []
+
+[files]
+image = [
+  "usr/lib/libvulkan.so.*",
+]
