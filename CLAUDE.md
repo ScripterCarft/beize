@@ -268,7 +268,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-17)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-21)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -386,6 +386,11 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `chvt 7`, dann `systemd-run -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
    -p StandardInput=tty …/beize-compositor` (tty1–6 startet logind ein getty, dann wartet
    systemd auf das Terminal); Log mit `journalctl -t beize-compositor`.
+   CI zu 4a war rot (Lauf 39653421115): Die SBOM (`sbom.rs`, `rust_crates`) las Crates
+   mit `cargo metadata --offline` aus dem Standard-`CARGO_HOME`, in der CI `~/.cargo` aus
+   rust-cache, dort fehlte Smithays `appendlist`. Lokal unsichtbar, weil `./bz` in bwrap
+   `CARGO_HOME` auf `build/cache/cargo` setzt. Jetzt nimmt sie diesen Cache und holt vorher
+   `cargo fetch --locked`; nachgestellt mit leerem Cache (21.10.).
    **4b:** Renderer mit `ash` für Smithays `Renderer`/`Frame`: Texturen aus shm und dmabuf,
    Damage, Leerlauf ohne Zeichnen. **4c:** xdg-shell, ein Fenster, Cursor-Ebene, Tastatur
    nach localeds Layout. (5) `beize-session` und die Unit, Eintrag in `security.toml`,

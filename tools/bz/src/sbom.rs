@@ -297,7 +297,25 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
         .filter(|r| !r.repo.is_empty())
         .map(|r| r.name.as_str())
         .collect();
-    let out = Command::new("cargo")
+    // The crate cache the recipes build from. It also needs the crates of
+    // the workspace's tools and tests, which no recipe fetches: in the CI
+    // bz itself builds with another CARGO_HOME. Checked against Cargo.lock.
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let cargo_home = paths.cache.join("cargo");
+    util::run(
+        Command::new(&cargo)
+            .env("CARGO_HOME", &cargo_home)
+            .args([
+                "fetch",
+                "--quiet",
+                "--locked",
+                "--target=x86_64-unknown-linux-gnu",
+            ])
+            .current_dir(&paths.root),
+    )
+    .context("fetching the workspace's crates")?;
+    let out = Command::new(&cargo)
+        .env("CARGO_HOME", &cargo_home)
         .args([
             "metadata",
             "--format-version=1",
