@@ -44,6 +44,7 @@ Prüfen aller Quellen: `./bz verify`
 | `libarchive` | Martin Matuška (FreeBSD) | `659C 84C0 E23E A1FA 97E0 B58C C040 B508 D63D 2B36` | keyserver.ubuntu.com; deckungsgleich mit Arch Linux' `validpgpkeys` |
 | `libcap` | Andrew G. Morgan | `38A6 4469 8C69 7873 44E9 54CE 29EE 848A E2CC F3F4` | WKD kernel.org |
 | `libffi` | libffi signiert weder Archive noch Tags (geprüft 2026-10-11) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
+| `libinput` | Peter Hutterer (Red Hat; signiert libinput und libevdev). Alter DSA-1024-Schlüssel von 2003 – schwächer als heute üblich, aber der einzige, mit dem Upstream signiert; Arch Linux prüft gegen denselben | `3C2C 43D9 447D 5938 EF45 51EB E23B 7E70 B467 F0BF` (DSA) | keyserver.ubuntu.com; deckungsgleich mit Arch Linux' `validpgpkeys`; signiert die Archive von libevdev und die Tags von libinput |
 | `libseccomp` | Tom Hromatka (Oracle) | `47A6 8FCE 37C7 D702 4FD6 5E11 356C E62C 2B52 4099` | keyserver.ubuntu.com; Maintainer laut `SECURITY.md` des Projekts |
 | `libxcrypt` | Björn Esser | `678C E3FE E430 3115 96DB 8C16 F52E 9800 7594 C21D` | keyserver.ubuntu.com; deckungsgleich mit `libxcrypt-gpgkey.asc` im Release |
 | `libxkbcommon` | Upstream signiert weder Tags noch Commits und veröffentlicht keine signierten Archive (geprüft 2026-10-11) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
