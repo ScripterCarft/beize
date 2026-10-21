@@ -339,8 +339,9 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `measure/nouveau-edid-0.5.94`, läuft beim Besitzer, mit DRM-Debug): EDID byte-gleich mit
    Windows, 2560x1440 @ 240 in der Modusliste, Bild da. Patch: `~/upstream/nouveau-edid`
    (Zweig `nouveau-edid-segment` auf drm-misc-next, b4 vorbereitet, Trockenlauf ok, mit
-   `Cc: stable`); **am 21.10. gesendet** (b4-Tag `sent/20261021-nouveau-edid-segment-…-v1`, Ben Skeggs mit `@nvidia.com`; Antworten leitet der Besitzer weiter). `main` bleibt
-   ohne Patch, bis er upstream bzw. im stabilen Kernel ist. Messzweig: `bz` wendet dort
+   `Cc: stable`); **am 21.10. gesendet** (b4-Tag `sent/20261021-nouveau-edid-segment-…-v1`,
+   Ben Skeggs mit `@nvidia.com`; Antworten leitet der Besitzer weiter). `main` bleibt ohne
+   Patch, bis er upstream bzw. im stabilen Kernel ist. Messzweig: `bz` wendet dort
    `kernel/measure/*.patch` an (außerhalb des Repos per `GIT_CEILING_DIRECTORIES`, sonst
    überspringt `git apply` still). Ob 240 Hz auch *läuft* (Modeset, Pacing), zeigt der
    Hardware-Test des Compositors.
