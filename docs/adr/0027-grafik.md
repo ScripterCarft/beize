@@ -84,12 +84,14 @@ Schatten, Live-Blur-Panel über ½ und ¼ Auflösung), NVK (Mesa 26.2.5) mit GSP
 | Temperatur, Leistung | nouveau meldet für die Karte keine (kein hwmon) |
 
 **Ergebnis: NVK.** Die Last braucht 36 % des Budgets bei 144 Hz und hielte auch 240 Hz
-(4,2 ms). **Offen:** nouveau meldete für 1440p keinen 240-Hz-Modus. Der Monitor (Dell
-AW2723DF, DisplayPort) kann ihn und läuft unter Windows damit. Der Modus steht im DisplayID-Block
-des EDID (1056,75 MHz) und passt mit 8 Bit je Farbe ohne Kompression (DSC) in HBR3 × 4
-(25,4 von 25,9 Gbit/s). nouveaus Prüfung (`nv50_dp_mode_valid`) verwirft ihn genau dann, wenn
-der Link nur HBR2 hat. Warum nouveau HBR2 annimmt, zeigt ein Diagnoselauf auf dem Rechner des
-Besitzers (drm.debug: Raten von Monitor und Encoder).
+(4,2 ms). **240 Hz:** nouveau meldete für 1440p keinen 240-Hz-Modus, obwohl der Monitor (Dell
+AW2723DF, DisplayPort) ihn kann und unter Windows damit läuft. Der Modus steht nur im
+DisplayID-Block des EDID (1056,75 MHz) und passt mit 8 Bit je Farbe ohne DSC in HBR3 × 4 (25,4
+von 25,9 Gbit/s); der Link lief mit HBR3 × 4. Ursache ist ein Fehler in nouveau mit GSP: Der
+EDID-Block 2 kam als Kopie von Block 0 an, weil der I²C-Start zum STOP wurde und der
+Segment-Zeiger verloren ging. Der Fix ist auf der Hardware des Besitzers getestet (EDID
+byte-gleich mit Windows, 240 Hz in der Modusliste) und geht upstream. Beize übernimmt ihn mit
+dem Kernel, nicht als eigenen Patch.
 
 Den NVIDIA-Testbau gibt es nicht: Er hätte `bz` Fremdmodule signieren lassen, und
 NVIDIA 615.78.08 baut zwar auf 7.2.10, objtool meldet aber rund 20 Rücksprünge in

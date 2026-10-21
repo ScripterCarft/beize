@@ -304,9 +304,9 @@ statt 585 s, ein Timeout): Starts rechnen. Firmware-Zeit je Start gemessen (17.1
 #39): Der größte Posten ist die TPM-Emulation (QEMU/swtpm, ~1 s fest, bis 1 s zufällig),
 nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 
-**`OS_VERSION` ist 0.6 (17.10.).** Auf dem PC des Besitzers läuft der Messbau 0.5.92 (Tag
-`measure/nvk-0.5.92`); der Updater nimmt nur Neueres, daher 0.6 als nächste Version von
-`main`. „(Basis)“ zeigt `VARIANT_ID=desktop` – richtig, dasselbe `/usr` mit anderem
+**`OS_VERSION` ist 0.6 (17.10.).** Auf dem PC des Besitzers läuft der Messbau 0.5.94 (Tag
+`measure/nouveau-edid-0.5.94`, EDID-Fix und DRM-Debug); der Updater nimmt nur Neueres, 0.6
+von `main` ersetzt ihn. „(Basis)“ zeigt `VARIANT_ID=desktop` – richtig, dasselbe `/usr` mit anderem
 systemd-Ziel (ADR 0025, erklärt in `keys/secureboot/README.md`). lavapipe ist in der CI grün,
 auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 min).
 
@@ -329,18 +329,21 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (Tests ohne GPU, Rückfall wie WARP) und Kosten (+34 MiB, ~30 min CI im Lauf von null)
    sind dem Besitzer genannt, er will es behalten.
 
-   **240 Hz (Ursache gefunden, 21.10.):** Der Monitor des Besitzers (Dell AW2723DF,
-   DisplayPort) läuft unter Windows mit 1440p @ 240 Hz; der Modus steht nur im DisplayID-Block
-   (EDID-Block 2). Diagnose in Beize (`~/scratch/dp-diag/`, Daten auf dem Stick): Link HBR3 × 4
-   ist in Ordnung, aber Block 2 kommt als Kopie von Block 0 an. Ursache: `r535_dp_aux_xfer`
-   (nouveau mit GSP) löscht MOT bei Address-only-Anfragen, der Start jeder I²C-Nachricht wird
-   zum STOP, der E-DDC-Segment-Zeiger geht verloren. Noch in drm-misc-next, seit 9e9944449023
-   (2023). Patch: `~/upstream/nouveau-edid` (Zweig `nouveau-edid-segment` auf drm-misc-next),
-   Empfänger laut get_maintainer: Lyude Paul, Danilo Krummrich, dri-devel. **Nächster Schritt:**
-   Testbau auf dem Zweig `measure/nouveau-edid` (0.5.93, Patch nur dort, nie auf main),
-   Besitzer installiert ihn und lässt `dp-diag.sh` erneut laufen; erwartet: Block 2 =
-   DisplayID, Modus 2560x1440 @ 240 in der Liste. Danach Lore prüfen, Besitzer sendet.
-   `edid-decode` ist per apt in WSL installiert; danach entfernen, `dp-diag` löschen.
+   **240 Hz: Kernel-Fehler gefunden und behoben, Patch beim Besitzer (21.10.).** Der Monitor
+   (Dell AW2723DF, DisplayPort) kann 1440p @ 240 Hz; der Modus steht nur im DisplayID-Block
+   (EDID-Block 2). nouveau mit GSP (`r535_dp_aux_xfer`) machte aus dem Address-only-Start jeder
+   I²C-Nachricht einen STOP, der E-DDC-Segment-Zeiger ging verloren, Block 2 kam als Kopie von
+   Block 0. Seit 9e9944449023 (2023), auch in drm-misc-next. Erster Versuch (MOT durchreichen,
+   0.5.93): **kein Bild** – NVIDIAs eigene DP-Bibliothek schickt GSP nie Address-only mit MOT.
+   Fix: diesen Start überspringen (wie NVIDIAs Ablauf). Getestet als 0.5.94 (Tag
+   `measure/nouveau-edid-0.5.94`, läuft beim Besitzer, mit DRM-Debug): EDID byte-gleich mit
+   Windows, 2560x1440 @ 240 in der Modusliste, Bild da. Patch: `~/upstream/nouveau-edid`
+   (Zweig `nouveau-edid-segment` auf drm-misc-next, b4 vorbereitet, Trockenlauf ok, mit
+   `Cc: stable`); **der Besitzer sendet ihn** mit `~/upstream/send-nouveau.sh`. `main` bleibt
+   ohne Patch, bis er upstream bzw. im stabilen Kernel ist. Messzweig: `bz` wendet dort
+   `kernel/measure/*.patch` an (außerhalb des Repos per `GIT_CEILING_DIRECTORIES`, sonst
+   überspringt `git apply` still). Ob 240 Hz auch *läuft* (Modeset, Pacing), zeigt der
+   Hardware-Test des Compositors.
    ADR 0027 §6 (Gerüst) hat der Besitzer am 21.10. angenommen, mit der Bedingung „effizient
    auch auf schwachen PCs“ (Punkt „Schwache Rechner“ dort).
 
