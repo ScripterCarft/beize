@@ -1,0 +1,19 @@
+[package]
+name = "beize-testclient"
+description = "A Wayland client that shows a fixed pattern and reports what the compositor sends; tests beize-compositor in the VM, never in the image (ADR 0027 §6)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Wayland in pure Rust: without the client_system feature there is no
+# libwayland, so the client runs from the test medium as it is.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+# memfd for the shm pool, poll for the timeout.
+rustix = { version = "1.1", default-features = false, features = ["event", "fs", "std"] }

@@ -6,7 +6,8 @@
 # Build scripts of its crates, checked (CLAUDE.md §8): drm-sys and input-sys
 # ship their bindings, libseat-sys and libudev-sys ask pkg-config (the
 # target's, set for every recipe), wayland-sys does nothing (Wayland in pure
-# Rust). libudev-sys also links a probe with the build host's rustc and
+# Rust), wayland-client (of the test client) only declares cfg names.
+# libudev-sys also links a probe with the build host's rustc and
 # libudev to see whether udev_hwdb_new exists: the answer depends only on the
 # pinned buildroot, and Smithay does not use the hwdb. The compositor's own
 # build.rs compiles its GLSL shaders with the buildroot's glslangValidator
@@ -16,7 +17,7 @@ version = "0.1.0"
 stage = "target"
 # libgcc_s for Rust's unwinding.
 deps = ["gcc", "glibc", "gcc-runtime", "systemd", "seatd", "libinput", "libxkbcommon"]
-repo = ["os/beize-compositor", "Cargo.toml", "Cargo.lock"]
+repo = ["os/beize-compositor", "os/beize-testclient", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''
@@ -24,11 +25,13 @@ script = '''
 # the build itself runs offline.
 "$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
 MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
-  -p beize-compositor --target x86_64-unknown-linux-gnu
+  -p beize-compositor -p beize-testclient --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-compositor" \
   "$PKG/usr/lib/beize/beize-compositor"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-render-test" \
   "$PKG/usr/lib/beize/test/beize-render-test"
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-testclient" \
+  "$PKG/usr/lib/beize/test/beize-testclient"
 '''
 
 [sbom]
@@ -41,4 +44,5 @@ image = [
 ]
 build = [
   { path = "usr/lib/beize/test/beize-render-test", why = "checks the renderer in the VM, on bz's test medium; not for computers" },
+  { path = "usr/lib/beize/test/beize-testclient", why = "a Wayland client that checks the compositor in the VM, on bz's test medium; not for computers" },
 ]

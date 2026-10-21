@@ -199,6 +199,37 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
   Scanout und Overlay-Ebenen (kommen in die Bildschleife vor dem Rendern), der dmabuf-Weg
   mit Modifiern (nur auf Hardware prüfbar).
 
+### 8. Fenster, Eingabe, Zeiger (Schritt 2, umgesetzt 21.10.)
+
+- **Protokolle:** wl_compositor, wl_shm, linux-dmabuf v4 (die GPU als Hauptgerät, Formate
+  des Renderers), wl_seat, wl_output mit xdg-output, wl_data_device, xdg-shell. Bis die
+  Shell Fenster anordnet (Schritt 4), füllt jedes Fenster den Bildschirm, das neueste liegt
+  oben und hat die Tastatur. Popup-Grabs lehnt der Compositor ab, das Protokoll schließt
+  dann das Popup (`popup_done`). Grabs kommen mit den Menüs von Beize UI.
+- **Bildtakt:** „Frame done“ bekommt ein Client, wenn sein Bild auf dem Schirm ist (vblank),
+  nicht wenn er committet. Ändert ein Commit nichts Sichtbares, kommt es eine
+  Bildwiederholung später, so dreht kein Client leer. Gemessen in der VM: 120 Bilder im
+  Abstand von 13,33 ms bei 75 Hz.
+- **Tastatur:** das XKB-Layout, das localed in `/etc/vconsole.conf` ablegt (`XKBLAYOUT=`
+  usw., vconsole.conf(5)). Gelesen wird die Datei direkt, ohne D-Bus-Client im Compositor.
+  Ändert localed sie, gilt das neue Layout sofort (inotify), wie bei macOS ohne Abmelden.
+  Wiederholung mit GNOMEs Vorgaben (500 ms, 33/s), bis die Einstellungen es anbieten.
+  Strg+Alt+F1…F12 wechselt das VT über logind.
+- **Zeiger:** auf der Cursor-Ebene, zwei Dumb-Buffer ARGB8888, so groß wie der Treiber
+  meldet. Eine Bewegung ist ein Commit dieser Ebene, ohne Zeichnen (wie macOS, KWin,
+  Mutter). Ein Bild kommt nur bei Änderung in den Puffer, der gerade nicht angezeigt wird.
+  Ohne passende Ebene zeichnet der Compositor den Zeiger ins Bild. Eine Bewegung kostet
+  dann zwei kleine Damage-Rechtecke (VM, lavapipe: 0,36 ms GPU). Das ist in VMs immer so:
+  virtio-gpu zeigt seine Cursor-Ebene seit Linux 6.8 nur Clients, die den Hotspot setzen
+  (`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`), und Smithays KMS-Schicht kann das nicht.
+  Vorschlag an Smithay liegt bei den anderen Berichten. Beize hat noch kein Cursor-Thema
+  (Icons kommen mit der Shell), jeder benannte Cursor ist bis dahin Beizes Pfeil. Ein
+  Client-Cursor (shm) wird kopiert.
+- **Geprüft** in der VM mit `beize-testclient` (Test-Medium, nicht im Image) und den Tasten
+  und Mausbewegungen von `bz debug`: Fenstergröße, Layout `de(nodeadkeys)` und der Wechsel
+  zu `us` per localectl, Tasten, Zeiger, Klick, VT-Wechsel hin und zurück, 0 % CPU im
+  Leerlauf. Die Cursor-Ebene selbst prüft erst der Hardware-Test.
+
 ## Reihenfolge
 
 1. **Mesa** in `images/desktop/`: NVK und lavapipe, dazu libdrm, Wayland, Vulkan-Loader.

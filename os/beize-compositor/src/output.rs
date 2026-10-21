@@ -8,6 +8,9 @@
 //! it once the GPU's fence signals (IN_FENCE_FD): the CPU never waits for
 //! the GPU. With nothing changing, nothing is drawn or committed – the
 //! display engine keeps scanning out the last image, as on a Mac.
+//!
+//! The pointer lies on the cursor plane: a move is a commit of that plane
+//! alone, without drawing (`CursorPlane`).
 
 use std::cell::RefCell;
 use std::os::fd::AsFd;
@@ -24,20 +27,32 @@ use smithay::backend::drm::{
 };
 use smithay::backend::renderer::Bind;
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::element::Kind;
-use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
+use smithay::backend::renderer::element::RenderElement;
 use smithay::reexports::drm::buffer::{
     Buffer as _, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
-use smithay::reexports::drm::control::{Device as _, FbCmd2Flags, connector, framebuffer};
-use smithay::utils::{Rectangle, Transform};
+use smithay::reexports::drm::control::{
+    Device as _, FbCmd2Flags, Mode, ModeTypeFlags, connector, dumbbuffer, framebuffer, plane,
+};
+use smithay::utils::{Physical, Point, Rectangle, Transform};
 use tracing::{debug, info, warn};
 
+use crate::cursor;
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Target, VkRenderer};
 
+/// What the screen is, for clients (`wl_output`).
+#[derive(Debug, Clone)]
+pub struct Info {
+    /// The connector, as the kernel names it ("DP-1").
+    pub name: String,
+    /// Millimetres, if the screen says.
+    pub size_mm: (i32, i32),
+    pub mode: Mode,
+}
+
 /// A connected connector, its preferred mode and a CRTC that can drive it.
-pub fn surface(drm: &mut DrmDevice) -> Result<DrmSurface> {
+pub fn surface(drm: &mut DrmDevice) -> Result<(DrmSurface, Info)> {
     let fd = drm.device_fd().clone();
     let resources = fd.resource_handles().context("DRM resources")?;
     for &handle in resources.connectors() {
@@ -48,10 +63,7 @@ pub fn surface(drm: &mut DrmDevice) -> Result<DrmSurface> {
         let mode = connector
             .modes()
             .iter()
-            .find(|m| {
-                m.mode_type()
-                    .contains(smithay::reexports::drm::control::ModeTypeFlags::PREFERRED)
-            })
+            .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
             .copied()
             .unwrap_or(connector.modes()[0]);
         let crtc = connector
@@ -62,15 +74,35 @@ pub fn surface(drm: &mut DrmDevice) -> Result<DrmSurface> {
             .next()
             .context("no CRTC for the connector")?;
         let (w, h) = mode.size();
-        info!(
-            "screen {:?}-{}: {w}x{h} at {} Hz",
-            connector.interface(),
-            connector.interface_id(),
-            mode.vrefresh()
+        let name = format!(
+            "{}-{}",
+            connector.interface().as_str(),
+            connector.interface_id()
         );
-        return drm
+        info!("screen {name}: {w}x{h} at {} Hz", mode.vrefresh());
+        let size_mm = connector.size().unwrap_or_default();
+        let info = Info {
+            name,
+            size_mm: (
+                i32::try_from(size_mm.0).unwrap_or(0),
+                i32::try_from(size_mm.1).unwrap_or(0),
+            ),
+            mode,
+        };
+        let surface = drm
             .create_surface(crtc, mode, &[handle])
-            .context("taking the screen");
+            .context("taking the screen")?;
+        let planes = surface.planes();
+        let handles =
+            |p: &[smithay::backend::drm::PlaneInfo]| p.iter().map(|p| p.handle).collect::<Vec<_>>();
+        debug!(
+            "planes of {crtc:?}: primary {:?}, cursor {:?}, overlay {:?}; all: {:?}",
+            handles(&planes.primary),
+            handles(&planes.cursor),
+            handles(&planes.overlay),
+            fd.plane_handles().ok()
+        );
+        return Ok((surface, info));
     }
     Err(error("no screen connected"))
 }
@@ -195,6 +227,25 @@ fn explicit(modifier: Modifier) -> Option<DrmModifier> {
     }
 }
 
+/// A dumb buffer as a framebuffer, through AddFB2 with its own GEM handle,
+/// implicitly linear.
+fn add_dumb(
+    fd: &DrmDeviceFd,
+    handle: &dumbbuffer::DumbBuffer,
+    format: DrmFourcc,
+) -> Result<framebuffer::Handle> {
+    let planes = Planes {
+        size: handle.size(),
+        format,
+        modifier: None,
+        pitches: [handle.pitch(), 0, 0, 0],
+        handles: [Some(handle.handle()), None, None, None],
+        offsets: [0; 4],
+    };
+    fd.add_planar_framebuffer(&planes, FbCmd2Flags::empty())
+        .context("adding a framebuffer")
+}
+
 /// Dumb buffers through AddFB2 with their own GEM handle, implicitly
 /// linear. Smithay's exporter names LINEAR and, refused, falls back to the
 /// legacy AddFB with a warning.
@@ -214,21 +265,9 @@ impl ExportFramebuffer<DumbBuffer> for DumbExporter {
         let ExportBuffer::Allocator(dumb) = buffer else {
             return Ok(None);
         };
-        let handle = dumb.handle();
-        let planes = Planes {
-            size: handle.size(),
-            format: Fourcc::Xrgb8888,
-            modifier: None,
-            pitches: [handle.pitch(), 0, 0, 0],
-            handles: [Some(handle.handle()), None, None, None],
-            offsets: [0; 4],
-        };
-        let framebuffer = drm
-            .add_planar_framebuffer(&planes, FbCmd2Flags::empty())
-            .context("adding a framebuffer")?;
         Ok(Some(DmabufFramebuffer {
             fd: drm.clone(),
-            handle: framebuffer,
+            handle: add_dumb(drm, dumb.handle(), Fourcc::Xrgb8888)?,
             format: dumb.format(),
         }))
     }
@@ -262,14 +301,180 @@ impl ExportFramebuffer<VulkanImage> for DmabufExporter {
     }
 }
 
+/// One image of the cursor plane: a dumb buffer (linear ARGB8888, which
+/// every cursor plane takes) and its framebuffer.
+struct CursorBuffer {
+    fd: DrmDeviceFd,
+    dumb: Option<dumbbuffer::DumbBuffer>,
+    framebuffer: framebuffer::Handle,
+    /// The `cursor::Image` it holds.
+    image: Option<u64>,
+}
+
+impl CursorBuffer {
+    fn new(fd: &DrmDeviceFd, (w, h): (u32, u32)) -> Result<CursorBuffer> {
+        let dumb = fd
+            .create_dumb_buffer((w, h), DrmFourcc::Argb8888, 32)
+            .context("cursor buffer")?;
+        let framebuffer = match add_dumb(fd, &dumb, DrmFourcc::Argb8888) {
+            Ok(framebuffer) => framebuffer,
+            Err(e) => {
+                let _ = fd.destroy_dumb_buffer(dumb);
+                return Err(e);
+            }
+        };
+        Ok(CursorBuffer {
+            fd: fd.clone(),
+            dumb: Some(dumb),
+            framebuffer,
+            image: None,
+        })
+    }
+
+    /// Copies `image` in, the rest transparent. Never the buffer on the
+    /// screen: the display engine would show it half written.
+    fn write(&mut self, image: &cursor::Image) -> Result<()> {
+        let dumb = self.dumb.as_mut().context("cursor buffer")?;
+        let pitch = dumb.pitch() as usize;
+        let mut map = self
+            .fd
+            .map_dumb_buffer(dumb)
+            .context("mapping the cursor buffer")?;
+        map.fill(0);
+        let row = image.width as usize * 4;
+        for (y, line) in image.pixels.chunks_exact(row).enumerate() {
+            map[y * pitch..y * pitch + row].copy_from_slice(line);
+        }
+        self.image = Some(image.id);
+        Ok(())
+    }
+}
+
+impl Drop for CursorBuffer {
+    fn drop(&mut self) {
+        let _ = self.fd.destroy_framebuffer(self.framebuffer);
+        if let Some(dumb) = self.dumb.take()
+            && let Err(e) = self.fd.destroy_dumb_buffer(dumb)
+        {
+            warn!("removing a cursor buffer: {e}");
+        }
+    }
+}
+
+/// Where the cursor plane is and what it shows: top-left corner and image.
+type Placement = (Point<i32, Physical>, u64);
+
+/// The cursor plane with two buffers: a new image goes into the one not on
+/// the screen, then the two swap.
+struct CursorPlane {
+    handle: plane::Handle,
+    size: (u32, u32),
+    buffers: [CursorBuffer; 2],
+    front: usize,
+    /// On the screen (or committed for the next vblank); None: hidden.
+    shown: Option<Placement>,
+    /// Commited, not yet confirmed: becomes `front` and `shown`.
+    pending: Option<(usize, Option<Placement>)>,
+}
+
+impl CursorPlane {
+    fn new(drm: &DrmDevice, surface: &DrmSurface) -> Option<CursorPlane> {
+        let handle = surface.planes().cursor.first()?.handle;
+        let size = drm.cursor_size();
+        let size = (size.w, size.h);
+        let fd = drm.device_fd();
+        match (CursorBuffer::new(fd, size), CursorBuffer::new(fd, size)) {
+            (Ok(a), Ok(b)) => Some(CursorPlane {
+                handle,
+                size,
+                buffers: [a, b],
+                front: 0,
+                shown: None,
+                pending: None,
+            }),
+            (Err(e), _) | (_, Err(e)) => {
+                warn!("no cursor plane: {e}");
+                None
+            }
+        }
+    }
+
+    fn fits(&self, image: &cursor::Image) -> bool {
+        image.width <= self.size.0 && image.height <= self.size.1
+    }
+
+    /// The plane's new state, if the cursor changed. An image that does not
+    /// fit (`fits`) is drawn into the frame by the caller and hides the plane.
+    fn update(
+        &mut self,
+        cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
+    ) -> Result<Option<PlaneState<'static>>> {
+        let cursor = cursor.filter(|(image, _)| self.fits(image));
+        let wanted = cursor.map(|(image, at)| {
+            (
+                at - Point::from((image.hotspot.0, image.hotspot.1)),
+                image.id,
+            )
+        });
+        if wanted == self.shown {
+            return Ok(None);
+        }
+        let Some(((at, id), image)) = wanted.zip(cursor.map(|(image, _)| image)) else {
+            self.pending = Some((self.front, None));
+            return Ok(Some(PlaneState {
+                handle: self.handle,
+                config: None,
+            }));
+        };
+        let mut buffer = self.front;
+        if self.buffers[buffer].image != Some(id) {
+            buffer = 1 - self.front;
+            self.buffers[buffer].write(image)?;
+        }
+        self.pending = Some((buffer, wanted));
+        let (w, h) = (self.size.0 as i32, self.size.1 as i32);
+        Ok(Some(PlaneState {
+            handle: self.handle,
+            config: Some(PlaneConfig {
+                src: Rectangle::from_size((w, h).into()).to_f64(),
+                dst: Rectangle::new(at, (w, h).into()),
+                transform: Transform::Normal,
+                alpha: 1.0,
+                damage_clips: None,
+                fb: self.buffers[buffer].framebuffer,
+                fence: None,
+            }),
+        }))
+    }
+
+    fn committed(&mut self) {
+        if let Some((front, shown)) = self.pending.take() {
+            self.front = front;
+            self.shown = shown;
+        }
+    }
+}
+
 /// What a swapchain image keeps: its framebuffer and the renderer's target.
 struct Image<F> {
     framebuffer: F,
     target: RefCell<Target>,
 }
 
-/// Beize's background until the shell draws one.
+/// Beize's background until the shell draws one: what the damage tracker
+/// clears to where no window is.
 const BACKGROUND: [f32; 4] = [0.08, 0.10, 0.14, 1.0];
+
+/// What `Output::render` did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Frame {
+    /// A frame (or a cursor move) waits for its vblank.
+    Queued,
+    /// Nothing changed: no frame.
+    Unchanged,
+    /// The last frame is not on the screen yet; the next follows it.
+    Deferred,
+}
 
 pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     drm: DrmDevice,
@@ -278,15 +483,15 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     exporter: F,
     renderer: VkRenderer,
     damage: OutputDamageTracker,
-    background: SolidColorBuffer,
+    cursor: Option<CursorPlane>,
     /// lavapipe may draw straight into the screen's buffers.
     direct: bool,
-    /// Submitted, waiting for its vblank.
+    /// A commit waits for its vblank.
+    flipping: bool,
+    /// Its image, if it brought one.
     pending: Option<Slot<A::Buffer>>,
     /// On the screen.
     shown: Option<Slot<A::Buffer>>,
-    /// Something changed while a frame waited for its vblank.
-    again: bool,
     modeset: bool,
     frames: u64,
     last: Option<Duration>,
@@ -313,23 +518,35 @@ where
     ) -> Output<A, F> {
         let mode = surface.pending_mode();
         let (w, h) = mode.size();
-        let size = (i32::from(w), i32::from(h));
+        let cursor = CursorPlane::new(&drm, &surface);
+        if cursor.is_none() {
+            info!("no cursor plane: the pointer is drawn into the frame");
+        }
         Output {
+            swapchain: Swapchain::new(allocator, w.into(), h.into(), Fourcc::Xrgb8888, modifiers),
+            damage: OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal),
             drm,
             surface,
-            swapchain: Swapchain::new(allocator, w.into(), h.into(), Fourcc::Xrgb8888, modifiers),
             exporter,
             renderer,
-            damage: OutputDamageTracker::new(size, 1.0, Transform::Normal),
-            background: SolidColorBuffer::new(size, BACKGROUND),
+            cursor,
             direct,
+            flipping: false,
             pending: None,
             shown: None,
-            again: false,
             modeset: true,
             frames: 0,
             last: None,
         }
+    }
+
+    pub fn renderer(&mut self) -> &mut VkRenderer {
+        &mut self.renderer
+    }
+
+    /// The cursor plane can show `image`; otherwise it is drawn.
+    pub fn cursor_fits(&self, image: &cursor::Image) -> bool {
+        self.cursor.as_ref().is_some_and(|plane| plane.fits(image))
     }
 
     fn image(&self, slot: &Slot<A::Buffer>) -> Result<Image<F::Framebuffer>> {
@@ -359,12 +576,16 @@ where
         })
     }
 
-    /// Draws what changed and hands it to KMS; nothing if nothing changed.
-    pub fn render(&mut self) -> Result<()> {
-        if self.pending.is_some() {
-            // One frame at a time waits for its vblank; the next follows it.
-            self.again = true;
-            return Ok(());
+    /// Draws what changed of `elements` (front to back), places the
+    /// cursor (image and its hotspot's position) and hands both to KMS in
+    /// one commit; nothing if nothing changed.
+    pub fn render<E: RenderElement<VkRenderer>>(
+        &mut self,
+        elements: &[E],
+        cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
+    ) -> Result<Frame> {
+        if self.flipping {
+            return Ok(Frame::Deferred);
         }
         let slot = self
             .swapchain
@@ -387,13 +608,6 @@ where
             .userdata()
             .get::<Image<F::Framebuffer>>()
             .context("screen buffer data")?;
-        let elements = [SolidColorRenderElement::from_buffer(
-            &self.background,
-            (0, 0),
-            1.0,
-            1.0,
-            Kind::Unspecified,
-        )];
         let (damaged, fence) = {
             let mut target = image.target.borrow_mut();
             let mut framebuffer = self.renderer.bind(&mut *target)?;
@@ -403,19 +617,23 @@ where
                     &mut self.renderer,
                     &mut framebuffer,
                     slot.age().into(),
-                    &elements,
+                    elements,
                     BACKGROUND,
                 )
                 .map_err(|e| error(format!("rendering: {e:?}")))?;
             (result.damage.is_some(), result.sync.export())
         };
-        if !damaged {
+        let cursor = match &mut self.cursor {
+            Some(plane) => plane.update(cursor)?,
+            None => None,
+        };
+        if !damaged && cursor.is_none() {
             // Nothing changed: no frame, no commit; the slot goes back.
-            return Ok(());
+            return Ok(Frame::Unchanged);
         }
 
         let size = slot.size();
-        let plane = PlaneState {
+        let primary = damaged.then(|| PlaneState {
             handle: self.surface.plane(),
             config: Some(PlaneConfig {
                 src: Rectangle::from_size(size).to_f64(),
@@ -427,28 +645,40 @@ where
                 // KMS shows the frame once the GPU is done with it.
                 fence: fence.as_ref().map(|f| f.as_fd()),
             }),
-        };
+        });
+        let planes = primary.into_iter().chain(cursor);
         if self.modeset {
             self.surface
-                .commit([plane], true)
+                .commit(planes, true)
                 .context("setting the mode")?;
             self.modeset = false;
         } else {
-            self.surface.page_flip([plane], true).context("page flip")?;
+            self.surface.page_flip(planes, true).context("page flip")?;
         }
-        self.swapchain.submitted(&slot);
-        self.pending = Some(slot);
-        Ok(())
+        if let Some(plane) = &mut self.cursor {
+            plane.committed();
+        }
+        self.flipping = true;
+        if damaged {
+            self.swapchain.submitted(&slot);
+            self.pending = Some(slot);
+        }
+        Ok(Frame::Queued)
     }
 
-    /// The submitted frame is on the screen.
-    pub fn vblank(&mut self, metadata: Option<DrmEventMetadata>) -> Result<()> {
-        self.shown = self.pending.take();
-        self.frames += 1;
+    /// The commit is on the screen; the time of its vblank, if KMS said.
+    pub fn vblank(&mut self, metadata: Option<DrmEventMetadata>) -> Option<Duration> {
+        self.flipping = false;
         let time = match metadata.map(|m| m.time) {
             Some(DrmEventTime::Monotonic(time)) => Some(time),
             _ => None,
         };
+        let Some(slot) = self.pending.take() else {
+            debug!("cursor plane only, nothing drawn");
+            return time;
+        };
+        self.shown = Some(slot);
+        self.frames += 1;
         let since = time.zip(self.last).map(|(t, l)| t.saturating_sub(l));
         self.last = time.or(self.last);
         match self.frames {
@@ -458,11 +688,14 @@ where
                 self.renderer.gpu_ms()
             ),
         }
-        if std::mem::take(&mut self.again) {
-            self.render()
-        } else {
-            Ok(())
-        }
+        time
+    }
+
+    /// The time between two vblanks.
+    pub fn refresh(&self) -> Duration {
+        let mode = self.surface.pending_mode();
+        let millihertz = crate::gpu::millihertz(&mode).max(1);
+        Duration::from_nanos(1_000_000_000_000 / u64::from(millihertz))
     }
 
     /// Another session took the screen (logind).
@@ -470,20 +703,24 @@ where
         self.drm.pause();
     }
 
-    /// The screen is ours again: everything is set anew.
+    /// The screen is ours again: everything is set anew; the caller draws.
     pub fn resume(&mut self) -> Result<()> {
         self.drm.activate(false).context("taking the screen back")?;
         self.surface.reset_state().context("screen state")?;
         self.swapchain.reset_buffers();
+        self.flipping = false;
         self.pending = None;
         self.shown = None;
-        self.again = false;
         self.modeset = true;
         self.last = None;
+        if let Some(plane) = &mut self.cursor {
+            plane.shown = None;
+            plane.pending = None;
+        }
         // Whatever the other session left is drawn over in full.
         let (w, h) = self.surface.pending_mode().size();
         self.damage =
             OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal);
-        self.render()
+        Ok(())
     }
 }

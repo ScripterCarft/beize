@@ -75,7 +75,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -98,7 +98,8 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
-#   '@screendump build/x.png' (was der Bildschirm zeigt) · Testprogramme der Pakete
+#   '@screendump build/x.png' (was der Bildschirm zeigt) · '@keys a shift+z ctrl+alt+f2'
+#   · '@mouse 40 30 [click]' (QMP; PS/2-Maus, relativ) · Testprogramme der Pakete
 #   (`usr/lib/beize/test/`, `[files] build`) liegen auf dem Test-Medium: in der VM
 #   `mount -o ro /dev/disk/by-id/virtio-beize-test /mnt`, z. B. `/mnt/beize-render-test`
 ./bz run             # interaktiv (Ctrl-A X); VM-Disk bleibt bis zum nächsten Image
@@ -271,7 +272,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-21)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-21, nach 4c)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -377,36 +378,28 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (3) ✓ (21.10.) Probe: Ausgabeweg mit lavapipe steht in ADR 0027 §6 (Dumb-Buffer, nach
    `DUMB_PREFER_SHADOW` direkt oder mit Kopie); Test-VMs haben jetzt virtio-gpu. Der Direktweg
    Vulkan → dmabuf → KMS ist nur auf Hardware prüfbar (QEMU-Blobs brauchen Host-udmabuf).
-   (4) `os/beize-compositor`, in drei Teilen. **4a ✓ (21.10.):** Smithay 0.7 aus crates.io
-   (Build-Skripte geprüft, im Rezept), Sitzung über libseat (wartet, bis sie aktiv ist),
-   Vulkan-Gerät zur DRM-Karte oder lavapipe, beide Ausgabewege, eigener Framebuffer-Export
-   (dmabuf und Dumb ohne Modifier; virtio-gpu lehnt explizites LINEAR ab), eigene
-   Bildschleife; in der VM 120 Bilder, 0 verpasst, Bild per screendump geprüft. Bleibt eine
-   Warnung von Smithay („Unable to become drm master“, unter logind falsch) – Bericht und ein
-   zweiter in `~/upstream/smithay/ISSUES.md`, sendet der Besitzer. Buildroot hat dafür
-   libseat-/libinput-/libxkbcommon-dev (cargo test). `deny.toml`: ISC erlaubt, cgmath
-   (RUSTSEC-2026-0196, ungepflegt) bis zum nächsten Smithay-Release ausgenommen. Test von Hand:
-   `chvt 7`, dann `systemd-run -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
-   -p StandardInput=tty …/beize-compositor` (tty1–6 startet logind ein getty, dann wartet
-   systemd auf das Terminal); Log mit `journalctl -t beize-compositor`.
-   CI zu 4a war rot (Lauf 39653421115): Die SBOM (`sbom.rs`, `rust_crates`) las Crates
-   mit `cargo metadata --offline` aus dem Standard-`CARGO_HOME`, in der CI `~/.cargo` aus
-   rust-cache, dort fehlte Smithays `appendlist`. Lokal unsichtbar, weil `./bz` in bwrap
-   `CARGO_HOME` auf `build/cache/cargo` setzt. Jetzt nimmt sie diesen Cache und holt vorher
-   `cargo fetch --locked`; nachgestellt mit leerem Cache (21.10.), CI grün.
-   **4b ✓ (21.10.):** Renderer `os/beize-compositor/src/render/`, Entscheidungen in ADR
-   0027 §7 (Vulkan 1.3, GLSL per `build.rs` mit glslang + spirv-val, Slang geprüft und
-   verworfen, bindless, Quads je Damage-Rechteck auf der CPU, deckend ohne Blending, 2
-   Bilder in Arbeit, sync_file an KMS und in dmabufs, `texelFetch` bei 1:1). Bildschleife:
-   ohne Änderung kein Bild und kein Commit. Geprüft: `beize-render-test` (13 Prüfungen
-   pixelgenau, lavapipe in der VM, über das neue Test-Medium von `bz debug`), Bildschirm
-   per `@screendump`, 0 CPU im Leerlauf, 1280x800 ganzes Bild 2,57 ms, kleiner Damage
-   0,22 ms. Lehre: Die Vulkan-`Instance` muss das Gerät überleben (`Shared::_instance`),
-   sonst stürzt Mesa beim ersten Shader ab (Typ-Cache je Instanz); in 4a fiel es nicht auf,
-   weil kein Shader lief. Offen: `host_image_copy` (bisher Staging), VRR-Schalter und
-   Zeitgeber (mit Clients), Direct Scanout; dmabufs mit Modifiern und IN_FENCE_FD auf NVK
-   prüft erst der Hardware-Test. **4c:** xdg-shell, ein Fenster, Cursor-Ebene, Tastatur
-   nach localeds Layout. (5) `beize-session` und die Unit, Eintrag in `security.toml`,
+   (4) ✓ (21.10.) `os/beize-compositor` in drei Teilen, Entscheidungen in ADR 0027 §6–8:
+   **4a** Sitzung (libseat), GPU oder lavapipe, Framebuffer-Export, Bildschleife; **4b**
+   Vulkan-Renderer (`render/`, `beize-render-test`); **4c** Protokolle, xdg-shell (jedes
+   Fenster bildschirmfüllend), Tastatur nach `/etc/vconsole.conf` mit Live-Wechsel, Zeiger
+   auf der Cursor-Ebene oder ins Bild gezeichnet, „frame done“ im vblank-Takt,
+   `beize-testclient`. In der VM gezeichneter Zeiger, weil virtio-gpu die Cursor-Ebene nur
+   mit Hotspot zeigt (Smithay kann das nicht; Bericht 3 in `~/upstream/smithay/ISSUES.md`,
+   dort auch die Warnung „Unable to become drm master“; sendet der Besitzer). Lehren: Die
+   Vulkan-`Instance` muss das Gerät überleben (`Shared::_instance`), sonst stürzt Mesa beim
+   ersten Shader ab. Smithays `render_elements!` nur in der generischen Form (`VkFrame` hat
+   zwei Lebensdauern). `deny.toml`: cgmath (RUSTSEC-2026-0196) bis zum nächsten
+   Smithay-Release ausgenommen.
+   **Test von Hand** (`bz debug`, tty1–6 startet logind ein getty): `chvt 7`, dann
+   `systemd-run -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7 -p StandardInput=tty
+   -p StandardOutput=journal -p StandardError=journal /usr/lib/beize/beize-compositor`; Log
+   mit `journalctl -t beize-compositor` (PAM legt ihn in eine Session-Scope, `-u` trifft
+   nicht). Client: `systemd-run -p User=smoke -E XDG_RUNTIME_DIR=/run/user/1000
+   -E WAYLAND_DISPLAY=wayland-1 /run/t/beize-testclient --frames 120` (Test-Medium nach
+   `/run/t`, die frische Disk hat kein `/mnt`), Eingaben mit `@keys`/`@mouse`.
+   Offen: `host_image_copy`, VRR und Zeitgeber, Direct Scanout, Popup-Grabs, Cursor-Thema
+   (mit der Shell); dmabufs mit Modifiern, IN_FENCE_FD und die Cursor-Ebene prüft erst der
+   Hardware-Test. (5) `beize-session` und die Unit, Eintrag in `security.toml`,
    soweit DRM und Vulkan das zulassen. (6) Smoke-Szenario in der vollen Stufe: Anmeldung auf
    tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird
    außerdem: Compositor läuft als Nutzer, keine Warnungen im Journal; Gegenprobe. (7)
@@ -428,7 +421,14 @@ nichts, was ohne Nutzen Leistung kostet.
 - #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 auf der
   Hardware prüfen, #10 beobachten (seit 14 Läufen nicht), #12/#13 Upstream (sendet der Besitzer).
 - ShellCheck in die CI (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
-- **vhdx verkleinern:** `wsl --manage … --set-sparse true` geht nicht (17.10.: „Sparse VHD
+- **Platz in WSL** (21.10., 36 GB belegt): `~/beize` 12 GB (fast alles `build/` und `target/`,
+  neu erzeugbar), `~/upstream` 11 GB (Kernel-Klon 7 GB), `~/.cache/JetBrains` 8 GB (IDE des
+  Besitzers), Toolchains 2,4 GB. Wächst wieder: `target/` (cargo räumt nie auf, bei Bedarf
+  `cargo clean`), Releases in `build/out/<v>/release/` (Messbauten nach dem Schritt löschen).
+  Am 21.10. weg: 0,9 GB Git-Müll (Cruft-Pack vom 15.10., `.git` jetzt 2 MB), Messbauten
+  0.5.90–0.5.93, 4,5 GB `target/`.
+- **vhdx verkleinern** (die Datei schrumpft nie von selbst; 21.10.: 64 GB für 36 GB Inhalt):
+  `wsl --manage … --set-sparse true` geht nicht (17.10.: „Sparse VHD
   … wegen möglicher Datenbeschädigung deaktiviert“, `Wsl/Service/E_INVALIDARG`).
   `--allow-unsafe` nicht verwenden. Stattdessen von Hand: in WSL `sudo fstrim -av`, dann
   `wsl --shutdown`, dann `diskpart` als Administrator mit `select vdisk
