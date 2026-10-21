@@ -307,9 +307,8 @@ nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 **`OS_VERSION` ist 0.6 (17.10.).** Auf dem PC des Besitzers läuft der Messbau 0.5.92 (Tag
 `measure/nvk-0.5.92`); der Updater nimmt nur Neueres, daher 0.6 als nächste Version von
 `main`. „(Basis)“ zeigt `VARIANT_ID=desktop` – richtig, dasselbe `/usr` mit anderem
-systemd-Ziel (ADR 0025, erklärt in `keys/secureboot/README.md`). **Zu Beginn des nächsten
-Chats:** den CI-Lauf des lavapipe-Commits prüfen (baut LLVM zum ersten Mal, ~30 min mehr)
-und den nächtlichen vollen Lauf.
+systemd-Ziel (ADR 0025, erklärt in `keys/secureboot/README.md`). lavapipe ist in der CI grün,
+auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 min).
 
 **Nächste Aufgaben, in dieser Reihenfolge:**
 1. **M3-Grafik nach ADR 0027 (angenommen 17.10.).** Compositor = Shell auf Smithay, nur
@@ -329,13 +328,47 @@ und den nächtlichen vollen Lauf.
    Nutzen und Kosten sind dem Besitzer genannt (Tests ohne GPU, Rückfall wie WARP;
    +40 MiB, ~30 min CI im Lauf von null); er ließ weitermachen.
 
-   **Jetzt: Compositor-Gerüst** auf Smithay (`os/beize-compositor`, ADR 0027 Schritt 2):
-   KMS atomar wie die Probe, libinput, Sitzung über logind/libseat (Compositor als
-   Nutzer, nicht root), eigener Vulkan-Renderer für Smithays `Renderer`-Schnittstelle,
-   ein Fenster eines Testclients, Start nach der Anmeldung auf dem tty per systemd-Unit.
-   Smoke-Test in der VM (virtio-gpu, lavapipe) mit Screenshot-Vergleich. Vor dem Code die
-   Eckpunkte (Sitzung, Start, Testclient, Screenshot-Weg) kurz mit dem Besitzer abstimmen.
-   Danach erster Hardware-Test beim Besitzer: Compositor auf NVK mit 144 Hz, Maus, Tastatur.
+   **Zuerst: LLVM verkleinern prüfen** (Besitzer 17.10.: „brauchen wir alles?“). `libLLVM.so`
+   enthält heute alle Komponenten. Mesa 26.2.5 verlangt (`meson.build` ~Z. 1962) nur
+   bitwriter, engine, mcdisassembler, core, executionengine, scalaropts, transformutils,
+   instcombine, native, mcjit, optional coroutines und lto. Also einmal lokal mit
+   `-DLLVM_DYLIB_COMPONENTS=…` bauen, Größe messen, Compute-Prüfung und Smoke laufen lassen,
+   nur bei spürbarem Gewinn übernehmen. Die Erwartung ist mäßig: lto zieht Passes, IPO und
+   CodeGen mit. Erst pushen, wenn der CI-Lauf des lavapipe-Commits grün ist.
+
+   **Dann: Compositor-Gerüst** (`os/beize-compositor`, ADR 0027 Schritt 2). Plan mit dem
+   Besitzer am 17.10. abgestimmt, **noch nicht begonnen**. Eckpunkte:
+   - **Sitzung:** Der Compositor läuft als Nutzer, nicht als root. DRM- und Eingabegeräte
+     bekommt er von logind über libseat (Rezept aus seatd, nur das logind-Backend,
+     `-Dserver=disabled`). Kein seatd-Dienst, keine Gruppen. Vorbild: GNOME/KDE auf Fedora.
+   - **Start:** Anmeldung auf tty1, dann startet `beize-session` die Benutzer-Unit
+     `beize-compositor.service` (in `graphical-session.target`). Kein `.profile`-Trick. Das
+     ist ein Übergang bis zu Beizes eigenem Anmeldefenster (wie macOS' loginwindow, eigenes
+     ADR, später).
+   - **Testclient** `beize-testclient` (`os/`): reines Rust-Wayland ohne libwayland, wl_shm,
+     festes Farbmuster. **Nicht im Image**, er kommt über die Test-Disk in die VM.
+   - **Screenshot:** QMP `screendump` (zeigt, was wirklich ausgegeben wird), Vergleich gegen
+     eine Referenz in `bz` mit Toleranz; bei Fehler ein Differenzbild in den Logs.
+   - **Ausgabe:** KMS atomar über Smithays DRM-Backend, nicht `VK_KHR_display` wie die
+     Probe, denn ein Compositor braucht Planes, Cursor und Hotplug (wie KWin und mutter).
+     Puffer kommen aus Vulkan als dmabuf mit Modifiern (Smithays `VulkanAllocator`), **kein
+     GBM**, Mesa bleibt ohne. Offen: Nimmt virtio-gpu einen dmabuf von lavapipe an? Sonst in
+     der VM eine CPU-Kopie in einen Dumb-Buffer. Den Direktweg prüft dann nur die Hardware.
+
+   Reihenfolge: (1) die Eckpunkte als Endfassung in ADR 0027, der Besitzer liest vor dem
+   Code. (2) Pakete im Desktop: libseat, libinput mit libevdev und mtdev (libxkbcommon ist
+   da), jeweils mit `[files]`, `[sbom]`, `latest`. (3) Kurze Probe unter `~/scratch/`:
+   Vulkan-dmabuf → KMS auf virtio-gpu mit lavapipe; sie entscheidet den Puffer-Weg der VM.
+   (4) `os/beize-compositor`: Smithay aus crates.io (`backend_drm`, `backend_libinput`,
+   `backend_session_libseat`, `backend_vulkan`, `wayland_frontend`, ohne GL). Renderer mit
+   `ash` für Smithays `Renderer`/`Frame`: Clear, Texturen aus shm und dmabuf, Damage. Dazu
+   xdg-shell, ein Fenster, Cursor, Tastatur nach localeds Layout. Die Build-Skripte der
+   `-sys`-Crates prüfen (§8). (5) `beize-session` und die Unit, Eintrag in `security.toml`,
+   soweit DRM und Vulkan das zulassen. (6) Smoke-Szenario in der vollen Stufe: Anmeldung auf
+   tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird
+   außerdem: Compositor läuft als Nutzer, keine Warnungen im Journal; Gegenprobe. (7)
+   Hardware-Test beim Besitzer mit nummerierten Schritten: NVK mit 144 Hz, Maus, Tastatur,
+   Frame-Pacing.
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
