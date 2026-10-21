@@ -371,8 +371,9 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    Reihenfolge: (1) ✓ Eckpunkte in ADR 0027 §6. (2) ✓ (21.10.) Pakete im Desktop: seatd
    (nur libseat, logind), libinput 1.32 mit libevdev und mtdev; ohne Lua-Plugins und vorerst
    ohne libwacom (Gründe im Rezept; libwacom braucht libgudev, kommt mit Tablett-Einstellungen).
-   (3) Kurze Probe unter `~/scratch/`:
-   Vulkan-dmabuf → KMS auf virtio-gpu mit lavapipe; sie entscheidet den Puffer-Weg der VM.
+   (3) ✓ (21.10.) Probe: Ausgabeweg mit lavapipe steht in ADR 0027 §6 (Dumb-Buffer, nach
+   `DUMB_PREFER_SHADOW` direkt oder mit Kopie); Test-VMs haben jetzt virtio-gpu. Der Direktweg
+   Vulkan → dmabuf → KMS ist nur auf Hardware prüfbar (QEMU-Blobs brauchen Host-udmabuf).
    (4) `os/beize-compositor`: Smithay aus crates.io (`backend_drm`, `backend_libinput`,
    `backend_session_libseat`, `backend_vulkan`, `wayland_frontend`, ohne GL). Renderer mit
    `ash` für Smithays `Renderer`/`Frame`: Clear, Texturen aus shm und dmabuf, Damage. Dazu

@@ -129,9 +129,19 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   Grafikstapel, den Abschnitt 2 ausschließt. Vorbild: Valves gamescope (Steam Deck)
   allokiert seine Ausgabebilder ebenfalls in Vulkan. Die Bildschleife ist ohnehin Beizes Kern
   (Direct Scanout, Pacing).
-- **VM:** Ob virtio-gpu einen dmabuf von lavapipe annimmt, klärt eine Probe vor dem Code.
-  Falls nicht, kopiert der Compositor in der VM das fertige Bild in einen Dumb-Buffer
-  (Smithay hat dafür einen Exporter). Der Direktweg wird dann nur auf echter Hardware geprüft.
+- **Ausgabe mit lavapipe** (VM, Rechner ohne Vulkan-Treiber): lavapipe exportiert dmabufs nur
+  über `/dev/udmabuf` und bietet ohne Export auch keine Modifier an, kann aber importieren. Der
+  Compositor legt die Bilder deshalb als Dumb-Buffer beim KMS-Treiber an. Meldet der Treiber
+  `DRM_CAP_DUMB_PREFER_SHADOW` = 0 (virtio-gpu) und gleicht lavapipes Zeilenabstand dem des
+  Puffers (Breite durch 16 teilbar), zeichnet lavapipe über den dmabuf direkt hinein. Sonst
+  (i915, nouveau melden 1: langsam lesbarer Speicher; oder anderer Zeilenabstand) zeichnet er
+  in ein eigenes Bild und kopiert. Vorbild: Mutter richtet seinen Schattenpuffer nach demselben
+  Wert. Probe vom 21.10. in der VM, 1280x800, beide Bilder per `screendump` geprüft: direkt
+  1,5 ms je Bild, mit Kopie 1,1 ms + 2,4 ms.
+- **VM:** Die Test-VMs haben virtio-gpu (`-vga virtio`, Kernel `DRM_VIRTIO_GPU=m` wie Fedora)
+  statt QEMUs Standard-VGA: atomares KMS mit Cursor-Ebene. Der Direktweg Vulkan → dmabuf → KMS
+  ist dort nicht prüfbar, denn QEMU braucht für Blob-Ressourcen `udmabuf` auf dem Host, und
+  WSLs Kernel hat es nicht (lokal = CI, ADR 0021). Ihn prüft der Hardware-Test mit NVK.
 - **Schwache Rechner:** Der Compositor zeichnet nur, was sich geändert hat (Damage), legt
   unveränderte Vollbildfenster per Direct Scanout ohne Kopie auf den Bildschirm und zeichnet
   im Leerlauf gar nicht. Auf lavapipe (GPU ohne Vulkan-Treiber) schaltet er teure Effekte
