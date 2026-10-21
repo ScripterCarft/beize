@@ -1,9 +1,16 @@
 //! One screen: its mode, its images and Beize's own frame loop (ADR 0027
 //! §6) – atomic KMS through Smithay's `DrmSurface`, without GBM. Images
 //! come from a swapchain (Vulkan's allocator on a GPU with a Vulkan
-//! driver, dumb buffers with lavapipe) and reach KMS as framebuffers; a
-//! frame is drawn only after the previous one is on the screen (vblank).
+//! driver, dumb buffers with lavapipe) and reach KMS as framebuffers.
+//!
+//! A frame is drawn only when something changed (Smithay's damage tracker,
+//! with each image's age), at most one waits for its vblank, and KMS shows
+//! it once the GPU's fence signals (IN_FENCE_FD): the CPU never waits for
+//! the GPU. With nothing changing, nothing is drawn or committed – the
+//! display engine keeps scanning out the last image, as on a Mac.
 
+use std::cell::RefCell;
+use std::os::fd::AsFd;
 use std::time::Duration;
 
 use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
@@ -15,15 +22,19 @@ use smithay::backend::drm::{
     DrmDevice, DrmDeviceFd, DrmEventMetadata, DrmEventTime, DrmSurface, Framebuffer, PlaneConfig,
     PlaneState,
 };
+use smithay::backend::renderer::Bind;
+use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
 use smithay::reexports::drm::buffer::{
     Buffer as _, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
 use smithay::reexports::drm::control::{Device as _, FbCmd2Flags, connector, framebuffer};
 use smithay::utils::{Rectangle, Transform};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
-use crate::error::{Context, Result, error};
-use crate::render::{self, Target, Vk};
+use beize_compositor::error::{Context, Result, error};
+use beize_compositor::render::{Target, VkRenderer};
 
 /// A connected connector, its preferred mode and a CRTC that can drive it.
 pub fn surface(drm: &mut DrmDevice) -> Result<DrmSurface> {
@@ -192,7 +203,7 @@ pub struct DumbExporter;
 
 impl ExportFramebuffer<DumbBuffer> for DumbExporter {
     type Framebuffer = DmabufFramebuffer;
-    type Error = crate::error::Error;
+    type Error = beize_compositor::error::Error;
 
     fn add_framebuffer(
         &self,
@@ -229,7 +240,7 @@ impl ExportFramebuffer<DumbBuffer> for DumbExporter {
 
 impl ExportFramebuffer<VulkanImage> for DmabufExporter {
     type Framebuffer = DmabufFramebuffer;
-    type Error = crate::error::Error;
+    type Error = beize_compositor::error::Error;
 
     fn add_framebuffer(
         &self,
@@ -251,32 +262,34 @@ impl ExportFramebuffer<VulkanImage> for DmabufExporter {
     }
 }
 
-/// What a swapchain image keeps: its framebuffer and Vulkan's target.
+/// What a swapchain image keeps: its framebuffer and the renderer's target.
 struct Image<F> {
     framebuffer: F,
-    target: Target,
+    target: RefCell<Target>,
 }
 
-/// Frames drawn for the start, to see the loop run and measure it.
-const START_FRAMES: u32 = 120;
+/// Beize's background until the shell draws one.
+const BACKGROUND: [f32; 4] = [0.08, 0.10, 0.14, 1.0];
 
 pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     drm: DrmDevice,
     surface: DrmSurface,
     swapchain: Swapchain<A>,
     exporter: F,
-    vk: Vk,
+    renderer: VkRenderer,
+    damage: OutputDamageTracker,
+    background: SolidColorBuffer,
     /// lavapipe may draw straight into the screen's buffers.
     direct: bool,
     /// Submitted, waiting for its vblank.
     pending: Option<Slot<A::Buffer>>,
     /// On the screen.
     shown: Option<Slot<A::Buffer>>,
+    /// Something changed while a frame waited for its vblank.
+    again: bool,
     modeset: bool,
-    frames: u32,
-    missed: u32,
+    frames: u64,
     last: Option<Duration>,
-    period: Duration,
 }
 
 impl<A, F> Output<A, F>
@@ -295,26 +308,27 @@ where
         allocator: A,
         modifiers: Vec<Modifier>,
         exporter: F,
-        vk: Vk,
+        renderer: VkRenderer,
         direct: bool,
     ) -> Output<A, F> {
         let mode = surface.pending_mode();
         let (w, h) = mode.size();
-        let refresh = f64::from(mode.vrefresh().max(1));
+        let size = (i32::from(w), i32::from(h));
         Output {
             drm,
             surface,
             swapchain: Swapchain::new(allocator, w.into(), h.into(), Fourcc::Xrgb8888, modifiers),
             exporter,
-            vk,
+            renderer,
+            damage: OutputDamageTracker::new(size, 1.0, Transform::Normal),
+            background: SolidColorBuffer::new(size, BACKGROUND),
             direct,
             pending: None,
             shown: None,
+            again: false,
             modeset: true,
             frames: 0,
-            missed: 0,
             last: None,
-            period: Duration::from_secs_f64(1.0 / refresh),
         }
     }
 
@@ -326,27 +340,32 @@ where
             .context("the buffer cannot be shown")?;
         let dmabuf = slot.export().context("exporting a screen buffer")?;
         let target = if self.direct {
-            self.vk.import(&dmabuf)
+            self.renderer.import_target(&dmabuf)
         } else {
-            self.vk.shadow(&dmabuf)
+            self.renderer.shadow_target(&dmabuf)
         };
         let target = match target {
             Ok(target) => target,
             // lavapipe without format modifiers: only a matching row pitch.
             Err(e) if self.direct => {
                 warn!("drawing into the screen buffer directly: {e}; copying instead");
-                self.vk.shadow(&dmabuf)?
+                self.renderer.shadow_target(&dmabuf)?
             }
             Err(e) => return Err(e),
         };
         Ok(Image {
             framebuffer,
-            target,
+            target: RefCell::new(target),
         })
     }
 
-    /// Draws the next frame and hands it to KMS.
+    /// Draws what changed and hands it to KMS; nothing if nothing changed.
     pub fn render(&mut self) -> Result<()> {
+        if self.pending.is_some() {
+            // One frame at a time waits for its vblank; the next follows it.
+            self.again = true;
+            return Ok(());
+        }
         let slot = self
             .swapchain
             .acquire()
@@ -355,7 +374,12 @@ where
         if slot.userdata().get::<Image<F::Framebuffer>>().is_none() {
             let image = self.image(&slot)?;
             if self.frames == 0 {
-                render::describe(&self.vk, &image.target);
+                let way = if image.target.borrow().copies() {
+                    "into its own image, copied to the screen buffer"
+                } else {
+                    "straight into the screen buffer"
+                };
+                info!("rendering with {} {way}", self.renderer.name());
             }
             slot.userdata().insert_if_missing(|| image);
         }
@@ -363,11 +387,32 @@ where
             .userdata()
             .get::<Image<F::Framebuffer>>()
             .context("screen buffer data")?;
-        // Beize's start colour, fading in: the loop at work until the
-        // renderer draws windows.
-        let t = (self.frames as f32 / START_FRAMES as f32).min(1.0);
-        let color = [0.08 * t, 0.10 * t, 0.14 * t, 1.0];
-        self.vk.clear(&image.target, color)?;
+        let elements = [SolidColorRenderElement::from_buffer(
+            &self.background,
+            (0, 0),
+            1.0,
+            1.0,
+            Kind::Unspecified,
+        )];
+        let (damaged, fence) = {
+            let mut target = image.target.borrow_mut();
+            let mut framebuffer = self.renderer.bind(&mut *target)?;
+            let result = self
+                .damage
+                .render_output(
+                    &mut self.renderer,
+                    &mut framebuffer,
+                    slot.age().into(),
+                    &elements,
+                    BACKGROUND,
+                )
+                .map_err(|e| error(format!("rendering: {e:?}")))?;
+            (result.damage.is_some(), result.sync.export())
+        };
+        if !damaged {
+            // Nothing changed: no frame, no commit; the slot goes back.
+            return Ok(());
+        }
 
         let size = slot.size();
         let plane = PlaneState {
@@ -379,7 +424,8 @@ where
                 alpha: 1.0,
                 damage_clips: None,
                 fb: *image.framebuffer.as_ref(),
-                fence: None,
+                // KMS shows the frame once the GPU is done with it.
+                fence: fence.as_ref().map(|f| f.as_fd()),
             }),
         };
         if self.modeset {
@@ -399,21 +445,22 @@ where
     pub fn vblank(&mut self, metadata: Option<DrmEventMetadata>) -> Result<()> {
         self.shown = self.pending.take();
         self.frames += 1;
-        if let Some(DrmEventTime::Monotonic(time)) = metadata.map(|m| m.time) {
-            if let Some(last) = self.last
-                && time.saturating_sub(last) > self.period.mul_f32(1.5)
-            {
-                self.missed += 1;
-            }
-            self.last = Some(time);
+        let time = match metadata.map(|m| m.time) {
+            Some(DrmEventTime::Monotonic(time)) => Some(time),
+            _ => None,
+        };
+        let since = time.zip(self.last).map(|(t, l)| t.saturating_sub(l));
+        self.last = time.or(self.last);
+        match self.frames {
+            1 => info!("first frame on the screen; idle until something changes"),
+            n => debug!(
+                "frame {n}: {since:?} after the last, GPU {:?} ms",
+                self.renderer.gpu_ms()
+            ),
         }
-        if self.frames < START_FRAMES {
+        if std::mem::take(&mut self.again) {
             self.render()
         } else {
-            info!(
-                "{START_FRAMES} frames, {} missed; idle until something changes",
-                self.missed
-            );
             Ok(())
         }
     }
@@ -430,10 +477,13 @@ where
         self.swapchain.reset_buffers();
         self.pending = None;
         self.shown = None;
+        self.again = false;
         self.modeset = true;
-        self.frames = 0;
-        self.missed = 0;
         self.last = None;
+        // Whatever the other session left is drawn over in full.
+        let (w, h) = self.surface.pending_mode().size();
+        self.damage =
+            OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal);
         self.render()
     }
 }

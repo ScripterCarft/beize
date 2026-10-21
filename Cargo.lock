@@ -105,6 +105,7 @@ dependencies = [
 name = "beize-compositor"
 version = "0.1.0"
 dependencies = [
+ "rustix 1.1.5",
  "smithay",
  "tracing",
  "tracing-subscriber",

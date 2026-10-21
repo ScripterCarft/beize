@@ -8,7 +8,9 @@
 # target's, set for every recipe), wayland-sys does nothing (Wayland in pure
 # Rust). libudev-sys also links a probe with the build host's rustc and
 # libudev to see whether udev_hwdb_new exists: the answer depends only on the
-# pinned buildroot, and Smithay does not use the hwdb.
+# pinned buildroot, and Smithay does not use the hwdb. The compositor's own
+# build.rs compiles its GLSL shaders with the buildroot's glslangValidator
+# and checks them with spirv-val (ADR 0027 §2), without debug information.
 name = "beize-compositor"
 version = "0.1.0"
 stage = "target"
@@ -25,6 +27,8 @@ MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-pa
   -p beize-compositor --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-compositor" \
   "$PKG/usr/lib/beize/beize-compositor"
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-render-test" \
+  "$PKG/usr/lib/beize/test/beize-render-test"
 '''
 
 [sbom]
@@ -34,4 +38,7 @@ license = "MPL-2.0"
 [files]
 image = [
   "usr/lib/beize/beize-compositor",
+]
+build = [
+  { path = "usr/lib/beize/test/beize-render-test", why = "checks the renderer in the VM, on bz's test medium; not for computers" },
 ]

@@ -5,13 +5,10 @@
 //! for now Intel and AMD) gets lavapipe, which draws into the KMS driver's
 //! dumb buffers (ADR 0027 §6).
 //!
-//! The skeleton, step 2 of the ADR: the screen in its preferred mode, with
-//! Beize's own frame loop.
+//! Step 2 of the ADR: the screen in its preferred mode, Beize's own frame
+//! loop and Vulkan renderer (`render`, §7); it draws only what changed.
 
-mod error;
-mod log;
 mod output;
-mod render;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -31,9 +28,10 @@ use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::DeviceFd;
 use tracing::{error, info, warn};
 
-use crate::error::{Context, Error, Result, error};
 use crate::output::{DmabufExporter, DumbExporter, Output};
-use crate::render::Vk;
+use beize_compositor::error::{Context, Error, Result, error};
+use beize_compositor::log;
+use beize_compositor::render::VkRenderer;
 
 /// The screen, by the way its images are made.
 enum Screen {
@@ -229,7 +227,7 @@ fn screen(mut drm: DrmDevice) -> Result<Screen> {
         .iter()
         .find(|d| d.ty() == vk::PhysicalDeviceType::CPU)
         .context("no Vulkan driver for the GPU, and no lavapipe")?;
-    let vk = Vk::new(lavapipe)?;
+    let vk = VkRenderer::new(lavapipe)?;
     // Where the KMS driver's dumb buffers are fast to read (virtio-gpu),
     // lavapipe draws into them; otherwise (i915, nouveau) into its own
     // image, copied over – the rule Mutter keeps for its shadow buffer.
@@ -261,7 +259,7 @@ fn gpu_screen(
     surface: smithay::backend::drm::DrmSurface,
     phd: &PhysicalDevice,
 ) -> Result<Screen> {
-    let vk = Vk::new(phd)?;
+    let vk = VkRenderer::new(phd)?;
     let allocator =
         VulkanAllocator::new(phd, ImageUsageFlags::COLOR_ATTACHMENT).context("Vulkan allocator")?;
     // The modifiers the screen's plane takes for XRGB8888, that Vulkan can

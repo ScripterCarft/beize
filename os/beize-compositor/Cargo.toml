@@ -20,6 +20,8 @@ smithay = { version = "0.7.0", default-features = false, features = [
   "desktop",
   "wayland_frontend",
 ] }
+# sync_file in and out of dmabufs (ioctls) and polling it.
+rustix = { version = "1.1", default-features = false, features = ["event", "std"] }
 tracing = "0.1"
 # Smithay reports through tracing; this writes it to stderr, the journal.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }

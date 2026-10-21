@@ -1,0 +1,1084 @@
+//! Beize's renderer: Vulkan only (ADR 0027 §2), behind Smithay's `Renderer`
+//! so its damage tracking and render elements work on it.
+//!
+//! Built for doing little: a frame draws only its damage, each damaged
+//! piece of a surface one quad, all quads of a frame in one buffer and few
+//! draws (bindless textures, `pipeline`). The CPU never waits for the GPU:
+//! two frames are in flight, a frame's end goes to KMS and into the dmabufs
+//! it touched as a sync_file (`sync`). Only lavapipe's copy to a dumb
+//! buffer waits, as the CPU has to copy.
+
+mod device;
+mod frame;
+pub mod geometry;
+mod pipeline;
+mod sync;
+mod target;
+mod texture;
+
+use std::collections::HashMap;
+use std::os::fd::AsFd;
+use std::sync::{Arc, Mutex};
+
+use smithay::backend::allocator::dmabuf::{Dmabuf, WeakDmabuf};
+use smithay::backend::allocator::{Buffer as _, Format, Fourcc, Modifier};
+use smithay::backend::renderer::sync::SyncPoint;
+use smithay::backend::renderer::{
+    Bind, ContextId, DebugFlags, ExportMem, ImportDma, ImportDmaWl, ImportMem, ImportMemWl,
+    Offscreen, Renderer, RendererSuper, Texture, TextureFilter, TextureMapping,
+};
+use smithay::backend::vulkan::PhysicalDevice;
+use smithay::reexports::ash::vk;
+use smithay::reexports::wayland_server::protocol::wl_buffer;
+use smithay::utils::{Buffer, Physical, Rectangle, Size, Transform};
+use smithay::wayland::compositor::SurfaceData;
+use tracing::{debug, info, warn};
+
+use crate::error::{Context, Error, Result, error};
+use device::{Caps, Ext, Garbage, Shared};
+pub use frame::VkFrame;
+use pipeline::Pipelines;
+pub use target::{Target, VkFramebuffer};
+pub use texture::VkTexture;
+
+/// Frames recorded or on the GPU at once.
+const IN_FLIGHT: usize = 2;
+
+/// Host memory the GPU reads (quads, staging) or the CPU reads back.
+struct HostBuffer {
+    buffer: vk::Buffer,
+    memory: vk::DeviceMemory,
+    pointer: *mut u8,
+    size: u64,
+    address: u64,
+}
+
+/// What one frame in flight owns.
+struct InFlight {
+    commands: vk::CommandBuffer,
+    /// Exported as the frame's sync_file (and reset by that).
+    fence: vk::Fence,
+    quads: Option<HostBuffer>,
+    staging: Option<HostBuffer>,
+    /// Bytes of `staging` taken by uploads for this frame.
+    staged: u64,
+    /// GPU time: start and end.
+    queries: Option<vk::QueryPool>,
+    /// The submission that last used this frame's objects.
+    submission: u64,
+    /// Ready for this frame: waited for, timestamps read.
+    ready: bool,
+}
+
+/// A copy from staging into a texture, recorded with the next submission.
+struct Upload {
+    texture: VkTexture,
+    regions: Vec<vk::BufferImageCopy>,
+}
+
+pub struct VkRenderer {
+    shared: Arc<Shared>,
+    queue: vk::Queue,
+    family: u32,
+    pool: vk::CommandPool,
+    caps: Caps,
+    ext: Ext,
+    pipelines: Pipelines,
+    in_flight: Vec<InFlight>,
+    current: usize,
+    submitted: u64,
+    uploads: Vec<Upload>,
+    dmabufs: HashMap<WeakDmabuf, VkTexture>,
+    dmabuf_formats: smithay::backend::allocator::format::FormatSet,
+    context: ContextId<VkTexture>,
+    debug: DebugFlags,
+    name: String,
+    /// GPU time of the last frame that reported one, in milliseconds.
+    gpu_ms: Option<f64>,
+}
+
+impl std::fmt::Debug for VkRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VkRenderer")
+            .field("device", &self.name)
+            .finish()
+    }
+}
+
+impl VkRenderer {
+    pub fn new(phd: &PhysicalDevice) -> Result<VkRenderer> {
+        let created = device::create(phd)?;
+        let shared = created.shared;
+        let d = &shared.device;
+        let pipelines = Pipelines::new(d, shared.max_textures())?;
+        // SAFETY: plain creation; destroyed in Drop.
+        let pool = unsafe {
+            d.create_command_pool(
+                &vk::CommandPoolCreateInfo::default()
+                    .queue_family_index(created.family)
+                    .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER),
+                None,
+            )
+        }
+        .context("command pool")?;
+        let mut renderer = VkRenderer {
+            shared: shared.clone(),
+            queue: created.queue,
+            family: created.family,
+            pool,
+            caps: created.caps,
+            ext: created.ext,
+            pipelines,
+            in_flight: Vec::new(),
+            current: 0,
+            submitted: 0,
+            uploads: Vec::new(),
+            dmabufs: HashMap::new(),
+            dmabuf_formats: Default::default(),
+            context: ContextId::new(),
+            debug: DebugFlags::empty(),
+            name: phd.name().to_owned(),
+            gpu_ms: None,
+        };
+        for _ in 0..IN_FLIGHT {
+            let frame = renderer.in_flight_new()?;
+            renderer.in_flight.push(frame);
+        }
+        renderer.dmabuf_formats = renderer.query_dmabuf_formats(phd);
+        info!(
+            "renderer on {}: {} textures, dmabufs {}",
+            renderer.name,
+            shared.max_textures(),
+            if renderer.caps.modifiers {
+                "with format modifiers"
+            } else {
+                "linear only"
+            }
+        );
+        Ok(renderer)
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// GPU time of the last measured frame, in milliseconds.
+    pub fn gpu_ms(&self) -> Option<f64> {
+        self.gpu_ms
+    }
+
+    fn in_flight_new(&self) -> Result<InFlight> {
+        let d = &self.shared.device;
+        let mut export = vk::ExportFenceCreateInfo::default()
+            .handle_types(vk::ExternalFenceHandleTypeFlags::SYNC_FD);
+        // SAFETY: plain creation; destroyed in Drop.
+        unsafe {
+            let commands = d
+                .allocate_command_buffers(
+                    &vk::CommandBufferAllocateInfo::default()
+                        .command_pool(self.pool)
+                        .command_buffer_count(1),
+                )
+                .context("command buffer")?[0];
+            let fence = d
+                .create_fence(&vk::FenceCreateInfo::default().push_next(&mut export), None)
+                .context("fence")?;
+            let queries = match self.caps.timestamp_period {
+                Some(_) => Some(
+                    d.create_query_pool(
+                        &vk::QueryPoolCreateInfo::default()
+                            .query_type(vk::QueryType::TIMESTAMP)
+                            .query_count(2),
+                        None,
+                    )
+                    .context("query pool")?,
+                ),
+                None => None,
+            };
+            Ok(InFlight {
+                commands,
+                fence,
+                quads: None,
+                staging: None,
+                staged: 0,
+                queries,
+                submission: 0,
+                ready: true,
+            })
+        }
+    }
+
+    /// The formats and modifiers clients may send dmabufs in: what Vulkan
+    /// can sample with an importable modifier. Without format modifiers
+    /// none: a client cannot know Vulkan's row pitch, and shm serves.
+    fn query_dmabuf_formats(
+        &self,
+        phd: &PhysicalDevice,
+    ) -> smithay::backend::allocator::format::FormatSet {
+        let mut set = Vec::new();
+        if !self.caps.modifiers {
+            return set.into_iter().collect();
+        }
+        let instance = phd.instance().handle();
+        for fourcc in texture::FORMATS {
+            let Some((format, _)) = texture::vk_format(fourcc) else {
+                continue;
+            };
+            let mut list = vk::DrmFormatModifierPropertiesListEXT::default();
+            let mut props = vk::FormatProperties2::default().push_next(&mut list);
+            // SAFETY: the physical device belongs to this instance.
+            unsafe {
+                instance.get_physical_device_format_properties2(phd.handle(), format, &mut props)
+            };
+            let mut modifiers = vec![
+                vk::DrmFormatModifierPropertiesEXT::default();
+                list.drm_format_modifier_count as usize
+            ];
+            let mut list = vk::DrmFormatModifierPropertiesListEXT::default()
+                .drm_format_modifier_properties(&mut modifiers);
+            let mut props = vk::FormatProperties2::default().push_next(&mut list);
+            // SAFETY: as above; the array has the size Vulkan reported.
+            unsafe {
+                instance.get_physical_device_format_properties2(phd.handle(), format, &mut props)
+            };
+            for m in &modifiers {
+                if m.drm_format_modifier_plane_count == 1
+                    && m.drm_format_modifier_tiling_features
+                        .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE)
+                    && importable(phd, format, m.drm_format_modifier)
+                {
+                    set.push(Format {
+                        code: fourcc,
+                        modifier: Modifier::from(m.drm_format_modifier),
+                    });
+                }
+            }
+        }
+        set.into_iter().collect()
+    }
+
+    /// A host-visible buffer, mapped; cached for the CPU to read back.
+    fn host_buffer(
+        &self,
+        size: u64,
+        usage: vk::BufferUsageFlags,
+        cached: bool,
+    ) -> Result<(vk::Buffer, vk::DeviceMemory, *const u8)> {
+        let b = self.host_buffer_full(size, usage, cached)?;
+        Ok((b.buffer, b.memory, b.pointer))
+    }
+
+    fn host_buffer_full(
+        &self,
+        size: u64,
+        usage: vk::BufferUsageFlags,
+        cached: bool,
+    ) -> Result<HostBuffer> {
+        let d = &self.shared.device;
+        let address = usage.contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS);
+        // SAFETY: plain creation; on failure what was made is destroyed.
+        unsafe {
+            let buffer = d
+                .create_buffer(
+                    &vk::BufferCreateInfo::default().size(size).usage(usage),
+                    None,
+                )
+                .context("buffer")?;
+            let requirements = d.get_buffer_memory_requirements(buffer);
+            let coherent =
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+            let kind = if cached {
+                self.shared
+                    .memory_type(
+                        requirements.memory_type_bits,
+                        coherent | vk::MemoryPropertyFlags::HOST_CACHED,
+                    )
+                    .or_else(|_| {
+                        self.shared
+                            .memory_type(requirements.memory_type_bits, coherent)
+                    })
+            } else {
+                self.shared
+                    .memory_type(requirements.memory_type_bits, coherent)
+            };
+            let mut flags = vk::MemoryAllocateFlagsInfo::default()
+                .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
+            let memory = kind.and_then(|kind| {
+                let mut info = vk::MemoryAllocateInfo::default()
+                    .allocation_size(requirements.size)
+                    .memory_type_index(kind);
+                if address {
+                    info = info.push_next(&mut flags);
+                }
+                d.allocate_memory(&info, None).context("buffer memory")
+            });
+            let memory = match memory {
+                Ok(m) => m,
+                Err(e) => {
+                    d.destroy_buffer(buffer, None);
+                    return Err(e);
+                }
+            };
+            let mapped = d
+                .bind_buffer_memory(buffer, memory, 0)
+                .and_then(|()| d.map_memory(memory, 0, size, vk::MemoryMapFlags::empty()));
+            let pointer = match mapped {
+                Ok(p) => p as *mut u8,
+                Err(e) => {
+                    d.destroy_buffer(buffer, None);
+                    d.free_memory(memory, None);
+                    return Err(error(format!("mapping a buffer: {e}")));
+                }
+            };
+            let address = if address {
+                d.get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer))
+            } else {
+                0
+            };
+            Ok(HostBuffer {
+                buffer,
+                memory,
+                pointer,
+                size,
+                address,
+            })
+        }
+    }
+
+    /// The frame being recorded, ready: its last submission is done (as a
+    /// rule long since – vblank paces frames), its GPU time read.
+    fn current(&mut self) -> Result<usize> {
+        let i = self.current;
+        if !self.in_flight[i].ready {
+            let submission = self.in_flight[i].submission;
+            self.shared.wait(submission)?;
+            self.read_timestamps(i);
+            self.in_flight[i].staged = 0;
+            self.in_flight[i].ready = true;
+        }
+        Ok(i)
+    }
+
+    fn read_timestamps(&mut self, i: usize) {
+        let (Some(pool), Some(period)) = (self.in_flight[i].queries, self.caps.timestamp_period)
+        else {
+            return;
+        };
+        let mut times = [0u64; 2];
+        // SAFETY: the pool belongs to this device; its submission is done.
+        let read = unsafe {
+            self.shared.device.get_query_pool_results(
+                pool,
+                0,
+                &mut times,
+                vk::QueryResultFlags::TYPE_64,
+            )
+        };
+        if read.is_ok() && times[1] > times[0] {
+            let ms = (times[1] - times[0]) as f64 * f64::from(period) / 1e6;
+            self.gpu_ms = Some(ms);
+            debug!("GPU time {ms:.3} ms");
+        }
+    }
+
+    /// Room for `bytes` in the current frame's staging buffer.
+    fn stage(&mut self, bytes: u64) -> Result<(u64, *mut u8)> {
+        let i = self.current()?;
+        let staged = self.in_flight[i].staged;
+        let needed = staged + bytes;
+        let size = self.in_flight[i].staging.as_ref().map_or(0, |b| b.size);
+        if needed > size {
+            let new = self.host_buffer_full(
+                needed.next_power_of_two().max(1 << 20),
+                vk::BufferUsageFlags::TRANSFER_SRC,
+                false,
+            )?;
+            if let Some(old) = self.in_flight[i].staging.take() {
+                // What is staged for this frame moves along.
+                // SAFETY: both mappings hold at least `staged` bytes.
+                unsafe { std::ptr::copy_nonoverlapping(old.pointer, new.pointer, staged as usize) };
+                self.shared.defer(
+                    self.submitted,
+                    Garbage::Buffer {
+                        buffer: old.buffer,
+                        memory: old.memory,
+                    },
+                );
+            }
+            self.in_flight[i].staging = Some(new);
+        }
+        let pointer = self.in_flight[i]
+            .staging
+            .as_ref()
+            .context("staging")?
+            .pointer;
+        self.in_flight[i].staged = needed;
+        // SAFETY: `staged + bytes` fits the mapping (grown above).
+        Ok((staged, unsafe { pointer.add(staged as usize) }))
+    }
+
+    /// Copies `regions` of tightly or loosely packed pixels (`stride` bytes
+    /// a row) into `texture`, with the next submission.
+    fn upload(
+        &mut self,
+        texture: &VkTexture,
+        data: &[u8],
+        stride: usize,
+        regions: &[Rectangle<i32, Buffer>],
+    ) -> Result<()> {
+        let size = texture.0.size;
+        let bounds = Rectangle::from_size(size);
+        let mut copies = Vec::new();
+        for region in regions {
+            let Some(r) = region.intersection(bounds) else {
+                continue;
+            };
+            let row = r.size.w as usize * 4;
+            let last = (r.loc.y + r.size.h - 1) as usize * stride + r.loc.x as usize * 4 + row;
+            if last > data.len() {
+                return Err(error("the buffer is smaller than its size says"));
+            }
+            let (offset, pointer) = self.stage((row * r.size.h as usize) as u64)?;
+            for y in 0..r.size.h as usize {
+                let from = (r.loc.y as usize + y) * stride + r.loc.x as usize * 4;
+                // SAFETY: the source row lies within `data` (checked above),
+                // the target row within the staged range.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        data.as_ptr().add(from),
+                        pointer.add(y * row),
+                        row,
+                    )
+                };
+            }
+            copies.push(
+                vk::BufferImageCopy::default()
+                    .buffer_offset(offset)
+                    .image_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .image_offset(vk::Offset3D {
+                        x: r.loc.x,
+                        y: r.loc.y,
+                        z: 0,
+                    })
+                    .image_extent(vk::Extent3D {
+                        width: r.size.w as u32,
+                        height: r.size.h as u32,
+                        depth: 1,
+                    }),
+            );
+        }
+        if copies.is_empty() {
+            return Ok(());
+        }
+        match self
+            .uploads
+            .iter_mut()
+            .find(|u| Arc::ptr_eq(&u.texture.0, &texture.0))
+        {
+            Some(u) => u.regions.extend(copies),
+            None => self.uploads.push(Upload {
+                texture: texture.clone(),
+                regions: copies,
+            }),
+        }
+        Ok(())
+    }
+
+    /// A texture of the renderer's own, filled with `data`.
+    fn memory_texture(
+        &mut self,
+        data: &[u8],
+        stride: usize,
+        fourcc: Fourcc,
+        size: Size<i32, Buffer>,
+    ) -> Result<VkTexture> {
+        let (format, _) =
+            texture::vk_format(fourcc).context(format!("format {fourcc} is not taken"))?;
+        if size.w <= 0 || size.h <= 0 {
+            return Err(error("an empty texture"));
+        }
+        let (image, memory) = texture::own_image(
+            &self.shared,
+            format,
+            (size.w as u32, size.h as u32),
+            vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST
+                | vk::ImageUsageFlags::TRANSFER_SRC,
+        )?;
+        let texture = texture::wrap(&self.shared, image, memory, fourcc, size, None)?;
+        self.pipelines
+            .write(&self.shared.device, texture.0.slot, texture.0.view);
+        self.upload(&texture, data, stride, &[Rectangle::from_size(size)])?;
+        Ok(texture)
+    }
+}
+
+/// Whether Vulkan imports dmabufs of `format` with `modifier` for sampling.
+fn importable(phd: &PhysicalDevice, format: vk::Format, modifier: u64) -> bool {
+    let mut modifier_info =
+        vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default().drm_format_modifier(modifier);
+    let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default()
+        .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+    let info = vk::PhysicalDeviceImageFormatInfo2::default()
+        .format(format)
+        .ty(vk::ImageType::TYPE_2D)
+        .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
+        .usage(vk::ImageUsageFlags::SAMPLED)
+        .push_next(&mut modifier_info)
+        .push_next(&mut external);
+    let mut external_props = vk::ExternalImageFormatProperties::default();
+    let mut props = vk::ImageFormatProperties2::default().push_next(&mut external_props);
+    // SAFETY: the physical device belongs to the instance; the chains live
+    // until the call returns.
+    let ok = unsafe {
+        phd.instance()
+            .handle()
+            .get_physical_device_image_format_properties2(phd.handle(), &info, &mut props)
+    }
+    .is_ok();
+    ok && external_props
+        .external_memory_properties
+        .external_memory_features
+        .contains(vk::ExternalMemoryFeatureFlags::IMPORTABLE)
+}
+
+impl Drop for VkRenderer {
+    fn drop(&mut self) {
+        let d = &self.shared.device;
+        // SAFETY: after the wait nothing of the renderer is in use; the
+        // textures that outlive it keep only their own objects.
+        unsafe {
+            if let Err(e) = d.device_wait_idle() {
+                warn!("waiting for the GPU: {e}");
+            }
+            for f in self.in_flight.drain(..) {
+                d.destroy_fence(f.fence, None);
+                if let Some(q) = f.queries {
+                    d.destroy_query_pool(q, None);
+                }
+                for b in [f.quads, f.staging].into_iter().flatten() {
+                    d.destroy_buffer(b.buffer, None);
+                    d.free_memory(b.memory, None);
+                }
+            }
+            d.destroy_command_pool(self.pool, None);
+        }
+        self.pipelines.destroy(d);
+        self.dmabufs.clear();
+        self.uploads.clear();
+        self.shared.collect();
+    }
+}
+
+impl RendererSuper for VkRenderer {
+    type Error = Error;
+    type TextureId = VkTexture;
+    type Framebuffer<'buffer> = VkFramebuffer<'buffer>;
+    type Frame<'frame, 'buffer>
+        = VkFrame<'frame, 'buffer>
+    where
+        'buffer: 'frame,
+        Self: 'frame;
+}
+
+impl Renderer for VkRenderer {
+    fn context_id(&self) -> ContextId<VkTexture> {
+        self.context.clone()
+    }
+
+    // Filtering: linear, and texel by texel where a texture lies 1:1
+    // (`geometry::EXACT`). Smithay's choice changes nothing.
+    fn downscale_filter(&mut self, _filter: TextureFilter) -> Result<()> {
+        Ok(())
+    }
+    fn upscale_filter(&mut self, _filter: TextureFilter) -> Result<()> {
+        Ok(())
+    }
+
+    fn set_debug_flags(&mut self, flags: DebugFlags) {
+        self.debug = flags;
+    }
+    fn debug_flags(&self) -> DebugFlags {
+        self.debug
+    }
+
+    fn render<'frame, 'buffer>(
+        &'frame mut self,
+        framebuffer: &'frame mut VkFramebuffer<'buffer>,
+        _output_size: Size<i32, Physical>,
+        dst_transform: Transform,
+    ) -> Result<VkFrame<'frame, 'buffer>>
+    where
+        'buffer: 'frame,
+    {
+        VkFrame::new(self, framebuffer, dst_transform)
+    }
+
+    fn wait(&mut self, sync: &SyncPoint) -> Result<()> {
+        sync.wait()
+            .map_err(|e| error(format!("waiting for a fence: {e}")))
+    }
+
+    fn cleanup_texture_cache(&mut self) -> Result<()> {
+        self.dmabufs.retain(|weak, _| !weak.is_gone());
+        self.shared.collect();
+        Ok(())
+    }
+}
+
+impl Bind<Target> for VkRenderer {
+    fn bind<'a>(&mut self, target: &'a mut Target) -> Result<VkFramebuffer<'a>> {
+        Ok(VkFramebuffer(target))
+    }
+
+    fn supported_formats(&self) -> Option<smithay::backend::allocator::format::FormatSet> {
+        None
+    }
+}
+
+impl Offscreen<Target> for VkRenderer {
+    fn create_buffer(&mut self, format: Fourcc, size: Size<i32, Buffer>) -> Result<Target> {
+        self.offscreen_target(format, size)
+    }
+}
+
+impl ImportMem for VkRenderer {
+    fn import_memory(
+        &mut self,
+        data: &[u8],
+        format: Fourcc,
+        size: Size<i32, Buffer>,
+        flipped: bool,
+    ) -> Result<VkTexture> {
+        if flipped {
+            return Err(error("flipped memory is not taken"));
+        }
+        self.memory_texture(data, size.w as usize * 4, format, size)
+    }
+
+    fn update_memory(
+        &mut self,
+        texture: &VkTexture,
+        data: &[u8],
+        region: Rectangle<i32, Buffer>,
+    ) -> Result<()> {
+        if texture.0.dmabuf.is_some() {
+            return Err(error("a dmabuf is not written to"));
+        }
+        self.upload(texture, data, texture.0.size.w as usize * 4, &[region])
+    }
+
+    fn mem_formats(&self) -> Box<dyn Iterator<Item = Fourcc>> {
+        Box::new(texture::FORMATS.into_iter())
+    }
+}
+
+/// Textures of a surface per renderer, as Smithay's GLES renderer keeps
+/// them: a new buffer of the same size and format reuses the texture and
+/// uploads only its damage.
+type SurfaceTextures = Mutex<HashMap<ContextId<VkTexture>, VkTexture>>;
+
+impl ImportMemWl for VkRenderer {
+    fn import_shm_buffer(
+        &mut self,
+        buffer: &wl_buffer::WlBuffer,
+        surface: Option<&SurfaceData>,
+        damage: &[Rectangle<i32, Buffer>],
+    ) -> Result<VkTexture> {
+        use smithay::wayland::shm::{shm_format_to_fourcc, with_buffer_contents};
+        let context = self.context.clone();
+        let cache = surface.map(|s| {
+            s.data_map
+                .get_or_insert_threadsafe(SurfaceTextures::default)
+        });
+        with_buffer_contents(buffer, |pointer, length, data| {
+            let fourcc = shm_format_to_fourcc(data.format)
+                .context(format!("shm format {:?} is not taken", data.format))?;
+            let size: Size<i32, Buffer> = (data.width, data.height).into();
+            let start = data.offset.max(0) as usize;
+            if start > length {
+                return Err(error("shm offset beyond the pool"));
+            }
+            // SAFETY: Smithay maps the pool for the length of this closure;
+            // `start..length` lies within it.
+            let bytes = unsafe { std::slice::from_raw_parts(pointer.add(start), length - start) };
+            let stride = data.stride as usize;
+            let cached = cache.as_ref().and_then(|c| {
+                c.lock()
+                    .ok()
+                    .and_then(|map| map.get(&context).cloned())
+                    .filter(|t| t.0.size == size && t.0.fourcc == fourcc)
+            });
+            let texture = match cached {
+                Some(texture) => {
+                    let full = [Rectangle::from_size(size)];
+                    let regions = if damage.is_empty() { &full[..] } else { damage };
+                    self.upload(&texture, bytes, stride, regions)?;
+                    texture
+                }
+                None => {
+                    let texture = self.memory_texture(bytes, stride, fourcc, size)?;
+                    if let Some(map) = cache.as_ref().and_then(|c| c.lock().ok()).as_mut() {
+                        map.insert(context.clone(), texture.clone());
+                    }
+                    texture
+                }
+            };
+            Ok(texture)
+        })
+        .map_err(|e| error(format!("shm buffer: {e}")))?
+    }
+}
+
+impl ImportDma for VkRenderer {
+    fn dmabuf_formats(&self) -> smithay::backend::allocator::format::FormatSet {
+        self.dmabuf_formats.clone()
+    }
+
+    fn import_dmabuf(
+        &mut self,
+        dmabuf: &Dmabuf,
+        _damage: Option<&[Rectangle<i32, Buffer>]>,
+    ) -> Result<VkTexture> {
+        if let Some(texture) = self.dmabufs.get(&dmabuf.weak()) {
+            return Ok(texture.clone());
+        }
+        let fourcc = dmabuf.format().code;
+        let (format, _) =
+            texture::vk_format(fourcc).context(format!("dmabuf format {fourcc} is not taken"))?;
+        let (image, memory) = texture::import_image(
+            &self.shared,
+            &self.ext,
+            self.caps.modifiers,
+            dmabuf,
+            format,
+            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_SRC,
+        )?;
+        let size = (dmabuf.width() as i32, dmabuf.height() as i32).into();
+        let texture = texture::wrap(
+            &self.shared,
+            image,
+            memory,
+            fourcc,
+            size,
+            Some(dmabuf.weak()),
+        )?;
+        self.pipelines
+            .write(&self.shared.device, texture.0.slot, texture.0.view);
+        self.dmabufs.insert(dmabuf.weak(), texture.clone());
+        Ok(texture)
+    }
+}
+
+impl ImportDmaWl for VkRenderer {}
+
+/// Pixels read back from the GPU.
+#[derive(Debug)]
+pub struct VkMapping {
+    data: Vec<u8>,
+    size: Size<i32, Buffer>,
+    fourcc: Fourcc,
+}
+
+impl Texture for VkMapping {
+    fn width(&self) -> u32 {
+        self.size.w as u32
+    }
+    fn height(&self) -> u32 {
+        self.size.h as u32
+    }
+    fn format(&self) -> Option<Fourcc> {
+        Some(self.fourcc)
+    }
+}
+
+impl TextureMapping for VkMapping {
+    fn flipped(&self) -> bool {
+        false
+    }
+}
+
+impl ExportMem for VkRenderer {
+    type TextureMapping = VkMapping;
+
+    fn copy_framebuffer(
+        &mut self,
+        target: &VkFramebuffer<'_>,
+        region: Rectangle<i32, Buffer>,
+        format: Fourcc,
+    ) -> Result<VkMapping> {
+        let t = &target.0;
+        let layout = if t.filled {
+            frame::target_layout(t)
+        } else {
+            vk::ImageLayout::UNDEFINED
+        };
+        let foreign = t.dmabuf.is_some();
+        self.read_image(t.image, t.format, layout, foreign, region, format)
+    }
+
+    fn copy_texture(
+        &mut self,
+        texture: &VkTexture,
+        region: Rectangle<i32, Buffer>,
+        format: Fourcc,
+    ) -> Result<VkMapping> {
+        let (vk_format, _) = texture::vk_format(texture.0.fourcc).context("texture format")?;
+        let foreign = texture.0.dmabuf.is_some();
+        let layout = if foreign {
+            vk::ImageLayout::GENERAL
+        } else {
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+        };
+        let texture = texture.clone();
+        let mapping =
+            self.read_image(texture.0.image, vk_format, layout, foreign, region, format)?;
+        texture.used(self.submitted);
+        Ok(mapping)
+    }
+
+    fn can_read_texture(&mut self, _texture: &VkTexture) -> Result<bool> {
+        Ok(true)
+    }
+
+    fn map_texture<'a>(&mut self, mapping: &'a VkMapping) -> Result<&'a [u8]> {
+        Ok(&mapping.data)
+    }
+}
+
+impl VkRenderer {
+    /// Copies `region` of an image to the CPU, waiting for it.
+    fn read_image(
+        &mut self,
+        image: vk::Image,
+        image_format: vk::Format,
+        layout: vk::ImageLayout,
+        foreign: bool,
+        region: Rectangle<i32, Buffer>,
+        fourcc: Fourcc,
+    ) -> Result<VkMapping> {
+        match texture::vk_format(fourcc) {
+            Some((f, _)) if f == image_format => {}
+            _ => return Err(error(format!("cannot read back as {fourcc}"))),
+        }
+        if region.size.w <= 0 || region.size.h <= 0 {
+            return Err(error("an empty region"));
+        }
+        let bytes = region.size.w as u64 * region.size.h as u64 * 4;
+        let (buffer, memory, pointer) =
+            self.host_buffer(bytes, vk::BufferUsageFlags::TRANSFER_DST, true)?;
+        let copy = frame::Readout {
+            image,
+            layout,
+            foreign,
+            buffer,
+            region,
+            family: self.family,
+        };
+        let submission = self.submit(None, Some(&copy));
+        let result = submission.and_then(|value| {
+            self.shared.wait(value)?;
+            let mut data = vec![0; bytes as usize];
+            // SAFETY: the copy is done; the mapping holds `bytes` bytes.
+            unsafe { std::ptr::copy_nonoverlapping(pointer, data.as_mut_ptr(), bytes as usize) };
+            Ok(data)
+        });
+        self.shared
+            .defer(self.submitted, Garbage::Buffer { buffer, memory });
+        Ok(VkMapping {
+            data: result?,
+            size: region.size,
+            fourcc,
+        })
+    }
+
+    /// Submits what is recorded: pending uploads, then a frame or a read
+    /// back. Returns the submission's number.
+    fn submit(
+        &mut self,
+        frame: Option<&mut frame::Recorded<'_>>,
+        readout: Option<&frame::Readout>,
+    ) -> Result<u64> {
+        let i = self.current()?;
+        self.shared.collect();
+        let d = self.shared.device.clone();
+        let commands = self.in_flight[i].commands;
+        let submission = self.submitted + 1;
+        // SAFETY: the command buffer is this frame's and free (`current`
+        // waited for its last submission).
+        unsafe {
+            d.reset_command_buffer(commands, vk::CommandBufferResetFlags::empty())
+                .context("resetting commands")?;
+            d.begin_command_buffer(
+                commands,
+                &vk::CommandBufferBeginInfo::default()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )
+            .context("recording")?;
+            if let Some(pool) = self.in_flight[i].queries {
+                d.cmd_reset_query_pool(commands, pool, 0, 2);
+                d.cmd_write_timestamp2(commands, vk::PipelineStageFlags2::NONE, pool, 0);
+            }
+        }
+        let uploads = std::mem::take(&mut self.uploads);
+        if let Some(staging) = &self.in_flight[i].staging {
+            frame::record_uploads(&d, commands, staging.buffer, &uploads, submission);
+        }
+        drop(uploads);
+        let mut waits = Vec::new();
+        if let Some(frame) = frame {
+            let (pipelines, quads) = self.frame_buffers(i, frame)?;
+            frame::record_frame(
+                &d,
+                commands,
+                &self.pipelines,
+                pipelines,
+                quads,
+                frame,
+                submission,
+            );
+            waits = frame::implicit_waits(&d, &self.ext, frame, submission);
+        }
+        if let Some(readout) = readout {
+            frame::record_readout(&d, commands, readout);
+        }
+        // SAFETY: as above.
+        unsafe {
+            if let Some(pool) = self.in_flight[i].queries {
+                d.cmd_write_timestamp2(commands, vk::PipelineStageFlags2::ALL_COMMANDS, pool, 1);
+            }
+            d.end_command_buffer(commands).context("recording")?;
+        }
+        let fence = self.in_flight[i].fence;
+        let wait_infos: Vec<vk::SemaphoreSubmitInfo> = waits
+            .iter()
+            .map(|&s| {
+                vk::SemaphoreSubmitInfo::default()
+                    .semaphore(s)
+                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+            })
+            .collect();
+        let signal = [vk::SemaphoreSubmitInfo::default()
+            .semaphore(self.shared.timeline)
+            .value(submission)
+            .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)];
+        let buffers = [vk::CommandBufferSubmitInfo::default().command_buffer(commands)];
+        let info = vk::SubmitInfo2::default()
+            .wait_semaphore_infos(&wait_infos)
+            .command_buffer_infos(&buffers)
+            .signal_semaphore_infos(&signal);
+        // SAFETY: the fence is not pending (its frame is done); every
+        // object the commands use lives until this submission completes.
+        unsafe {
+            d.reset_fences(&[fence]).context("fence")?;
+            d.queue_submit2(self.queue, &[info], fence)
+                .context("submitting")?;
+        }
+        for s in waits {
+            self.shared.defer(submission, Garbage::Semaphore(s));
+        }
+        self.submitted = submission;
+        self.in_flight[i].submission = submission;
+        self.in_flight[i].ready = false;
+        self.current = (i + 1) % IN_FLIGHT;
+        Ok(submission)
+    }
+
+    /// The pipelines for the frame's target and its quads, copied into the
+    /// frame's buffer.
+    fn frame_buffers(
+        &mut self,
+        i: usize,
+        frame: &frame::Recorded<'_>,
+    ) -> Result<([vk::Pipeline; 2], u64)> {
+        let pipelines = self
+            .pipelines
+            .get(&self.shared.device, frame.target.format)?;
+        let bytes = std::mem::size_of_val(frame.quads.as_slice()) as u64;
+        let size = self.in_flight[i].quads.as_ref().map_or(0, |b| b.size);
+        if bytes > size {
+            let new = self.host_buffer_full(
+                bytes.next_power_of_two().max(64 << 10),
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                false,
+            )?;
+            if let Some(old) = self.in_flight[i].quads.replace(new) {
+                // This frame's previous use is done (`current`).
+                self.shared.defer(
+                    0,
+                    Garbage::Buffer {
+                        buffer: old.buffer,
+                        memory: old.memory,
+                    },
+                );
+            }
+        }
+        let quads = self.in_flight[i].quads.as_ref().context("quads")?;
+        // SAFETY: the buffer holds `bytes` (grown above); no submission
+        // reads it (`current`).
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                frame.quads.as_ptr() as *const u8,
+                quads.pointer,
+                bytes as usize,
+            )
+        };
+        Ok((pipelines, quads.address))
+    }
+
+    /// Ends a frame: submits it and hands out its end.
+    fn finish_frame(&mut self, frame: &mut frame::Recorded<'_>) -> Result<SyncPoint> {
+        let submission = self.submit(Some(frame), None)?;
+        let target = &mut *frame.target;
+        target.filled = true;
+        target.last_used = submission;
+        if let Some(readback) = &target.readback {
+            // lavapipe's copy: the CPU copies, so it waits.
+            self.shared.wait(submission)?;
+            readback.copy_out(target.size)?;
+            return Ok(SyncPoint::signaled());
+        }
+        let i = (self.current + IN_FLIGHT - 1) % IN_FLIGHT;
+        let fence = self.in_flight[i].fence;
+        let info = vk::FenceGetFdInfoKHR::default()
+            .fence(fence)
+            .handle_type(vk::ExternalFenceHandleTypeFlags::SYNC_FD);
+        // SAFETY: the fence has a pending signal (just submitted); export
+        // resets it, which `submit` does anyway before its next use.
+        let fd = match unsafe { self.ext.fence_fd.get_fence_fd(&info) } {
+            Ok(fd) if fd >= 0 => {
+                // SAFETY: a new file descriptor we own.
+                unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) }
+            }
+            // -1: already signalled.
+            Ok(_) => return Ok(SyncPoint::signaled()),
+            Err(e) => {
+                warn!("exporting the frame's fence: {e}; waiting instead");
+                self.shared.wait(submission)?;
+                return Ok(SyncPoint::signaled());
+            }
+        };
+        // Into the dmabufs the frame touched: readers and writers of them
+        // elsewhere see it (implicit sync).
+        for texture in &frame.foreign {
+            if let Some(dmabuf) = texture.0.dmabuf.as_ref().and_then(|w| w.upgrade())
+                && let Some(handle) = dmabuf.handles().next()
+                && let Err(e) = sync::attach(handle, fd.as_fd(), false)
+            {
+                debug!("adding the frame's read to a dmabuf: {e}");
+            }
+        }
+        if let Some(dmabuf) = &target.dmabuf
+            && let Some(handle) = dmabuf.handles().next()
+            && let Err(e) = sync::attach(handle, fd.as_fd(), true)
+        {
+            debug!("adding the frame's write to the screen buffer: {e}");
+        }
+        Ok(SyncPoint::from(sync::SyncFile(fd)))
+    }
+}
