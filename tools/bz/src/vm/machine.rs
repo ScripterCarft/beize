@@ -384,6 +384,11 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         .arg("-smp")
         .arg(VM_CPUS.to_string())
         .args(["-m", "2G", "-no-reboot"])
+        // virtio-gpu, the GPU VMs use today, in the standard VGA's place
+        // (the other devices keep their PCI addresses): atomic KMS with a
+        // cursor plane for the compositor, lavapipe draws into its dumb
+        // buffers (ADR 0027 §6).
+        .args(["-vga", "virtio"])
         // The RAM exists before the guest starts, as on a real PC. Beize's
         // kernel clears all memory at boot (INIT_ON_FREE, ADR 0015); without
         // this the host would only then provide each page, and the kernel
