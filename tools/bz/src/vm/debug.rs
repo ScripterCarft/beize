@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 
 use super::console::{self, Answers, ConsoleEvent, REPORT_TIMEOUT, Session, strip_ansi};
 use super::machine::{Machine, clear_boot_logs};
@@ -29,7 +29,9 @@ const MARKER: &str = "BZ-DEBUG-";
 /// Boots `machine` (`run`, or a machine `bz smoke` left in build/work),
 /// optionally with another TPM state directory, types `recovery_key` if the
 /// boot asks for it and runs `commands` on the root shell (`@wait N` pauses
-/// N seconds, `@screendump FILE` saves the screen as PNG), then powers off.
+/// N seconds, `@screendump FILE` saves the screen as PNG, `@keys K…`
+/// presses keys by QEMU name, `ctrl+alt+f2` together, `@mouse DX DY
+/// [click]` moves the mouse), then powers off.
 /// Beize's test programs come along on the test medium
 /// (`/dev/disk/by-id/virtio-beize-test`, EROFS).
 pub fn debug(
@@ -81,6 +83,24 @@ pub fn debug(
             let file = paths.root.join(file.trim());
             console::screendump(&machine.qmp(), &file)?;
             say!("  screen -> {}", file.display());
+            continue;
+        }
+        if let Some(keys) = command.strip_prefix("@keys ") {
+            let keys: Vec<&str> = keys.split_whitespace().collect();
+            console::keys(&machine.qmp(), &keys)?;
+            continue;
+        }
+        if let Some(motion) = command.strip_prefix("@mouse ") {
+            let (click, motion) = match motion.trim().strip_suffix(" click") {
+                Some(motion) => (true, motion),
+                None => (false, motion),
+            };
+            let (dx, dy) = motion
+                .trim()
+                .split_once(' ')
+                .and_then(|(x, y)| Some((x.parse().ok()?, y.trim().parse().ok()?)))
+                .context("@mouse DX DY [click]")?;
+            console::mouse(&machine.qmp(), dx, dy, click)?;
             continue;
         }
         let tag = number.to_string();

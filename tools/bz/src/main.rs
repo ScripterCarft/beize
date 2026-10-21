@@ -97,7 +97,9 @@ enum Command {
         #[arg(long)]
         tpm: Option<String>,
         /// Commands for the root shell; `@wait N` pauses N seconds,
-        /// `@screendump FILE` saves the screen as PNG
+        /// `@screendump FILE` saves the screen as PNG, `@keys K…` presses
+        /// keys (QEMU names, `ctrl+alt+f2` together), `@mouse DX DY [click]`
+        /// moves the mouse
         commands: Vec<String>,
     },
     /// Install the image on a fresh test disk, boot it twice and verify everything

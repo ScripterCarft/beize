@@ -284,7 +284,34 @@ pub(super) fn screendump(socket: &Path, file: &Path) -> Result<()> {
     ))
 }
 
-/// The keyboard of a running machine, through QEMU's control socket (QMP).
+/// Presses `keys` on a running machine (QEMU key names, `+` for together).
+pub(super) fn keys(socket: &Path, keys: &[&str]) -> Result<()> {
+    Keyboard::connect(socket)?.press(keys)
+}
+
+/// Moves the machine's mouse by `dx`, `dy` and, if `click`, clicks its left
+/// button there.
+pub(super) fn mouse(socket: &Path, dx: i32, dy: i32, click: bool) -> Result<()> {
+    let mut qmp = Keyboard::connect(socket)?;
+    let send = |events: String| {
+        format!(r#"{{"execute": "input-send-event", "arguments": {{"events": [{events}]}}}}"#)
+    };
+    qmp.execute(&send(format!(
+        r#"{{"type": "rel", "data": {{"axis": "x", "value": {dx}}}}}, {{"type": "rel", "data": {{"axis": "y", "value": {dy}}}}}"#
+    )))?;
+    if click {
+        for down in [true, false] {
+            thread::sleep(Duration::from_millis(40));
+            qmp.execute(&send(format!(
+                r#"{{"type": "btn", "data": {{"down": {down}, "button": "left"}}}}"#
+            )))?;
+        }
+    }
+    Ok(())
+}
+
+/// The keyboard (and mouse) of a running machine, through QEMU's control
+/// socket (QMP).
 struct Keyboard {
     commands: UnixStream,
     replies: BufReader<UnixStream>,
@@ -304,11 +331,17 @@ impl Keyboard {
         Ok(keyboard)
     }
 
-    /// Presses the keys one after the other, by QEMU key name ("c", "minus").
+    /// Presses the keys one after the other, by QEMU key name ("c", "minus");
+    /// keys joined by `+` together ("ctrl+alt+f2").
     fn press(&mut self, keys: &[&str]) -> Result<()> {
         for key in keys {
+            let together: Vec<String> = key
+                .split('+')
+                .map(|k| format!(r#"{{"type": "qcode", "data": "{k}"}}"#))
+                .collect();
             self.execute(&format!(
-                r#"{{"execute": "send-key", "arguments": {{"keys": [{{"type": "qcode", "data": "{key}"}}], "hold-time": 20}}}}"#
+                r#"{{"execute": "send-key", "arguments": {{"keys": [{}], "hold-time": 20}}}}"#,
+                together.join(", ")
             ))?;
             // Released before the next one is pressed.
             thread::sleep(Duration::from_millis(40));
