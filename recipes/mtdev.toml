@@ -1,0 +1,34 @@
+# mtdev: turns the kernel's older multitouch protocol (type A, some
+# touchscreens and touchpads) into the slotted one (type B) for libinput,
+# as Fedora builds libinput with it. Only the library, not mtdev-test.
+name = "mtdev"
+version = "1.1.7"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 8868 }
+url = "https://bitmath.org/code/mtdev/mtdev-{version}.tar.bz2"
+sha256 = "a107adad2101fecac54ac7f9f0e0a0dd155d954193da55c2340c97f2ff1d814e"
+unsigned = "mtdev signs neither release archives nor tags (checked 2026-10-21); archive pinned by SHA-256, the one Arch Linux builds"
+
+[build]
+script = '''
+"$SRC/configure" --host="$TARGET" --prefix=/usr --libdir=/usr/lib --disable-static
+MAKEFLAGS="$JOBSERVER" make
+make DESTDIR="$PKG" install
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-21).
+license = "MIT"
+# No CPE: the NVD lists no product for mtdev (checked 2026-10-21).
+cpe = []
+
+[files]
+image = [
+  "usr/lib/libmtdev.so.*",
+]
+build = [
+  { path = "usr/bin/mtdev-test", why = "prints a device's converted events: for developers, always built" },
+]

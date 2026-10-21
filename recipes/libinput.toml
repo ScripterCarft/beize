@@ -1,0 +1,53 @@
+# libinput: keyboards, mice, touchpads, touchscreens and tablets for the
+# compositor (ADR 0027) – acceleration, gestures, palm detection and the
+# device quirks the whole Linux desktop shares. Like Fedora, with mtdev;
+# without Lua plugins (fixes users write for their own devices: a
+# tinkerer's tool, and a Lua runtime in the image) and, for now, without
+# libwacom (tablets work, only without knowing their model's buttons; it
+# needs libgudev and comes when the settings know tablets). No tools,
+# tests or debug GUI.
+name = "libinput"
+version = "1.32.0"
+stage = "target"
+deps = ["gcc", "glibc", "systemd", "libevdev", "mtdev"]
+
+[source]
+latest = { release-monitoring = 5781 }
+git = "https://gitlab.freedesktop.org/libinput/libinput.git"
+tag = "{version}"
+commit = "5cf833b572f5a33663888da321dce0ba1abd82a2"
+keyring = "libinput"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release \
+  -Dudev-dir=/usr/lib/udev -Dmtdev=true -Dlibwacom=false -Dlua-plugins=disabled \
+  -Ddebug-gui=false -Dtests=false -Dinstall-tests=false -Ddocumentation=false \
+  -Dzshcompletiondir=no
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-21).
+license = "MIT"
+cpe = ["cpe:2.3:a:freedesktop:libinput"]
+
+[files]
+# The library, the device quirks and the udev rules that go with it:
+# grouping a tablet with its pad, and the touchpad fuzz libinput filters
+# itself (both helpers run from these rules), as Fedora ships them.
+image = [
+  "usr/lib/libinput.so.*",
+  "usr/share/libinput/*.quirks",
+  "usr/lib/udev/libinput-device-group",
+  "usr/lib/udev/libinput-fuzz-extract",
+  "usr/lib/udev/libinput-fuzz-to-zero",
+  "usr/lib/udev/rules.d/80-libinput-device-groups.rules",
+  "usr/lib/udev/rules.d/90-libinput-fuzz-override.rules",
+]
+build = [
+  { path = "usr/bin/libinput", why = "the `libinput` command for debugging and measuring devices: for developers, built with the library" },
+  { path = "usr/libexec/libinput/**", why = "the subcommands of `libinput` (debug-events, record, measure …)" },
+]

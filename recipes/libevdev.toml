@@ -1,0 +1,34 @@
+# libevdev: reads and writes the kernel's input events (evdev) for libinput
+# (ADR 0027). Only the library; no tools (libevdev-tweak-device and the
+# like are for developers), tests or documentation.
+name = "libevdev"
+version = "1.14.0"
+stage = "target"
+deps = ["gcc", "glibc"]
+
+[source]
+latest = { release-monitoring = 20540 }
+url = "https://freedesktop.org/software/libevdev/libevdev-{version}.tar.xz"
+sha256 = "5a0966c7110648665983848bad696c7acba614a2160d2865d535397101007332"
+signature = "https://freedesktop.org/software/libevdev/libevdev-{version}.tar.xz.sig"
+keyring = "libinput"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release \
+  -Dtools=disabled -Dtests=disabled -Ddocumentation=disabled
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-21).
+license = "MIT"
+# No CPE: the NVD lists no product for libevdev (checked 2026-10-21).
+cpe = []
+
+[files]
+image = [
+  "usr/lib/libevdev.so.*",
+]

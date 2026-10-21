@@ -56,6 +56,7 @@ Prüfen aller Quellen: `./bz verify`
 | `mesa` | Eric Engestrom (Release-Manager) | `5755 1DE1 5B96 8F63 41C2 48F6 8D8E 31AF C324 28A6` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org; die Rust-Crates für NVK pinnt Mesas signiertes Archiv mit SHA-256 (`subprojects/*.wrap`) |
 | `mpc` | Andreas Enge | `AD17 A21E F8AE D8F1 CC02 DBD9 F7D5 C9BF 765C 61E3` | GNU-Keyring |
 | `mpfr` | Vincent Lefèvre | `A534 BE3F 83E2 41D9 1828 0AEB 5831 D11A 0D4D B02A` | GNU-Keyring |
+| `mtdev` | mtdev signiert weder Archive noch Tags (geprüft 2026-10-21) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
 | `nano` | Benno Schulenberg | `168E 6F42 97BF D7A7 9AFD 4496 514B BE2E B8E1 961F` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `ncurses` | Thomas E. Dickey | `1988 2D92 DDA4 C400 C22C 0D56 CC2A F447 2167 BE03` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `ntpd-rs` | David Venhoek (Tweede golf), SSH | `SHA256:xQQw30dT1YTuj8KC9IC7tJ9pGtcKOReK54ClMRIEABc` (RSA) | GitHub-Signaturschlüssel des Maintainers (seit 2023, Hardware-Token); signiert die Release-Commits, die Tags sind leichtgewichtig |
@@ -63,6 +64,7 @@ Prüfen aller Quellen: `./bz verify`
 | `pcre2` | Nicholas Wilson | `A955 3620 4A3B B489 7152 3128 2A98 E77E B6F2 4CA8` | keyserver.ubuntu.com; deckungsgleich mit `SECURITY.md` des Projekts; signiert mit Unterschlüssel `BACF 71F1 0404 D576 1C09 D392 021D E40B FB63 B406` |
 | `polkit` | polkit signiert weder Tags (leichtgewichtig) noch Commits und veröffentlicht keine eigenen Archive (geprüft 2026-10-11) | Commit des Release-Tags gepinnt |
 | `procps-ng` | Craig Small | `5D2F B320 B825 D939 04D2 0519 3938 F96B DF50 FEA5` | keys.openpgp.org (keyserver.ubuntu.com hat eine Fassung, die 2026-10-17 abläuft; diese gilt bis 2028-09-16); deckungsgleich mit Arch Linux' `validpgpkeys`; signiert mit Unterschlüssel `5D3D F0F5 38B3 27C0 AA7A 77A2 0221 66C0 FF3C 84E3` |
+| `seatd` | seatd signiert weder Tags noch Archive (geprüft 2026-10-21) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
 | `sed` | Jim Meyering | `155D 3FC5 00C8 3448 6D1E EA67 7FD9 FCCB 000B EEEE` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `systemd` | Luca Boccassi | `AC24 AAC7 DDC4 20F1 8ECA 6B91 286B F7EF CD77 241E` | keyserver.ubuntu.com, signierter Git-Tag |
 | `tpm2-tss` | Andreas Fuchs (Infineon) | `D533 275B 0123 D0A6 79F5  1FF4 8F4F 9A45 D7FF EE74` | keys.openpgp.org; deckungsgleich mit `MAINTAINERS.md` im Release und dem GitHub-Konto des Maintainers |

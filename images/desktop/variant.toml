@@ -8,5 +8,6 @@
 name = "Desktop"
 extends = "base"
 
-# Graphics (ADR 0027): Vulkan with Mesa's drivers (NVK for NVIDIA).
-packages = ["mesa", "vulkan-loader"]
+# Graphics (ADR 0027): Vulkan with Mesa's drivers (NVK for NVIDIA); the
+# compositor's session (libseat asks logind for the devices) and input.
+packages = ["mesa", "vulkan-loader", "seatd", "libinput"]

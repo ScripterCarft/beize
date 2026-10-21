@@ -1,0 +1,35 @@
+# seatd's libseat: how the compositor, running as the user, gets the DRM
+# and input devices – systemd-logind opens them for it (TakeDevice) and
+# takes them away when another session takes the screen (ADR 0027 §6).
+# Only the logind backend: no seatd daemon, no built-in server, no groups.
+name = "seatd"
+version = "0.9.3"
+stage = "target"
+deps = ["gcc", "glibc", "systemd"]
+
+[source]
+latest = { release-monitoring = 234932 }
+git = "https://git.sr.ht/~kennylevinsen/seatd"
+tag = "{version}"
+commit = "daa8196e10b180b8b0caeafa8e5f860eb1bd6706"
+unsigned = "seatd signs neither release tags nor archives (checked 2026-10-21); pinned to the commit of the release tag, the one Arch Linux builds"
+
+[build]
+script = '''
+meson setup . "$SRC" --cross-file "$MESON_CROSS" --native-file "$MESON_NATIVE" \
+  --prefix=/usr --libdir=/usr/lib --buildtype=release \
+  -Dlibseat-logind=systemd -Dlibseat-seatd=disabled -Dlibseat-builtin=disabled \
+  -Dserver=disabled -Dexamples=disabled -Dman-pages=disabled
+MAKEFLAGS="$JOBSERVER" meson compile
+DESTDIR="$PKG" meson install --no-rebuild --quiet
+'''
+
+[sbom]
+# As Fedora's package states it (2026-10-21).
+license = "MIT"
+cpe = ["cpe:2.3:a:seatd_project:seatd"]
+
+[files]
+image = [
+  "usr/lib/libseat.so.*",
+]
