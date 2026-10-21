@@ -96,7 +96,8 @@ enum Command {
         /// Another TPM state directory beside the machine, e.g. `smoke-other-tpm`
         #[arg(long)]
         tpm: Option<String>,
-        /// Commands for the root shell; `@wait N` pauses N seconds
+        /// Commands for the root shell; `@wait N` pauses N seconds,
+        /// `@screendump FILE` saves the screen as PNG
         commands: Vec<String>,
     },
     /// Install the image on a fresh test disk, boot it twice and verify everything

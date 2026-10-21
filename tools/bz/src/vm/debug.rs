@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail, ensure};
 
-use super::console::{Answers, ConsoleEvent, REPORT_TIMEOUT, Session, strip_ansi};
+use super::console::{self, Answers, ConsoleEvent, REPORT_TIMEOUT, Session, strip_ansi};
 use super::machine::{Machine, clear_boot_logs};
 use super::run::{self, DEBUG_CONSOLE_CREDENTIALS};
 use crate::paths::Paths;
@@ -29,7 +29,9 @@ const MARKER: &str = "BZ-DEBUG-";
 /// Boots `machine` (`run`, or a machine `bz smoke` left in build/work),
 /// optionally with another TPM state directory, types `recovery_key` if the
 /// boot asks for it and runs `commands` on the root shell (`@wait N` pauses
-/// N seconds), then powers off.
+/// N seconds, `@screendump FILE` saves the screen as PNG), then powers off.
+/// Beize's test programs come along on the test medium
+/// (`/dev/disk/by-id/virtio-beize-test`, EROFS).
 pub fn debug(
     paths: &Paths,
     machine: &str,
@@ -57,6 +59,7 @@ pub fn debug(
             machine.tpm.display()
         );
     }
+    machine.test_medium = super::machine::test_medium(paths)?;
     let answers = recovery_key.map_or_else(Answers::none, Answers::recovery_key);
 
     util::step(&format!("Booting {}", machine.name()));
@@ -72,6 +75,12 @@ pub fn debug(
         if let Some(seconds) = command.strip_prefix("@wait ") {
             let seconds: f64 = seconds.trim().parse()?;
             shell.wait_for(Duration::from_secs_f64(seconds), true, |_| false)?;
+            continue;
+        }
+        if let Some(file) = command.strip_prefix("@screendump ") {
+            let file = paths.root.join(file.trim());
+            console::screendump(&machine.qmp(), &file)?;
+            say!("  screen -> {}", file.display());
             continue;
         }
         let tag = number.to_string();

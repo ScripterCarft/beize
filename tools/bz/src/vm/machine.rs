@@ -52,6 +52,9 @@ pub(super) struct Machine {
     /// A USB stick plugged in (a raw disk image), as the owner brings an
     /// update to a computer without another one to serve it (ADR 0020).
     pub(super) usb_stick: Option<PathBuf>,
+    /// Beize's test programs (`test_medium`), read-only: in the guest
+    /// `/dev/disk/by-id/virtio-beize-test`. Never part of the image.
+    pub(super) test_medium: Option<PathBuf>,
 }
 
 impl Machine {
@@ -65,6 +68,7 @@ impl Machine {
             logs: boot_logs(paths),
             unsigned_module: paths.out.join("unsigned-module.ko"),
             usb_stick: None,
+            test_medium: None,
         }
     }
 
@@ -245,6 +249,30 @@ fn enrolled_certificates(firmware: &str) -> Vec<(String, String)> {
 }
 
 /// Creates an empty TPM state directory; swtpm initialises a factory-new TPM in it.
+/// Where packages install programs that only test Beize (`[files] build`).
+const TEST_PROGRAMS: &str = "usr/lib/beize/test";
+
+/// An EROFS image of the test programs the packages installed into the
+/// sysroot, or None if there are none. It goes into the VM beside the disk
+/// (`Machine::test_medium`), so the image itself carries no test code.
+pub(super) fn test_medium(paths: &Paths) -> Result<Option<PathBuf>> {
+    let programs = paths.sysroot.join(TEST_PROGRAMS);
+    if !programs.is_dir() {
+        return Ok(None);
+    }
+    let medium = paths.variant_work.join("test-medium.erofs");
+    let _ = fs::remove_file(&medium);
+    util::run(
+        Command::new("mkfs.erofs")
+            .arg("--all-root")
+            .arg(format!("-T{}", crate::packages::BUILD_EPOCH))
+            .arg("-Lbeize-test")
+            .arg(&medium)
+            .arg(&programs),
+    )?;
+    Ok(Some(medium))
+}
+
 pub(super) fn new_tpm(dir: &Path) -> Result<()> {
     tree::recreate(dir)?;
     Ok(())
@@ -432,6 +460,18 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
                 stick.display()
             ))
             .args(["-device", "usb-storage,bus=xhci.0,drive=stick"]);
+    }
+    if let Some(medium) = &machine.test_medium {
+        // On a slot of its own, like the stick.
+        cmd.arg("-drive")
+            .arg(format!(
+                "if=none,id=test,format=raw,readonly=on,file={}",
+                medium.display()
+            ))
+            .args([
+                "-device",
+                "virtio-blk-pci,drive=test,serial=beize-test,addr=0x11",
+            ]);
     }
     if let Some(base) = machine.rtc {
         cmd.arg("-rtc").arg(format!("base={base}"));

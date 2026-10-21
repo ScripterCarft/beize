@@ -275,6 +275,15 @@ impl Answers {
     }
 }
 
+/// Saves what the screen of a running machine shows to `file` as PNG:
+/// QEMU's `screendump`, the image its display device scans out.
+pub(super) fn screendump(socket: &Path, file: &Path) -> Result<()> {
+    let filename = serde_json::to_string(&file.display().to_string())?;
+    Keyboard::connect(socket)?.execute(&format!(
+        r#"{{"execute": "screendump", "arguments": {{"filename": {filename}, "format": "png"}}}}"#
+    ))
+}
+
 /// The keyboard of a running machine, through QEMU's control socket (QMP).
 struct Keyboard {
     commands: UnixStream,
