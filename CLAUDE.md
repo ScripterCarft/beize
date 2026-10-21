@@ -98,6 +98,9 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
+#   '@screendump build/x.png' (was der Bildschirm zeigt) · Testprogramme der Pakete
+#   (`usr/lib/beize/test/`, `[files] build`) liegen auf dem Test-Medium: in der VM
+#   `mount -o ro /dev/disk/by-id/virtio-beize-test /mnt`, z. B. `/mnt/beize-render-test`
 ./bz run             # interaktiv (Ctrl-A X); VM-Disk bleibt bis zum nächsten Image
 ./bz boot-times ~/hw-logs/journal [--boot -1]   # Phasen, Kernel-Lücken, langsamste Units, Kette
 ./bz hw-check ~/hw-logs/journal   # welches PCI-Gerät des Rechners im Image einen Treiber hat
@@ -390,9 +393,19 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    mit `cargo metadata --offline` aus dem Standard-`CARGO_HOME`, in der CI `~/.cargo` aus
    rust-cache, dort fehlte Smithays `appendlist`. Lokal unsichtbar, weil `./bz` in bwrap
    `CARGO_HOME` auf `build/cache/cargo` setzt. Jetzt nimmt sie diesen Cache und holt vorher
-   `cargo fetch --locked`; nachgestellt mit leerem Cache (21.10.).
-   **4b:** Renderer mit `ash` für Smithays `Renderer`/`Frame`: Texturen aus shm und dmabuf,
-   Damage, Leerlauf ohne Zeichnen. **4c:** xdg-shell, ein Fenster, Cursor-Ebene, Tastatur
+   `cargo fetch --locked`; nachgestellt mit leerem Cache (21.10.), CI grün.
+   **4b ✓ (21.10.):** Renderer `os/beize-compositor/src/render/`, Entscheidungen in ADR
+   0027 §7 (Vulkan 1.3, GLSL per `build.rs` mit glslang + spirv-val, Slang geprüft und
+   verworfen, bindless, Quads je Damage-Rechteck auf der CPU, deckend ohne Blending, 2
+   Bilder in Arbeit, sync_file an KMS und in dmabufs, `texelFetch` bei 1:1). Bildschleife:
+   ohne Änderung kein Bild und kein Commit. Geprüft: `beize-render-test` (13 Prüfungen
+   pixelgenau, lavapipe in der VM, über das neue Test-Medium von `bz debug`), Bildschirm
+   per `@screendump`, 0 CPU im Leerlauf, 1280x800 ganzes Bild 2,57 ms, kleiner Damage
+   0,22 ms. Lehre: Die Vulkan-`Instance` muss das Gerät überleben (`Shared::_instance`),
+   sonst stürzt Mesa beim ersten Shader ab (Typ-Cache je Instanz); in 4a fiel es nicht auf,
+   weil kein Shader lief. Offen: `host_image_copy` (bisher Staging), VRR-Schalter und
+   Zeitgeber (mit Clients), Direct Scanout; dmabufs mit Modifiern und IN_FENCE_FD auf NVK
+   prüft erst der Hardware-Test. **4c:** xdg-shell, ein Fenster, Cursor-Ebene, Tastatur
    nach localeds Layout. (5) `beize-session` und die Unit, Eintrag in `security.toml`,
    soweit DRM und Vulkan das zulassen. (6) Smoke-Szenario in der vollen Stufe: Anmeldung auf
    tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird

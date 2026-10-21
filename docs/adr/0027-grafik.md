@@ -154,6 +154,51 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   QEMUs `screendump` (das ausgegebene Bild) mit einer Referenz. Das Szenario läuft in der
   vollen CI-Stufe.
 
+### 7. Der Renderer (Schritt 2, angenommen 21.10.)
+
+Vorher am Quelltext von Mesa 26.2.5 geprüft: NVK bietet Vulkan 1.4 ab Turing (1.3 auf
+Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
+
+- **Vulkan 1.3 als Untergrenze**, mit timeline semaphores, buffer device address,
+  descriptor indexing, scalar block layout, dynamic rendering, synchronization2 und den
+  Erweiterungen für externe Speicher, Fences und Semaphoren als dmabuf bzw. sync_file.
+  Fehlt eines, nennt der Compositor es beim Namen.
+- **Shader in GLSL**, beim Bau von glslang (Referenz-Compiler von Khronos) übersetzt und von
+  `spirv-val` geprüft. Beides liegt schon für Mesa im Buildroot. Slang wurde geprüft: Es gibt
+  es in Ubuntu 26.04, aber nicht im Buildroot (Lock-Änderung). Sein Vorteil (Module,
+  Generics) zählt erst bei vielen Shadern. Die Schnittstelle ist SPIR-V, ein späterer Wechsel
+  geht je Shader. Mesa legt übersetzte Pipelines in seinem Platten-Cache ab.
+- **Wenige Draws:** Alle Texturen liegen in einem Descriptor-Array (bindless). Jedes
+  Rechteck, das Smithay zeichnen lässt, schneidet die CPU auf seine Damage-Rechtecke zu und
+  bildet es in den Framebuffer ab. Das ergibt Quads mit linearer Texturabbildung, ohne Scissor
+  und in allen 8 Transformationen. Alle Quads eines Bildes stehen in einem Puffer (Adresse per
+  Push-Constant), ein Draw je Lauf gleicher Art. Deckende Teile (Textur ohne Alpha oder vom
+  Client als deckend gemeldet) gehen ohne Blending, das auf lavapipe CPU-Zeit kostet.
+- **Schärfe:** Liegt eine Textur 1:1 auf ganzen Pixeln, liest der Shader den Texel direkt
+  (`texelFetch`) statt zu filtern.
+- **Die CPU wartet nicht auf die GPU:** Zwei Bilder sind gleichzeitig in Arbeit. Freigaben
+  folgen einer Timeline-Semaphore. Das Ende eines Bildes geht als sync_file an KMS
+  (IN_FENCE_FD) und in die dmabufs, die es gelesen oder geschrieben hat. Die ausstehenden
+  Schreibvorgänge eines Client-dmabufs wartet die GPU ab, nicht die CPU (wie wlroots).
+  Geteilte Bilder wechseln per Queue-Family-Übergabe von und zur Foreign-Queue. Nur
+  lavapipes Kopie in einen Dumb-Buffer wartet, weil die CPU kopiert.
+- **Ohne Änderung kein Bild:** Smithays Damage-Tracker mit dem Alter jedes Bildes. Ist
+  nichts geändert, gibt es weder Zeichnen noch Commit, und die Anzeige-Engine zeigt das
+  letzte Bild weiter. macOS' „bis 10 Hz“ ist eine Eigenschaft des Panels (ProMotion), nicht
+  des WindowServers; auf Laptops greift ohne Commits von selbst Panel Self Refresh. VRR
+  (amdgpu, i915; nouveau kann es nicht) folgt mit dem Zeitgeber für Clients.
+- **Gemessen** (21.10., VM, lavapipe, 1280x800, Hintergrundbild + 4 transparente Fenster):
+  ganzes Bild 2,57 ms (GPU 1,60 ms), 80x40 Damage 0,22 ms (GPU 0,17 ms). Die GPU-Zeit
+  misst der Renderer je Bild mit Timestamps, Grundlage für den Zeitplan „so spät wie möglich
+  vor dem vblank“.
+- **Geprüft** von `beize-render-test` in der VM (über das Test-Medium von `bz`, nicht im
+  Image): feste Szenen offscreen, pixelgenau gegen eine Referenz der CPU. Die
+  Transformationen rechnet die Referenz mit Smithays eigener Funktion, nicht mit der des
+  Renderers.
+- **Noch nicht:** `host_image_copy` (Upload ohne Staging, lavapipe und NVK ab Turing), Direct
+  Scanout und Overlay-Ebenen (kommen in die Bildschleife vor dem Rendern), der dmabuf-Weg
+  mit Modifiern (nur auf Hardware prüfbar).
+
 ## Reihenfolge
 
 1. **Mesa** in `images/desktop/`: NVK und lavapipe, dazu libdrm, Wayland, Vulkan-Loader.
