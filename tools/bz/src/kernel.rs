@@ -127,12 +127,7 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     let src = recipe.unpack(paths)?;
     for patch in &measure_patches {
         say!("  applying {} (measurement build)", patch.display());
-        util::run(
-            Command::new("git")
-                .current_dir(&src)
-                .arg("apply")
-                .arg(patch),
-        )?;
+        git_apply(&src, patch, false)?;
     }
     fs::create_dir_all(&obj)?;
     util::step(&format!("Configuring linux {}", recipe.version));
@@ -172,6 +167,11 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
         &paths.work.join("logs/linux.log"),
     )?;
     let release = util::output(make(paths, &src, &obj).args(["-s", "kernelrelease"]))?;
+    // The unpacked source is shared with linux-headers and later builds:
+    // back to upstream, with new mtimes, so the next build recompiles it.
+    for patch in measure_patches.iter().rev() {
+        git_apply(&src, patch, true)?;
+    }
 
     ensure!(
         !obj.join(GENERATED_KEY).exists(),
@@ -380,6 +380,29 @@ pub fn module_name(file: &Path) -> String {
 }
 
 /// Beize's fragments in `kernel/config`, in name order.
+/// `git apply` on the unpacked source. That tree lies inside Beize's own
+/// repository, where git would take the patch's paths from the repository's
+/// top and skip them silently: the ceiling keeps git out of it. The check
+/// afterwards proves the patch is (or is no longer) in the tree.
+fn git_apply(src: &Path, patch: &Path, reverse: bool) -> Result<()> {
+    let git = |args: &[&str]| {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(src)
+            .env("GIT_CEILING_DIRECTORIES", src.parent().unwrap_or(src))
+            .arg("apply")
+            .args(args)
+            .arg(patch);
+        cmd
+    };
+    util::run(&mut git(if reverse { &["--reverse"] } else { &[] }))?;
+    util::run(&mut git(if reverse {
+        &["--check"]
+    } else {
+        &["--reverse", "--check"]
+    }))
+    .with_context(|| format!("{} did not change the kernel source", patch.display()))
+}
+
 fn measure_patches(paths: &Paths) -> Result<Vec<PathBuf>> {
     let dir = paths.root.join("kernel/measure");
     if !dir.is_dir() {
