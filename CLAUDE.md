@@ -368,9 +368,10 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
      Beize den Framebuffer-Export und die Bildschleife selbst (ADR 0027 §6, Vorbild gamescope). Offen: Nimmt virtio-gpu einen dmabuf von lavapipe an? Sonst in
      der VM eine CPU-Kopie in einen Dumb-Buffer. Den Direktweg prüft dann nur die Hardware.
 
-   Reihenfolge: (1) die Eckpunkte als Endfassung in ADR 0027, der Besitzer liest vor dem
-   Code. (2) Pakete im Desktop: libseat, libinput mit libevdev und mtdev (libxkbcommon ist
-   da), jeweils mit `[files]`, `[sbom]`, `latest`. (3) Kurze Probe unter `~/scratch/`:
+   Reihenfolge: (1) ✓ Eckpunkte in ADR 0027 §6. (2) ✓ (21.10.) Pakete im Desktop: seatd
+   (nur libseat, logind), libinput 1.32 mit libevdev und mtdev; ohne Lua-Plugins und vorerst
+   ohne libwacom (Gründe im Rezept; libwacom braucht libgudev, kommt mit Tablett-Einstellungen).
+   (3) Kurze Probe unter `~/scratch/`:
    Vulkan-dmabuf → KMS auf virtio-gpu mit lavapipe; sie entscheidet den Puffer-Weg der VM.
    (4) `os/beize-compositor`: Smithay aus crates.io (`backend_drm`, `backend_libinput`,
    `backend_session_libseat`, `backend_vulkan`, `wayland_frontend`, ohne GL). Renderer mit
