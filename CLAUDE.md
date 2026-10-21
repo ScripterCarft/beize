@@ -329,13 +329,20 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (Tests ohne GPU, Rückfall wie WARP) und Kosten (+34 MiB, ~30 min CI im Lauf von null)
    sind dem Besitzer genannt, er will es behalten.
 
-   **240 Hz (offen, 21.10.):** Der Monitor des Besitzers (Dell AW2723DF, DisplayPort) läuft
-   unter Windows mit 1440p @ 240 Hz. Der Modus steht nur im DisplayID-Block des EDID
-   (1056,75 MHz) und passt ohne DSC in HBR3 × 4. nouveaus `nv50_dp_mode_valid` verwirft ihn
-   genau dann, wenn der Link nur HBR2 hat. Diagnoseskript `~/scratch/dp-diag/dp-diag.sh`
-   (Besitzer startet es in Beize vom Stick, Schritte im Chat vom 21.10.): drm.debug,
-   Neuerkennung, `kernel-log.txt` zeigt „sink rate“, „encoder“, „maximum“. Danach entweder
-   Upstream-Bericht mit Patch (Karte/Treiber) oder DSC-Frage (Monitor).
+   **240 Hz (Ursache gefunden, 21.10.):** Der Monitor des Besitzers (Dell AW2723DF,
+   DisplayPort) läuft unter Windows mit 1440p @ 240 Hz; der Modus steht nur im DisplayID-Block
+   (EDID-Block 2). Diagnose in Beize (`~/scratch/dp-diag/`, Daten auf dem Stick): Link HBR3 × 4
+   ist in Ordnung, aber Block 2 kommt als Kopie von Block 0 an. Ursache: `r535_dp_aux_xfer`
+   (nouveau mit GSP) löscht MOT bei Address-only-Anfragen, der Start jeder I²C-Nachricht wird
+   zum STOP, der E-DDC-Segment-Zeiger geht verloren. Noch in drm-misc-next, seit 9e9944449023
+   (2023). Patch: `~/upstream/nouveau-edid` (Zweig `nouveau-edid-segment` auf drm-misc-next),
+   Empfänger laut get_maintainer: Lyude Paul, Danilo Krummrich, dri-devel. **Nächster Schritt:**
+   Testbau auf dem Zweig `measure/nouveau-edid` (0.5.93, Patch nur dort, nie auf main),
+   Besitzer installiert ihn und lässt `dp-diag.sh` erneut laufen; erwartet: Block 2 =
+   DisplayID, Modus 2560x1440 @ 240 in der Liste. Danach Lore prüfen, Besitzer sendet.
+   `edid-decode` ist per apt in WSL installiert; danach entfernen, `dp-diag` löschen.
+   ADR 0027 §6 (Gerüst) hat der Besitzer am 21.10. angenommen, mit der Bedingung „effizient
+   auch auf schwachen PCs“ (Punkt „Schwache Rechner“ dort).
 
    **Dann: Compositor-Gerüst** (`os/beize-compositor`, ADR 0027 Schritt 2). Plan mit dem
    Besitzer am 17.10. abgestimmt, **noch nicht begonnen**. Eckpunkte:

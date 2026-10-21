@@ -1,7 +1,7 @@
 # 0027 – Grafik: Compositor, Vulkan, Toolkit, NVIDIA, Schrift
 
 Status: Angenommen · 2026-10-17 (mit dem Besitzer besprochen; NVIDIA nach der Messung in
-Schritt 1: NVK)
+Schritt 1: NVK) · Abschnitt 6 (Gerüst) angenommen 2026-10-21
 
 ## Kontext
 
@@ -16,9 +16,12 @@ je Frame (240 Hz), Shell < 1 ms GPU-Zeit.
 
 Stand der Bausteine (Oktober 2026):
 
-- **Smithay** bringt Wayland-Protokoll, DRM/KMS, GBM, libinput, Puffer und Damage-Tracking.
-  Eingebaut sind nur GLES-, glow- und pixman-Renderer, ein Vulkan-Renderer existiert nur in Forks und fremden
-  Crates (COSMIC plant einen, Otto und ein niri-Fork haben experimentelle).
+- **Smithay** (0.7.0, neueste Version auf crates.io) bringt Wayland-Protokoll, DRM/KMS, GBM,
+  libinput, Puffer und Damage-Tracking. Eingebaut sind nur GLES-, glow- und pixman-Renderer, ein
+  Vulkan-Renderer existiert nur in Forks und fremden Crates (COSMIC plant einen, Otto und ein
+  niri-Fork haben experimentelle). Den fertigen Ausgabe-Baustein `DrmCompositor` gibt es nur mit
+  dem Feature `backend_gbm`. Ohne GBM bleiben `DrmSurface` (atomare Commits), `Swapchain`,
+  `VulkanAllocator` (Vulkan-Bilder als dmabuf) und `OutputDamageTracker`.
 - **NVIDIA-Treiber** hinkt neuen Kernels hinterher: 590-open baute auf 6.19 erst mit Patch,
   NVIDIA lieferte 580.126.18 nach; 7.0 lief nur mit Community-Patches. Die Bibliotheken
   (Vulkan, GBM) sind geschlossen.
@@ -105,6 +108,40 @@ Systemschrift **Inter** (OFL, variabel mit optischen Größen, nah an SF Pro), T
 **JetBrains Mono** (OFL). Icons: eigener Satz, weich und abgerundet. Entschieden wird er mit
 der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 
+### 6. Gerüst: Sitzung, Start, Bildausgabe, Test
+
+- **Sitzung:** Der Compositor läuft als angemeldeter Nutzer, nie als root. DRM- und
+  Eingabegeräte öffnet systemd-logind für ihn (`TakeDevice`), angesprochen über **libseat**
+  mit nur dem logind-Backend (aus seatd, ohne dessen Dienst). Keine Gruppen wie `video` oder
+  `input`, kein setuid. Vorbild: GNOME und KDE auf Fedora.
+- **Start:** Bis Beize ein eigenes Anmeldefenster hat (wie macOS' loginwindow, eigenes ADR),
+  meldet man sich auf tty1 an und startet die Oberfläche mit `beize-session`. Das startet die
+  Benutzer-Unit `beize-compositor.service` in `graphical-session.target`, wie GNOME seine
+  Shell als Benutzer-Unit führt. Kein Autostart über Shell-Profile.
+- **Bildausgabe ohne GBM:** Atomares KMS über Smithays `DrmSurface`. Die Bilder des
+  Bildschirms kommen aus Vulkan (`VulkanAllocator`, `VK_EXT_image_drm_format_modifier`, mit
+  den Modifiern, die KMS für die Ebene meldet) und gehen als dmabuf an KMS. Den Schritt
+  dmabuf → KMS-Framebuffer (`ExportFramebuffer`) und die Bildschleife (Ebenen, Cursor,
+  Page-Flip) schreibt Beize selbst, statt Smithays `DrmCompositor` zu nutzen. Begründung: GBM
+  käme in Mesa nur mit einem Gallium- bzw. OpenGL-Treiber für nouveau, also genau dem zweiten
+  Grafikstapel, den Abschnitt 2 ausschließt. Vorbild: Valves gamescope (Steam Deck)
+  allokiert seine Ausgabebilder ebenfalls in Vulkan. Die Bildschleife ist ohnehin Beizes Kern
+  (Direct Scanout, Pacing).
+- **VM:** Ob virtio-gpu einen dmabuf von lavapipe annimmt, klärt eine Probe vor dem Code.
+  Falls nicht, kopiert der Compositor in der VM das fertige Bild in einen Dumb-Buffer
+  (Smithay hat dafür einen Exporter). Der Direktweg wird dann nur auf echter Hardware geprüft.
+- **Schwache Rechner:** Der Compositor zeichnet nur, was sich geändert hat (Damage), legt
+  unveränderte Vollbildfenster per Direct Scanout ohne Kopie auf den Bildschirm und zeichnet
+  im Leerlauf gar nicht. Auf lavapipe (GPU ohne Vulkan-Treiber) schaltet er teure Effekte
+  selbst ab: Unschärfe wird zur deckenden Fläche, Schatten bleiben gecacht. macOS bietet das
+  als „Transparenz reduzieren“, Beize schaltet es dort von selbst ein. Mit Vulkan-Treiber
+  bleibt der Budget-Maßstab aus Abschnitt 2 (Shell < 1 ms GPU-Zeit).
+- **Test:** Ein kleiner Testclient (`beize-testclient`, reines Rust-Wayland ohne libwayland,
+  `wl_shm`, festes Farbmuster) kommt über die Test-Disk in die VM, **nicht ins Image**. Der
+  Smoke-Test meldet sich auf tty1 an, startet `beize-session` und den Client und vergleicht
+  QEMUs `screendump` (das ausgegebene Bild) mit einer Referenz. Das Szenario läuft in der
+  vollen CI-Stufe.
+
 ## Reihenfolge
 
 1. **Mesa** in `images/desktop/`: NVK und lavapipe, dazu libdrm, Wayland, Vulkan-Loader.
@@ -132,8 +169,11 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
      Geprüft: Compute-Shader über den JIT mit den Bibliotheken des Images („llvmpipe (LLVM
      23.1.3, 256 bits)“, 65 536 von 65 536 Ergebnissen richtig); in der VM prüft es der
      Smoke-Test des Compositors (Schritt 2).
-2. **Compositor-Gerüst:** KMS, libinput, Vulkan-Renderer, ein Fenster eines Testclients.
-   Smoke-Test mit lavapipe, Screenshot-Vergleich.
+2. **Compositor-Gerüst** nach Abschnitt 6: libseat und libinput (mit libevdev, mtdev) im
+   Desktop; Probe dmabuf → KMS in der VM; `os/beize-compositor` mit Vulkan-Renderer für
+   Smithays `Renderer` (shm- und dmabuf-Texturen, Damage), xdg-shell, ein Fenster, Cursor,
+   Tastatur nach localeds Layout; `beize-session`; Smoke-Szenario mit Screenshot-Vergleich.
+   Danach Hardware-Test beim Besitzer: NVK mit 144 Hz, Maus, Tastatur, Bildabstand.
 3. **Beize UI:** Text, Layout, erstes eigenes Fenster; das Terminal als erste App.
 4. **Shell:** Taskleiste (Dock- oder Windows-Stil vorher entscheiden), Glas, Icons.
 
@@ -147,5 +187,7 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   Rückfall für Rechner ohne Vulkan-Treiber in Beize (VMs ohne 3D, bisher Intel und AMD),
   wie WARP unter Windows.
 - NVK folgt dem Kernel von selbst; die Kernel-Version hängt nicht an NVIDIA.
+- Kein GBM, kein OpenGL im Image. Dafür eigener Code für Framebuffer-Export und Bildschleife,
+  die Smithays `DrmCompositor` sonst mitbrächte.
 - `beize-gpu-probe` liegt im Tag `measure/nvk-0.5.92`: nach großen Mesa- oder
   Kernel-Sprüngen dieselbe Messung wiederholen.
