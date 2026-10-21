@@ -322,19 +322,20 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    Die Probe (Tag) wählt Modus, rendert Compositor-Last per Compute, misst Pacing und
    GPU-Zeit; ihr Renderer und der KMS-Weg sind die Vorlage für Schritt 2.
 
-   **lavapipe ist fertig (17.10.):** LLVM 23.1.3 (`recipes/llvm.toml`, nur x86, ein
-   `libLLVM.so`), Mesa baut NVK + lavapipe, `/usr` 159 MiB. Im Sysroot geprüft (Compute-
-   Shader über den JIT); in der VM noch nicht – das leistet der Compositor-Smoke-Test.
-   Nutzen und Kosten sind dem Besitzer genannt (Tests ohne GPU, Rückfall wie WARP;
-   +40 MiB, ~30 min CI im Lauf von null); er ließ weitermachen.
+   **lavapipe ist fertig (17.10., verkleinert 21.10.):** LLVM 23.1.3 (`recipes/llvm.toml`,
+   nur x86, ein `libLLVM.so` nur mit den Komponenten, die Mesa verlangt: 77 statt 94 MB),
+   Mesa baut NVK + lavapipe, `/usr` 152 MiB. Compute-Shader mit den Bibliotheken des Images
+   geprüft (alle Ergebnisse richtig); in der VM leistet das der Compositor-Smoke-Test. Nutzen
+   (Tests ohne GPU, Rückfall wie WARP) und Kosten (+34 MiB, ~30 min CI im Lauf von null)
+   sind dem Besitzer genannt, er will es behalten.
 
-   **Zuerst: LLVM verkleinern prüfen** (Besitzer 17.10.: „brauchen wir alles?“). `libLLVM.so`
-   enthält heute alle Komponenten. Mesa 26.2.5 verlangt (`meson.build` ~Z. 1962) nur
-   bitwriter, engine, mcdisassembler, core, executionengine, scalaropts, transformutils,
-   instcombine, native, mcjit, optional coroutines und lto. Also einmal lokal mit
-   `-DLLVM_DYLIB_COMPONENTS=…` bauen, Größe messen, Compute-Prüfung und Smoke laufen lassen,
-   nur bei spürbarem Gewinn übernehmen. Die Erwartung ist mäßig: lto zieht Passes, IPO und
-   CodeGen mit. Erst pushen, wenn der CI-Lauf des lavapipe-Commits grün ist.
+   **240 Hz (offen, 21.10.):** Der Monitor des Besitzers (Dell AW2723DF, DisplayPort) läuft
+   unter Windows mit 1440p @ 240 Hz. Der Modus steht nur im DisplayID-Block des EDID
+   (1056,75 MHz) und passt ohne DSC in HBR3 × 4. nouveaus `nv50_dp_mode_valid` verwirft ihn
+   genau dann, wenn der Link nur HBR2 hat. Diagnoseskript `~/scratch/dp-diag/dp-diag.sh`
+   (Besitzer startet es in Beize vom Stick, Schritte im Chat vom 21.10.): drm.debug,
+   Neuerkennung, `kernel-log.txt` zeigt „sink rate“, „encoder“, „maximum“. Danach entweder
+   Upstream-Bericht mit Patch (Karte/Treiber) oder DSC-Frage (Monitor).
 
    **Dann: Compositor-Gerüst** (`os/beize-compositor`, ADR 0027 Schritt 2). Plan mit dem
    Besitzer am 17.10. abgestimmt, **noch nicht begonnen**. Eckpunkte:
@@ -352,7 +353,8 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    - **Ausgabe:** KMS atomar über Smithays DRM-Backend, nicht `VK_KHR_display` wie die
      Probe, denn ein Compositor braucht Planes, Cursor und Hotplug (wie KWin und mutter).
      Puffer kommen aus Vulkan als dmabuf mit Modifiern (Smithays `VulkanAllocator`), **kein
-     GBM**, Mesa bleibt ohne. Offen: Nimmt virtio-gpu einen dmabuf von lavapipe an? Sonst in
+     GBM**, Mesa bleibt ohne. Smithays `DrmCompositor` setzt GBM voraus, deshalb schreibt
+     Beize den Framebuffer-Export und die Bildschleife selbst (ADR 0027 §6, Vorbild gamescope). Offen: Nimmt virtio-gpu einen dmabuf von lavapipe an? Sonst in
      der VM eine CPU-Kopie in einen Dumb-Buffer. Den Direktweg prüft dann nur die Hardware.
 
    Reihenfolge: (1) die Eckpunkte als Endfassung in ADR 0027, der Besitzer liest vor dem
@@ -367,8 +369,9 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    soweit DRM und Vulkan das zulassen. (6) Smoke-Szenario in der vollen Stufe: Anmeldung auf
    tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird
    außerdem: Compositor läuft als Nutzer, keine Warnungen im Journal; Gegenprobe. (7)
-   Hardware-Test beim Besitzer mit nummerierten Schritten: NVK mit 144 Hz, Maus, Tastatur,
-   Frame-Pacing.
+   Hardware-Test beim Besitzer mit nummerierten Schritten: NVK, Maus, Tastatur, Frame-Pacing.
+   Der Monitor kann 1440p @ 240 Hz, nouveau bot aber nur 143,9 Hz an (ADR 0027 §4, offen).
+   Dafür Anschlussart, EDID (`/sys/class/drm/card*-*/edid`) und Modusliste holen und klären.
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34

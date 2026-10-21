@@ -10,8 +10,9 @@ Systemschrift, Icon-Stil, NVIDIA-Treiber (#17). Maßstab ist macOS: alles Sichtb
 Guss, vom System selbst gebaut. Feste Regeln von Beize, die hier hineinspielen: immer der
 neueste stabile Kernel (zurzeit 7.2.10), keine fremden Patches, alles aus dem Quellcode und
 signiert, nur der Desktop bekommt Grafik (ADR 0025). Zielhardware: RTX 3070 Ti; der Monitor
-des Besitzers kann 1440p bis 143,9 Hz (240 Hz nur in 1080p). Maßstab bleibt das strengere
-Budget der VISION: 4,2 ms je Frame (240 Hz), Shell < 1 ms GPU-Zeit.
+des Besitzers kann 1440p @ 240 Hz. Unter nouveau bot KMS bei der Messung für 1440p nur bis
+143,9 Hz an (Ursache offen, siehe Abschnitt 4). Maßstab bleibt das Budget der VISION: 4,2 ms
+je Frame (240 Hz), Shell < 1 ms GPU-Zeit.
 
 Stand der Bausteine (Oktober 2026):
 
@@ -80,7 +81,14 @@ Schatten, Live-Blur-Panel über ½ und ¼ Auflösung), NVK (Mesa 26.2.5) mit GSP
 | Temperatur, Leistung | nouveau meldet für die Karte keine (kein hwmon) |
 
 **Ergebnis: NVK.** Die Last braucht 36 % des Budgets bei 144 Hz und hielte auch 240 Hz
-(4,2 ms). Den NVIDIA-Testbau gibt es nicht: Er hätte `bz` Fremdmodule signieren lassen, und
+(4,2 ms). **Offen:** nouveau meldete für 1440p keinen 240-Hz-Modus. Der Monitor (Dell
+AW2723DF, DisplayPort) kann ihn und läuft unter Windows damit. Der Modus steht im DisplayID-Block
+des EDID (1056,75 MHz) und passt mit 8 Bit je Farbe ohne Kompression (DSC) in HBR3 × 4
+(25,4 von 25,9 Gbit/s). nouveaus Prüfung (`nv50_dp_mode_valid`) verwirft ihn genau dann, wenn
+der Link nur HBR2 hat. Warum nouveau HBR2 annimmt, zeigt ein Diagnoselauf auf dem Rechner des
+Besitzers (drm.debug: Raten von Monitor und Encoder).
+
+Den NVIDIA-Testbau gibt es nicht: Er hätte `bz` Fremdmodule signieren lassen, und
 NVIDIA 615.78.08 baut zwar auf 7.2.10, objtool meldet aber rund 20 Rücksprünge in
 `nvidia.ko` ohne Retbleed-Schutz. Leistungsaufnahme im Leerlauf misst später ein
 Strommessgerät, da nouveau sie nicht meldet.
@@ -112,17 +120,18 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
    - NVKs Compiler ist Rust, also ohne CET (ADR 0014): Jeder Prozess, der NVK lädt, läuft
      ohne Shadow Stack, bis Rust CET stabil erzeugt. Fedora hat denselben Stand.
    - Mesa ist das erste C++ im Image: libstdc++ und der Demangler von elfutils (ADR 0023).
-   - **lavapipe** mit LLVM 23.1.3 als JIT: nur das x86-Backend, ein `libLLVM.so` (94 MB,
-     wie Fedora eine Bibliothek), kein clang, keine Werkzeuge. `/usr` wächst um 40 MiB
-     auf 159 MiB. Bau lokal 10 min, auf dem CI-Runner (4 Kerne) geschätzt 30 min, nur bei
-     neuem LLVM, neuem Buildroot und im wöchentlichen Lauf von null. Zwei Stolpersteine:
+   - **lavapipe** mit LLVM 23.1.3 als JIT: nur das x86-Backend, ein `libLLVM.so` wie bei
+     Fedora, aber nur mit den Komponenten, die Mesa verlangt (77 statt 94 MB), kein clang,
+     keine Werkzeuge. `/usr` wächst um 34 MiB auf 152 MiB. Bau lokal 10 min, auf dem
+     CI-Runner (4 Kerne) geschätzt 30 min, nur bei neuem LLVM, neuem Buildroot und im wöchentlichen Lauf von null. Zwei Stolpersteine:
      LLVMs C++ braucht bis 1,5 GiB je Compiler, das Rezept begrenzt die Zahl nach dem
      Speicherlimit (24 auf 16 GiB liefen in den Speicherdruck, 45 min je Datei); CMake
      übergibt `CFLAGS` nicht an den Assembler, ohne `CMAKE_ASM_FLAGS` fehlte BLAKE3s
      Assembler das CET-Kennzeichen und damit libLLVM. Mesa findet LLVM über seinen
      dokumentierten „binary wrap“ statt `llvm-config`, das auf der Baumaschine nicht läuft.
-     Geprüft: Compute-Shader über den JIT im Sysroot („llvmpipe (LLVM 23.1.3, 256 bits)“,
-     Vulkan 1.4); in der VM prüft es der Smoke-Test des Compositors (Schritt 2).
+     Geprüft: Compute-Shader über den JIT mit den Bibliotheken des Images („llvmpipe (LLVM
+     23.1.3, 256 bits)“, 65 536 von 65 536 Ergebnissen richtig); in der VM prüft es der
+     Smoke-Test des Compositors (Schritt 2).
 2. **Compositor-Gerüst:** KMS, libinput, Vulkan-Renderer, ein Fenster eines Testclients.
    Smoke-Test mit lavapipe, Screenshot-Vergleich.
 3. **Beize UI:** Text, Layout, erstes eigenes Fenster; das Terminal als erste App.
