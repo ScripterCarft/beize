@@ -10,12 +10,19 @@ all-features = true
 [advisories]
 yanked = "deny"
 unmaintained = "all"
-ignore = []
+ignore = [
+  # Unmaintained, not a vulnerability: Smithay 0.7 uses it for matrix
+  # helpers of its renderer, on no outside input. Smithay's main branch has
+  # dropped it (checked 2026-10-21); the entry goes with Smithay's next
+  # release.
+  { id = "RUSTSEC-2026-0196", reason = "cgmath through Smithay 0.7, dropped upstream" },
+]
 
 # Permissive licenses only, as the crates in use have them (checked
-# 2026-10-13); Beize's own crates are not published and carry none.
+# 2026-10-13); Beize's own crates are not published and carry none. ISC
+# (libloading, through ash, 2026-10-21) is MIT's equal in substance.
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense", "ISC"]
 confidence-threshold = 0.93
 
 [licenses.private]

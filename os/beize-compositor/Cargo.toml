@@ -1,0 +1,28 @@
+[package]
+name = "beize-compositor"
+description = "Beize's compositor and shell, on Smithay with its own Vulkan renderer (ADR 0027)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+# Only what the compositor uses (ADR 0027 §6): atomic KMS, libinput, the
+# logind session through libseat, Vulkan, and the Wayland protocol in pure
+# Rust. No GBM, EGL or OpenGL, no X11 or winit.
+smithay = { version = "0.7.0", default-features = false, features = [
+  "backend_drm",
+  "backend_libinput",
+  "backend_session_libseat",
+  "backend_udev",
+  "backend_vulkan",
+  "desktop",
+  "wayland_frontend",
+] }
+tracing = "0.1"
+# Smithay reports through tracing; this writes it to stderr, the journal.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
+
+[lints]
+workspace = true

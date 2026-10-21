@@ -75,7 +75,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -374,11 +374,21 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (3) ✓ (21.10.) Probe: Ausgabeweg mit lavapipe steht in ADR 0027 §6 (Dumb-Buffer, nach
    `DUMB_PREFER_SHADOW` direkt oder mit Kopie); Test-VMs haben jetzt virtio-gpu. Der Direktweg
    Vulkan → dmabuf → KMS ist nur auf Hardware prüfbar (QEMU-Blobs brauchen Host-udmabuf).
-   (4) `os/beize-compositor`: Smithay aus crates.io (`backend_drm`, `backend_libinput`,
-   `backend_session_libseat`, `backend_vulkan`, `wayland_frontend`, ohne GL). Renderer mit
-   `ash` für Smithays `Renderer`/`Frame`: Clear, Texturen aus shm und dmabuf, Damage. Dazu
-   xdg-shell, ein Fenster, Cursor, Tastatur nach localeds Layout. Die Build-Skripte der
-   `-sys`-Crates prüfen (§8). (5) `beize-session` und die Unit, Eintrag in `security.toml`,
+   (4) `os/beize-compositor`, in drei Teilen. **4a ✓ (21.10.):** Smithay 0.7 aus crates.io
+   (Build-Skripte geprüft, im Rezept), Sitzung über libseat (wartet, bis sie aktiv ist),
+   Vulkan-Gerät zur DRM-Karte oder lavapipe, beide Ausgabewege, eigener Framebuffer-Export
+   (dmabuf und Dumb ohne Modifier; virtio-gpu lehnt explizites LINEAR ab), eigene
+   Bildschleife; in der VM 120 Bilder, 0 verpasst, Bild per screendump geprüft. Bleibt eine
+   Warnung von Smithay („Unable to become drm master“, unter logind falsch) – Bericht und ein
+   zweiter in `~/upstream/smithay/ISSUES.md`, sendet der Besitzer. Buildroot hat dafür
+   libseat-/libinput-/libxkbcommon-dev (cargo test). `deny.toml`: ISC erlaubt, cgmath
+   (RUSTSEC-2026-0196, ungepflegt) bis zum nächsten Smithay-Release ausgenommen. Test von Hand:
+   `chvt 7`, dann `systemd-run -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
+   -p StandardInput=tty …/beize-compositor` (tty1–6 startet logind ein getty, dann wartet
+   systemd auf das Terminal); Log mit `journalctl -t beize-compositor`.
+   **4b:** Renderer mit `ash` für Smithays `Renderer`/`Frame`: Texturen aus shm und dmabuf,
+   Damage, Leerlauf ohne Zeichnen. **4c:** xdg-shell, ein Fenster, Cursor-Ebene, Tastatur
+   nach localeds Layout. (5) `beize-session` und die Unit, Eintrag in `security.toml`,
    soweit DRM und Vulkan das zulassen. (6) Smoke-Szenario in der vollen Stufe: Anmeldung auf
    tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird
    außerdem: Compositor läuft als Nutzer, keine Warnungen im Journal; Gegenprobe. (7)
