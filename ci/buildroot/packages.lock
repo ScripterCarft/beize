@@ -51,6 +51,10 @@ gcc-16-base 16-20260322-1ubuntu1 amd64 pool/main/g/gcc-16/gcc-16-base_16-2026032
 gcc-x86-64-linux-gnu 4:15.2.0-5ubuntu1 amd64 pool/main/g/gcc-defaults/gcc-x86-64-linux-gnu_15.2.0-5ubuntu1_amd64.deb 7393f33be5584941bcfbd03a25901058c708046ee5dded01c21d56652a2d0eb7
 gettext 0.23.2-1 amd64 pool/main/g/gettext/gettext_0.23.2-1_amd64.deb 6fb2dd68379bf9578af5ead58203ab322e3b1cf3a6f9562a1e4d12c18e923bfc
 gettext-base 0.23.2-1 amd64 pool/main/g/gettext/gettext-base_0.23.2-1_amd64.deb 5a1a4cd407a868e766626f551646b00880fc1534db5e6d47208310a17252f306
+gir1.2-glib-2.0 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/gir1.2-glib-2.0_2.88.0-1ubuntu0.1_amd64.deb 47f7a687afead5cc857f6cf1e5ca699c508fe45b30e1dc1a2403df1ea5443ce0
+gir1.2-glib-2.0-dev 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/gir1.2-glib-2.0-dev_2.88.0-1ubuntu0.1_amd64.deb 4bf01a211910204200032cd2c5d69c8a50a2fc9a4d48c53174e0a1704ee84606
+gir1.2-gudev-1.0 1:238-7build1 amd64 pool/main/libg/libgudev/gir1.2-gudev-1.0_238-7build1_amd64.deb 48522b29d45300db35093273ea625215b5acd9b61fcc8faa68c47940e10e8b6e
+girepository-tools 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/girepository-tools_2.88.0-1ubuntu0.1_amd64.deb f9eb68227c898b9f399254055744140037d5d9d5d4da2f24b6af1088d912ddc8
 git 1:2.53.0-1ubuntu1 amd64 pool/main/g/git/git_2.53.0-1ubuntu1_amd64.deb c3b36d7357dea773eefe6c4f97ebff416e5afee22489dc1f729e31d6f47872e9
 git-man 1:2.53.0-1ubuntu1 all pool/main/g/git/git-man_2.53.0-1ubuntu1_all.deb cc2870c52d3d6845bd792e861930dd6afc5fe165edb0c8c3700332c3bfbd666e
 glslang-tools 16.2.0-2 amd64 pool/universe/g/glslang/glslang-tools_16.2.0-2_amd64.deb 2ad3ea819da071f1eff681415d35bc0af03e076ed5ff3993bffb558095adbb4d
@@ -123,6 +127,8 @@ libedit2 3.1-20251016-1 amd64 pool/main/libe/libedit/libedit2_3.1-20251016-1_amd
 libelf-dev 0.194-4 amd64 pool/main/e/elfutils/libelf-dev_0.194-4_amd64.deb 5a67bec4ff050ae031206f05e4d6ea79aa15b1d1dbd503bdac955966aa7a8699
 libelf1t64 0.194-4 amd64 pool/main/e/elfutils/libelf1t64_0.194-4_amd64.deb c2feae172b14d2a8317348023c5e0b6572314c097a9f7b8225c62b0988cc8d92
 liberror-perl 0.17030-1 all pool/main/libe/liberror-perl/liberror-perl_0.17030-1_all.deb cb85c869fe056e9e466efcfa3403408b0a87db1da1cafa585140a9be59fe58a1
+libevdev-dev 1.13.6+dfsg-1 amd64 pool/main/libe/libevdev/libevdev-dev_1.13.6+dfsg-1_amd64.deb 793ea030c6c89988ed0ffbfdec318bbbfeaa59f727623fa257c33370a1f1b0c9
+libevdev2 1.13.6+dfsg-1 amd64 pool/main/libe/libevdev/libevdev2_1.13.6+dfsg-1_amd64.deb 34bd437962ea3eaf32b75b5f0dd07447d2ace9d9065e76d2ebf69154f3b54d5a
 libevent-2.1-7t64 2.1.12-stable-10ubuntu0.2 amd64 pool/main/libe/libevent/libevent-2.1-7t64_2.1.12-stable-10ubuntu0.2_amd64.deb 427917ba97310d8c6caa8c012e9a9b7e3bbdf643ce0c4150e53891ffd83b8822
 libexpat1 2.7.4-1ubuntu0.2 amd64 pool/main/e/expat/libexpat1_2.7.4-1ubuntu0.2_amd64.deb 0063e68d742facfd3c46d7d7df9eb0d85f13e0fc294908a4f138d45557607837
 libexpat1-dev 2.7.4-1ubuntu0.2 amd64 pool/main/e/expat/libexpat1-dev_2.7.4-1ubuntu0.2_amd64.deb 78b22a6dcdd3053dd2f3d442347ebf0427612f3b7efac75447a2229ba1568544
@@ -140,7 +146,12 @@ libgdbm-compat4t64 1.26-1build1 amd64 pool/main/g/gdbm/libgdbm-compat4t64_1.26-1
 libgdbm6t64 1.26-1build1 amd64 pool/main/g/gdbm/libgdbm6t64_1.26-1build1_amd64.deb 0752eddff4c494d682f433cac2f1d25196f0a405eb8c6b0b10ec46432f6fec71
 libgio-2.0-dev 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libgio-2.0-dev_2.88.0-1ubuntu0.1_amd64.deb 61064485b5aca20235061ba40ad96479b157d01dd665eae5ada1d6ea633082b5
 libgio-2.0-dev-bin 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libgio-2.0-dev-bin_2.88.0-1ubuntu0.1_amd64.deb fae209b40494aeeb5f4366e263d2707f077c53a5b34f4114f40f33d932867c52
+libgirepository-2.0-0 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libgirepository-2.0-0_2.88.0-1ubuntu0.1_amd64.deb e3395aab9d025e7fb2c6456b23f3f54ec4d26ce203bf5a2a07df6846c5cc0a34
 libglib2.0-0t64 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libglib2.0-0t64_2.88.0-1ubuntu0.1_amd64.deb 7868fd4b24fd4b6e644a63685b6d0c282c6b636deac842d1455d71ff5c9ecd07
+libglib2.0-bin 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libglib2.0-bin_2.88.0-1ubuntu0.1_amd64.deb fb2e9f2724b32951b2dbc2cf7c5f15773367081a95523e1ff310b42cf8c7cb24
+libglib2.0-data 2.88.0-1ubuntu0.1 all pool/main/g/glib2.0/libglib2.0-data_2.88.0-1ubuntu0.1_all.deb fc0068497ffcc7658fad4d07fb417e3c00a23b6a10c3d6082b00a63e2fa89c19
+libglib2.0-dev 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libglib2.0-dev_2.88.0-1ubuntu0.1_amd64.deb 6238834dab8cccc5f7bfc4b7f534a44b54e50b1edd96ef28a30529d9f8689c35
+libglib2.0-dev-bin 2.88.0-1ubuntu0.1 amd64 pool/main/g/glib2.0/libglib2.0-dev-bin_2.88.0-1ubuntu0.1_amd64.deb 989ae4b1ab4a7dff4e1750a34fedee76fb0c9ed8332ae66dbd6054b5520d9b68
 libgmp-dev 2:6.3.0+dfsg-5ubuntu2 amd64 pool/main/g/gmp/libgmp-dev_6.3.0+dfsg-5ubuntu2_amd64.deb b43e38f2d5ae4aa38471e1b3f90ed63e96c2ce614ffe496cdcd72f9944e87a4a
 libgmp10 2:6.3.0+dfsg-5ubuntu2 amd64 pool/main/g/gmp/libgmp10_6.3.0+dfsg-5ubuntu2_amd64.deb a9bbe9d4a4bcd5875bbd0f53e67c379bc881d1c1a80522d51dfb4b107cc31819
 libgmpxx4ldbl 2:6.3.0+dfsg-5ubuntu2 amd64 pool/main/g/gmp/libgmpxx4ldbl_6.3.0+dfsg-5ubuntu2_amd64.deb 07bd53c587140613b3d551bdbd4a15a37002c1fe971962ab49e2c2c896cf7dda
@@ -153,11 +164,16 @@ libgpg-error0 1.58-2 amd64 pool/main/libg/libgpg-error/libgpg-error0_1.58-2_amd6
 libgprofng0 2.46-3ubuntu2 amd64 pool/main/b/binutils/libgprofng0_2.46-3ubuntu2_amd64.deb 6b066ab912300b2c6a965a9a8045da45c237a52b76c2c11d8f2ceaf7aabfacbb
 libgssapi-krb5-2 1.22.1-2ubuntu4.1 amd64 pool/main/k/krb5/libgssapi-krb5-2_1.22.1-2ubuntu4.1_amd64.deb d156dd940bff6dec8b6880cd0da4d515398d03d7b2e8b3163a935e701f80aa27
 libgssrpc4t64 1.22.1-2ubuntu4.1 amd64 pool/main/k/krb5/libgssrpc4t64_1.22.1-2ubuntu4.1_amd64.deb eb05ed32f6b0b74584327026bcabe5b4f4293692243579d011f197cbcbec213a
+libgudev-1.0-0 1:238-7build1 amd64 pool/main/libg/libgudev/libgudev-1.0-0_238-7build1_amd64.deb fdf0708cb0fbc95c553e3379cf77f6b1c9bb485cf3244c6246c31c7312467c81
+libgudev-1.0-dev 1:238-7build1 amd64 pool/main/libg/libgudev/libgudev-1.0-dev_238-7build1_amd64.deb 91841b55ffe94f6ee15444544f20153bcc1cb0cefbcf899c9e79d15532026ff7
 libhogweed6t64 3.10.2-1 amd64 pool/main/n/nettle/libhogweed6t64_3.10.2-1_amd64.deb 1c8c808ab24ff3018ac886e3f311edee0f2d4d97d12d3908be52343e89807046
 libhwasan0 16-20260322-1ubuntu1 amd64 pool/main/g/gcc-16/libhwasan0_16-20260322-1ubuntu1_amd64.deb 6bd25c936289463c6472290d3b4377edf8dd4f5e3a07f356fb0adf2de04a8055
 libibverbs1 61.0-2ubuntu3 amd64 pool/main/r/rdma-core/libibverbs1_61.0-2ubuntu3_amd64.deb 1d9e2e86e6500dabb6143c04adea8d122c7caa72aae3832de88d7ada4fa97201
 libidn2-0 2.3.8-4build1 amd64 pool/main/libi/libidn2/libidn2-0_2.3.8-4build1_amd64.deb 92bdac0f443a648859d06dee3defb9c96864fd76df6cfe617ca70bb261344767
 libidn2-dev 2.3.8-4build1 amd64 pool/main/libi/libidn2/libidn2-dev_2.3.8-4build1_amd64.deb 62a09e8a10b1b7704dace298fd2a0e65e414890297497d5b4ac1a96891b3dd6f
+libinput-bin 1.31.1-1ubuntu1.2 amd64 pool/main/libi/libinput/libinput-bin_1.31.1-1ubuntu1.2_amd64.deb 2b9635549e990d505c2f0e62eeb9abe9055ea58a810b06725f78eef49264851f
+libinput-dev 1.31.1-1ubuntu1.2 amd64 pool/main/libi/libinput/libinput-dev_1.31.1-1ubuntu1.2_amd64.deb 863c555af148c9d9d49e4109707b4b82288d0c39d4dff14e3c7525d7cc2c39df
+libinput10 1.31.1-1ubuntu1.2 amd64 pool/main/libi/libinput/libinput10_1.31.1-1ubuntu1.2_amd64.deb da31dc35e4644394705d111c55562f676000ac30b9f854201a7ca5b7a25eb215
 libintl-perl 1.37-1 all pool/main/libi/libintl-perl/libintl-perl_1.37-1_all.deb f7b28477eefcc479be686c2a196d7bdd2fbbf2d9160636a2105cade1bc317b71
 libisl23 0.27-1build1 amd64 pool/main/i/isl/libisl23_0.27-1build1_amd64.deb 02ea5de2ab6ddba978606ad58647bf6371ea68c0ed63aa5d6d0d3b8c1fe77ea3
 libitm1 16-20260322-1ubuntu1 amd64 pool/main/g/gcc-16/libitm1_16-20260322-1ubuntu1_amd64.deb ef841c269b5e9f324e38b1069f712a13c29237051f037847d1de79441dc3a9a2
@@ -196,6 +212,8 @@ libmpathcmd0 0.14.3-2ubuntu1 amd64 pool/main/m/multipath-tools/libmpathcmd0_0.14
 libmpathpersist0 0.14.3-2ubuntu1 amd64 pool/main/m/multipath-tools/libmpathpersist0_0.14.3-2ubuntu1_amd64.deb d2028797a57a2b7355e9890931a7baefc649422c8f7767bdb2c21ac6c8a5a3c2
 libmpc3 1.3.1-3 amd64 pool/main/m/mpclib3/libmpc3_1.3.1-3_amd64.deb a95c75b486f26fe8b140a632fd9e2883b7e2efc21f7586e155d27d2d2ff0ddc0
 libmpfr6 4.2.2-3 amd64 pool/main/m/mpfr4/libmpfr6_4.2.2-3_amd64.deb 74defa71b7f81d66b103afccfce750ad356976696b40c96c846ddc956fcfe937
+libmtdev-dev 1.1.7-1build1 amd64 pool/main/m/mtdev/libmtdev-dev_1.1.7-1build1_amd64.deb 72e7ebb2e178b18f14de7dae2733f6b9617ca0e9196a8cb5384af68328934b82
+libmtdev1t64 1.1.7-1build1 amd64 pool/main/m/mtdev/libmtdev1t64_1.1.7-1build1_amd64.deb d5e3b70bec533015ac924b69b13e21c7ad0eef8e84183d1eaff9529e603f4c39
 libmultipath0 0.14.3-2ubuntu1 amd64 pool/main/m/multipath-tools/libmultipath0_0.14.3-2ubuntu1_amd64.deb ee956e9782407ef8fa7c42c424f89b77c754816ae1898409bdae9628de772909
 libncurses-dev 6.6+20251231-1 amd64 pool/main/n/ncurses/libncurses-dev_6.6+20251231-1_amd64.deb cb56b906b248df7aa5d55952480aadd5f3dae173bfbc6c71fadd12429af447f4
 libncurses6 6.6+20251231-1 amd64 pool/main/n/ncurses/libncurses6_6.6+20251231-1_amd64.deb ef354764c18dd6034325c255b636f108dc6d4f5e64d4cafb22975e76421f3d28
@@ -244,6 +262,8 @@ librtmp-dev 2.4+20151223.gitfa8646d.1-3 amd64 pool/main/r/rtmpdump/librtmp-dev_2
 librtmp1 2.4+20151223.gitfa8646d.1-3 amd64 pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-3_amd64.deb 77cbd0ddf7e7487079ec300ff7751322de5e7d67f0f46749591b78ff1442cbe8
 libsasl2-2 2.1.28+dfsg1-9ubuntu3 amd64 pool/main/c/cyrus-sasl2/libsasl2-2_2.1.28+dfsg1-9ubuntu3_amd64.deb 11b9b2ce6702d86dd3dea60e08bd15255d7fd9545431a9e555eec47770404de0
 libsasl2-modules-db 2.1.28+dfsg1-9ubuntu3 amd64 pool/main/c/cyrus-sasl2/libsasl2-modules-db_2.1.28+dfsg1-9ubuntu3_amd64.deb 1de7b83844537091315210afb466ff2cd022874db5a6a785ce06b41bd3507eb3
+libseat-dev 0.9.2-2 amd64 pool/universe/s/seatd/libseat-dev_0.9.2-2_amd64.deb dcf6673073dc075b60770d47e583ed670960400f361455a4128ce4a303f37b46
+libseat1 0.9.2-2 amd64 pool/universe/s/seatd/libseat1_0.9.2-2_amd64.deb 8fdbef136c66e5707fa847d27af81bc6facf8b2d40699add67370e02da74fd04
 libseccomp2 2.6.0-2ubuntu5 amd64 pool/main/libs/libseccomp/libseccomp2_2.6.0-2ubuntu5_amd64.deb c5e4b198f251da0ede226fd179830bd8767482821a1773f835358f726795cb16
 libselinux-dev 3.9-4build1 amd64 pool/main/libs/libselinux/libselinux-dev_3.9-4build1_amd64.deb 300abd658047ee4aeeef8e120c1950d1c253c0a4c27acf9999e232393a4fb385
 libselinux1 3.9-4build1 amd64 pool/main/libs/libselinux/libselinux1_3.9-4build1_amd64.deb 3ce3aea44b2ec00780c48b1b8e1f7e672166ec3ccac14b0eae8890e55983061e
@@ -284,6 +304,11 @@ libusb-1.0-0 2:1.0.29-2build1 amd64 pool/main/libu/libusb-1.0/libusb-1.0-0_1.0.2
 libusbredirparser1t64 0.15.0-1build1 amd64 pool/main/u/usbredir/libusbredirparser1t64_0.15.0-1build1_amd64.deb 3049b91a94ec938db9da3166ed56fecc9de00587becf53c3af4828f89c9f3b0c
 libuuid1 2.41.3-3ubuntu2.2 amd64 pool/main/u/util-linux/libuuid1_2.41.3-3ubuntu2.2_amd64.deb 77e7078fbdb994e3c9c84ce6fc464f0451580d7f0b46c8770d0189b46959ad43
 libuv1t64 1.51.0-2ubuntu1 amd64 pool/main/libu/libuv1/libuv1t64_1.51.0-2ubuntu1_amd64.deb 5c9b857d7d6a0c22b30dae45d518b375452cf7c663fc9381e3f0760ba3fb8cce
+libwacom-common 2.18.0-1 all pool/main/libw/libwacom/libwacom-common_2.18.0-1_all.deb 40498c518af6224bd21a931c8d393a93c318d52c2ee475432d6fa529c70c30ad
+libwacom-dev 2.18.0-1 amd64 pool/main/libw/libwacom/libwacom-dev_2.18.0-1_amd64.deb beb67edcac5d0f81329c17a1add8e74e99b27b7b5dd57896babfd4f3f64bc9a2
+libwacom9 2.18.0-1 amd64 pool/main/libw/libwacom/libwacom9_2.18.0-1_amd64.deb a2555343e9c9a533e2ca5185895a043d8068912c5d95095d7e3a9f8a078dd919
+libxkbcommon-dev 1.13.1-1 amd64 pool/main/libx/libxkbcommon/libxkbcommon-dev_1.13.1-1_amd64.deb dff586e787d464b6b9870d1f0958d97a296af0e3900ecaae1ba17616199936e9
+libxkbcommon0 1.13.1-1 amd64 pool/main/libx/libxkbcommon/libxkbcommon0_1.13.1-1_amd64.deb 7988d2375d10277ab4a54641aa6181accfaf3f5d25e48b050bf42a9583d4f926
 libxml-libxml-perl 2.0207+dfsg+really+2.0207-0ubuntu7 amd64 pool/main/libx/libxml-libxml-perl/libxml-libxml-perl_2.0207+dfsg+really+2.0207-0ubuntu7_amd64.deb 010c9051b3a686c9361dc241dfa1a9f2bce4d8893d5b8c4d7f09229d6e1027b4
 libxml-namespacesupport-perl 1.12-2 all pool/main/libx/libxml-namespacesupport-perl/libxml-namespacesupport-perl_1.12-2_all.deb fa5c5ba9beb445220d9c73282f0845bfc3a0e1481e324175792b07155276807b
 libxml-sax-base-perl 1.09-3 all pool/main/libx/libxml-sax-base-perl/libxml-sax-base-perl_1.09-3_all.deb 08ed3ee24927c53638871d2be63d5dd9c0f1f42a58124b4b28c776bb8f0b5888
@@ -311,6 +336,7 @@ media-types 14.0.0build1 all pool/main/m/media-types/media-types_14.0.0build1_al
 meson 1.10.1-1ubuntu2 all pool/universe/m/meson/meson_1.10.1-1ubuntu2_all.deb 854f70286df0fa259e9e6c2c18cdfeb41276dc3afa4356f2a2605439baf31d5f
 mount 2.41.3-3ubuntu2.2 amd64 pool/main/u/util-linux/mount_2.41.3-3ubuntu2.2_amd64.deb 90453798cbb57f485201e14853388afc01410b812eb431f38db2a4f73c0d2c8e
 mtools 4.0.49-1 amd64 pool/main/m/mtools/mtools_4.0.49-1_amd64.deb 28edc5a0eee3f74a15135ec90ae2dee79270931df1d0c6415ab736b7eed46ad3
+native-architecture 0.2.6build1 all pool/main/a/architecture-properties/native-architecture_0.2.6build1_all.deb d9eb011adc50e75fc8feea6725b2de0faa9f28e71b77bb047d483cf54987bfa7
 ncurses-base 6.6+20251231-1 all pool/main/n/ncurses/ncurses-base_6.6+20251231-1_all.deb c36efa1e8456f40595f910047d2ebae8f51dcb918ca91c2da94ff733a00630a7
 ncurses-bin 6.6+20251231-1 amd64 pool/main/n/ncurses/ncurses-bin_6.6+20251231-1_amd64.deb 5da5d7e3c6fae2956f3e92cc82883dbfc6f3126ec08047895b6537dedb741522
 netbase 6.5build1 all pool/main/n/netbase/netbase_6.5build1_all.deb f008e39aada379d64166153d5e37ccc4f18b3e334babb9e32c4da9b4396ee733
@@ -368,6 +394,7 @@ rust-coreutils 0.10.0-1ubuntu2~26.04.1 amd64 pool/main/r/rust-coreutils/rust-cor
 rustup 1.27.1-8 amd64 pool/universe/r/rustup/rustup_1.27.1-8_amd64.deb 70f27f9d4f2fa640f21eb1a9d921a0747234efd575b56c3f58e708ed7ed4c830
 sbsigntool 0.9.4-3.1ubuntu9 amd64 pool/main/s/sbsigntool/sbsigntool_0.9.4-3.1ubuntu9_amd64.deb e8709091cc42e0053ef3736d03e7c4afcd1798424bbb04e41199e95ce2c3766e
 seabios 1.17.0-1ubuntu1 all pool/main/s/seabios/seabios_1.17.0-1ubuntu1_all.deb edb9faf3a6ab0ae2eb9eb8283a7d514c1942ab920aa6836bf4639ee8be32eec1
+seatd 0.9.2-2 amd64 pool/universe/s/seatd/seatd_0.9.2-2_amd64.deb 733f1f8bc7d514b730bf9e886a2a4132d048d692a26733af9b47d340d07b5835
 sed 4.9-2ubuntu1 amd64 pool/main/s/sed/sed_4.9-2ubuntu1_amd64.deb e3b921e79a03d1d63a0bc404b5ea7d529b7ac2bc6778a131d22058b7e981a7e7
 sensible-utils 0.0.26build1 all pool/main/s/sensible-utils/sensible-utils_0.0.26build1_all.deb ee67d2df8ac299b20668d93c4817e9db88626b0636cc4cda76b1948e140e364b
 shellcheck 0.11.0-2 amd64 pool/universe/s/shellcheck/shellcheck_0.11.0-2_amd64.deb 06990eaf21b5dfa3d855e492f7ca2d6fcacf63b490a73a545850c50cf7af2bce
@@ -390,6 +417,7 @@ ubuntu-virt 1:10.2.1+ds-1ubuntu3.2 amd64 pool/main/q/qemu/ubuntu-virt_10.2.1+ds-
 ucf 3.0052ubuntu1 all pool/main/u/ucf/ucf_3.0052ubuntu1_all.deb 42354d322fda598511b62288123e8b4b6daf6b7bbb268d68e8e7f88efa498305
 util-linux 2.41.3-3ubuntu2.2 amd64 pool/main/u/util-linux/util-linux_2.41.3-3ubuntu2.2_amd64.deb 11fd410b1d3797b1e9127b68302160213c15e1553745fb6982e270b1e32d1f2a
 uuid-dev 2.41.3-3ubuntu2.2 amd64 pool/main/u/util-linux/uuid-dev_2.41.3-3ubuntu2.2_amd64.deb 0ba791f89888491857c69ad3d59d8517d4926eae0c242f213579fc59ea0b5e94
+xkb-data 2.46-2 all pool/main/x/xkeyboard-config/xkb-data_2.46-2_all.deb a24f82b33020836444593a7ffbed959458852e28cfe16de2ff95bcbdcfbdb2d3
 xz-utils 5.8.3-1 amd64 pool/main/x/xz-utils/xz-utils_5.8.3-1_amd64.deb 5a8cddf80d9f5aeee1f39315158cfcc0f3e2c7573f9d6236fc6b85537400a937
 zlib1g 1:1.3.dfsg+really1.3.1-1ubuntu3.1 amd64 pool/main/z/zlib/zlib1g_1.3.dfsg+really1.3.1-1ubuntu3.1_amd64.deb 450d9322ac4e9baea0f9a74548a20fde73b078235c1f5d1fb7084c2638e33cdd
 zlib1g-dev 1:1.3.dfsg+really1.3.1-1ubuntu3.1 amd64 pool/main/z/zlib/zlib1g-dev_1.3.dfsg+really1.3.1-1ubuntu3.1_amd64.deb 3c38ab54eebd22b7f67697c81c96dca078e43efc1695afddb2df71ddcb82e717

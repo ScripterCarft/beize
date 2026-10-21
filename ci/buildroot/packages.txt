@@ -89,6 +89,11 @@ libcryptsetup-dev
 libsystemd-dev
 # libcurl to link beize-update's fetcher on the build host (cargo test)
 libcurl4-openssl-dev
+# libseat, libinput and libxkbcommon to link beize-compositor on the build
+# host (cargo test); libudev comes with libsystemd-dev
+libseat-dev
+libinput-dev
+libxkbcommon-dev
 dosfstools
 erofs-utils
 fdisk
