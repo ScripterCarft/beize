@@ -94,6 +94,11 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
         inputs = inputs.file(fragment)?;
     }
     inputs = inputs.file(&cert)?;
+    // Measurement branch only: a kernel patch under test for upstream.
+    let measure_patches = measure_patches(paths)?;
+    for patch in &measure_patches {
+        inputs = inputs.file(patch)?;
+    }
     let stamp = Stamp::new(
         paths,
         "kernel",
@@ -120,6 +125,15 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     stamp.clear()?;
 
     let src = recipe.unpack(paths)?;
+    for patch in &measure_patches {
+        say!("  applying {} (measurement build)", patch.display());
+        util::run(
+            Command::new("git")
+                .current_dir(&src)
+                .arg("apply")
+                .arg(patch),
+        )?;
+    }
     fs::create_dir_all(&obj)?;
     util::step(&format!("Configuring linux {}", recipe.version));
     let all: Vec<PathBuf> = UPSTREAM_FRAGMENTS
@@ -366,6 +380,22 @@ pub fn module_name(file: &Path) -> String {
 }
 
 /// Beize's fragments in `kernel/config`, in name order.
+fn measure_patches(paths: &Paths) -> Result<Vec<PathBuf>> {
+    let dir = paths.root.join("kernel/measure");
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut patches = Vec::new();
+    for entry in fs::read_dir(&dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "patch") {
+            patches.push(path);
+        }
+    }
+    patches.sort();
+    Ok(patches)
+}
+
 fn own_fragments(paths: &Paths) -> Result<Vec<PathBuf>> {
     let mut fragments: Vec<PathBuf> = fs::read_dir(paths.root.join("kernel/config"))?
         .map(|entry| entry.map(|e| e.path()))
