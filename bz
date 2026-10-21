@@ -71,11 +71,27 @@ if [ ! -e "$root/etc/beize-buildroot" ]; then
 fi
 
 uid=$(id -u)
+gid=$(id -g)
 mkdir -p build/home
 # Where the repository is bound in (the root is read-only inside).
 mkdir -p "$root$repo"
+# Whoever builds exists inside, as Flatpak writes its sandboxes'
+# /etc/passwd: programs that look the user up fail without (ssh-keygen -Y,
+# which checks ntpd-rs' signature: "No user exists for uid 1000").
+ids=build/sandbox
+mkdir -p "$ids"
+cp "$root/etc/passwd" "$ids/passwd"
+cp "$root/etc/group" "$ids/group"
+if ! cut -d: -f3 "$ids/passwd" | grep -qx "$uid"; then
+    echo "$(id -un):x:$uid:$gid::$repo/build/home:/bin/bash" >> "$ids/passwd"
+fi
+if ! cut -d: -f3 "$ids/group" | grep -qx "$gid"; then
+    echo "$(id -gn):x:$gid:" >> "$ids/group"
+fi
 args=(
     --ro-bind "$root" /
+    --ro-bind "$ids/passwd" /etc/passwd
+    --ro-bind "$ids/group" /etc/group
     --bind "$repo" "$repo"
     --chdir "$repo"
     --proc /proc
