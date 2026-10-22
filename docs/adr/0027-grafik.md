@@ -298,6 +298,23 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Geprüft mit `beize-ui-test` (Test-Medium) in der VM auf lavapipe: alle Farben bytegenau,
   halbes Weiß über `#1e1e1e` = 189 (linear gemischt; in sRGB wären es 143), Kanten
   pixelgenau.
+- **Text** (22.10.): Parley setzt (Bruchteile von Pixeln), Grundlinien auf ganzen Pixeln,
+  Glyphen auf Viertelpixeln. Skrifa 0.44 (Parleys Version) mit leichtem Hinting
+  (`SmoothMode::Light`, Auto-Hinter für Schriften ohne eigenes, Vorschübe unverändert), zeno
+  rastert (`offset` und `render_offset` zusammen, sonst kommt das Viertelpixel nicht an;
+  `placement.top` ist die Unterkante: gemessen). Atlas 1024² R8 mit Ablagen, voll beginnt
+  er neu; der Renderer füllt die Glyph-Quads beim Zeichnen (Flag `MASK` im gemeinsamen
+  Shader). Gemischt wird die reine Deckung in linearem Licht. **Offen:** heller Text auf
+  Dunkel wirkt dadurch kräftiger als dunkler auf Hell (Beizes dunkles Thema und das Terminal
+  sehen richtig aus). Ausgleich (FreeTypes „stem darkening“ für lineares Mischen oder eine
+  helligkeitsabhängige Korrektur wie Skia, DirectWrite) erst nach dem Blick auf dem Monitor
+  des Besitzers (Schritt 3 g), spätestens vor hellen Oberflächen in Schritt 4.
+- **Test Beize UI** (22.10., Smoke-Szenario `Desktop`): `beize-ui-test` zeigt eine Probe
+  (Text in Inter und JetBrains Mono auf Dunkel und Hell, Farben, halbes Weiß); der
+  Bildschirm muss genau der Referenz `os/beize-ui/tests/sample.png` gleichen, die dasselbe
+  Programm offscreen zeichnet (`--offscreen DATEI 1280x800`), bis auf den Zeiger. Bei
+  Abweichung legt `bz` das Bildschirmfoto als PNG und ein Differenzbild in die Logs; die
+  Referenz ersetzt nur ein Mensch nach Ansicht. PNG wie openQA (Crate `png` in `bz`).
 - **Text:** **Parley** (Layout, Shaping mit HarfRust, Schriftwahl mit Fontique), **Skrifa**
   (Umrisse und Hinting; Googles FreeType-Ersatz, seit Chrome 133 dort für Web-Schriften),
   gerastert von **zeno** (der Rasterizer von swash, mit dem Zed und COSMIC Glyphen zeichnen).
@@ -316,9 +333,11 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   `linux-firmware`; aus den Quellen bräuchte es fontmake mit Python im Buildroot). Die
   Dateien am Release-Tag sind byte-gleich mit denen im Release-Archiv; Inters Kursive gibt es
   nur im Archiv und kommt, wenn Beize UI kursiv setzt (mit Zip in `bz`). Umgesetzt 22.10.,
-  ebenso die Compose-Tabellen (`libx11-compose`). Ohne fontconfig: Beize UI findet Systemschriften über Fontique (wie
-  CoreText unter macOS); fontconfig kommt mit fremden Apps (M4, „eine zentrale
-  Schriftkonfiguration“). Fehlende Zeichen (Emoji, CJK) zeigen bis zu einer Fallback-Schrift
+  ebenso die Compose-Tabellen (`libx11-compose`). Ohne fontconfig: Beize UI liest
+  `/usr/share/fonts` selbst und trägt die Schriften bei Fontique ein (Inter für sans-serif und
+  system-ui, JetBrains Mono für monospace), wie CoreText die Systemschriften von macOS kennt.
+  Fontiques eigene Suche (`system`) ist unter Linux fontconfig, sie bleibt aus. fontconfig
+  kommt mit fremden Apps (M4, „eine zentrale Schriftkonfiguration“). Fehlende Zeichen (Emoji, CJK) zeigen bis zu einer Fallback-Schrift
   ein Kästchen; Auswahl und Größe (Noto, Emoji als COLRv1) mit der Shell.
 - **Terminal:** **alacritty_terminal** (Zustandsmaschine der Escape-Sequenzen, Raster,
   Scrollback, Auswahl; Apache-2.0; Zeds Terminal baut darauf) unverändert aus crates.io; eigen
