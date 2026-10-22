@@ -143,6 +143,26 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         size.1
     );
 
+    // Frames in a row: a second client draws 120, each on "frame done";
+    // once they stop, the compositor sums up how they met their vblanks.
+    let (status, lines) = shell.capture(
+        "systemd-run --user --unit=beize-testclient-frames /run/t/beize-testclient          --frames 120 --seconds 20 && for i in $(seq 100); do          journalctl --user -b -u beize-compositor.service -o cat | grep -q '^pacing: '          && break; sleep 0.2; done; journalctl --user -b -u beize-compositor.service -o cat          | grep '^pacing: '",
+    )?;
+    let pacing = lines
+        .iter()
+        .find(|l| l.starts_with("pacing: "))
+        .with_context(|| format!("no pacing summary (exit status {status}): {lines:?}"))?;
+    let frames = pacing
+        .strip_prefix("pacing: ")
+        .and_then(|s| s.split_once(' '))
+        .and_then(|(n, _)| n.parse::<u32>().ok())
+        .with_context(|| format!("a pacing summary without frames: {pacing}"))?;
+    ensure!(
+        frames >= 100,
+        "the compositor counted {frames} frames of the client's 120: {pacing}"
+    );
+    say!("  ok: the compositor measured the client's frames: {pacing}");
+
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
     let unexpected: Vec<&String> = lines

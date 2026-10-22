@@ -7,9 +7,12 @@
 //! layout (the `xkb_symbols` of its keymap), keys, pointer and buttons.
 //!
 //! `--frames N` draws N frames, each on the last one's "frame done", with
-//! a bar moving through the top (only its strip damaged), and prints the
-//! time between frames: the compositor should pace them to the screen's
-//! refresh. `--seconds S` ends it after S seconds (default 10).
+//! a bar moving through the top, and prints the time between frames: the
+//! compositor should pace them to the screen's refresh. Like a real client,
+//! it redraws only what changed: a buffer gets the whole pattern once, then
+//! only the bar's strip (and damages only that), so the measure is the
+//! compositor's pace, not the client's drawing; its own drawing time is
+//! printed too. `--seconds S` ends it after S seconds (default 10).
 
 use std::fs::File;
 use std::io::Read as _;
@@ -95,6 +98,8 @@ struct Buffer {
     size: (i32, i32),
     /// The compositor still reads it.
     busy: bool,
+    /// Holds the whole pattern; from then on only the bar's strip changes.
+    filled: bool,
 }
 
 struct App {
@@ -111,6 +116,8 @@ struct App {
     frames_left: u32,
     /// "Frame done" times, in milliseconds.
     frame_times: Vec<u32>,
+    /// How long each frame took to draw.
+    draw_times: Vec<Duration>,
     bar: i32,
     running: bool,
 }
@@ -147,6 +154,7 @@ fn run() -> Result<()> {
         buffers: Vec::new(),
         frames_left: options.frames,
         frame_times: Vec::new(),
+        draw_times: Vec::new(),
         bar: 0,
         running: true,
     };
@@ -159,6 +167,7 @@ fn run() -> Result<()> {
     }
     if options.frames > 0 {
         report_frames(&app.frame_times, options.frames);
+        report_drawing(&app.draw_times);
     }
     println!("done");
     Ok(())
@@ -205,6 +214,19 @@ fn report_frames(times: &[u32], wanted: u32) {
     );
 }
 
+fn report_drawing(times: &[Duration]) {
+    let mut ms: Vec<f64> = times.iter().map(|t| t.as_secs_f64() * 1000.0).collect();
+    if ms.is_empty() {
+        return;
+    }
+    ms.sort_by(f64::total_cmp);
+    println!(
+        "drawing: {:.3} ms per frame (median), at most {:.3} ms",
+        ms[ms.len() / 2],
+        ms[ms.len() - 1]
+    );
+}
+
 impl App {
     fn size(&self) -> (i32, i32) {
         match self.size {
@@ -216,15 +238,25 @@ impl App {
     /// Draws the pattern (with the bar while frames are wanted) into a
     /// free buffer and commits it.
     fn draw(&mut self, qh: &QueueHandle<App>) -> Result<()> {
+        let start = Instant::now();
         let size = self.size();
         let index = self.free_buffer(qh, size)?;
-        let pixels = pattern(size, (self.frames_left > 0).then_some(self.bar));
-        self.buffers[index]
+        let buffer = &mut self.buffers[index];
+        let bar = (self.frames_left > 0).then_some(self.bar);
+        // The bar's strip holds all that changes; the rows are at the
+        // buffer's start.
+        let rows = if buffer.filled {
+            BAR_SIZE.1.min(size.1)
+        } else {
+            size.1
+        };
+        buffer
             .file
-            .write_all_at(&pixels, 0)
+            .write_all_at(&pattern(size, bar, rows), 0)
             .map_err(|e| format!("writing the buffer: {e}"))?;
-        self.buffers[index].busy = true;
-        self.surface.attach(Some(&self.buffers[index].buffer), 0, 0);
+        buffer.filled = true;
+        buffer.busy = true;
+        self.surface.attach(Some(&buffer.buffer), 0, 0);
         if std::mem::take(&mut self.full) {
             self.surface.damage_buffer(0, 0, size.0, size.1);
         } else {
@@ -236,6 +268,9 @@ impl App {
             self.bar = (self.bar + BAR_STEP) % (size.0 - BAR_SIZE.0).max(1);
         }
         self.surface.commit();
+        if self.frames_left > 0 {
+            self.draw_times.push(start.elapsed());
+        }
         Ok(())
     }
 
@@ -268,6 +303,7 @@ impl App {
             buffer,
             size,
             busy: false,
+            filled: false,
         });
         Ok(index)
     }
@@ -282,10 +318,11 @@ impl App {
     }
 }
 
-/// The quadrants, and the bar at `bar` (its left edge) if given.
-fn pattern((w, h): (i32, i32), bar: Option<i32>) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
-    for y in 0..h {
+/// The quadrants, and the bar at `bar` (its left edge) if given: the
+/// first `rows` rows.
+fn pattern((w, h): (i32, i32), bar: Option<i32>, rows: i32) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity((w * rows * 4) as usize);
+    for y in 0..rows {
         for x in 0..w {
             let on_bar = bar.is_some_and(|b| (b..b + BAR_SIZE.0).contains(&x) && y < BAR_SIZE.1);
             let color = match (on_bar, x < w / 2, y < h / 2) {
@@ -539,13 +576,22 @@ mod tests {
 
     #[test]
     fn the_pattern_has_four_quadrants_and_the_bar() {
-        let pixels = pattern((4, 4), None);
+        let pixels = pattern((4, 4), None, 4);
         let at = |x: usize, y: usize| &pixels[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
         assert_eq!(at(0, 0), RED.to_le_bytes());
         assert_eq!(at(3, 0), GREEN.to_le_bytes());
         assert_eq!(at(0, 3), BLUE.to_le_bytes());
         assert_eq!(at(3, 3), WHITE.to_le_bytes());
-        let with_bar = pattern((64, 64), Some(8));
+        let with_bar = pattern((64, 64), Some(8), 64);
         assert_eq!(&with_bar[8 * 4..8 * 4 + 4], BAR.to_le_bytes());
+    }
+
+    #[test]
+    fn the_strip_is_the_top_of_the_whole_pattern() {
+        let size = (96, 64);
+        let whole = pattern(size, Some(40), size.1);
+        let strip = pattern(size, Some(40), BAR_SIZE.1);
+        assert_eq!(strip.len(), (size.0 * BAR_SIZE.1 * 4) as usize);
+        assert_eq!(strip[..], whole[..strip.len()]);
     }
 }

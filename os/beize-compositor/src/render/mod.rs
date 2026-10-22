@@ -95,6 +95,8 @@ pub struct VkRenderer {
     name: String,
     /// GPU time of the last frame that reported one, in milliseconds.
     gpu_ms: Option<f64>,
+    /// `gpu_ms` is new since `take_gpu_ms`.
+    gpu_unread: bool,
 }
 
 impl std::fmt::Debug for VkRenderer {
@@ -139,6 +141,7 @@ impl VkRenderer {
             debug: DebugFlags::empty(),
             name: phd.name().to_owned(),
             gpu_ms: None,
+            gpu_unread: false,
         };
         for _ in 0..IN_FLIGHT {
             let frame = renderer.in_flight_new()?;
@@ -165,6 +168,16 @@ impl VkRenderer {
     /// GPU time of the last measured frame, in milliseconds.
     pub fn gpu_ms(&self) -> Option<f64> {
         self.gpu_ms
+    }
+
+    /// The GPU time measured since the last call, if any: each frame's
+    /// once (they are read when its slot comes round again).
+    pub fn take_gpu_ms(&mut self) -> Option<f64> {
+        if std::mem::take(&mut self.gpu_unread) {
+            self.gpu_ms
+        } else {
+            None
+        }
     }
 
     fn in_flight_new(&self) -> Result<InFlight> {
@@ -377,6 +390,7 @@ impl VkRenderer {
         if read.is_ok() && times[1] > times[0] {
             let ms = (times[1] - times[0]) as f64 * f64::from(period) / 1e6;
             self.gpu_ms = Some(ms);
+            self.gpu_unread = true;
             debug!("GPU time {ms:.3} ms");
         }
     }

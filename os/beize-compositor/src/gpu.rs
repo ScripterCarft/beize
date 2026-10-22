@@ -40,10 +40,18 @@ impl Screen {
         &mut self,
         elements: &[E],
         cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
+        requested: Duration,
+        began: Duration,
     ) -> Result<Frame> {
         match self {
-            Screen::Gpu(o) => o.render(elements, cursor),
-            Screen::Cpu(o) => o.render(elements, cursor),
+            Screen::Gpu(o) => o.render(elements, cursor, requested, began),
+            Screen::Cpu(o) => o.render(elements, cursor, requested, began),
+        }
+    }
+    pub fn pacing_idle(&mut self) -> bool {
+        match self {
+            Screen::Gpu(o) => o.pacing_idle(),
+            Screen::Cpu(o) => o.pacing_idle(),
         }
     }
     pub fn vblank(&mut self, metadata: Option<DrmEventMetadata>) -> Option<Duration> {

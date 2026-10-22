@@ -35,10 +35,11 @@ use smithay::reexports::drm::control::{
     Device as _, FbCmd2Flags, Mode, ModeFlags, ModeTypeFlags, connector, dumbbuffer, framebuffer,
     plane,
 };
-use smithay::utils::{Physical, Point, Rectangle, Transform};
+use smithay::utils::{Clock, Monotonic, Physical, Point, Rectangle, Transform};
 use tracing::{debug, info, warn};
 
 use crate::cursor;
+use crate::pacing::{Pacing, Times};
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Target, VkRenderer};
 
@@ -500,6 +501,12 @@ struct Image<F> {
 /// clears to where no window is.
 const BACKGROUND: [f32; 4] = [0.08, 0.10, 0.14, 1.0];
 
+/// The time between two vblanks of `mode`.
+fn period(mode: &Mode) -> Duration {
+    let millihertz = crate::gpu::millihertz(mode).max(1);
+    Duration::from_nanos(1_000_000_000_000 / u64::from(millihertz))
+}
+
 /// What `Output::render` did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Frame {
@@ -524,13 +531,15 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     direct: bool,
     /// A commit waits for its vblank.
     flipping: bool,
-    /// Its image, if it brought one.
-    pending: Option<Slot<A::Buffer>>,
+    /// Its image, if it brought one, and when it was asked for and drawn.
+    pending: Option<(Slot<A::Buffer>, Times)>,
     /// On the screen.
     shown: Option<Slot<A::Buffer>>,
     modeset: bool,
     frames: u64,
     last: Option<Duration>,
+    pacing: Pacing,
+    clock: Clock<Monotonic>,
 }
 
 impl<A, F> Output<A, F>
@@ -558,6 +567,7 @@ where
         if cursor.is_none() {
             info!("no cursor plane: the pointer is drawn into the frame");
         }
+        let refresh = period(&mode);
         Output {
             swapchain: Swapchain::new(allocator, w.into(), h.into(), Fourcc::Xrgb8888, modifiers),
             damage: OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal),
@@ -573,6 +583,8 @@ where
             modeset: true,
             frames: 0,
             last: None,
+            pacing: Pacing::new(refresh),
+            clock: Clock::new(),
         }
     }
 
@@ -614,11 +626,14 @@ where
 
     /// Draws what changed of `elements` (front to back), places the
     /// cursor (image and its hotspot's position) and hands both to KMS in
-    /// one commit; nothing if nothing changed.
+    /// one commit; nothing if nothing changed. The change arrived at
+    /// `requested`, the caller began at `began` (for `Pacing`).
     pub fn render<E: RenderElement<VkRenderer>>(
         &mut self,
         elements: &[E],
         cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
+        requested: Duration,
+        began: Duration,
     ) -> Result<Frame> {
         if self.flipping {
             return Ok(Frame::Deferred);
@@ -697,7 +712,12 @@ where
         self.flipping = true;
         if damaged {
             self.swapchain.submitted(&slot);
-            self.pending = Some(slot);
+            let times = Times {
+                requested,
+                began,
+                committed: self.clock.now().into(),
+            };
+            self.pending = Some((slot, times));
         }
         Ok(Frame::Queued)
     }
@@ -709,10 +729,16 @@ where
             Some(DrmEventTime::Monotonic(time)) => Some(time),
             _ => None,
         };
-        let Some(slot) = self.pending.take() else {
+        let Some((slot, times)) = self.pending.take() else {
             debug!("cursor plane only, nothing drawn");
+            if let Some(time) = time {
+                self.pacing.vblank(time);
+            }
             return time;
         };
+        if let Some(time) = time {
+            self.pacing.shown(times, time, self.renderer.take_gpu_ms());
+        }
         self.shown = Some(slot);
         self.frames += 1;
         let since = time.zip(self.last).map(|(t, l)| t.saturating_sub(l));
@@ -729,13 +755,18 @@ where
 
     /// The time between two vblanks.
     pub fn refresh(&self) -> Duration {
-        let mode = self.surface.pending_mode();
-        let millihertz = crate::gpu::millihertz(&mode).max(1);
-        Duration::from_nanos(1_000_000_000_000 / u64::from(millihertz))
+        period(&self.surface.pending_mode())
+    }
+
+    /// A run of frames is being measured; ends it after a while without
+    /// frames (false then).
+    pub fn pacing_idle(&mut self) -> bool {
+        self.pacing.idle(self.clock.now().into())
     }
 
     /// Another session took the screen (logind).
     pub fn pause(&mut self) {
+        self.pacing.pause();
         self.drm.pause();
     }
 

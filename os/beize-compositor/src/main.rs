@@ -17,6 +17,7 @@ mod gpu;
 mod input;
 mod keyboard;
 mod output;
+mod pacing;
 mod shell;
 mod state;
 

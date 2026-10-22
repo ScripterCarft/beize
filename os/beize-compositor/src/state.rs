@@ -90,6 +90,8 @@ const REPEAT_RATE: i32 = 33;
 
 /// Surfaces not on the screen hear "frame done" at most this often.
 const HIDDEN_FRAMES: Duration = Duration::from_secs(1);
+/// How often a run of frames is checked for its end (`Pacing`).
+const PACING_CHECK: Duration = Duration::from_millis(500);
 
 pub struct State {
     pub display: DisplayHandle,
@@ -121,6 +123,10 @@ pub struct State {
     clock: Clock<Monotonic>,
     /// Something on the screen may have changed.
     redraw: bool,
+    /// When the first change since the last frame arrived (`Pacing`).
+    changed_at: Option<Duration>,
+    /// Ends a measured run of frames once they stop (`Pacing`).
+    pacing_timer: Option<RegistrationToken>,
     /// "Frame done" for clients when nothing was drawn.
     frame_timer: Option<RegistrationToken>,
     failure: Option<Error>,
@@ -177,6 +183,8 @@ impl State {
             cursor: Cursor::new(),
             clock: Clock::new(),
             redraw: false,
+            changed_at: None,
+            pacing_timer: None,
             frame_timer: None,
             failure: None,
             display,
@@ -232,6 +240,7 @@ impl State {
                     if state.redraw {
                         state.render();
                     }
+                    state.watch_pacing();
                 }
                 DrmEvent::Error(e) => error!("DRM: {e}"),
             })
@@ -296,6 +305,9 @@ impl State {
     /// Something on the screen changed; it is drawn after the events at hand.
     pub fn changed(&mut self) {
         self.redraw = true;
+        if self.changed_at.is_none() {
+            self.changed_at = Some(self.clock.now().into());
+        }
     }
 
     pub fn wants_render(&self) -> bool {
@@ -308,6 +320,8 @@ impl State {
             return;
         };
         self.redraw = false;
+        let began: Duration = self.clock.now().into();
+        let requested = self.changed_at.unwrap_or(began);
         let Some(area) = self.space.output_geometry(output) else {
             return;
         };
@@ -338,11 +352,38 @@ impl State {
             .image()
             .filter(|_| on_plane)
             .map(|image| (image, at));
-        match screen.render(&elements, cursor) {
+        let frame = screen.render(&elements, cursor, requested, began);
+        if !matches!(frame, Ok(Frame::Deferred)) {
+            self.changed_at = None;
+        }
+        match frame {
             Ok(Frame::Queued) => {}
             Ok(Frame::Deferred) => self.redraw = true,
             Ok(Frame::Unchanged) => self.frame_done_later(),
             Err(e) => self.fail(e),
+        }
+    }
+
+    /// While frames come in a row, checks twice a second whether they
+    /// stopped, so their summary reaches the journal; idle, no timer runs.
+    fn watch_pacing(&mut self) {
+        if self.pacing_timer.is_some() {
+            return;
+        }
+        let token = self
+            .handle
+            .insert_source(Timer::from_duration(PACING_CHECK), |_, _, state| {
+                let running = state.screen.as_mut().is_some_and(Screen::pacing_idle);
+                if running {
+                    TimeoutAction::ToDuration(PACING_CHECK)
+                } else {
+                    state.pacing_timer = None;
+                    TimeoutAction::Drop
+                }
+            });
+        match token {
+            Ok(token) => self.pacing_timer = Some(token),
+            Err(e) => warn!("pacing timer: {}", e.error),
         }
     }
 
