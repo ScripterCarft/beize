@@ -47,6 +47,7 @@ fn run() -> Result<(), String> {
     if unsafe { getuid() } == 0 {
         return Err("the desktop runs as a user, never as root: sign in with your account".into());
     }
+    systemd::block_login_signals().map_err(at("blocking the login's signals"))?;
     let session = systemd::own_session()
         .map_err(|e| format!("not in a login session ({e}): sign in on the console first"))?;
     systemd::seat(&session).map_err(|e| {

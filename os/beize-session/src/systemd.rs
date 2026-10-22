@@ -6,8 +6,6 @@
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ptr;
 
-/// sd_event_add_signal blocks the signal itself (systemd 254).
-const SD_EVENT_SIGNAL_PROCMASK: c_int = 1 << 30;
 const SIGHUP: c_int = 1;
 const SIGINT: c_int = 2;
 const SIGTERM: c_int = 15;
@@ -101,8 +99,38 @@ unsafe extern "C" {
     fn sd_event_unref(event: *mut c_void) -> *mut c_void;
 }
 
+/// glibc's `sigset_t`: 1024 bits.
+#[repr(C)]
+struct SigSet([u64; 16]);
+const SIG_BLOCK: c_int = 0;
+
 unsafe extern "C" {
     fn free(p: *mut c_void);
+    fn sigemptyset(set: *mut SigSet) -> c_int;
+    fn sigaddset(set: *mut SigSet, signal: c_int) -> c_int;
+    fn sigprocmask(how: c_int, set: *const SigSet, old: *mut SigSet) -> c_int;
+}
+
+/// Blocks the signals that end a login for the rest of the process, as
+/// sd_event_add_signal(3) asks: `watch` reads them through sd-event, and
+/// outside it they wait unread. With SD_EVENT_SIGNAL_PROCMASK, sd-event
+/// unblocked them when the watch ended; the terminal's SIGHUP a few
+/// milliseconds after logind's SIGTERM (the login closes and hangs it up)
+/// then ended beize-session before it took the environment back.
+pub fn block_login_signals() -> Result<(), String> {
+    let mut set = SigSet([0; 16]);
+    // SAFETY: a set of our own; the mask of this (only) thread.
+    let r = unsafe {
+        sigemptyset(&mut set);
+        for signal in SIGNALS {
+            sigaddset(&mut set, signal);
+        }
+        sigprocmask(SIG_BLOCK, &set, ptr::null_mut())
+    };
+    if r < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
 }
 
 /// `-errno` as text.
@@ -445,7 +473,8 @@ impl Manager {
                 sd_event_add_signal(
                     self.event,
                     &mut source,
-                    signal | SD_EVENT_SIGNAL_PROCMASK,
+                    // Blocked since `block_login_signals`.
+                    signal,
                     login_ends,
                     data,
                 )
