@@ -417,8 +417,14 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    **JETZT: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Plan in ADR 0027
    §9 (Entwurf; Schriften als Release-Dateien, Terminal beim Start + Strg+Alt+T, vorerst
    Strg+Shift+C/V vom Besitzer entschieden; Kopieren endgültig „wie macOS“ mit dem
-   Tastenkürzel-Modell vor Schritt 4). Reihenfolge: (a) Rezepte Inter, JetBrains Mono,
-   Compose-Daten; (b) Vulkan-Grundlagen als gemeinsames Crate von Compositor und Beize UI;
+   Tastenkürzel-Modell vor Schritt 4). Reihenfolge: (a) ✓ (22.10., 6465417) Rezepte `inter`
+   (nur aufrecht: die Kursive gibt es nur im Zip, `bz` kann kein Zip), `jetbrains-mono`,
+   `libx11-compose` (Compose-Tabellen der UTF-8-Locales aus libX11 mit upstreams cpp-Regeln);
+   Einzeldateien vom Release-Tag, byte-gleich mit dem Release-Zip geprüft. Lehre: `curl`
+   ohne `--fail` speichert eine 404-Seite still – Prüfsummen nur von `--fail`-Downloads.
+   **(b) JETZT:** Vulkan-Grundlagen als gemeinsames Crate von Compositor und Beize UI
+   (`render/` hat 3,5k Zeilen; teilbar: `device.rs`, `pipeline.rs`/Shader-Bau in `build.rs`,
+   `texture.rs`, `geometry.rs`; an Smithay gebunden bleibt `mod.rs`/`frame.rs`/`target.rs`);
    (c) `os/beize-ui`: Wayland-Fenster über WSI, Text (Parley, Skrifa, zeno, Atlas) mit
    Offscreen-Test; (d) `os/beize-terminal` mit alacritty_terminal; (e) Start über den Manager,
    Strg+Alt+T; (f) Smoke mit Referenzbild; (g) ein Hardware-Test für Terminal **und** Zeitplan.
