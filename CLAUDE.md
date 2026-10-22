@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, nach Schritt 6; Hardware-Test steht aus)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, nach dem Hardware-Test; Schritt 3 Beize UI)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -310,8 +310,8 @@ statt 585 s, ein Timeout): Starts rechnen. Firmware-Zeit je Start gemessen (17.1
 #39): Der größte Posten ist die TPM-Emulation (QEMU/swtpm, ~1 s fest, bis 1 s zufällig),
 nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
 
-**`OS_VERSION` ist 0.6 (17.10.).** Auf dem PC des Besitzers läuft der Messbau 0.5.94 (Tag
-`measure/nouveau-edid-0.5.94`, EDID-Fix und DRM-Debug); der Updater nimmt nur Neueres, 0.6
+**`OS_VERSION` ist 0.6 (17.10.).** Auf dem PC des Besitzers läuft der Messbau 0.5.97 (Tag
+`measure/desktop-0.5.97`, EDID-Fix und Compositor-Test); der Updater nimmt nur Neueres, 0.6
 von `main` ersetzt ihn. „(Basis)“ zeigt `VARIANT_ID=desktop` – richtig, dasselbe `/usr` mit anderem
 systemd-Ziel (ADR 0025, erklärt in `keys/secureboot/README.md`). lavapipe ist in der CI grün,
 auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 min).
@@ -404,24 +404,21 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `build/work/logs/boot/`. Dazu (22.10.) Moduswahl wie KWin: Auflösung des bevorzugten
    Modus mit der höchsten Bildrate (ADR 0027 §6 „Modus“), sonst bliebe das AW2723DF unter
    240 Hz.
-   **(7) JETZT: Hardware-Test beim Besitzer, dritter Lauf mit 0.5.97 (22.10.).** Logs in
-   `~/hw-logs/results-*`. 0.5.95: 240 Hz, NVK, Cursor-Ebene, Klicks, VT-Wechsel gut, aber Bild
-   verwürfelt und 1287/4800 Bilder (`gpu_screen` mit `direct = false`: CPU-Zeilenkopie in einen
-   gekachelten Puffer; behoben f14fa6b). 0.5.96: Bild richtig, Tasten ok, „straight into the
-   screen buffer“, aber 4588/4800 (4,35 statt 4,17 ms, einmal 20 ms), ohne Zuordnung; der
-   Testclient brauchte 14,5 s CPU in 20 s. Dazu (a92c4d3): Compositor misst sich selbst
-   (`pacing.rs`, ADR 0027 §6 „Bildtakt messen“), Testclient zeichnet nur den Streifen. Dabei
-   gefunden und behoben (2af804b): Rennen in beize-session beim Abmelden (Signale). Messbau
-   0.5.97 = Zweig `measure/desktop` (lokal, nicht gepusht): `main` + EDID-Patch aus
-   `kernel/measure/` + `measure/hw-test.sh` (zeigt `pacing:` und `drawing:`). Gebaut, Smoke
-   grün. Stick-Ordner `~/hw-test/beize-test` ist aktuell und liegt schon auf dem Stick.
-   Ablauf: `docs/hardware.md` „Desktop testen“. **Auswerten:** `pacing:` (late, Schuld, CPU/
-   GPU je Bild, busy), Client `frames:`/`drawing:`. Sind Bilder noch spät: Ursache nach der
-   Schuld suchen (Zeichnen → Profil der Bildschleife; GPU/Anzeige → Fence/Commit-Zeitpunkt).
-   Ergebnisse in ADR 0027 (Messwerte) und `docs/hardware.md`, dann diesen Absatz, den
-   Messzweig, `~/hw-test` und `build/out/desktop/release/0.5.9*` aufräumen; Tag
-   `measure/desktop-0.5.97` setzen und pushen wie bei 0.5.94.
-   **Danach: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Er wünscht sich
+   (7) ✓ (22.10.) Hardware-Test 0.5.97 (Tag `measure/desktop-0.5.97`, Werte in ADR 0027 §6 und
+   `docs/hardware.md`): 240 Hz, NVK direkt, 2 % Last, Eingabe und VT-Wechsel gut; aber jedes
+   Bild einen vblank zu spät (8,65 ms). Behoben mit dem **Zeitplan** (`schedule.rs`, ADR 0027
+   §6 „Zeitplan“: zeichnen zur Frist vor dem vblank). **Auf Hardware noch ungeprüft** – der
+   Besitzer prüft ihn erst zusammen mit Beize UI (nicht öfter testen). Dann muss `pacing:`
+   „0 late“ und Änderung bis Bild ≤ 4,17 ms zeigen. Der Testablauf (Stick, `hw-test.sh` aus dem
+   Tag) wird dafür auf das Terminal umgeschrieben. Ergebnisordner: Der Besitzer lässt den
+   Stick **BEIZE** am PC stecken, Claude holt `beize-test\results-*` selbst (PowerShell
+   `Copy-Item D:\beize-test\results-… \\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\`; in WSL
+   ist D: nicht eingehängt).
+   **JETZT: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Terminal-Fenster
+   bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so gesagt); wer die
+   Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt aus), wird vor
+   Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige Schrift (Inter).
+   Er wünscht sich
    einen realistischen, „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten,
    runde Ecken, Animation; „der Compositor soll sich langweilen“), aber erst mit Schritt 4
    (Shell), wenn es Effekte und Fensterverwaltung wirklich gibt: dann als feste Testszene

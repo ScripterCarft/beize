@@ -45,9 +45,18 @@ Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 Prüft auf dem echten Rechner, was die VM nicht kann: NVK, den Bildschirmmodus (1440p @ 240 Hz
 mit dem EDID-Fix), Maus, Tastatur, den Bildtakt und ob die Sandbox des Compositors mit NVK
 hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.97; ersetzt
-0.5.96, 0.6 ersetzt ihn. Bisher: 0.5.95 verwürfelt (behoben in f14fa6b), 0.5.96 richtig, aber
-212 von 4800 Bildern zu spät, ohne zu sagen, bei wem; 0.5.97 misst sich dazu selbst
-(`pacing:`). Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
+0.5.96, 0.6 ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
+
+**Ergebnis 0.5.97 (22.10., `~/hw-logs/results-20261022-192956`, Tag `measure/desktop-0.5.97`):**
+NVK auf der RTX 3070 Ti direkt in den Bildschirmpuffer, DP-1 2560x1440 @ 240 Hz, Testclient
+4786 von 4800 Bildern im Abstand von 4,17 ms, Tasten, Klick, VT-Wechsel gut, keine Fehler im
+Journal. Compositor je Bild: Zeichnen (CPU) Median 0,02 ms, GPU 0,06 ms, ausgelastet zu 2 %.
+Befund: 4781 von 4788 Bildern einen vblank zu spät (Änderung bis Bild Median 8,65 ms statt
+höchstens 4,17), alle beim Zeichnen: Der Compositor zeichnete am vblank, der Client
+committete gleich danach und fand einen wartenden Commit vor; einmal so, blieb jedes Bild
+einen vblank hinten. Behoben mit dem Zeitplan (ADR 0027 §6 „Zeitplan“); geprüft wird er mit
+dem Test von Beize UI. Davor: 0.5.95 verwürfelt (f14fa6b), 0.5.96 212 von 4800 Bildern zu
+spät (Testclient zeichnete auf der CPU).
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
