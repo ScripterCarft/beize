@@ -1,0 +1,24 @@
+[package]
+name = "beize-ui"
+description = "Beize UI: windows, input, text and drawing for Beize's own apps (ADR 0027 §9)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+beize-vulkan = { path = "../beize-vulkan" }
+# ash loads libvulkan.so.1 at run time (loaded), as Smithay does for the
+# compositor; debug names Vulkan's values in errors.
+ash = { version = "0.38", default-features = false, features = ["debug", "loaded", "std"] }
+# libwayland itself (system): Mesa's WSI takes its wl_display and
+# wl_surface. Loaded at run time (dlopen) like Vulkan: the desktop has it
+# for Mesa anyway, and the buildroot, where CI lints and tests, has none.
+wayland-client = { version = "0.31", features = ["system", "dlopen"] }
+wayland-protocols = { version = "0.32", features = ["client"] }
+rustix = { version = "1.1", default-features = false, features = ["event", "std"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

@@ -1,0 +1,39 @@
+# Beize UI (os/beize-ui, ADR 0027 §9): the toolkit of Beize's own apps,
+# windows on Wayland drawn with Vulkan through beize-vulkan. A library;
+# what goes into the image are the apps built with it (the terminal comes
+# next), until then only its test program for the VM.
+#
+# Built apart from the compositor: its wayland-client goes through
+# libwayland (Mesa's WSI takes the display), the compositor's test client
+# stays pure Rust – in one cargo build their features would merge.
+# libwayland and libvulkan are loaded at run time (dlopen), both from the
+# desktop's packages. Build scripts of its crates, checked (CLAUDE.md §8):
+# wayland-sys does nothing with dlopen, wayland-client only declares cfg
+# names; beize-vulkan's compiles its shaders (recipes/beize-compositor.toml).
+name = "beize-ui"
+version = "0.1.0"
+stage = "target"
+# libgcc_s for Rust's unwinding.
+deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader"]
+repo = ["os/beize-vulkan", "os/beize-ui", "Cargo.toml", "Cargo.lock"]
+
+[build]
+script = '''
+# Crates come from crates.io, checked against the checksums in Cargo.lock;
+# the build itself runs offline.
+"$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
+MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
+  -p beize-ui --target x86_64-unknown-linux-gnu
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-ui-test" \
+  "$PKG/usr/lib/beize/test/beize-ui-test"
+'''
+
+[sbom]
+# Beize's own code (LICENSE); the crates it builds from are in Cargo.lock.
+license = "MPL-2.0"
+
+[files]
+image = []
+build = [
+  { path = "usr/lib/beize/test/beize-ui-test", why = "checks Beize UI's window in the VM, on bz's test medium; not for computers" },
+]

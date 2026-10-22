@@ -140,6 +140,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "beize-ui"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "beize-vulkan",
+ "rustix 1.1.5",
+ "tracing",
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
 name = "beize-update"
 version = "0.1.0"
 dependencies = [
@@ -382,6 +394,15 @@ dependencies = [
  "block-buffer 0.12.1",
  "const-oid",
  "crypto-common 0.2.2",
+]
+
+[[package]]
+name = "dlib"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
+dependencies = [
+ "libloading",
 ]
 
 [[package]]
@@ -836,6 +857,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1181,6 +1208,7 @@ dependencies = [
  "cc",
  "downcast-rs",
  "rustix 1.1.5",
+ "scoped-tls",
  "smallvec",
  "wayland-sys",
 ]
@@ -1266,6 +1294,9 @@ version = "0.31.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
 dependencies = [
+ "dlib",
+ "log",
+ "once_cell",
  "pkg-config",
 ]
 
