@@ -174,6 +174,16 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   Systemaufruf-Filter, Fenster so groß wie der Bildschirm, Bild = Muster (die Referenz
   rechnet `bz` aus, ±2 je Kanal, höchstens 24×24 Pixel Zeiger), keine Warnung außer
   Smithays bekannter, Abmelden stoppt alles. Bei Abweichung ein Differenzbild in den Logs.
+- **Bildtakt messen** (22.10., `pacing.rs`): Der Compositor misst sich selbst, nicht der
+  Client. Aufgabe: eine Änderung beim ersten vblank danach zeigen. Je Bild: Eingang der
+  Änderung, Beginn des Zeichnens, Commit, vblank. Ein späteres Bild zählt als „late“, mit
+  Schuld beim Zeichnen (Commit nach dem vblank) oder bei GPU/Anzeige (Commit davor). Bilder
+  in Folge ergeben eine Zeile `pacing: …` im Journal (Ende der Folge oder alle 30 s): Zahl,
+  späte, Änderung bis Bild, CPU- und GPU-Zeit je Bild (Median, 99 %, Max) und Auslastung
+  des Bildbudgets. Im Leerlauf läuft kein Zeitgeber. In der VM sagen die Zeiten wenig,
+  virtio-gpu hat keinen vblank. Anlass: 0.5.96 verpasste bei 240 Hz 212 von 4800 Bildern,
+  ohne Zuordnung (der Testclient zeichnete jedes Bild ganz auf der CPU, jetzt nur den
+  geänderten Streifen).
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
 

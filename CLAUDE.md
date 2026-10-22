@@ -404,27 +404,30 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `build/work/logs/boot/`. Dazu (22.10.) Moduswahl wie KWin: Auflösung des bevorzugten
    Modus mit der höchsten Bildrate (ADR 0027 §6 „Modus“), sonst bliebe das AW2723DF unter
    240 Hz.
-   **(7) JETZT: Hardware-Test beim Besitzer, zweiter Lauf mit 0.5.96 (22.10.).** Erster Lauf
-   0.5.95 (Logs `~/hw-logs/results-20261022-180517`): 2560x1440 @ 240 Hz gesetzt, NVK
-   rendert, Cursor-Ebene flüssig, Klicks kommen an, VT-Wechsel geht, keine nouveau/NVK-Fehler
-   (Tasten nicht getippt, also ungeprüft). Aber das Bild war verwürfelt (Zickzack, schwarze
-   Ecke) und nur 1287 von 4800 Bildern: `gpu_screen` übergab `direct = false`, die CPU
-   kopierte zeilenweise in einen gekachelten Puffer. Behoben in f14fa6b (GPU zeichnet direkt,
-   Zeilenkopie nur noch in lineare Puffer). Messbau 0.5.96 = Zweig `measure/desktop` (lokal,
-   nicht gepusht, auf f14fa6b): `main` + EDID-Patch aus `kernel/measure/` (byte-gleich mit
-   0.5.94, ohne dessen DRM-Debug) + `measure/hw-test.sh`. Gebaut, Smoke
-   grün (16/16). Stick-Ordner `~/hw-test/beize-test` (Skript + `beize-testclient`) liegt bereit.
-   Ablauf für den Besitzer: `docs/hardware.md` „Desktop testen“ (signiert mit `bz release`,
-   Update vom Stick, `beize-session` auf tty1, Skript auf tty2). **Erwartet im nächsten Chat:**
-   der Besitzer meldet „Hardware-Test fertig“; die Logs liegen in `~/hw-logs/results-…`
-   (`compositor.log`, `client.log`, `system-journal.log`, `modes.txt`, `edid-*.bin`,
-   `version.txt`). Auswerten: Modus 2560x1440 @ 240 Hz? Abstand der Bilder ~4,17 ms, wie
-   viele verpasst (`at most`)? NVK als Renderer, Weg „straight into the screen buffer“ (dmabuf
-   direkt) oder Kopie, Cursor-Ebene genutzt? Warnungen, Fehler von nouveau/NVK im
-   Systemjournal, Sandbox (lief er überhaupt mit NVK?). Ergebnisse in ADR 0027 (Messwerte)
-   und `docs/hardware.md`, dann diesen Absatz, den Messzweig, `~/hw-test` und
-   `build/out/desktop/release/0.5.9*` aufräumen; Tag `measure/desktop-0.5.96` setzen und
-   pushen wie bei 0.5.94. Danach Schritt 3 (Beize UI) mit dem Besitzer abstimmen.
+   **(7) JETZT: Hardware-Test beim Besitzer, dritter Lauf mit 0.5.97 (22.10.).** Logs in
+   `~/hw-logs/results-*`. 0.5.95: 240 Hz, NVK, Cursor-Ebene, Klicks, VT-Wechsel gut, aber Bild
+   verwürfelt und 1287/4800 Bilder (`gpu_screen` mit `direct = false`: CPU-Zeilenkopie in einen
+   gekachelten Puffer; behoben f14fa6b). 0.5.96: Bild richtig, Tasten ok, „straight into the
+   screen buffer“, aber 4588/4800 (4,35 statt 4,17 ms, einmal 20 ms), ohne Zuordnung; der
+   Testclient brauchte 14,5 s CPU in 20 s. Dazu (a92c4d3): Compositor misst sich selbst
+   (`pacing.rs`, ADR 0027 §6 „Bildtakt messen“), Testclient zeichnet nur den Streifen. Dabei
+   gefunden und behoben (2af804b): Rennen in beize-session beim Abmelden (Signale). Messbau
+   0.5.97 = Zweig `measure/desktop` (lokal, nicht gepusht): `main` + EDID-Patch aus
+   `kernel/measure/` + `measure/hw-test.sh` (zeigt `pacing:` und `drawing:`). Gebaut, Smoke
+   grün. Stick-Ordner `~/hw-test/beize-test` ist aktuell und liegt schon auf dem Stick.
+   Ablauf: `docs/hardware.md` „Desktop testen“. **Auswerten:** `pacing:` (late, Schuld, CPU/
+   GPU je Bild, busy), Client `frames:`/`drawing:`. Sind Bilder noch spät: Ursache nach der
+   Schuld suchen (Zeichnen → Profil der Bildschleife; GPU/Anzeige → Fence/Commit-Zeitpunkt).
+   Ergebnisse in ADR 0027 (Messwerte) und `docs/hardware.md`, dann diesen Absatz, den
+   Messzweig, `~/hw-test` und `build/out/desktop/release/0.5.9*` aufräumen; Tag
+   `measure/desktop-0.5.97` setzen und pushen wie bei 0.5.94.
+   **Danach, Wunsch des Besitzers (22.10.):** ein realistischer, „spektakulärer“ Lasttest
+   wie die Probe von 0.5.92 (Verlauf als Hintergrund, mehrere schwebende Fenster, Blur,
+   Schatten, runde Ecken, Animation), aber durch den echten Compositor; „der Compositor soll
+   sich im Test langweilen“. Diese Effekte gibt es im Compositor noch nicht (nur in der
+   Wegwerf-Probe). Vorschlag an den Besitzer: erst Effekte im Renderer (ADR 0027 §2: Kawase-Blur,
+   gecachte Schatten, runde Ecken, Verlauf) und schwebende Fenster, dann eine feste
+   Testszene; Reihenfolge gegenüber Schritt 3 (Beize UI) mit ihm abstimmen.
    Geht etwas schief (dunkler Bildschirm, Absturz): Logs mit `hw-test.sh logs`/`-1`, erst
    nach der Ursache suchen (Quelltext von Mesa/nouveau/Smithay), dann ändern.
 
