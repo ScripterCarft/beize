@@ -276,6 +276,64 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
   zu `us` per localectl, Tasten, Zeiger, Klick, VT-Wechsel hin und zurück, 0 % CPU im
   Leerlauf. Die Cursor-Ebene selbst prüft erst der Hardware-Test.
 
+### 9. Beize UI und Terminal (Schritt 3, Entwurf 22.10.; Schriften, Start, Tasten vom Besitzer entschieden)
+
+Ziel: das erste eigene Fenster mit scharfem Text, das Terminal als erste App. Fenster bleiben
+bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
+
+- **Aufbau:** `os/beize-ui` (Bibliothek: Fenster, Eingabe, Text, Zeichnen) und
+  `os/beize-terminal` (App). Wayland über `wayland-client` mit libwayland (im Image für Mesa),
+  gezeichnet mit Vulkan über `VK_KHR_wayland_surface`: Mesas WSI liefert dmabufs, Bildtakt
+  (FIFO) und auf lavapipe shm. Vorbild: GTK 4 und Zed zeichnen ebenso über WSI. Die
+  Vulkan-Grundlagen (Gerät, Quads, Texturen, Shader-Bau) teilen sich Compositor und Beize UI
+  in einem gemeinsamen Crate, wie im Abschnitt 3 angelegt.
+- **Text:** **Parley** (Layout, Shaping mit HarfRust, Schriftwahl mit Fontique), **Skrifa**
+  (Umrisse und Hinting; Googles FreeType-Ersatz, seit Chrome 133 dort für Web-Schriften),
+  gerastert von **zeno** (der Rasterizer von swash, mit dem Zed und COSMIC Glyphen zeichnen).
+  Jede Glyphe wird einmal gerastert und liegt im Glyphen-Atlas der GPU (8 Bit Deckung), danach
+  ist Text ein Quad je Glyphe, 1:1 auf ganzen Pixeln gelesen (`texelFetch`). Kantenglättung in
+  Graustufen, keine Subpixel-Farbsäume (macOS seit 10.14). Hinting leicht (nur senkrecht,
+  wie FreeType „light“): Inter behält seine Form, Grundlinien und Strichstärken sitzen auf dem
+  Pixelraster; waagerecht Positionen in Viertelpixeln wie Chrome, für gleichmäßige Abstände.
+  Mischen gammakorrekt. Verworfen: FreeType (C, Chrome ersetzt es gerade), swash als Ganzes
+  (eigener Schriftleser neben Skrifa), vello_cpu/glifo (0.3, Glyphen-Cache noch experimentell;
+  Kandidat für Vektor-Icons mit der Shell).
+- **Layout:** **Taffy** (Flexbox/Grid; Zed nutzt dieselbe Version 0.15). Im Terminal kaum
+  gebraucht, aber die Grundlage jedes Widgets ab Schritt 4.
+- **Schriften:** Inter 4.1 und JetBrains Mono 2.304, beide variabel, OFL, unter
+  `/usr/share/fonts`, aus den offiziellen Release-Dateien mit fester Prüfsumme (Daten wie
+  `linux-firmware`; aus den Quellen bräuchte es fontmake mit Python im Buildroot). Die
+  Dateien am Release-Tag sind byte-gleich mit denen im Release-Archiv; Inters Kursive gibt es
+  nur im Archiv und kommt, wenn Beize UI kursiv setzt (mit Zip in `bz`). Umgesetzt 22.10.,
+  ebenso die Compose-Tabellen (`libx11-compose`). Ohne fontconfig: Beize UI findet Systemschriften über Fontique (wie
+  CoreText unter macOS); fontconfig kommt mit fremden Apps (M4, „eine zentrale
+  Schriftkonfiguration“). Fehlende Zeichen (Emoji, CJK) zeigen bis zu einer Fallback-Schrift
+  ein Kästchen; Auswahl und Größe (Noto, Emoji als COLRv1) mit der Shell.
+- **Terminal:** **alacritty_terminal** (Zustandsmaschine der Escape-Sequenzen, Raster,
+  Scrollback, Auswahl; Apache-2.0; Zeds Terminal baut darauf) unverändert aus crates.io; eigen
+  sind PTY, Zeichnen, Eingabe. Verworfen: libghostty-vt (Zig im Buildroot), eigener Parser
+  (Jahre an Sonderfällen). Dunkel (VISION), eigene Palette mit 256 Farben und Truecolor,
+  10 000 Zeilen Scrollback (wie GNOME Terminal), Kopieren und Einfügen über
+  `wl_data_device`, Shell ist die Login-Shell des Nutzers. Tasten vorerst Strg+Shift+C/V
+  (Linux-Standard, Strg+C bleibt Abbruch). Endgültig mit dem Tastenkürzel-Modell vor Schritt 4,
+  Maßstab macOS (Besitzer): Dort kopiert Cmd+C, eine eigene Taste neben Ctrl, Ctrl+C bricht
+  im Terminal immer ab; „Strg+C kopiert, wenn markiert“ ist Windows Terminal, nicht macOS.
+  Naheliegend ist daher die Super-Taste als Cmd (Super+C/V überall).
+- **Tastatur:** libxkbcommon mit Compose. Die Compose-Tabellen (`/usr/share/X11/locale`,
+  Daten aus libX11) fehlen im Image; ohne sie gehen tote Tasten nicht (`^` + `e` = ê im
+  deutschen Layout). Sie kommen als Daten mit.
+- **Start:** Beim Start des Desktops öffnet sich ein Terminal (übergangsweise, bis die Shell
+  ein Dock hat), Strg+Alt+T öffnet jederzeit ein neues (dauerhaft, wie Ubuntu). Die App läuft
+  in einer eigenen Benutzer-Unit des systemd-Managers, nie als Kind des Compositors (sonst
+  erbte sie seine Sandbox). Der Compositor startet sie über den Manager (sd-bus, den Code
+  teilt er mit beize-session).
+- **Test:** Smoke-Szenario: Terminal startet, Befehl tippen, Bildvergleich des Textbereichs
+  mit einer Referenz im Repo (wie openQA). Die Referenz erneuert `bz` nur auf ausdrücklichen
+  Wunsch und nach Sichtprüfung. Dazu der Hardware-Test mit `pacing:` (prüft den Zeitplan).
+- **Noch nicht:** Barrierefreiheit (AccessKit mit den ersten Widgets), Eingabemethoden
+  (`text-input-v3`), gebrochene Skalierung (Faktor 1 beim 27"-1440p des Besitzers; Protokoll
+  mit den Einstellungen), Titelleiste und Fensterknöpfe (vor Schritt 4 entscheiden).
+
 ## Reihenfolge
 
 1. **Mesa** in `images/desktop/`: NVK und lavapipe, dazu libdrm, Wayland, Vulkan-Loader.

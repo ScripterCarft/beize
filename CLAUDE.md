@@ -414,10 +414,18 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    Stick **BEIZE** am PC stecken, Claude holt `beize-test\results-*` selbst (PowerShell
    `Copy-Item D:\beize-test\results-… \\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\`; in WSL
    ist D: nicht eingehängt).
-   **JETZT: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Terminal-Fenster
-   bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so gesagt); wer die
-   Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt aus), wird vor
-   Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige Schrift (Inter).
+   **JETZT: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Plan in ADR 0027
+   §9 (Entwurf; Schriften als Release-Dateien, Terminal beim Start + Strg+Alt+T, vorerst
+   Strg+Shift+C/V vom Besitzer entschieden; Kopieren endgültig „wie macOS“ mit dem
+   Tastenkürzel-Modell vor Schritt 4). Reihenfolge: (a) Rezepte Inter, JetBrains Mono,
+   Compose-Daten; (b) Vulkan-Grundlagen als gemeinsames Crate von Compositor und Beize UI;
+   (c) `os/beize-ui`: Wayland-Fenster über WSI, Text (Parley, Skrifa, zeno, Atlas) mit
+   Offscreen-Test; (d) `os/beize-terminal` mit alacritty_terminal; (e) Start über den Manager,
+   Strg+Alt+T; (f) Smoke mit Referenzbild; (g) ein Hardware-Test für Terminal **und** Zeitplan.
+   Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
+   gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
+   aus), wird vor Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige
+   Schrift (Inter).
    Er wünscht sich
    einen realistischen, „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten,
    runde Ecken, Animation; „der Compositor soll sich langweilen“), aber erst mit Schritt 4
