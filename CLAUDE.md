@@ -421,13 +421,12 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    Ergebnisse in ADR 0027 (Messwerte) und `docs/hardware.md`, dann diesen Absatz, den
    Messzweig, `~/hw-test` und `build/out/desktop/release/0.5.9*` aufräumen; Tag
    `measure/desktop-0.5.97` setzen und pushen wie bei 0.5.94.
-   **Danach, Wunsch des Besitzers (22.10.):** ein realistischer, „spektakulärer“ Lasttest
-   wie die Probe von 0.5.92 (Verlauf als Hintergrund, mehrere schwebende Fenster, Blur,
-   Schatten, runde Ecken, Animation), aber durch den echten Compositor; „der Compositor soll
-   sich im Test langweilen“. Diese Effekte gibt es im Compositor noch nicht (nur in der
-   Wegwerf-Probe). Vorschlag an den Besitzer: erst Effekte im Renderer (ADR 0027 §2: Kawase-Blur,
-   gecachte Schatten, runde Ecken, Verlauf) und schwebende Fenster, dann eine feste
-   Testszene; Reihenfolge gegenüber Schritt 3 (Beize UI) mit ihm abstimmen.
+   **Danach: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Er wünscht sich
+   einen realistischen, „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten,
+   runde Ecken, Animation; „der Compositor soll sich langweilen“), aber erst mit Schritt 4
+   (Shell), wenn es Effekte und Fensterverwaltung wirklich gibt: dann als feste Testszene
+   durch den echten Compositor, gemessen mit `pacing:`. Effekte und schwebende Fenster nicht
+   vorziehen.
    Geht etwas schief (dunkler Bildschirm, Absturz): Logs mit `hw-test.sh logs`/`-1`, erst
    nach der Ursache suchen (Quelltext von Mesa/nouveau/Smithay), dann ändern.
 
