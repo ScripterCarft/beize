@@ -349,9 +349,15 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Maßstab macOS (Besitzer): Dort kopiert Cmd+C, eine eigene Taste neben Ctrl, Ctrl+C bricht
   im Terminal immer ab; „Strg+C kopiert, wenn markiert“ ist Windows Terminal, nicht macOS.
   Naheliegend ist daher die Super-Taste als Cmd (Super+C/V überall).
-- **Tastatur:** libxkbcommon mit Compose. Die Compose-Tabellen (`/usr/share/X11/locale`,
-  Daten aus libX11) fehlen im Image; ohne sie gehen tote Tasten nicht (`^` + `e` = ê im
-  deutschen Layout). Sie kommen als Daten mit.
+- **Tastatur:** libxkbcommon mit Compose (22.10., `os/beize-ui/src/input.rs`). Die Keymap
+  schickt der Compositor (wechselt das Layout, kommt eine neue), die Compose-Tabelle ist die
+  der Locale (`LC_ALL`, `LC_CTYPE`, `LANG`; ohne passende die von `C.UTF-8`, Beize hat nur
+  UTF-8-Tabellen, Daten aus libX11). Text mit Strg ist das Steuerzeichen (Strg+C = ETX), wie
+  ein Terminal es weitergibt. Wiederholung macht das Fenster selbst nach `repeat_info`
+  (Wayland); kommt sie zu spät, eine statt nachzuholen. Zeiger in Fensterkoordinaten,
+  Scrollen je Zeiger-Frame in Pixeln und Rastungen (`axis_value120`). Geprüft: Tests mit dem
+  deutschen Layout (Buildroot), in der VM `^` + `e` = ê, `^` + Shift+`o` = Ô, Wechsel von
+  `de(nodeadkeys)` zu `de` per localectl ohne Neustart des Fensters.
 - **Start:** Beim Start des Desktops öffnet sich ein Terminal (übergangsweise, bis die Shell
   ein Dock hat), Strg+Alt+T öffnet jederzeit ein neues (dauerhaft, wie Ubuntu). Die App läuft
   in einer eigenen Benutzer-Unit des systemd-Managers, nie als Kind des Compositors (sonst

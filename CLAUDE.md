@@ -433,8 +433,11 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    hell auf dunkel gegen dunkel auf hell, beim Hardware-Test ansehen. Von Hand: wie unten, dann
    `systemd-run -M smoke@ --user /run/t/beize-ui-test --seconds 30`; `@screendump` nur unter
    `build/` (QEMUs Sandbox); Offscreen-Bild aus der VM per `zstd | base64` über die Konsole.
-   **(d) JETZT:** `os/beize-terminal` mit alacritty_terminal (zuerst Eingabe in Beize UI:
-   Tastatur mit xkbcommon und Compose, Wiederholung, Zeiger); (e) Start über den Manager,
+   (d) Eingabe in Beize UI ✓ (22.10., ADR 0027 §9 „Tastatur“); `beize-ui-test` druckt jede
+   Eingabe ins Journal. Tote Tasten von Hand: `localectl set-keymap --no-convert de-latin1 &&
+   localectl set-x11-keymap --no-convert de pc105 "" terminate:ctrl_alt_bksp`, dann
+   `@keys grave_accent e`. **JETZT:** `os/beize-terminal` mit alacritty_terminal (PTY,
+   Zeichnen, Kopieren über `wl_data_device`); (e) Start über den Manager,
    Strg+Alt+T; (f) Smoke mit Referenzbild; (g) ein Hardware-Test für Terminal **und** Zeitplan.
    Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
    gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
