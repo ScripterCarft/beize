@@ -387,7 +387,9 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (daher `sd_event_run` mit eigenem Ende); nach `StartUnit` ist ein Target noch „inactive“
    mit wartendem Auftrag (daher `JobRemoved`); `ProtectHome=yes` sperrt auch `/run/user`;
    ein per `kill` geschicktes SIGSEGV verpufft in Rust-Programmen (Handler für Stack-Überlauf),
-   Absturz mit SIGABRT nachstellen.
+   Absturz mit SIGABRT nachstellen; `systemd-analyze --user` braucht `XDG_RUNTIME_DIR` (lokal
+   kam es aus der WSL-Sitzung, die CI hat keins: CI rot), `bz` misst deshalb mit leerer
+   Umgebung.
    **Test von Hand** (`bz debug`, tty1–6 startet logind ein getty): `chvt 7`, dann
    `systemd-run --unit=login1 -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
    -p StandardInput=tty -p StandardOutput=journal -p StandardError=journal
@@ -395,9 +397,11 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    status beize-compositor`, Log mit `journalctl -b _UID=1000`. Client als Benutzer-Unit:
    `systemd-run -M smoke@ --user /run/t/beize-testclient --frames 600` (Test-Medium nach
    `/run/t`, die frische Disk hat kein `/mnt`), Eingaben mit `@keys`/`@mouse`.
-   **(6) als Nächstes:** Smoke-Szenario in der vollen Stufe: Anmeldung auf
-   tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird
-   außerdem: Compositor läuft als Nutzer, keine Warnungen im Journal; Gegenprobe. (7)
+   (6) ✓ (22.10.) Smoke-Szenario `Desktop` (`smoke/desktop.rs`, volle Stufe, ~22 s; was es
+   prüft: ADR 0027 §6 „Test“). Tippen auf tty1 mit `console::german_presses` (Y/Z
+   vertauscht, `-` auf `slash`), Screenshot als PPM. Gegenprobe: eine falsche Farbe der
+   Referenz → rot, 256 122 Pixel (ein Quadrant + Zeiger), Differenzbild in
+   `build/work/logs/boot/`. (7)
    Hardware-Test beim Besitzer mit nummerierten Schritten: NVK, Maus, Tastatur, Frame-Pacing,
    ob 1440p @ 240 Hz mit dem EDID-Fix auch läuft (Messbau), und ob die Sandbox des
    Compositors mit NVK hält (in der VM nur lavapipe geprüft).

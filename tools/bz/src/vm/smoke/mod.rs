@@ -17,7 +17,7 @@
 //! Here: the order of the scenarios and the installation they start from.
 //! The scenarios themselves, by theme: `trust` (Secure Boot and the TPM),
 //! `access` (emergency gate, recovery, privileges), `updates`, `integrity`
-//! (a damaged /usr, starts that fail).
+//! (a damaged /usr, starts that fail), `desktop` (the login that starts it).
 
 use std::collections::VecDeque;
 use std::panic::{self, AssertUnwindSafe};
@@ -42,6 +42,7 @@ use crate::say;
 use crate::{layout, secureboot, tree, util};
 
 mod access;
+mod desktop;
 mod integrity;
 mod trust;
 mod updates;
@@ -64,6 +65,7 @@ enum Scenario {
     WithoutAdditions,
     Update,
     BrokenUpdate,
+    Desktop,
 }
 
 use Scenario::*;
@@ -75,10 +77,11 @@ use Scenario::*;
 /// release the broken update waits for. Those that start from a copy of
 /// the installation only if it passed, and only those that
 /// [`Scenario::applies`] to the variant.
-const AFTER_INSTALL: [Scenario; 14] = [
+const AFTER_INSTALL: [Scenario; 15] = [
     Update,
     OwnerKeys,
     BrokenUpdate,
+    Desktop,
     OtherTpm,
     ForeignDb,
     Privileges,
@@ -130,12 +133,23 @@ impl Scenario {
             BrokenUpdate => {
                 "An update that does not start falls back to the previous version after its last try"
             }
+            Desktop => {
+                "The login on tty1 starts the desktop with a client's window; signing out stops it"
+            }
         }
     }
 
     /// Whether the scenario tests something the variant has.
     fn applies(self, paths: &Paths) -> bool {
-        self != WithoutAdditions || paths.variant.extended().is_some()
+        match self {
+            WithoutAdditions => paths.variant.extended().is_some(),
+            Desktop => paths
+                .variant
+                .packages()
+                .iter()
+                .any(|p| p == "beize-session"),
+            _ => true,
+        }
     }
 
     /// Whether it starts from a copy of the installation; the others
@@ -170,6 +184,7 @@ impl Scenario {
                 smoke.installed()?,
                 smoke.next_release()?,
             ),
+            Desktop => desktop::desktop(paths, smoke.installed()?),
             BrokenUpdate => updates::broken_update(
                 paths,
                 &smoke.test_keys,

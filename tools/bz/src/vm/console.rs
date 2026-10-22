@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 
 use super::machine::{Machine, Swtpm, qemu};
 use crate::say;
@@ -275,12 +275,18 @@ impl Answers {
     }
 }
 
-/// Saves what the screen of a running machine shows to `file` as PNG:
-/// QEMU's `screendump`, the image its display device scans out.
+/// Saves what the screen of a running machine shows to `file`: QEMU's
+/// `screendump`, the image its display device scans out. PPM for a file
+/// ending in `.ppm` (what the smoke test compares), else PNG.
 pub(super) fn screendump(socket: &Path, file: &Path) -> Result<()> {
     let filename = serde_json::to_string(&file.display().to_string())?;
+    let format = if file.extension().is_some_and(|e| e == "ppm") {
+        "ppm"
+    } else {
+        "png"
+    };
     Keyboard::connect(socket)?.execute(&format!(
-        r#"{{"execute": "screendump", "arguments": {{"filename": {filename}, "format": "png"}}}}"#
+        r#"{{"execute": "screendump", "arguments": {{"filename": {filename}, "format": "{format}"}}}}"#
     ))
 }
 
@@ -376,10 +382,6 @@ impl Keyboard {
 /// `dash` is the key that gives "-". The modhex letters are where a US
 /// keyboard has them on German and French keyboards, too.
 fn recovery_key_presses(key: &str, dash: &'static str) -> Vec<&'static str> {
-    const LETTERS: [&str; 26] = [
-        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r",
-        "s", "t", "u", "v", "w", "x", "y", "z",
-    ];
     key.chars()
         .filter_map(|c| match c {
             '-' => Some(dash),
@@ -387,6 +389,28 @@ fn recovery_key_presses(key: &str, dash: &'static str) -> Vec<&'static str> {
             _ => None,
         })
         .chain(["ret"])
+        .collect()
+}
+
+/// QEMU's names of the letter keys, where a US keyboard has them.
+const LETTERS: [&str; 26] = [
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
+    "t", "u", "v", "w", "x", "y", "z",
+];
+
+/// The keys that type `text` (lowercase letters and "-"), then Enter, on
+/// the German keyboard the smoke test's owner chose (`SETUP_ANSWERS`): Y
+/// and Z swapped, the dash on the key a US keyboard has the slash on.
+pub(super) fn german_presses(text: &str) -> Result<Vec<&'static str>> {
+    text.chars()
+        .map(|c| match c {
+            '-' => Ok("slash"),
+            'y' => Ok("z"),
+            'z' => Ok("y"),
+            'a'..='z' => Ok(LETTERS[c as usize - 'a' as usize]),
+            _ => Err(anyhow!("{c:?} has no key here")),
+        })
+        .chain([Ok("ret")])
         .collect()
 }
 
@@ -773,6 +797,15 @@ pub(super) fn strip_ansi(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn types_on_a_german_keyboard() {
+        assert_eq!(
+            german_presses("beize-yz").unwrap(),
+            ["b", "e", "i", "y", "e", "slash", "z", "y", "ret"]
+        );
+        assert!(german_presses("A").is_err());
+    }
 
     #[test]
     fn journal_ends_where_the_empty_disk_begins() {

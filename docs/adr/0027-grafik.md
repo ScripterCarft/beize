@@ -166,7 +166,11 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   `wl_shm`, festes Farbmuster) kommt über die Test-Disk in die VM, **nicht ins Image**. Der
   Smoke-Test meldet sich auf tty1 an, startet `beize-session` und den Client und vergleicht
   QEMUs `screendump` (das ausgegebene Bild) mit einer Referenz. Das Szenario läuft in der
-  vollen CI-Stufe.
+  vollen CI-Stufe. Umgesetzt (22.10., `smoke/desktop.rs`): Anmeldung mit echten Tasten
+  (deutsche Belegung), dann geprüft: Wayland-Sitzung auf tty1, Compositor als Besitzer mit
+  Systemaufruf-Filter, Fenster so groß wie der Bildschirm, Bild = Muster (die Referenz
+  rechnet `bz` aus, ±2 je Kanal, höchstens 24×24 Pixel Zeiger), keine Warnung außer
+  Smithays bekannter, Abmelden stoppt alles. Bei Abweichung ein Differenzbild in den Logs.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
 
