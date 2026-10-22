@@ -155,12 +155,14 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     say!("  ok: no warnings from the compositor (but Smithay's known one)");
 
-    // Signing out: logind ends the session, beize-session stops the desktop.
+    // Signing out: logind ends the session, beize-session stops the desktop
+    // and, last of all, takes the environment back: waited for that, the
+    // rest is done too.
     let (_, lines) = shell.capture(
         "s=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p'); \
          loginctl terminate-session \"$s\"; \
-         for i in $(seq 50); do systemctl --user -q is-active beize-compositor.service || break; \
-         sleep 0.2; done; \
+         for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
+         || break; sleep 0.2; done; \
          systemctl --user is-active beize-session.target beize-compositor.service \
          graphical-session.target; systemctl --user show-environment",
     )?;
