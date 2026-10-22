@@ -519,7 +519,8 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     renderer: VkRenderer,
     damage: OutputDamageTracker,
     cursor: Option<CursorPlane>,
-    /// lavapipe may draw straight into the screen's buffers.
+    /// The renderer draws straight into the screen's buffers (always on the
+    /// GPU; lavapipe where dumb buffers are fast to read).
     direct: bool,
     /// A commit waits for its vblank.
     flipping: bool,

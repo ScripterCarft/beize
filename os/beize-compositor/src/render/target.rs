@@ -11,7 +11,7 @@ use std::sync::Arc;
 use smithay::backend::allocator::dmabuf::{
     Dmabuf, DmabufMapping, DmabufMappingMode, DmabufSyncFlags,
 };
-use smithay::backend::allocator::{Buffer as _, Fourcc};
+use smithay::backend::allocator::{Buffer as _, Fourcc, Modifier};
 use smithay::backend::renderer::Texture;
 use smithay::reexports::ash::vk;
 use smithay::utils::{Buffer, Size};
@@ -147,6 +147,13 @@ impl VkRenderer {
 
     /// An image of lavapipe's own, copied into `dmabuf` after each frame.
     pub fn shadow_target(&self, dmabuf: &Dmabuf) -> Result<Target> {
+        // The copy goes row by row: a tiled buffer would show a scramble.
+        let modifier = dmabuf.format().modifier;
+        if modifier != Modifier::Linear {
+            return Err(error(format!(
+                "the screen buffer is not linear ({modifier:?}): rows cannot be copied into it"
+            )));
+        }
         let size = (dmabuf.width() as i32, dmabuf.height() as i32).into();
         let mut target = self.offscreen_target(opaque(dmabuf.format().code), size)?;
         target.readback = Some(Readback::new(self, dmabuf, size)?);

@@ -218,6 +218,8 @@ fn gpu_screen(
         modifiers,
         DmabufExporter,
         vk,
-        false,
+        // The GPU draws into the screen's buffers: they are its own images,
+        // often tiled, which no row copy could fill.
+        true,
     ))))
 }
