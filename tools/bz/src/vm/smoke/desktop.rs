@@ -1,8 +1,10 @@
 //! The desktop (ADR 0027 §6): the owner signs in on tty1 at the keyboard
 //! and types `beize-session`; the compositor runs as the owner in its
 //! sandbox, logind knows the session as a Wayland one, a terminal opens
-//! with the desktop and another with Ctrl+Alt+T, a client's window
-//! fills the screen and the screen shows exactly its pattern. Beize UI's
+//! with the desktop and another with Ctrl+Alt+T. A command typed into it
+//! shows the terminal's sample as the reference in the repository has it.
+//! A client's window fills the screen and the screen shows exactly its
+//! pattern. Beize UI's
 //! test program shows its sample – text, colours, blending – exactly as it
 //! draws it offscreen, the reference in the repository. Signing out stops
 //! the desktop with its terminals and takes its environment back.
@@ -13,9 +15,9 @@
 use std::fs;
 use std::path::Path;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use super::Installed;
 use crate::paths::Paths;
@@ -25,7 +27,7 @@ use crate::vm::console::{
     screendump,
 };
 use crate::vm::debug::Shell;
-use crate::vm::machine::test_medium;
+use crate::vm::machine::{Machine, test_medium};
 
 /// The test client's quadrants as the screen shows them (RGB), from
 /// os/beize-testclient: red, green above; blue, white below.
@@ -35,10 +37,11 @@ const QUADRANTS: [[u8; 3]; 4] = [[208, 48, 48], [48, 176, 64], [48, 80, 208], [2
 /// (XRGB8888 to the screen), so only rounding.
 const CHANNEL_TOLERANCE: u8 = 2;
 
-/// How many pixels may differ: the pointer, drawn into the image in the VM
-/// (ADR 0027 §8), 24×24 at most. A frame that is missing, late, shifted or
-/// scaled differs in far more.
-const POINTER_PIXELS: usize = 24 * 24;
+/// Where pixels may differ: in the square this wide at the screen's top
+/// left, the pointer, drawn into the image in the VM (ADR 0027 §8), 24×24
+/// at most. The compositor starts it at (0, 0) and the test never moves it,
+/// so any pixel elsewhere is a fault, down to one changed character.
+const POINTER_SIZE: usize = 24;
 
 /// The compositor's warning that Smithay could not become DRM master
 /// itself: it already is, through the device logind handed over (reported
@@ -50,6 +53,17 @@ const KNOWN_WARNING: &str = "Unable to become drm master, assuming unprivileged 
 /// repository. Replaced only by hand, after looking at the screen the test
 /// leaves in the logs when they differ (ADR 0027 §9).
 const UI_SAMPLE: &str = "os/beize-ui/tests/sample.png";
+
+/// The screen once the terminal has run its sample
+/// (`os/beize-terminal/tests/sample.sh`), as a run of this test showed it
+/// (openQA's needles): replaced only by hand, after looking at it.
+const TERMINAL_SAMPLE: &str = "os/beize-terminal/tests/sample.png";
+
+/// What the sample is called on the test medium, typed into the terminal.
+const TERMINAL_SAMPLE_COMMAND: &str = "/run/t/beize-terminal-sample";
+
+/// How long a screen may take to become what its reference shows.
+const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-desktop")?;
@@ -111,6 +125,13 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     say!(
         "  ok: the login on tty1 started the desktop: a Wayland session, the compositor as the owner, sandboxed"
     );
+    let (status, lines) = shell.capture(
+        "run0 sh -c 'mkdir -p /run/t && mount -o ro /dev/disk/by-id/virtio-beize-test /run/t'",
+    )?;
+    ensure!(
+        status == 0,
+        "could not mount the test medium (exit status {status}): {lines:?}"
+    );
 
     // The desktop starts with a terminal, Ctrl+Alt+T opens another: each in
     // a unit of its own, with the owner's shell in it.
@@ -125,11 +146,24 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: the desktop started with a terminal, Ctrl+Alt+T opened another, each with its shell"
     );
 
+    // The new terminal has the keyboard: typed into once its shell reads,
+    // the sample's command runs and the screen shows what it printed.
+    let second = both
+        .iter()
+        .find(|u| **u != first[0])
+        .context("no second terminal")?;
+    wait_for_prompt(&shell, second)?;
+    keys(&qmp, &german_presses(TERMINAL_SAMPLE_COMMAND)?)?;
+    let differing = wait_for_screen(paths, &machine, TERMINAL_SAMPLE, "terminal")?;
+    say!(
+        "  ok: the typed command ran in the terminal, the screen shows its sample as the reference \
+         has it ({differing} pixels differ: the pointer)"
+    );
+
     // A client started by the service manager, which knows the socket only
     // from beize-session.
     let (status, lines) = shell.capture(
-        "run0 sh -c 'mkdir -p /run/t && mount -o ro /dev/disk/by-id/virtio-beize-test /run/t' \
-         && systemd-run --user --unit=beize-testclient /run/t/beize-testclient --seconds 60",
+        "systemd-run --user --unit=beize-testclient /run/t/beize-testclient --seconds 60",
     )?;
     ensure!(
         status == 0,
@@ -172,8 +206,12 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
 
     // Frames in a row: a second client draws 120, each on "frame done";
     // once they stop, the compositor sums up how they met their vblanks.
+    // Its summary is the one after those of earlier frames (the terminal's).
     let (status, lines) = shell.capture(
-        "systemd-run --user --unit=beize-testclient-frames /run/t/beize-testclient          --frames 120 --seconds 20 && for i in $(seq 100); do          journalctl --user -b -u beize-compositor.service -o cat | grep -q '^pacing: '          && break; sleep 0.2; done; journalctl --user -b -u beize-compositor.service -o cat          | grep '^pacing: '",
+        "p() { journalctl --user -b -u beize-compositor.service -o cat | grep '^pacing: '; }; \
+         n=$(p | wc -l); systemd-run --user --unit=beize-testclient-frames \
+         /run/t/beize-testclient --frames 120 --seconds 20 && for i in $(seq 100); do \
+         [ \"$(p | wc -l)\" -gt \"$n\" ] && break; sleep 0.2; done; p | tail -n +$((n + 1))",
     )?;
     let pacing = lines
         .iter()
@@ -203,37 +241,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         lines.iter().any(|l| l.starts_with("configure ")),
         "Beize UI's test program got no window: {lines:?}"
     );
-    thread::sleep(Duration::from_secs(1));
-    let file = machine.logs.join("beize-ui-screen.ppm");
-    screendump(&qmp, &file)?;
-    let screen = Image::read_ppm(&fs::read(&file)?)?;
-    let reference_file = paths.root.join(UI_SAMPLE);
-    let reference = Image::read_png(
-        &fs::read(&reference_file).with_context(|| format!("reading {UI_SAMPLE}"))?,
-    )?;
-    ensure!(
-        (screen.width, screen.height) == (reference.width, reference.height),
-        "the screen is {}x{}, {UI_SAMPLE} {}x{}",
-        screen.width,
-        screen.height,
-        reference.width,
-        reference.height
-    );
-    let compared = compare(
-        &screen,
-        |x, y| reference.pixel(x, y),
-        UI_SAMPLE,
-        &machine.logs.join("beize-ui-difference.ppm"),
-    );
-    let differing = match compared {
-        Ok(n) => n,
-        Err(e) => {
-            // To look at, and to take over if the new look is wanted.
-            let shown = machine.logs.join("beize-ui-screen.png");
-            screen.write_png(&shown)?;
-            return Err(e.context(format!("the screen is {}", shown.display())));
-        }
-    };
+    let differing = wait_for_screen(paths, &machine, UI_SAMPLE, "beize-ui")?;
     say!(
         "  ok: Beize UI's window shows its sample as the reference has it ({differing} pixels \
          differ: the pointer)"
@@ -312,6 +320,64 @@ fn wait_for_terminals(shell: &Shell, count: usize) -> Result<Vec<String>> {
         thread::sleep(Duration::from_millis(200));
     }
     bail!("not {count} terminals with a shell each: {found:?}")
+}
+
+/// Waits until the shell in the terminal `unit` reads a line: readline
+/// takes the terminal out of canonical mode for that. Keys pressed before
+/// it would be echoed by the terminal driver ahead of the prompt.
+fn wait_for_prompt(shell: &Shell, unit: &str) -> Result<()> {
+    let (_, lines) = shell.capture(&format!(
+        "d=/sys/fs/cgroup$(systemctl --user show -P ControlGroup '{unit}'); r=; \
+         for i in $(seq 50); do for p in $(cat \"$d/cgroup.procs\"); do \
+         [ \"$(cat /proc/$p/comm)\" != beize-terminal ] && stty -F /proc/$p/fd/0 -a 2>/dev/null \
+         | grep -qw -- -icanon && r=1; done; [ -n \"$r\" ] && break; sleep 0.2; done; \
+         echo BEIZE-PROMPT-${{r:-none}}"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-PROMPT-1"),
+        "the shell in {unit} never waited for a line: {lines:?}"
+    );
+    Ok(())
+}
+
+/// Waits until the screen shows what `reference` (relative to the
+/// repository) has, but the pointer, as openQA waits for a needle; the
+/// pixels that differ. If it does not, the last screen is `<name>-screen.png`
+/// in the logs, to look at and to take over if the new look is wanted.
+fn wait_for_screen(paths: &Paths, machine: &Machine, reference: &str, name: &str) -> Result<usize> {
+    let wanted = match fs::read(paths.root.join(reference)) {
+        Ok(data) => Some(Image::read_png(&data).with_context(|| format!("reading {reference}"))?),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("reading {reference}")),
+    };
+    let file = machine.logs.join(format!("{name}-screen.ppm"));
+    let difference = machine.logs.join(format!("{name}-difference.ppm"));
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    let failed = loop {
+        thread::sleep(Duration::from_millis(500));
+        screendump(&machine.qmp(), &file)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        let compared = match &wanted {
+            None => Err(anyhow!("there is no {reference} yet")),
+            Some(r) if (r.width, r.height) != (screen.width, screen.height) => Err(anyhow!(
+                "the screen is {}x{}, {reference} {}x{}",
+                screen.width,
+                screen.height,
+                r.width,
+                r.height
+            )),
+            Some(r) => compare(&screen, |x, y| r.pixel(x, y), reference, &difference),
+        };
+        match compared {
+            Ok(differing) => return Ok(differing),
+            Err(e) if Instant::now() >= deadline => break (screen, e),
+            Err(_) => {}
+        }
+    };
+    let (screen, e) = failed;
+    let shown = machine.logs.join(format!("{name}-screen.png"));
+    screen.write_png(&shown)?;
+    Err(e.context(format!("the screen is {}", shown.display())))
 }
 
 /// An RGB image.
@@ -407,8 +473,8 @@ fn expected(x: usize, y: usize, width: usize, height: usize) -> [u8; 3] {
 }
 
 /// The pixels of `screen` that differ from what is `wanted` (named `what`
-/// in errors); more than the pointer's fail, and `difference` then shows
-/// them in magenta over a dimmed screen.
+/// in errors), all in the pointer's square; any outside it fail, and
+/// `difference` then shows them in magenta over a dimmed screen.
 fn compare(
     screen: &Image,
     wanted: impl Fn(usize, usize) -> [u8; 3],
@@ -420,7 +486,7 @@ fn compare(
         height: screen.height,
         pixels: screen.pixels.iter().map(|c| c / 3).collect(),
     };
-    let mut differing = 0;
+    let (mut pointer, mut elsewhere) = (0, 0);
     for y in 0..screen.height {
         for x in 0..screen.width {
             let at = (y * screen.width + x) * 3;
@@ -430,20 +496,24 @@ fn compare(
                 .zip(wanted(x, y))
                 .any(|(s, w)| s.abs_diff(w) > CHANNEL_TOLERANCE)
             {
-                differing += 1;
+                if x < POINTER_SIZE && y < POINTER_SIZE {
+                    pointer += 1;
+                } else {
+                    elsewhere += 1;
+                }
                 marked.pixels[at..at + 3].copy_from_slice(&[255, 0, 255]);
             }
         }
     }
-    if differing > POINTER_PIXELS {
+    if elsewhere > 0 {
         marked.write_ppm(difference)?;
         bail!(
-            "{differing} pixels of the screen differ from {what} (at most {POINTER_PIXELS} \
-             may, the pointer); they are magenta in {}",
+            "{elsewhere} pixels of the screen differ from {what} outside the pointer's \
+             {POINTER_SIZE}x{POINTER_SIZE} at the top left; they are magenta in {}",
             difference.display()
         );
     }
-    Ok(differing)
+    Ok(pointer)
 }
 
 #[cfg(test)]
@@ -495,13 +565,38 @@ mod tests {
         let difference = std::env::temp_dir().join(format!("bz-diff-{}.ppm", std::process::id()));
         let mut screen = pattern(64, 40);
         assert_eq!(compare(&screen, &difference).unwrap(), 0);
-        // Rounding, and a pointer's worth of pixels.
+        // Rounding, and a pointer.
         screen.pixels[0] += CHANNEL_TOLERANCE;
-        for p in screen.pixels.chunks_mut(3).take(POINTER_PIXELS) {
-            p.copy_from_slice(&[0, 0, 0]);
+        for y in 0..POINTER_SIZE {
+            for x in 0..POINTER_SIZE {
+                let at = (y * 64 + x) * 3;
+                screen.pixels[at..at + 3].copy_from_slice(&[0, 0, 0]);
+            }
         }
-        assert_eq!(compare(&screen, &difference).unwrap(), POINTER_PIXELS);
+        assert_eq!(
+            compare(&screen, &difference).unwrap(),
+            POINTER_SIZE * POINTER_SIZE
+        );
         assert!(!difference.exists());
+        // One pixel more, beside the pointer: a character that changed.
+        let mut beside = screen.pixels.clone();
+        beside[3 * POINTER_SIZE] = 0;
+        assert!(
+            compare(
+                &Image {
+                    pixels: beside,
+                    ..pattern(64, 40)
+                },
+                &difference
+            )
+            .is_err()
+        );
+        fs::remove_file(&difference).unwrap();
+        // And far from it.
+        screen.pixels[3 * 64 * 39] = 0;
+        assert!(compare(&screen, &difference).is_err());
+        assert!(difference.exists());
+        fs::remove_file(&difference).unwrap();
         // A black screen, and the quadrants swapped.
         let black = Image {
             pixels: vec![0; 64 * 40 * 3],

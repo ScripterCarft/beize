@@ -33,6 +33,8 @@ install -D -m 644 "$REPO/os/beize-terminal/app.service" \
   "$PKG/usr/lib/systemd/user/app-beize\x2dterminal@.service"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-ui-test" \
   "$PKG/usr/lib/beize/test/beize-ui-test"
+install -D -m 755 "$REPO/os/beize-terminal/tests/sample.sh" \
+  "$PKG/usr/lib/beize/test/beize-terminal-sample"
 '''
 
 [sbom]
@@ -46,4 +48,5 @@ image = [
 ]
 build = [
   { path = "usr/lib/beize/test/beize-ui-test", why = "checks Beize UI's window in the VM, on bz's test medium; not for computers" },
+  { path = "usr/lib/beize/test/beize-terminal-sample", why = "what the smoke test shows in a terminal, on bz's test medium; not for computers" },
 ]

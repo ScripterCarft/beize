@@ -398,13 +398,15 @@ const LETTERS: [&str; 26] = [
     "t", "u", "v", "w", "x", "y", "z",
 ];
 
-/// The keys that type `text` (lowercase letters and "-"), then Enter, on
-/// the German keyboard the smoke test's owner chose (`SETUP_ANSWERS`): Y
-/// and Z swapped, the dash on the key a US keyboard has the slash on.
+/// The keys that type `text` (lowercase letters, "-" and "/"), then Enter,
+/// on the German keyboard the smoke test's owner chose (`SETUP_ANSWERS`):
+/// Y and Z swapped, the dash on the key a US keyboard has the slash on,
+/// the slash on Shift+7.
 pub(super) fn german_presses(text: &str) -> Result<Vec<&'static str>> {
     text.chars()
         .map(|c| match c {
             '-' => Ok("slash"),
+            '/' => Ok("shift+7"),
             'y' => Ok("z"),
             'z' => Ok("y"),
             'a'..='z' => Ok(LETTERS[c as usize - 'a' as usize]),
@@ -804,6 +806,7 @@ mod tests {
             german_presses("beize-yz").unwrap(),
             ["b", "e", "i", "y", "e", "slash", "z", "y", "ret"]
         );
+        assert_eq!(german_presses("/t").unwrap(), ["shift+7", "t", "ret"]);
         assert!(german_presses("A").is_err());
     }
 
