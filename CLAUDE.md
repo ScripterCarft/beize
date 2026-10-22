@@ -75,7 +75,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr; sd-bus zum Benutzermanager), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -205,7 +205,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   ihre Crates nach `usr/lib/beize-build/crates/` (SBOM).
 - **Härtung als Ratsche:** `images/<variante>/security.toml` hält `systemd-analyze security` jedes
   eigenen Dienstes und jedes erreichbaren Daemons fest; `bz` bricht bei jeder Abweichung
-  ab (schlechter = zurücknehmen, besser = Wert eintragen). Neuer `beize-*`-Dienst = Eintrag.
+  ab (schlechter = zurücknehmen, besser = Wert eintragen). Neuer `beize-*`-Dienst = Eintrag
+  (Benutzer-Units unter `[user-exposure]`). Units des Desktops liefert das Paket, das sie
+  braucht (`system/usr` landet in jeder Variante).
 - **initrd (ADR 0016):** Was hinein soll, steht als Funktion mit Grund in
   `images/initrd.toml`; `bz` leitet Programme und Bibliotheken ab und bricht bei Lücken
   ab. Nicht ableitbar (deshalb dort ausdrücklich): was Generatoren erzeugen und deren
@@ -272,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-21, nach 4c)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, nach Schritt 5)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -352,26 +354,7 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    ADR 0027 §6 (Gerüst) hat der Besitzer am 21.10. angenommen, mit der Bedingung „effizient
    auch auf schwachen PCs“ (Punkt „Schwache Rechner“ dort).
 
-   **Dann: Compositor-Gerüst** (`os/beize-compositor`, ADR 0027 Schritt 2). Plan mit dem
-   Besitzer am 17.10. abgestimmt, **noch nicht begonnen**. Eckpunkte:
-   - **Sitzung:** Der Compositor läuft als Nutzer, nicht als root. DRM- und Eingabegeräte
-     bekommt er von logind über libseat (Rezept aus seatd, nur das logind-Backend,
-     `-Dserver=disabled`). Kein seatd-Dienst, keine Gruppen. Vorbild: GNOME/KDE auf Fedora.
-   - **Start:** Anmeldung auf tty1, dann startet `beize-session` die Benutzer-Unit
-     `beize-compositor.service` (in `graphical-session.target`). Kein `.profile`-Trick. Das
-     ist ein Übergang bis zu Beizes eigenem Anmeldefenster (wie macOS' loginwindow, eigenes
-     ADR, später).
-   - **Testclient** `beize-testclient` (`os/`): reines Rust-Wayland ohne libwayland, wl_shm,
-     festes Farbmuster. **Nicht im Image**, er kommt über die Test-Disk in die VM.
-   - **Screenshot:** QMP `screendump` (zeigt, was wirklich ausgegeben wird), Vergleich gegen
-     eine Referenz in `bz` mit Toleranz; bei Fehler ein Differenzbild in den Logs.
-   - **Ausgabe:** KMS atomar über Smithays DRM-Backend, nicht `VK_KHR_display` wie die
-     Probe, denn ein Compositor braucht Planes, Cursor und Hotplug (wie KWin und mutter).
-     Puffer kommen aus Vulkan als dmabuf mit Modifiern (Smithays `VulkanAllocator`), **kein
-     GBM**, Mesa bleibt ohne. Smithays `DrmCompositor` setzt GBM voraus, deshalb schreibt
-     Beize den Framebuffer-Export und die Bildschleife selbst (ADR 0027 §6, Vorbild gamescope). Offen: Nimmt virtio-gpu einen dmabuf von lavapipe an? Sonst in
-     der VM eine CPU-Kopie in einen Dumb-Buffer. Den Direktweg prüft dann nur die Hardware.
-
+   **Dann: Compositor-Gerüst** (ADR 0027 Schritt 2, Entscheidungen dort in §6–8).
    Reihenfolge: (1) ✓ Eckpunkte in ADR 0027 §6. (2) ✓ (21.10.) Pakete im Desktop: seatd
    (nur libseat, logind), libinput 1.32 mit libevdev und mtdev; ohne Lua-Plugins und vorerst
    ohne libwacom (Gründe im Rezept; libwacom braucht libgudev, kommt mit Tablett-Einstellungen).
@@ -390,22 +373,34 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    ersten Shader ab. Smithays `render_elements!` nur in der generischen Form (`VkFrame` hat
    zwei Lebensdauern). `deny.toml`: cgmath (RUSTSEC-2026-0196) bis zum nächsten
    Smithay-Release ausgenommen.
-   **Test von Hand** (`bz debug`, tty1–6 startet logind ein getty): `chvt 7`, dann
-   `systemd-run -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7 -p StandardInput=tty
-   -p StandardOutput=journal -p StandardError=journal /usr/lib/beize/beize-compositor`; Log
-   mit `journalctl -t beize-compositor` (PAM legt ihn in eine Session-Scope, `-u` trifft
-   nicht). Client: `systemd-run -p User=smoke -E XDG_RUNTIME_DIR=/run/user/1000
-   -E WAYLAND_DISPLAY=wayland-1 /run/t/beize-testclient --frames 120` (Test-Medium nach
-   `/run/t`, die frische Disk hat kein `/mnt`), Eingaben mit `@keys`/`@mouse`.
    Offen: `host_image_copy`, VRR und Zeitgeber, Direct Scanout, Popup-Grabs, Cursor-Thema
    (mit der Shell); dmabufs mit Modifiern, IN_FENCE_FD und die Cursor-Ebene prüft erst der
-   Hardware-Test. (5) `beize-session` und die Unit, Eintrag in `security.toml`,
-   soweit DRM und Vulkan das zulassen. (6) Smoke-Szenario in der vollen Stufe: Anmeldung auf
+   Hardware-Test.
+   (5) ✓ (22.10.) `beize-session` (`os/beize-session`, `/usr/bin`, eigenes Rezept) mit
+   `beize-session.target`; `beize-compositor.service` (Benutzer-Unit, `Type=notify`, Socket
+   fest `wayland-0`) kommt mit dem Compositor-Paket. Ablauf in ADR 0027 §6. Die
+   Härtungsprüfung kennt jetzt Benutzer-Units (`[user-exposure]` in `security.toml`, gemessen
+   per Dateipfad mit `--user`, denn systemd lehnt `--user` mit `--root` ab); Compositor 1,2.
+   In der VM geprüft: Start, Client über die Umgebung des Managers, zweite Anmeldung
+   abgelehnt, Absturz gemeldet (Exit 1), Abmeldung stoppt alles, Umgebung jeweils zurück.
+   Lehren: sd-bus schließt eine an sd-event gehängte Verbindung, wenn die Schleife endet
+   (daher `sd_event_run` mit eigenem Ende); nach `StartUnit` ist ein Target noch „inactive“
+   mit wartendem Auftrag (daher `JobRemoved`); `ProtectHome=yes` sperrt auch `/run/user`;
+   ein per `kill` geschicktes SIGSEGV verpufft in Rust-Programmen (Handler für Stack-Überlauf),
+   Absturz mit SIGABRT nachstellen.
+   **Test von Hand** (`bz debug`, tty1–6 startet logind ein getty): `chvt 7`, dann
+   `systemd-run --unit=login1 -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
+   -p StandardInput=tty -p StandardOutput=journal -p StandardError=journal
+   /usr/bin/beize-session` (das ist die Anmeldung); Zustand mit `systemctl --user -M smoke@
+   status beize-compositor`, Log mit `journalctl -b _UID=1000`. Client als Benutzer-Unit:
+   `systemd-run -M smoke@ --user /run/t/beize-testclient --frames 600` (Test-Medium nach
+   `/run/t`, die frische Disk hat kein `/mnt`), Eingaben mit `@keys`/`@mouse`.
+   **(6) als Nächstes:** Smoke-Szenario in der vollen Stufe: Anmeldung auf
    tty1 per QMP-Tasten, `beize-session`, Testclient, Screenshot-Vergleich. Geprüft wird
    außerdem: Compositor läuft als Nutzer, keine Warnungen im Journal; Gegenprobe. (7)
-   Hardware-Test beim Besitzer mit nummerierten Schritten: NVK, Maus, Tastatur, Frame-Pacing.
-   Der Monitor kann 1440p @ 240 Hz, nouveau bot aber nur 143,9 Hz an (ADR 0027 §4, offen).
-   Dafür Anschlussart, EDID (`/sys/class/drm/card*-*/edid`) und Modusliste holen und klären.
+   Hardware-Test beim Besitzer mit nummerierten Schritten: NVK, Maus, Tastatur, Frame-Pacing,
+   ob 1440p @ 240 Hz mit dem EDID-Fix auch läuft (Messbau), und ob die Sandbox des
+   Compositors mit NVK hält (in der VM nur lavapipe geprüft).
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34

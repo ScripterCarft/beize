@@ -17,35 +17,45 @@ use crate::util;
 /// Where the measured exposure of Beize's services stands, for messages.
 const DEFINITION: &str = "the variant's security.toml";
 
-/// Checks the services of the `/usr` tree under `root`.
+/// Checks the services of the `/usr` tree under `root`: the system's, and
+/// those every user's service manager runs (`[user-exposure]`).
 pub fn check(paths: &Paths, root: &Path) -> Result<()> {
     let exposure = paths.variant.exposure()?;
-    let units = root.join("usr/lib/systemd/system");
     let mut problems = Vec::new();
-    for entry in fs::read_dir(&units)? {
-        let name = entry?.file_name().to_string_lossy().into_owned();
-        if name.starts_with("beize-") && name.ends_with(".service") && !exposure.contains_key(&name)
-        {
-            problems.push(format!("{name}: Beize's service has no entry"));
+    for (scope, expected) in [("system", &exposure.system), ("user", &exposure.user)] {
+        let units = root.join("usr/lib/systemd").join(scope);
+        if units.is_dir() {
+            for entry in fs::read_dir(&units)? {
+                let name = entry?.file_name().to_string_lossy().into_owned();
+                if name.starts_with("beize-")
+                    && name.ends_with(".service")
+                    && !expected.contains_key(&name)
+                {
+                    problems.push(format!("{name}: Beize's {scope} service has no entry"));
+                }
+            }
         }
-    }
-    let measured = measure(paths, root, exposure.keys())?;
-    for (unit, expected) in &exposure {
-        let Some(actual) = measured.get(unit) else {
-            problems.push(format!(
-                "{unit}: not in /usr, or systemd-analyze gave no value"
-            ));
+        if expected.is_empty() {
             continue;
-        };
-        if (actual - expected).abs() >= 0.05 {
-            let what = if actual > expected {
-                "worse"
-            } else {
-                "better: write the new value"
+        }
+        let measured = measure(paths, root, scope, expected.keys())?;
+        for (unit, expected) in expected {
+            let Some(actual) = measured.get(unit) else {
+                problems.push(format!(
+                    "{unit}: not in /usr, or systemd-analyze gave no value"
+                ));
+                continue;
             };
-            problems.push(format!(
-                "{unit}: {actual:.1} instead of {expected:.1} ({what})"
-            ));
+            if (actual - expected).abs() >= 0.05 {
+                let what = if actual > expected {
+                    "worse"
+                } else {
+                    "better: write the new value"
+                };
+                problems.push(format!(
+                    "{unit}: {actual:.1} instead of {expected:.1} ({what})"
+                ));
+            }
         }
     }
     if !problems.is_empty() {
@@ -56,15 +66,18 @@ pub fn check(paths: &Paths, root: &Path) -> Result<()> {
     }
     say!(
         "  ok: {} services as sandboxed as {DEFINITION} says",
-        exposure.len()
+        exposure.system.len() + exposure.user.len()
     );
     Ok(())
 }
 
-/// Each unit's overall exposure; templates with an instance.
+/// Each unit's overall exposure in `scope` (system or user); templates
+/// with an instance. systemd finds no user units below a root directory
+/// (lookup_paths_init), so those are given as files of the tree.
 fn measure<'a>(
     paths: &Paths,
     root: &Path,
+    scope: &str,
     units: impl Iterator<Item = &'a String>,
 ) -> Result<BTreeMap<String, f64>> {
     let sysroot = &paths.sysroot;
@@ -72,19 +85,26 @@ fn measure<'a>(
     for unit in units {
         instances.insert(unit.replace("@.service", "@x.service"), unit.clone());
     }
-    let out = util::output(
-        Command::new(sysroot.join("usr/lib/ld-linux-x86-64.so.2"))
-            .arg("--library-path")
-            .arg(format!(
-                "{0}/usr/lib:{0}/usr/lib/systemd",
-                sysroot.display()
-            ))
-            .arg(sysroot.join("usr/bin/systemd-analyze"))
-            .args(["security", "--offline=true", "--no-pager"])
+    let mut command = Command::new(sysroot.join("usr/lib/ld-linux-x86-64.so.2"));
+    command
+        .arg("--library-path")
+        .arg(format!(
+            "{0}/usr/lib:{0}/usr/lib/systemd",
+            sysroot.display()
+        ))
+        .arg(sysroot.join("usr/bin/systemd-analyze"))
+        .args(["security", "--offline=true", "--no-pager"]);
+    if scope == "user" {
+        let units = root.join("usr/lib/systemd/user");
+        command
+            .arg("--user")
+            .args(instances.keys().map(|unit| units.join(unit)));
+    } else {
+        command
             .arg(format!("--root={}", root.display()))
-            .args(instances.keys()),
-    )
-    .context("running systemd-analyze security")?;
+            .args(instances.keys());
+    }
+    let out = util::output(&mut command).context("running systemd-analyze security")?;
     Ok(parse(&out)
         .into_iter()
         .filter_map(|(instance, value)| Some((instances.get(&instance)?.clone(), value)))

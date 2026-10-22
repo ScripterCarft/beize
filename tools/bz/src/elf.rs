@@ -20,7 +20,7 @@ use crate::recipe::Recipe;
 use crate::{debuginfo, say, tree, util};
 
 /// Files that cannot carry the CET properties, with the reason.
-const NO_CET: [(&str, &str); 11] = [
+const NO_CET: [(&str, &str); 12] = [
     // Stable Rust cannot generate CET code yet (ADR 0014).
     ("usr/lib/beize/beize-setup", "Rust"),
     ("usr/lib/beize/beize-tpm", "Rust"),
@@ -30,6 +30,7 @@ const NO_CET: [(&str, &str); 11] = [
     ("usr/lib/beize/beize-updated", "Rust"),
     ("usr/lib/beize/beize-update-fetch", "Rust"),
     ("usr/lib/beize/beize-compositor", "Rust"),
+    ("usr/bin/beize-session", "Rust"),
     ("usr/bin/ntp-daemon", "Rust"),
     ("usr/bin/ntp-ctl", "Rust"),
     // NVK's shader compiler (NAK) is Rust, linked into the driver.

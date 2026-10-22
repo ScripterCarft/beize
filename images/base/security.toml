@@ -8,7 +8,8 @@
 # bz checks every entry when it assembles /usr and fails when one differs:
 # higher is a regression to undo; lower is progress – write the new value
 # here. A beize-* service without an entry fails too. Templates are measured
-# with an instance (beize-accounts@x.service).
+# with an instance (beize-accounts@x.service). Services of every user's
+# service manager go into [user-exposure], measured with --user.
 
 [exposure]
 # Beize's services with a Varlink interface for unprivileged callers.

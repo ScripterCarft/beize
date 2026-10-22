@@ -1,0 +1,6 @@
+# What the desktop adds to the base's security.toml (see there).
+
+[user-exposure]
+# The compositor, in every user's service manager: what each app talks to
+# (Wayland).
+"beize-compositor.service" = 1.2

@@ -9,7 +9,8 @@
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
 //!   pointer on the cursor plane.
 //!
-//! Clients connect on `$XDG_RUNTIME_DIR/wayland-N`, N the first free one.
+//! Clients connect on `$XDG_RUNTIME_DIR/wayland-0`. It runs as
+//! `beize-compositor.service`, which beize-session starts.
 
 mod cursor;
 mod gpu;
@@ -19,6 +20,7 @@ mod output;
 mod shell;
 mod state;
 
+use std::ffi::{c_char, c_int};
 use std::process::ExitCode;
 
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
@@ -34,6 +36,16 @@ use tracing::{error, info, warn};
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::log;
 use state::State;
+
+/// The socket clients connect on: a fixed name, as mutter's and KWin's,
+/// since each user has one compositor; beize-session tells the user's
+/// service manager the same as WAYLAND_DISPLAY.
+const SOCKET: &str = "wayland-0";
+
+#[link(name = "systemd")]
+unsafe extern "C" {
+    fn sd_notify(unset_environment: c_int, state: *const c_char) -> c_int;
+}
 
 fn main() -> ExitCode {
     log::init();
@@ -86,7 +98,7 @@ fn run() -> Result<()> {
             },
         )
         .map_err(|e| error(format!("Wayland events: {}", e.error)))?;
-    let socket = ListeningSocketSource::new_auto().context("Wayland socket")?;
+    let socket = ListeningSocketSource::with_name(SOCKET).context("Wayland socket")?;
     info!(
         "clients connect on {}",
         socket.socket_name().to_string_lossy()
@@ -133,6 +145,16 @@ fn run() -> Result<()> {
         state.activate()?;
     } else {
         info!("waiting for the session to become active");
+    }
+    // Clients can connect: beize-session.target becomes active
+    // (Type=notify). Started by hand, there is no one to tell.
+    // SAFETY: a NUL-terminated string that sd_notify only reads.
+    let r = unsafe { sd_notify(0, c"READY=1".as_ptr()) };
+    if r < 0 {
+        warn!(
+            "telling systemd it is ready: {}",
+            std::io::Error::from_raw_os_error(-r)
+        );
     }
     event_loop
         .run(None, &mut state, |state| {

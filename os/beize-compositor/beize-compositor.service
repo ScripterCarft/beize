@@ -1,0 +1,50 @@
+[Unit]
+Description=Beize's compositor
+Documentation=file:/usr/lib/beize/beize-compositor
+# Part of the desktop that beize-session starts from a login (ADR 0027
+# §6), which gives the session's id (libseat) through the environment.
+RefuseManualStart=yes
+PartOf=beize-session.target
+
+[Service]
+# When it ends, the session ends with it (no restart), as macOS logs out
+# when the WindowServer dies; beize-session reports how it ended.
+# Ready once clients can connect.
+Type=notify
+ExecStart=/usr/lib/beize/beize-compositor
+# What the session cannot do without (systemd.special(7)).
+Slice=session.slice
+# Sandbox (images/desktop/security.toml). The devices come from logind as
+# open files, but Mesa opens the GPU's render node itself, hence no
+# PrivateDevices; it writes only its socket in the runtime directory
+# (ProtectHome=yes would hide that too, it is below /run/user). Netlink for
+# udev's announcements
+# of new devices, which also keep it in the host's network namespace.
+# Lavapipe compiles its shaders to machine code, hence no
+# MemoryDenyWriteExecute.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%t
+PrivateTmp=yes
+PrivateUsers=self
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+KeyringMode=private
+UMask=0077

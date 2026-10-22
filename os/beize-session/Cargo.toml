@@ -1,0 +1,11 @@
+[package]
+name = "beize-session"
+description = "Starts Beize's desktop from a login on the console and ends it with the login (ADR 0027 §6)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

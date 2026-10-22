@@ -119,7 +119,21 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 - **Start:** Bis Beize ein eigenes Anmeldefenster hat (wie macOS' loginwindow, eigenes ADR),
   meldet man sich auf tty1 an und startet die Oberfläche mit `beize-session`. Das startet die
   Benutzer-Unit `beize-compositor.service` in `graphical-session.target`, wie GNOME seine
-  Shell als Benutzer-Unit führt. Kein Autostart über Shell-Profile.
+  Shell als Benutzer-Unit führt. Kein Autostart über Shell-Profile. Umgesetzt (22.10.) wie
+  gnome-session und startplasma: `beize-session` bleibt in der Anmeldesitzung, gibt dem
+  Benutzermanager `XDG_SESSION_ID` (libseat findet damit die Sitzung, obwohl der Compositor
+  nicht in ihr läuft), `XDG_SESSION_TYPE=wayland` (libseat meldet es logind) und
+  `WAYLAND_DISPLAY=wayland-0` (fester Name wie bei mutter und KWin, ein Compositor je Nutzer)
+  und startet `beize-session.target` (bindet `graphical-session.target` und den Compositor).
+  Es wartet auf das Ende des Start-Auftrags (`JobRemoved`, wie `systemctl`), dann auf das Ende
+  des Targets, und nimmt die Umgebung zurück. Endet der Compositor, kehrt es zur Shell zurück
+  und meldet einen Absturz; endet die Anmeldung (SIGHUP/SIGTERM), stoppt es den Desktop.
+  Kein Neustart nach einem Absturz: die Sitzung endet, wie macOS beim Tod des WindowServers.
+  Gesprochen wird über den privaten Socket des Managers per sd-bus (wie `systemctl --user`),
+  ohne neue Bibliothek. Der Compositor meldet „bereit“ (`Type=notify`), sobald Clients sich
+  verbinden können. Sandbox als Benutzer-Unit (User-Namespace, Systemaufruf-Filter),
+  `systemd-analyze security` 1,2; offen bleiben müssen Geräte (Mesa öffnet den Render-Knoten
+  selbst), Netlink (udev), W+X-Speicher (lavapipes JIT).
 - **Bildausgabe ohne GBM:** Atomares KMS über Smithays `DrmSurface`. Die Bilder des
   Bildschirms kommen aus Vulkan (`VulkanAllocator`, `VK_EXT_image_drm_format_modifier`, mit
   den Modifiern, die KMS für die Ebene meldet) und gehen als dmabuf an KMS. Den Schritt

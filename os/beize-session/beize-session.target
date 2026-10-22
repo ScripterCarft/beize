@@ -1,0 +1,12 @@
+[Unit]
+Description=Beize's desktop
+Documentation=file:/usr/bin/beize-session
+# Started by beize-session from a login (ADR 0027 §6). The desktop's own
+# target binds systemd's graphical-session.target, as systemd.special(7)
+# asks of every desktop (GNOME: gnome-session.target); what belongs to the
+# graphical session hangs off that.
+BindsTo=graphical-session.target
+Before=graphical-session.target
+# Active once the compositor is ready, and down when it ends.
+BindsTo=beize-compositor.service
+After=beize-compositor.service

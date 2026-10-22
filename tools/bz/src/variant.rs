@@ -35,7 +35,18 @@ struct Definition {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Security {
+    #[serde(default)]
     exposure: BTreeMap<String, f64>,
+    /// Services of every user's service manager.
+    #[serde(default, rename = "user-exposure")]
+    user_exposure: BTreeMap<String, f64>,
+}
+
+/// The measured exposure of the services, by unit.
+#[derive(Default)]
+pub struct Exposure {
+    pub system: BTreeMap<String, f64>,
+    pub user: BTreeMap<String, f64>,
 }
 
 /// One directory of `images/`: a variant without what it extends.
@@ -141,11 +152,12 @@ impl Variant {
     }
 
     /// The measured exposure of the services, all layers.
-    pub fn exposure(&self) -> Result<BTreeMap<String, f64>> {
-        let mut all = BTreeMap::new();
+    pub fn exposure(&self) -> Result<Exposure> {
+        let mut all = Exposure::default();
         for file in self.files(SECURITY) {
             let layer: Security = tree::read_toml(&file)?;
-            all.extend(layer.exposure);
+            all.system.extend(layer.exposure);
+            all.user.extend(layer.user_exposure);
         }
         Ok(all)
     }
@@ -234,6 +246,9 @@ impl Variant {
                 for unit in security.exposure.into_keys() {
                     add("exposure of", unit, &layer.id);
                 }
+                for unit in security.user_exposure.into_keys() {
+                    add("user exposure of", unit, &layer.id);
+                }
             }
         }
         if !problems.is_empty() {
@@ -301,7 +316,9 @@ mod tests {
                 .unwrap()
                 .starts_with(&base.running_units().unwrap())
         );
-        assert!(desktop.exposure().unwrap().len() >= base.exposure().unwrap().len());
+        let (desktop, base) = (desktop.exposure().unwrap(), base.exposure().unwrap());
+        assert!(desktop.system.len() >= base.system.len());
+        assert!(desktop.user.contains_key("beize-compositor.service"));
     }
 
     #[test]
@@ -320,7 +337,10 @@ mod tests {
         write("base/system.preset", "# a comment\nenable a.service\n");
         write("base/user.preset", "enable u.service\n");
         write("base/running-units.txt", "a.service # why\n");
-        write("base/security.toml", "[exposure]\n\"a.service\" = 1.0\n");
+        write(
+            "base/security.toml",
+            "[exposure]\n\"a.service\" = 1.0\n[user-exposure]\n\"u.service\" = 1.0\n",
+        );
         write(
             "top/variant.toml",
             "name = \"Top\"\nextends = \"base\"\npackages = [\"mesa\"]\n",
@@ -355,6 +375,11 @@ mod tests {
                 "top/security.toml",
                 "[exposure]\n\"a.service\" = 9.0\n",
                 "exposure of a.service",
+            ),
+            (
+                "top/security.toml",
+                "[user-exposure]\n\"u.service\" = 9.0\n",
+                "user exposure of u.service",
             ),
         ] {
             write(file, text);

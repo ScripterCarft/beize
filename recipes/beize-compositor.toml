@@ -28,6 +28,8 @@ MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-pa
   -p beize-compositor -p beize-testclient --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-compositor" \
   "$PKG/usr/lib/beize/beize-compositor"
+install -D -m 644 "$REPO/os/beize-compositor/beize-compositor.service" \
+  "$PKG/usr/lib/systemd/user/beize-compositor.service"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-render-test" \
   "$PKG/usr/lib/beize/test/beize-render-test"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-testclient" \
@@ -41,6 +43,7 @@ license = "MPL-2.0"
 [files]
 image = [
   "usr/lib/beize/beize-compositor",
+  "usr/lib/systemd/user/beize-compositor.service",
 ]
 build = [
   { path = "usr/lib/beize/test/beize-render-test", why = "checks the renderer in the VM, on bz's test medium; not for computers" },

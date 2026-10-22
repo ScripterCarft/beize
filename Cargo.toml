@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["tools/bz", "os/beize-tpm", "os/beize-setup", "os/beize-accounts", "os/beize-varlink", "os/beize-update", "os/beize-compositor", "os/beize-testclient"]
+members = ["tools/bz", "os/beize-tpm", "os/beize-setup", "os/beize-accounts", "os/beize-varlink", "os/beize-update", "os/beize-compositor", "os/beize-testclient", "os/beize-session"]
 
 [workspace.package]
 version = "0.1.0"

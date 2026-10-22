@@ -1,0 +1,30 @@
+# beize-session (os/beize-session): starts Beize's desktop from a login on
+# the console and ends it with the login (ADR 0027 §6), until Beize has its
+# own login window. Talks to the user's service manager through libsystemd.
+name = "beize-session"
+version = "0.1.0"
+stage = "target"
+# libgcc_s for Rust's unwinding.
+deps = ["gcc", "glibc", "gcc-runtime", "systemd"]
+repo = ["os/beize-session", "Cargo.toml", "Cargo.lock"]
+
+[build]
+script = '''
+"$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
+MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
+  -p beize-session --target x86_64-unknown-linux-gnu
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-session" \
+  "$PKG/usr/bin/beize-session"
+install -D -m 644 "$REPO/os/beize-session/beize-session.target" \
+  "$PKG/usr/lib/systemd/user/beize-session.target"
+'''
+
+[sbom]
+# Beize's own code (LICENSE).
+license = "MPL-2.0"
+
+[files]
+image = [
+  "usr/bin/beize-session",
+  "usr/lib/systemd/user/beize-session.target",
+]
