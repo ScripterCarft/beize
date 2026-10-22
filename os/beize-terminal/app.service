@@ -1,0 +1,16 @@
+[Unit]
+Description=Terminal
+Documentation=file:/usr/lib/beize/beize-terminal
+# Installed as app-beize\x2dterminal@.service: one instance per window,
+# which the compositor starts (ADR 0027 §9), named as systemd's desktop
+# integration asks. An app of the graphical session (systemd.special(7)):
+# it starts once the session is up and stops with it.
+PartOf=graphical-session.target
+After=graphical-session.target
+# A window closed with a failing last command leaves nothing behind.
+CollectMode=inactive-or-failed
+
+[Service]
+# The user's own shell with the user's rights, as macOS' Terminal: no
+# sandbox (images/desktop/security.toml). Ends when its shell does.
+ExecStart=/usr/lib/beize/beize-terminal

@@ -27,7 +27,9 @@ pub fn check(paths: &Paths, root: &Path) -> Result<()> {
         if units.is_dir() {
             for entry in fs::read_dir(&units)? {
                 let name = entry?.file_name().to_string_lossy().into_owned();
-                if name.starts_with("beize-")
+                // Beize's services, and the units of its apps (only Beize's
+                // own are in /usr).
+                if (name.starts_with("beize-") || name.starts_with("app-"))
                     && name.ends_with(".service")
                     && !expected.contains_key(&name)
                 {

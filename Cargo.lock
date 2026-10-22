@@ -162,6 +162,7 @@ dependencies = [
 name = "beize-compositor"
 version = "0.1.0"
 dependencies = [
+ "beize-systemd",
  "beize-vulkan",
  "rustix 1.1.5",
  "smithay",
@@ -172,6 +173,9 @@ dependencies = [
 [[package]]
 name = "beize-session"
 version = "0.1.0"
+dependencies = [
+ "beize-systemd",
+]
 
 [[package]]
 name = "beize-setup"
@@ -179,6 +183,10 @@ version = "0.1.0"
 dependencies = [
  "beize-accounts",
 ]
+
+[[package]]
+name = "beize-systemd"
+version = "0.1.0"
 
 [[package]]
 name = "beize-terminal"

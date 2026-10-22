@@ -16,11 +16,9 @@
 //! The compositor runs in the user's service manager, not under this
 //! process: its own unit, sandbox and journal, as GNOME runs its shell.
 
-mod systemd;
-
 use std::process::ExitCode;
 
-use systemd::{Manager, UNIT, Watcher};
+use beize_systemd::{self as systemd, Manager, UNIT, Watcher};
 
 const TARGET: &str = "beize-session.target";
 const COMPOSITOR: &str = "beize-compositor.service";

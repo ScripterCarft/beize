@@ -10,6 +10,7 @@
 //! at most as often as the screen shows. With nothing to draw, they hear
 //! it one refresh later.
 
+use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -24,7 +25,7 @@ use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::desktop::utils::send_frames_surface_tree;
 use smithay::desktop::{PopupManager, Space, Window};
-use smithay::input::keyboard::{KeyboardHandle, XkbConfig};
+use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::CursorImageStatus;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode as OutputMode, Output as WlOutput, PhysicalProperties, Subpixel};
@@ -111,6 +112,9 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
+    /// Keys pressed for the compositor (`input`): their release stays with
+    /// it too, the window never hears of them.
+    pub taken_keys: HashSet<Keycode>,
     pub space: Space<Window>,
     pub popups: PopupManager,
     /// The screen: None until the session is first active, as only then
@@ -178,6 +182,7 @@ impl State {
             seat_state,
             seat,
             keyboard,
+            taken_keys: HashSet::new(),
             space: Space::default(),
             popups: PopupManager::default(),
             screen: None,

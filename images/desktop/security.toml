@@ -4,3 +4,6 @@
 # The compositor, in every user's service manager: what each app talks to
 # (Wayland).
 "beize-compositor.service" = 1.2
+# The terminal: the user's own shell with the user's rights, deliberately
+# without a sandbox, as macOS' Terminal (ADR 0027 §9).
+'app-beize\x2dterminal@.service' = 9.2

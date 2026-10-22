@@ -2,7 +2,7 @@
 //! window with the keyboard, the pointer to the window under it, a click
 //! makes a window the active one. Ctrl+Alt+F1…F12 switch the VT, as on
 //! every Linux desktop – the compositor holds the keyboard, so it asks
-//! logind.
+//! logind; Ctrl+Alt+T opens a terminal (`apps`).
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
@@ -10,11 +10,12 @@ use smithay::backend::input::{
 };
 use smithay::backend::libinput::LibinputInputBackend;
 use smithay::backend::session::Session;
-use smithay::input::keyboard::{FilterResult, Keysym};
+use smithay::input::keyboard::{FilterResult, Keysym, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 use tracing::warn;
 
+use crate::apps;
 use crate::state::State;
 
 pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
@@ -35,30 +36,66 @@ pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
     }
 }
 
+/// What a key the compositor takes does.
+#[derive(Debug, PartialEq)]
+enum Action {
+    SwitchVt(u32),
+    OpenTerminal,
+}
+
 fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
+    let code = event.key_code();
     let pressed = event.state() == KeyState::Pressed;
     let keyboard = state.keyboard.clone();
-    let vt = keyboard.input(
+    let action = keyboard.input(
         state,
-        event.key_code(),
+        code,
         event.state(),
         SERIAL_COUNTER.next_serial(),
         event.time_msec(),
-        |_, _, keysym| {
-            let sym = keysym.modified_sym().raw();
-            let first = Keysym::XF86_Switch_VT_1.raw();
-            if pressed && (first..=Keysym::XF86_Switch_VT_12.raw()).contains(&sym) {
-                FilterResult::Intercept(sym - first + 1)
-            } else {
-                FilterResult::Forward
+        |state, modifiers, keysym| {
+            if !pressed {
+                return if state.taken_keys.remove(&code) {
+                    FilterResult::Intercept(None)
+                } else {
+                    FilterResult::Forward
+                };
+            }
+            match action(
+                modifiers,
+                keysym.modified_sym(),
+                keysym.raw_latin_sym_or_raw_current_sym(),
+            ) {
+                Some(action) => {
+                    state.taken_keys.insert(code);
+                    FilterResult::Intercept(Some(action))
+                }
+                None => FilterResult::Forward,
             }
         },
     );
-    if let Some(vt) = vt
-        && let Err(e) = state.session.change_vt(vt as i32)
-    {
-        warn!("switching to VT {vt}: {e}");
+    match action.flatten() {
+        Some(Action::SwitchVt(vt)) => {
+            if let Err(e) = state.session.change_vt(vt as i32) {
+                warn!("switching to VT {vt}: {e}");
+            }
+        }
+        Some(Action::OpenTerminal) => apps::open_terminal(),
+        None => {}
     }
+}
+
+/// The compositor's keys: Ctrl+Alt+F1…F12 (the layout gives them as VT
+/// keysyms) and Ctrl+Alt+T for a new terminal, as on Ubuntu. The letter
+/// counts as a Latin layout among the loaded ones has it (Smithay), so with
+/// Russian next to US the key stays where it is, as in GNOME.
+fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Option<Action> {
+    let first = Keysym::XF86_Switch_VT_1.raw();
+    if (first..=Keysym::XF86_Switch_VT_12.raw()).contains(&sym.raw()) {
+        return Some(Action::SwitchVt(sym.raw() - first + 1));
+    }
+    let only_ctrl_alt = modifiers.ctrl && modifiers.alt && !modifiers.shift && !modifiers.logo;
+    (only_ctrl_alt && latin == Some(Keysym::t)).then_some(Action::OpenTerminal)
 }
 
 fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
@@ -134,5 +171,45 @@ fn axis<B: InputBackend>(state: &mut State, event: &B::PointerAxisEvent) {
     if let Some(pointer) = state.seat.get_pointer() {
         pointer.axis(state, frame);
         pointer.frame(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn held(ctrl: bool, alt: bool, shift: bool) -> ModifiersState {
+        ModifiersState {
+            ctrl,
+            alt,
+            shift,
+            ..ModifiersState::default()
+        }
+    }
+
+    #[test]
+    fn takes_only_its_own_keys() {
+        let ctrl_alt = held(true, true, false);
+        assert_eq!(
+            action(&ctrl_alt, Keysym::XF86_Switch_VT_2, None),
+            Some(Action::SwitchVt(2))
+        );
+        assert_eq!(
+            action(&ctrl_alt, Keysym::t, Some(Keysym::t)),
+            Some(Action::OpenTerminal)
+        );
+        // Russian active, US loaded too: the key of T gives Cyrillic ie.
+        assert_eq!(
+            action(&ctrl_alt, Keysym::Cyrillic_ie, Some(Keysym::t)),
+            Some(Action::OpenTerminal)
+        );
+        for modifiers in [
+            held(true, false, false),
+            held(false, true, false),
+            held(true, true, true),
+        ] {
+            assert_eq!(action(&modifiers, Keysym::t, Some(Keysym::t)), None);
+        }
+        assert_eq!(action(&ctrl_alt, Keysym::u, Some(Keysym::u)), None);
     }
 }

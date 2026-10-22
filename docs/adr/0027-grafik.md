@@ -373,11 +373,20 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Scrollen je Zeiger-Frame in Pixeln und Rastungen (`axis_value120`). Geprüft: Tests mit dem
   deutschen Layout (Buildroot), in der VM `^` + `e` = ê, `^` + Shift+`o` = Ô, Wechsel von
   `de(nodeadkeys)` zu `de` per localectl ohne Neustart des Fensters.
-- **Start:** Beim Start des Desktops öffnet sich ein Terminal (übergangsweise, bis die Shell
-  ein Dock hat), Strg+Alt+T öffnet jederzeit ein neues (dauerhaft, wie Ubuntu). Die App läuft
-  in einer eigenen Benutzer-Unit des systemd-Managers, nie als Kind des Compositors (sonst
-  erbte sie seine Sandbox). Der Compositor startet sie über den Manager (sd-bus, den Code
-  teilt er mit beize-session).
+- **Start** (22.10.): Beim Start des Desktops öffnet sich ein Terminal (übergangsweise, bis die
+  Shell ein Dock hat), Strg+Alt+T öffnet jederzeit ein neues (dauerhaft, wie Ubuntu; die Taste
+  zählt wie auf einem geladenen lateinischen Layout, wie GNOME). Jedes Fenster ist eine Instanz
+  von `app-beize\x2dterminal@.service`, benannt nach systemds Desktop-Integration
+  (`app-<App-ID>@<Zufall>.service`, Bindestriche maskiert), damit Werkzeuge die App eines
+  Prozesses erkennen; nie ein Kind des Compositors (sonst erbte es seine Sandbox). Die Unit hängt
+  an `graphical-session.target` (startet nach ihr, stoppt mit ihr). Bewusst ohne Sandbox: die
+  Shell des Nutzers mit seinen Rechten, wie macOS' Terminal (`security.toml` 9,2; die Ratsche
+  erfasst jetzt auch `app-*`-Units). Der Compositor ruft `StartUnit` in einem kurzen Thread mit
+  eigener Verbindung, so wartet die Bildschleife nie auf den Manager. Den sd-bus-Code teilen
+  Compositor und beize-session im Crate `os/beize-systemd`. Tasten, die der Compositor nimmt,
+  behält er auch beim Loslassen (wie anvil und niri). Geprüft im Smoke-Szenario `Desktop`: ein
+  Terminal mit Shell nach dem Start, ein zweites nach Strg+Alt+T, keins nach dem Abmelden
+  (Gegenprobe: andere Taste → rot).
 - **Test:** Smoke-Szenario: Terminal startet, Befehl tippen, Bildvergleich des Textbereichs
   mit einer Referenz im Repo (wie openQA). Die Referenz erneuert `bz` nur auf ausdrücklichen
   Wunsch und nach Sichtprüfung. Dazu der Hardware-Test mit `pacing:` (prüft den Zeitplan).

@@ -10,6 +10,9 @@ license.workspace = true
 [dependencies]
 # The device, pipelines and images it shares with Beize UI (ADR 0027 §9).
 beize-vulkan = { path = "../beize-vulkan" }
+# Starts apps in the user's service manager (ADR 0027 §9), as beize-session
+# starts the desktop.
+beize-systemd = { path = "../beize-systemd" }
 # Only what the compositor uses (ADR 0027 §6): atomic KMS, libinput, the
 # logind session through libseat, Vulkan, and the Wayland protocol in pure
 # Rust. No GBM, EGL or OpenGL, no X11 or winit.
@@ -23,8 +26,8 @@ smithay = { version = "0.7.0", default-features = false, features = [
   "wayland_frontend",
 ] }
 # sync_file in and out of dmabufs (ioctls) and polling it; inotify for the
-# keyboard layout.
-rustix = { version = "1.1", default-features = false, features = ["event", "fs", "std"] }
+# keyboard layout; random instance names for apps.
+rustix = { version = "1.1", default-features = false, features = ["event", "fs", "rand", "std"] }
 tracing = "0.1"
 # Smithay reports through tracing; this writes it to stderr, the journal.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }

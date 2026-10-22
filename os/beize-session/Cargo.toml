@@ -7,5 +7,9 @@ rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[dependencies]
+# The session and the user's service manager, shared with the compositor.
+beize-systemd = { path = "../beize-systemd" }
+
 [lints]
 workspace = true

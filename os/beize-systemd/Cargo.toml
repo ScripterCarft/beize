@@ -1,0 +1,11 @@
+[package]
+name = "beize-systemd"
+description = "libsystemd for Beize's desktop: the login session, and the user's service manager over sd-bus (ADR 0027 §6, §9)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

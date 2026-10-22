@@ -28,6 +28,9 @@ MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-pa
   -p beize-ui -p beize-terminal --target x86_64-unknown-linux-gnu
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-terminal" \
   "$PKG/usr/lib/beize/beize-terminal"
+# Its unit: an instance per window, which the compositor starts.
+install -D -m 644 "$REPO/os/beize-terminal/app.service" \
+  "$PKG/usr/lib/systemd/user/app-beize\x2dterminal@.service"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-ui-test" \
   "$PKG/usr/lib/beize/test/beize-ui-test"
 '''
@@ -37,7 +40,10 @@ install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-ui-t
 license = "MPL-2.0"
 
 [files]
-image = ["usr/lib/beize/beize-terminal"]
+image = [
+  "usr/lib/beize/beize-terminal",
+  'usr/lib/systemd/user/app-beize\x2dterminal@.service',
+]
 build = [
   { path = "usr/lib/beize/test/beize-ui-test", why = "checks Beize UI's window in the VM, on bz's test medium; not for computers" },
 ]

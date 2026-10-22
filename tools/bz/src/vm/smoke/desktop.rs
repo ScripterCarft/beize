@@ -1,10 +1,11 @@
 //! The desktop (ADR 0027 §6): the owner signs in on tty1 at the keyboard
 //! and types `beize-session`; the compositor runs as the owner in its
-//! sandbox, logind knows the session as a Wayland one, a client's window
+//! sandbox, logind knows the session as a Wayland one, a terminal opens
+//! with the desktop and another with Ctrl+Alt+T, a client's window
 //! fills the screen and the screen shows exactly its pattern. Beize UI's
 //! test program shows its sample – text, colours, blending – exactly as it
 //! draws it offscreen, the reference in the repository. Signing out stops
-//! the desktop and takes its environment back.
+//! the desktop with its terminals and takes its environment back.
 //!
 //! The owner's shell on the serial console looks on: the same user, so the
 //! same service manager as the login on tty1.
@@ -109,6 +110,19 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     say!(
         "  ok: the login on tty1 started the desktop: a Wayland session, the compositor as the owner, sandboxed"
+    );
+
+    // The desktop starts with a terminal, Ctrl+Alt+T opens another: each in
+    // a unit of its own, with the owner's shell in it.
+    let first = wait_for_terminals(&shell, 1)?;
+    keys(&qmp, &["ctrl+alt+t"])?;
+    let both = wait_for_terminals(&shell, 2)?;
+    ensure!(
+        both.contains(&first[0]),
+        "the first terminal ended when the second opened: {both:?}"
+    );
+    say!(
+        "  ok: the desktop started with a terminal, Ctrl+Alt+T opened another, each with its shell"
     );
 
     // A client started by the service manager, which knows the socket only
@@ -258,9 +272,46 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
             .any(|l| l.starts_with("WAYLAND_DISPLAY=") || l.starts_with("XDG_SESSION_ID=")),
         "the session's environment stayed with the service manager: {lines:?}"
     );
-    say!("  ok: signing out stopped the desktop and took its environment back");
+    let left = terminals(&shell)?;
+    ensure!(
+        left.is_empty(),
+        "terminals still run after signing out: {left:?}"
+    );
+    say!("  ok: signing out stopped the desktop and its terminals and took its environment back");
     shell.stop()?;
     machine.remove()
+}
+
+/// The terminals in the owner's service manager, units of the template
+/// `app-beize\x2dterminal@.service`, with the number of processes in each
+/// (the terminal, and its shell once it has a window).
+fn terminals(shell: &Shell) -> Result<Vec<(String, usize)>> {
+    let (_, lines) = shell.capture(
+        "systemctl --user list-units 'app-beize\\x2dterminal@*' --state=active --plain \
+         --no-legend | while read -r u _; do \
+         echo \"BEIZE-TERMINAL $u $(grep -c . /sys/fs/cgroup$(systemctl --user show -P \
+         ControlGroup \"$u\")/cgroup.procs)\"; done",
+    )?;
+    Ok(lines
+        .iter()
+        .filter_map(|l| {
+            let (unit, count) = l.strip_prefix("BEIZE-TERMINAL ")?.split_once(' ')?;
+            Some((unit.to_owned(), count.parse().ok()?))
+        })
+        .collect())
+}
+
+/// Waits until `count` terminals run, each with its shell; their units.
+fn wait_for_terminals(shell: &Shell, count: usize) -> Result<Vec<String>> {
+    let mut found = Vec::new();
+    for _ in 0..50 {
+        found = terminals(shell)?;
+        if found.len() == count && found.iter().all(|(_, processes)| *processes >= 2) {
+            return Ok(found.into_iter().map(|(unit, _)| unit).collect());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    bail!("not {count} terminals with a shell each: {found:?}")
 }
 
 /// An RGB image.
