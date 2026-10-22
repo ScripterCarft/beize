@@ -20,6 +20,7 @@ use super::VkRenderer;
 use super::device::{Garbage, Shared};
 use super::texture::{self, vk_format};
 use crate::error::{Context, Result, error};
+use beize_vulkan::image;
 
 const USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
     vk::ImageUsageFlags::COLOR_ATTACHMENT.as_raw()
@@ -101,7 +102,7 @@ impl VkRenderer {
         let d = &self.shared.device;
         let (format, _) = vk_format(fourcc).context(format!("format {fourcc} is not drawn"))?;
         // A target is written whole, alpha included.
-        let view = match texture::view(d, image, format, true) {
+        let view = match image::view(d, image, format, true) {
             Ok(v) => v,
             Err(e) => {
                 // SAFETY: never used.
@@ -167,7 +168,7 @@ impl VkRenderer {
             return Err(error("an empty target"));
         }
         let (image, memory) =
-            texture::own_image(&self.shared, format, (size.w as u32, size.h as u32), USAGE)?;
+            image::own_image(&self.shared, format, (size.w as u32, size.h as u32), USAGE)?;
         self.target(image, memory, fourcc, size)
     }
 }

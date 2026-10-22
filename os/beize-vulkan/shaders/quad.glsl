@@ -1,4 +1,4 @@
-// The quads of a frame (src/render/geometry.rs, `Quad`): one instance
+// The quads of a frame (src/pipeline.rs, `Quad`): one instance
 // each, read through their buffer's device address (push constant).
 
 #extension GL_EXT_buffer_reference : require

@@ -10,32 +10,7 @@
 
 use smithay::utils::{Buffer, Physical, Point, Rectangle, Size, Transform};
 
-/// One quad as the shaders read it (`shaders/quad.glsl`, scalar layout).
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Quad {
-    /// Top-left corner and size in framebuffer pixels.
-    pub pos: [f32; 2],
-    pub size: [f32; 2],
-    /// Texel coordinate at the top-left corner, and its change across the
-    /// quad's width and height (any of the eight transforms).
-    pub uv: [f32; 2],
-    pub uv_x: [f32; 2],
-    pub uv_y: [f32; 2],
-    /// 1 / the texture's size: texel coordinates to normalised ones.
-    pub texel: [f32; 2],
-    /// Premultiplied colour for solids; for textures only `[3]`, the alpha.
-    pub color: [f32; 4],
-    /// Index into the texture array.
-    pub texture: u32,
-    pub flags: u32,
-}
-
-/// A solid colour, no texture.
-pub const SOLID: u32 = 1;
-/// Texels 1:1 on whole pixels: fetched, not filtered – sharp by
-/// construction (ADR 0027 §3).
-pub const EXACT: u32 = 2;
+pub use beize_vulkan::pipeline::{EXACT, Quad, SOLID};
 
 /// The framebuffer as the frame sees it: its size and the output's
 /// transform.

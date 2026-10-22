@@ -1,21 +1,23 @@
 //! Textures: images of the renderer's own (shm and memory buffers, filled
-//! through staging) or a client's dmabuf, imported. Each has a place in the
-//! bindless array for as long as it lives, and is destroyed only after the
-//! last frame that drew it (`device::Garbage`).
+//! through staging) or a client's dmabuf, imported. Each is a
+//! `beize_vulkan::image::Sampled`: a place in the bindless array for as
+//! long as it lives, destroyed only after the last frame that drew it.
 
 use std::fmt;
 use std::os::fd::{AsRawFd, IntoRawFd};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use smithay::backend::allocator::Buffer as _;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::allocator::dmabuf::{Dmabuf, WeakDmabuf};
 use smithay::backend::renderer::Texture;
-use smithay::reexports::ash::{self, vk};
+use smithay::reexports::ash::vk;
 use smithay::utils::{Buffer, Size};
 
-use super::device::{Ext, Garbage, Shared};
+use beize_vulkan::image::{Sampled, image_info};
+
+use super::device::{Ext, Shared};
 use crate::error::{Context, Result, error};
 
 /// Vulkan's format for a DRM format, and whether it has alpha: the
@@ -43,11 +45,7 @@ pub const FORMATS: [Fourcc; 4] = [
 pub struct VkTexture(pub(super) Arc<Inner>);
 
 pub(super) struct Inner {
-    shared: Arc<Shared>,
-    pub image: vk::Image,
-    pub view: vk::ImageView,
-    memory: vk::DeviceMemory,
-    pub slot: u32,
+    pub gpu: Sampled,
     pub size: Size<i32, Buffer>,
     pub fourcc: Fourcc,
     pub has_alpha: bool,
@@ -56,13 +54,11 @@ pub(super) struct Inner {
     pub dmabuf: Option<WeakDmabuf>,
     /// Holds content (an own image after its first upload).
     pub filled: AtomicBool,
-    /// The submission that last used it.
-    pub last_used: AtomicU64,
 }
 
 impl VkTexture {
     pub(super) fn used(&self, submission: u64) {
-        self.0.last_used.fetch_max(submission, Ordering::Relaxed);
+        self.0.gpu.used(submission);
     }
 
     pub fn has_alpha(&self) -> bool {
@@ -73,7 +69,7 @@ impl VkTexture {
 impl fmt::Debug for VkTexture {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VkTexture")
-            .field("slot", &self.0.slot)
+            .field("slot", &self.0.gpu.slot)
             .field("size", &self.0.size)
             .field("format", &self.0.fourcc)
             .field("dmabuf", &self.0.dmabuf.is_some())
@@ -91,120 +87,6 @@ impl Texture for VkTexture {
     fn format(&self) -> Option<Fourcc> {
         Some(self.0.fourcc)
     }
-}
-
-impl Drop for Inner {
-    fn drop(&mut self) {
-        let after = self.last_used.load(Ordering::Relaxed);
-        self.shared.defer(
-            after,
-            Garbage::Image {
-                image: self.image,
-                view: self.view,
-                memory: self.memory,
-            },
-        );
-        self.shared.defer(after, Garbage::Slot(self.slot));
-    }
-}
-
-pub fn view(
-    d: &ash::Device,
-    image: vk::Image,
-    format: vk::Format,
-    has_alpha: bool,
-) -> Result<vk::ImageView> {
-    let alpha = if has_alpha {
-        vk::ComponentSwizzle::IDENTITY
-    } else {
-        vk::ComponentSwizzle::ONE
-    };
-    let info = vk::ImageViewCreateInfo::default()
-        .image(image)
-        .view_type(vk::ImageViewType::TYPE_2D)
-        .format(format)
-        .components(vk::ComponentMapping {
-            r: vk::ComponentSwizzle::IDENTITY,
-            g: vk::ComponentSwizzle::IDENTITY,
-            b: vk::ComponentSwizzle::IDENTITY,
-            a: alpha,
-        })
-        .subresource_range(COLOR);
-    // SAFETY: the image belongs to this device; the info lives until the
-    // call returns.
-    unsafe { d.create_image_view(&info, None) }.context("image view")
-}
-
-pub const COLOR: vk::ImageSubresourceRange = vk::ImageSubresourceRange {
-    aspect_mask: vk::ImageAspectFlags::COLOR,
-    base_mip_level: 0,
-    level_count: 1,
-    base_array_layer: 0,
-    layer_count: 1,
-};
-
-/// An image with memory of its own, bound.
-pub fn own_image(
-    shared: &Shared,
-    format: vk::Format,
-    size: (u32, u32),
-    usage: vk::ImageUsageFlags,
-) -> Result<(vk::Image, vk::DeviceMemory)> {
-    let d = &shared.device;
-    let info = image_info(format, size, usage).tiling(vk::ImageTiling::OPTIMAL);
-    // SAFETY: the create info lives until the call returns; on failure the
-    // image is destroyed again.
-    unsafe {
-        let image = d.create_image(&info, None).context("image")?;
-        let requirements = d.get_image_memory_requirements(image);
-        let memory = shared
-            .memory_type(
-                requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            )
-            .and_then(|kind| {
-                d.allocate_memory(
-                    &vk::MemoryAllocateInfo::default()
-                        .allocation_size(requirements.size)
-                        .memory_type_index(kind),
-                    None,
-                )
-                .context("image memory")
-            });
-        let memory = match memory {
-            Ok(m) => m,
-            Err(e) => {
-                d.destroy_image(image, None);
-                return Err(e);
-            }
-        };
-        if let Err(e) = d.bind_image_memory(image, memory, 0) {
-            d.destroy_image(image, None);
-            d.free_memory(memory, None);
-            return Err(error(format!("binding an image: {e}")));
-        }
-        Ok((image, memory))
-    }
-}
-
-pub fn image_info(
-    format: vk::Format,
-    (width, height): (u32, u32),
-    usage: vk::ImageUsageFlags,
-) -> vk::ImageCreateInfo<'static> {
-    vk::ImageCreateInfo::default()
-        .image_type(vk::ImageType::TYPE_2D)
-        .format(format)
-        .extent(vk::Extent3D {
-            width,
-            height,
-            depth: 1,
-        })
-        .mip_levels(1)
-        .array_layers(1)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .usage(usage)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
 }
 
 /// A dmabuf as a Vulkan image: with its modifier where the device has
@@ -340,46 +222,22 @@ pub(super) fn wrap(
     size: Size<i32, Buffer>,
     dmabuf: Option<WeakDmabuf>,
 ) -> Result<VkTexture> {
-    let d = &shared.device;
-    let destroy = || {
+    let Some((format, has_alpha)) = vk_format(fourcc) else {
         // SAFETY: never used.
         unsafe {
-            d.destroy_image(image, None);
-            d.free_memory(memory, None);
+            shared.device.destroy_image(image, None);
+            shared.device.free_memory(memory, None);
         }
-    };
-    let Some((format, has_alpha)) = vk_format(fourcc) else {
-        destroy();
         return Err(error(format!("format {fourcc} is not taken")));
     };
-    let view = match view(d, image, format, has_alpha) {
-        Ok(v) => v,
-        Err(e) => {
-            destroy();
-            return Err(e);
-        }
-    };
-    let slot = match shared.slot() {
-        Ok(s) => s,
-        Err(e) => {
-            // SAFETY: never used.
-            unsafe { d.destroy_image_view(view, None) };
-            destroy();
-            return Err(e);
-        }
-    };
+    let gpu = Sampled::new(shared, image, memory, format, has_alpha)?;
     let filled = dmabuf.is_some();
     Ok(VkTexture(Arc::new(Inner {
-        shared: shared.clone(),
-        image,
-        view,
-        memory,
-        slot,
+        gpu,
         size,
         fourcc,
         has_alpha,
         dmabuf,
         filled: AtomicBool::new(filled),
-        last_used: AtomicU64::new(0),
     })))
 }

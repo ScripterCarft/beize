@@ -11,7 +11,6 @@
 mod device;
 mod frame;
 pub mod geometry;
-mod pipeline;
 mod sync;
 mod target;
 mod texture;
@@ -35,9 +34,9 @@ use smithay::wayland::compositor::SurfaceData;
 use tracing::{debug, info, warn};
 
 use crate::error::{Context, Error, Result, error};
+use beize_vulkan::pipeline::Pipelines;
 use device::{Caps, Ext, Garbage, Shared};
 pub use frame::VkFrame;
-use pipeline::Pipelines;
 pub use target::{Target, VkFramebuffer};
 pub use texture::VkTexture;
 
@@ -516,7 +515,7 @@ impl VkRenderer {
         if size.w <= 0 || size.h <= 0 {
             return Err(error("an empty texture"));
         }
-        let (image, memory) = texture::own_image(
+        let (image, memory) = beize_vulkan::image::own_image(
             &self.shared,
             format,
             (size.w as u32, size.h as u32),
@@ -526,7 +525,7 @@ impl VkRenderer {
         )?;
         let texture = texture::wrap(&self.shared, image, memory, fourcc, size, None)?;
         self.pipelines
-            .write(&self.shared.device, texture.0.slot, texture.0.view);
+            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
         self.upload(&texture, data, stride, &[Rectangle::from_size(size)])?;
         Ok(texture)
     }
@@ -783,7 +782,7 @@ impl ImportDma for VkRenderer {
             Some(dmabuf.weak()),
         )?;
         self.pipelines
-            .write(&self.shared.device, texture.0.slot, texture.0.view);
+            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
         self.dmabufs.insert(dmabuf.weak(), texture.clone());
         Ok(texture)
     }
@@ -850,8 +849,14 @@ impl ExportMem for VkRenderer {
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
         };
         let texture = texture.clone();
-        let mapping =
-            self.read_image(texture.0.image, vk_format, layout, foreign, region, format)?;
+        let mapping = self.read_image(
+            texture.0.gpu.image,
+            vk_format,
+            layout,
+            foreign,
+            region,
+            format,
+        )?;
         texture.used(self.submitted);
         Ok(mapping)
     }

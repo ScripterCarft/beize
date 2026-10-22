@@ -8,6 +8,8 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+# The device, pipelines and images it shares with Beize UI (ADR 0027 §9).
+beize-vulkan = { path = "../beize-vulkan" }
 # Only what the compositor uses (ADR 0027 §6): atomic KMS, libinput, the
 # logind session through libseat, Vulkan, and the Wayland protocol in pure
 # Rust. No GBM, EGL or OpenGL, no X11 or winit.

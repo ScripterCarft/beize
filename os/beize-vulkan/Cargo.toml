@@ -1,0 +1,17 @@
+[package]
+name = "beize-vulkan"
+description = "The Vulkan ground Beize's compositor and Beize UI draw on: device, pipelines, images (ADR 0027 §9)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+# The ash Smithay re-exports (its backend_vulkan): the compositor hands its
+# handles over unchanged. Loading Vulkan is the caller's.
+ash = { version = "0.38", default-features = false, features = ["std"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

@@ -19,12 +19,13 @@ use tracing::{debug, warn};
 
 use super::device::Ext;
 use super::geometry::{self, Mapping, Quad, Space};
-use super::pipeline::{Pipelines, Push};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
-use super::texture::{COLOR, VkTexture};
+use super::texture::VkTexture;
 use super::{Upload, VkRenderer};
 use crate::error::{Error, Result};
+use beize_vulkan::image::COLOR;
+use beize_vulkan::pipeline::{Pipelines, Push};
 
 /// What a frame has gathered for its submission.
 pub(super) struct Recorded<'a> {
@@ -168,7 +169,7 @@ impl Frame for VkFrame<'_, '_> {
             for part in rects {
                 let mut quad = geometry::quad(&self.space, part, Some((&mapping, size)));
                 quad.color = [1.0, 1.0, 1.0, alpha];
-                quad.texture = texture.0.slot;
+                quad.texture = texture.0.gpu.slot;
                 self.push(quad, blend);
             }
         }
@@ -285,7 +286,7 @@ pub(super) fn record_uploads(
         } else {
             (vk::ImageLayout::UNDEFINED, NONE)
         };
-        let image = u.texture.0.image;
+        let image = u.texture.0.gpu.image;
         before.push(barrier(
             image,
             old,
@@ -310,7 +311,7 @@ pub(super) fn record_uploads(
             d.cmd_copy_buffer_to_image(
                 commands,
                 staging,
-                u.texture.0.image,
+                u.texture.0.gpu.image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &u.regions,
             )
@@ -355,7 +356,7 @@ pub(super) fn record_frame(
     let mut after = Vec::new();
     for t in &frame.foreign {
         before.push(barrier(
-            t.0.image,
+            t.0.gpu.image,
             vk::ImageLayout::GENERAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             NONE,
@@ -363,7 +364,7 @@ pub(super) fn record_frame(
             (foreign, own),
         ));
         after.push(barrier(
-            t.0.image,
+            t.0.gpu.image,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             vk::ImageLayout::GENERAL,
             SHADER_READ,
