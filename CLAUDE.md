@@ -75,7 +75,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr; sd-bus zum Benutzermanager), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr; sd-bus zum Benutzermanager), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -422,10 +422,12 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `libx11-compose` (Compose-Tabellen der UTF-8-Locales aus libX11 mit upstreams cpp-Regeln);
    Einzeldateien vom Release-Tag, byte-gleich mit dem Release-Zip geprüft. Lehre: `curl`
    ohne `--fail` speichert eine 404-Seite still – Prüfsummen nur von `--fail`-Downloads.
-   **(b) JETZT:** Vulkan-Grundlagen als gemeinsames Crate von Compositor und Beize UI
-   (`render/` hat 3,5k Zeilen; teilbar: `device.rs`, `pipeline.rs`/Shader-Bau in `build.rs`,
-   `texture.rs`, `geometry.rs`; an Smithay gebunden bleibt `mod.rs`/`frame.rs`/`target.rs`);
-   (c) `os/beize-ui`: Wayland-Fenster über WSI, Text (Parley, Skrifa, zeno, Atlas) mit
+   (b) ✓ (22.10.) `os/beize-vulkan` (ADR 0027 §9): Gerät (`device::create` mit Erweiterungen
+   des Aufrufers, `unsafe`: der Aufrufer hält die Instanz), Pipelines, Shader und `Quad`,
+   `image::Sampled` (Platz im Array, verzögert freigegeben). Nur `ash` (dieselbe 0.38 wie
+   Smithay). Der Compositor nimmt dessen Fehlertyp. Geometrie bleibt im Compositor (rechnet in
+   Smithays Typen). Geprüft: Smoke grün (Desktop-Bild gleich), `beize-render-test` 13/13.
+   **(c) JETZT:** `os/beize-ui`: Wayland-Fenster über WSI, Text (Parley, Skrifa, zeno, Atlas) mit
    Offscreen-Test; (d) `os/beize-terminal` mit alacritty_terminal; (e) Start über den Manager,
    Strg+Alt+T; (f) Smoke mit Referenzbild; (g) ein Hardware-Test für Terminal **und** Zeitplan.
    Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so

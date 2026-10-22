@@ -286,7 +286,10 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   gezeichnet mit Vulkan über `VK_KHR_wayland_surface`: Mesas WSI liefert dmabufs, Bildtakt
   (FIFO) und auf lavapipe shm. Vorbild: GTK 4 und Zed zeichnen ebenso über WSI. Die
   Vulkan-Grundlagen (Gerät, Quads, Texturen, Shader-Bau) teilen sich Compositor und Beize UI
-  in einem gemeinsamen Crate, wie im Abschnitt 3 angelegt.
+  in einem gemeinsamen Crate, wie im Abschnitt 3 angelegt: `os/beize-vulkan` (22.10.), nur auf
+  `ash`, ohne Smithay und Wayland; die Erweiterungen wählt der Aufrufer (Compositor: dmabufs
+  und Fences, Beize UI: Swapchain). Im Compositor bleiben dmabuf-Import, Sync-Files und die
+  Geometrie in Smithays Koordinaten.
 - **Text:** **Parley** (Layout, Shaping mit HarfRust, Schriftwahl mit Fontique), **Skrifa**
   (Umrisse und Hinting; Googles FreeType-Ersatz, seit Chrome 133 dort für Web-Schriften),
   gerastert von **zeno** (der Rasterizer von swash, mit dem Zed und COSMIC Glyphen zeichnen).
