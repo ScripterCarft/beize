@@ -34,6 +34,7 @@ use smithay::wayland::compositor::SurfaceData;
 use tracing::{debug, info, warn};
 
 use crate::error::{Context, Error, Result, error};
+use beize_vulkan::buffer::HostBuffer;
 use beize_vulkan::pipeline::Pipelines;
 use device::{Caps, Ext, Garbage, Shared};
 pub use frame::VkFrame;
@@ -42,15 +43,6 @@ pub use texture::VkTexture;
 
 /// Frames recorded or on the GPU at once.
 const IN_FLIGHT: usize = 2;
-
-/// Host memory the GPU reads (quads, staging) or the CPU reads back.
-struct HostBuffer {
-    buffer: vk::Buffer,
-    memory: vk::DeviceMemory,
-    pointer: *mut u8,
-    size: u64,
-    address: u64,
-}
 
 /// What one frame in flight owns.
 struct InFlight {
@@ -286,75 +278,7 @@ impl VkRenderer {
         usage: vk::BufferUsageFlags,
         cached: bool,
     ) -> Result<HostBuffer> {
-        let d = &self.shared.device;
-        let address = usage.contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS);
-        // SAFETY: plain creation; on failure what was made is destroyed.
-        unsafe {
-            let buffer = d
-                .create_buffer(
-                    &vk::BufferCreateInfo::default().size(size).usage(usage),
-                    None,
-                )
-                .context("buffer")?;
-            let requirements = d.get_buffer_memory_requirements(buffer);
-            let coherent =
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
-            let kind = if cached {
-                self.shared
-                    .memory_type(
-                        requirements.memory_type_bits,
-                        coherent | vk::MemoryPropertyFlags::HOST_CACHED,
-                    )
-                    .or_else(|_| {
-                        self.shared
-                            .memory_type(requirements.memory_type_bits, coherent)
-                    })
-            } else {
-                self.shared
-                    .memory_type(requirements.memory_type_bits, coherent)
-            };
-            let mut flags = vk::MemoryAllocateFlagsInfo::default()
-                .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
-            let memory = kind.and_then(|kind| {
-                let mut info = vk::MemoryAllocateInfo::default()
-                    .allocation_size(requirements.size)
-                    .memory_type_index(kind);
-                if address {
-                    info = info.push_next(&mut flags);
-                }
-                d.allocate_memory(&info, None).context("buffer memory")
-            });
-            let memory = match memory {
-                Ok(m) => m,
-                Err(e) => {
-                    d.destroy_buffer(buffer, None);
-                    return Err(e);
-                }
-            };
-            let mapped = d
-                .bind_buffer_memory(buffer, memory, 0)
-                .and_then(|()| d.map_memory(memory, 0, size, vk::MemoryMapFlags::empty()));
-            let pointer = match mapped {
-                Ok(p) => p as *mut u8,
-                Err(e) => {
-                    d.destroy_buffer(buffer, None);
-                    d.free_memory(memory, None);
-                    return Err(error(format!("mapping a buffer: {e}")));
-                }
-            };
-            let address = if address {
-                d.get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer))
-            } else {
-                0
-            };
-            Ok(HostBuffer {
-                buffer,
-                memory,
-                pointer,
-                size,
-                address,
-            })
-        }
+        HostBuffer::new(&self.shared, size, usage, cached)
     }
 
     /// The frame being recorded, ready: its last submission is done (as a

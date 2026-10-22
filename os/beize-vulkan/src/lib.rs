@@ -4,6 +4,8 @@
 //! Beize UI, so both draw the same way; neither Smithay nor Wayland is in
 //! here – the compositor adds dmabufs, Beize UI its swapchain.
 
+pub mod barrier;
+pub mod buffer;
 pub mod device;
 pub mod error;
 pub mod image;

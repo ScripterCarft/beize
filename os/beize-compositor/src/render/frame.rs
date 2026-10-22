@@ -24,8 +24,10 @@ use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
 use super::{Upload, VkRenderer};
 use crate::error::{Error, Result};
-use beize_vulkan::image::COLOR;
-use beize_vulkan::pipeline::{Pipelines, Push};
+use beize_vulkan::barrier::{
+    COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
+};
+use beize_vulkan::pipeline::{Attachment, Pipelines};
 
 /// What a frame has gathered for its submission.
 pub(super) struct Recorded<'a> {
@@ -201,65 +203,6 @@ impl Drop for VkFrame<'_, '_> {
     }
 }
 
-/// An image barrier, with an ownership transfer where the families differ.
-#[allow(clippy::too_many_arguments)]
-fn barrier(
-    image: vk::Image,
-    old: vk::ImageLayout,
-    new: vk::ImageLayout,
-    src: (vk::PipelineStageFlags2, vk::AccessFlags2),
-    dst: (vk::PipelineStageFlags2, vk::AccessFlags2),
-    families: (u32, u32),
-) -> vk::ImageMemoryBarrier2<'static> {
-    vk::ImageMemoryBarrier2::default()
-        .image(image)
-        .old_layout(old)
-        .new_layout(new)
-        .src_stage_mask(src.0)
-        .src_access_mask(src.1)
-        .dst_stage_mask(dst.0)
-        .dst_access_mask(dst.1)
-        .src_queue_family_index(families.0)
-        .dst_queue_family_index(families.1)
-        .subresource_range(COLOR)
-}
-
-fn barriers(d: &ash::Device, commands: vk::CommandBuffer, list: &[vk::ImageMemoryBarrier2<'_>]) {
-    if list.is_empty() {
-        return;
-    }
-    // SAFETY: recording into a command buffer of this device.
-    unsafe {
-        d.cmd_pipeline_barrier2(
-            commands,
-            &vk::DependencyInfo::default().image_memory_barriers(list),
-        )
-    };
-}
-
-const NONE: (vk::PipelineStageFlags2, vk::AccessFlags2) =
-    (vk::PipelineStageFlags2::NONE, vk::AccessFlags2::NONE);
-const TRANSFER_WRITE: (vk::PipelineStageFlags2, vk::AccessFlags2) = (
-    vk::PipelineStageFlags2::COPY,
-    vk::AccessFlags2::TRANSFER_WRITE,
-);
-const TRANSFER_READ: (vk::PipelineStageFlags2, vk::AccessFlags2) = (
-    vk::PipelineStageFlags2::COPY,
-    vk::AccessFlags2::TRANSFER_READ,
-);
-const SHADER_READ: (vk::PipelineStageFlags2, vk::AccessFlags2) = (
-    vk::PipelineStageFlags2::FRAGMENT_SHADER,
-    vk::AccessFlags2::SHADER_SAMPLED_READ,
-);
-const COLOR_WRITE: (vk::PipelineStageFlags2, vk::AccessFlags2) = (
-    vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-    vk::AccessFlags2::from_raw(
-        vk::AccessFlags2::COLOR_ATTACHMENT_WRITE.as_raw()
-            | vk::AccessFlags2::COLOR_ATTACHMENT_READ.as_raw(),
-    ),
-);
-const SAME: (u32, u32) = (vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_IGNORED);
-
 /// The layout a filled target keeps between frames.
 pub(super) fn target_layout(target: &Target) -> vk::ImageLayout {
     if target.dmabuf.is_some() {
@@ -327,7 +270,7 @@ pub(super) fn record_frame(
     d: &ash::Device,
     commands: vk::CommandBuffer,
     layouts: &Pipelines,
-    [opaque, blend]: [vk::Pipeline; 2],
+    pipelines: [vk::Pipeline; 2],
     quads: u64,
     frame: &mut Recorded<'_>,
     submission: u64,
@@ -375,87 +318,17 @@ pub(super) fn record_frame(
     barriers(d, commands, &before);
 
     let (w, h) = (target.size.w as u32, target.size.h as u32);
-    let area = vk::Rect2D {
-        offset: vk::Offset2D { x: 0, y: 0 },
-        extent: vk::Extent2D {
-            width: w,
-            height: h,
-        },
+    let attachment = Attachment {
+        view: target.view,
+        size: (w, h),
+        load: target.filled,
     };
-    let attachments = [vk::RenderingAttachmentInfo::default()
-        .image_view(target.view)
-        .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .load_op(if target.filled {
-            vk::AttachmentLoadOp::LOAD
-        } else {
-            vk::AttachmentLoadOp::DONT_CARE
-        })
-        .store_op(vk::AttachmentStoreOp::STORE)];
-    let push = Push {
-        quads,
-        scale: [2.0 / w as f32, 2.0 / h as f32],
-    };
-    // SAFETY: recording into this frame's command buffer; the pipelines,
-    // descriptor set and quad buffer live until the submission completes.
-    unsafe {
-        d.cmd_begin_rendering(
-            commands,
-            &vk::RenderingInfo::default()
-                .render_area(area)
-                .layer_count(1)
-                .color_attachments(&attachments),
-        );
-        d.cmd_set_viewport(
-            commands,
-            0,
-            &[vk::Viewport {
-                x: 0.0,
-                y: 0.0,
-                width: w as f32,
-                height: h as f32,
-                min_depth: 0.0,
-                max_depth: 1.0,
-            }],
-        );
-        d.cmd_set_scissor(commands, 0, &[area]);
-        d.cmd_bind_descriptor_sets(
-            commands,
-            vk::PipelineBindPoint::GRAPHICS,
-            layouts.layout,
-            0,
-            &[layouts.set],
-            &[],
-        );
-        d.cmd_push_constants(
-            commands,
-            layouts.layout,
-            vk::ShaderStageFlags::VERTEX,
-            0,
-            std::slice::from_raw_parts(
-                (&push as *const Push).cast::<u8>(),
-                std::mem::size_of::<Push>(),
-            ),
-        );
-        let mut start = 0;
-        let mut draws = 0;
-        while start < frame.quads.len() {
-            let mode = frame.blend[start];
-            let end = frame.blend[start..]
-                .iter()
-                .position(|&b| b != mode)
-                .map_or(frame.quads.len(), |n| start + n);
-            d.cmd_bind_pipeline(
-                commands,
-                vk::PipelineBindPoint::GRAPHICS,
-                if mode { blend } else { opaque },
-            );
-            d.cmd_draw(commands, 4, (end - start) as u32, 0, start as u32);
-            draws += 1;
-            start = end;
-        }
-        d.cmd_end_rendering(commands);
-        debug!("{} quads in {draws} draws", frame.quads.len());
-    }
+    // SAFETY: recording into this frame's command buffer, the target in
+    // COLOR_ATTACHMENT_OPTIMAL (barrier above); the pipelines are its
+    // format's, the quad buffer and textures live until the submission
+    // completes.
+    let draws = unsafe { layouts.record(d, commands, pipelines, &attachment, quads, &frame.blend) };
+    debug!("{} quads in {draws} draws", frame.quads.len());
 
     // Kept for the next frame, or handed to KMS.
     let target = &*frame.target;

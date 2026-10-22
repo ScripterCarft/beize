@@ -49,6 +49,14 @@ pub struct Push {
     pub scale: [f32; 2],
 }
 
+/// Where quads are drawn: a colour attachment of `size` pixels.
+pub struct Attachment {
+    pub view: vk::ImageView,
+    pub size: (u32, u32),
+    /// Draws over what it holds; otherwise its content is undefined first.
+    pub load: bool,
+}
+
 pub struct Pipelines {
     sampler: vk::Sampler,
     set_layout: vk::DescriptorSetLayout,
@@ -267,6 +275,108 @@ impl Pipelines {
             .map_err(|(_, e)| e)
             .context("graphics pipeline")
             .map(|p| p[0])
+    }
+
+    /// Records quads into `target`: `blend` says for each whether it
+    /// blends, the quads lie at device address `quads`. Runs of one
+    /// pipeline each, usually one to three draws; returns how many.
+    ///
+    /// # Safety
+    /// `commands` is recording on `d`, `target` is in
+    /// `COLOR_ATTACHMENT_OPTIMAL`, `pipelines` come from `get` for its
+    /// format; the quads' buffer and every texture they name live until the
+    /// submission completes.
+    pub unsafe fn record(
+        &self,
+        d: &ash::Device,
+        commands: vk::CommandBuffer,
+        [opaque, blend]: [vk::Pipeline; 2],
+        target: &Attachment,
+        quads: u64,
+        blending: &[bool],
+    ) -> usize {
+        let (w, h) = target.size;
+        let area = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: w,
+                height: h,
+            },
+        };
+        let attachments = [vk::RenderingAttachmentInfo::default()
+            .image_view(target.view)
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(if target.load {
+                vk::AttachmentLoadOp::LOAD
+            } else {
+                vk::AttachmentLoadOp::DONT_CARE
+            })
+            .store_op(vk::AttachmentStoreOp::STORE)];
+        let push = Push {
+            quads,
+            scale: [2.0 / w as f32, 2.0 / h as f32],
+        };
+        let mut draws = 0;
+        // SAFETY: the caller's promise; every info lives until its call
+        // returns.
+        unsafe {
+            d.cmd_begin_rendering(
+                commands,
+                &vk::RenderingInfo::default()
+                    .render_area(area)
+                    .layer_count(1)
+                    .color_attachments(&attachments),
+            );
+            d.cmd_set_viewport(
+                commands,
+                0,
+                &[vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: w as f32,
+                    height: h as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                }],
+            );
+            d.cmd_set_scissor(commands, 0, &[area]);
+            d.cmd_bind_descriptor_sets(
+                commands,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.layout,
+                0,
+                &[self.set],
+                &[],
+            );
+            d.cmd_push_constants(
+                commands,
+                self.layout,
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                std::slice::from_raw_parts(
+                    (&push as *const Push).cast::<u8>(),
+                    std::mem::size_of::<Push>(),
+                ),
+            );
+            let mut start = 0;
+            while start < blending.len() {
+                let mode = blending[start];
+                let end = blending[start..]
+                    .iter()
+                    .position(|&b| b != mode)
+                    .map_or(blending.len(), |n| start + n);
+                d.cmd_bind_pipeline(
+                    commands,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    if mode { blend } else { opaque },
+                );
+                d.cmd_draw(commands, 4, (end - start) as u32, 0, start as u32);
+                draws += 1;
+                start = end;
+            }
+            d.cmd_end_rendering(commands);
+        }
+        draws
     }
 
     pub fn destroy(&mut self, d: &ash::Device) {
