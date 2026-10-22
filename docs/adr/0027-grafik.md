@@ -339,12 +339,27 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Fontiques eigene Suche (`system`) ist unter Linux fontconfig, sie bleibt aus. fontconfig
   kommt mit fremden Apps (M4, „eine zentrale Schriftkonfiguration“). Fehlende Zeichen (Emoji, CJK) zeigen bis zu einer Fallback-Schrift
   ein Kästchen; Auswahl und Größe (Noto, Emoji als COLRv1) mit der Shell.
-- **Terminal:** **alacritty_terminal** (Zustandsmaschine der Escape-Sequenzen, Raster,
-  Scrollback, Auswahl; Apache-2.0; Zeds Terminal baut darauf) unverändert aus crates.io; eigen
-  sind PTY, Zeichnen, Eingabe. Verworfen: libghostty-vt (Zig im Buildroot), eigener Parser
-  (Jahre an Sonderfällen). Dunkel (VISION), eigene Palette mit 256 Farben und Truecolor,
-  10 000 Zeilen Scrollback (wie GNOME Terminal), Kopieren und Einfügen über
-  `wl_data_device`, Shell ist die Login-Shell des Nutzers. Tasten vorerst Strg+Shift+C/V
+- **Terminal** (22.10., `os/beize-terminal`, im Image `/usr/lib/beize/beize-terminal`, gebaut
+  im Rezept `beize-ui`): **alacritty_terminal** (Zustandsmaschine der Escape-Sequenzen,
+  Raster, Scrollback, Auswahl; Apache-2.0; Zeds Terminal baut darauf) unverändert aus
+  crates.io. Eigen sind PTY, Zeichnen, Eingabe: alacrittys PTY-Start setzt der Shell immer
+  `ALACRITTY_WINDOW_ID` und `WINDOWID` (Programme hielten Beize für Alacritty bzw. X11), und
+  seine Ereignisschleife liest auf einem eigenen Thread. Beizes Terminal wartet in einem Thread
+  im Poll des Fensters auf Compositor, PTY und Ende der Shell (pidfd); Beize UIs `dispatch`
+  nimmt dafür fds der App. Verworfen: libghostty-vt (Zig im Buildroot), eigener Parser (Jahre
+  an Sonderfällen). Die Shell ist die Login-Shell des Nutzers, als Login-Shell gestartet wie in
+  macOS' Terminal, mit `TERM=xterm-256color` (wie VTE) und `COLORTERM=truecolor`. Dunkel
+  (VISION, `#1e1e1e`), die 16 Farben aus GNOMEs Adwaita-Palette wie GNOME Console, 16–255
+  nach xterm, Truecolor; 10 000 Zeilen Scrollback (wie GNOME Terminal). JetBrains Mono 14 px,
+  eine Glyphe je Zelle aus der Zeichentabelle der Schrift, ohne Ligaturen (wie Alacritty,
+  foot, VTE; `beize_ui::Cells`). Rahmen- und Blockzeichen zeichnet das Terminal selbst
+  (VTE, kitty, foot), damit sie über Zeilen schließen; runde Ecken vorerst ohne Eckpixel,
+  echte Bögen mit den Vektor-Icons der Shell. Maus: Auswahl (Doppelklick Wort, dreifach Zeile),
+  Rad durch den Scrollback (auf dem zweiten Bildschirm als Pfeiltasten), Mausberichte an
+  Programme (SGR und X10), Shift übergeht sie wie bei xterm. Kopieren und Einfügen über
+  `wl_data_device` (Beize UI: Senden in einem kurzen Thread, Empfangen über eine Pipe im Poll);
+  eingefügt wird ohne ESC und, wenn das Programm es will, in Klammern (bracketed paste);
+  Programme dürfen kopieren (OSC 52), nicht lesen. Tasten vorerst Strg+Shift+C/V
   (Linux-Standard, Strg+C bleibt Abbruch). Endgültig mit dem Tastenkürzel-Modell vor Schritt 4,
   Maßstab macOS (Besitzer): Dort kopiert Cmd+C, eine eigene Taste neben Ctrl, Ctrl+C bricht
   im Terminal immer ab; „Strg+C kopiert, wenn markiert“ ist Windows Terminal, nicht macOS.
