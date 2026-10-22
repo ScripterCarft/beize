@@ -17,8 +17,10 @@ ash = { version = "0.38", default-features = false, features = ["debug", "loaded
 # for Mesa anyway, and the buildroot, where CI lints and tests, has none.
 wayland-client = { version = "0.31", features = ["system", "dlopen"] }
 wayland-protocols = { version = "0.32", features = ["client"] }
-rustix = { version = "1.1", default-features = false, features = ["event", "std"] }
+rustix = { version = "1.1", default-features = false, features = ["event", "fs", "pipe", "std"] }
 tracing = "0.1"
+# An app's log to the journal (`log`), as the compositor writes its own.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
 # Text (ADR 0027 §9): Parley lays it out (Fontique, re-exported, holds the
 # fonts; without its system feature, which is fontconfig on Linux),
 # Skrifa – Parley's own version – gives the hinted outlines, zeno

@@ -128,6 +128,10 @@ impl Keyboard {
         }
     }
 
+    pub(crate) fn modifiers(&self) -> Modifiers {
+        self.mods
+    }
+
     /// When the held key repeats next.
     pub(crate) fn next_repeat(&self) -> Option<Instant> {
         self.repeat.as_ref().map(|r| r.next)

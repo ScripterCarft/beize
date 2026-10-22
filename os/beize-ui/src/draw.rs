@@ -7,9 +7,24 @@
 //! each glyph into a quad when it draws (`glyphs`, the atlas).
 
 use beize_vulkan::pipeline::{EXACT, MASK, Quad, SOLID};
-use parley::{FontData, Layout, PositionedLayoutItem};
+use parley::{FontData, Layout, PositionedLayoutItem, Run};
 
 use crate::glyphs::Face;
+use crate::text::Cells;
+
+/// The face a run of Parley's is set in.
+pub(crate) fn face(run: &Run<'_, Color>) -> Face {
+    Face {
+        blob: run.font().data.id(),
+        index: run.font().index,
+        size: run.font_size().to_bits(),
+        coords: run
+            .normalized_coords()
+            .iter()
+            .map(|c| c.to_bits())
+            .collect(),
+    }
+}
 
 /// A colour in sRGB, 8 bits a channel, alpha straight (not premultiplied).
 /// The default is transparent.
@@ -110,43 +125,48 @@ impl Scene {
                     continue;
                 };
                 let run = glyphs.run();
-                let face = Face {
-                    blob: run.font().data.id(),
-                    index: run.font().index,
-                    size: run.font_size().to_bits(),
-                    coords: run
-                        .normalized_coords()
-                        .iter()
-                        .map(|c| c.to_bits())
-                        .collect(),
-                };
-                let index = match self.runs.iter().position(|(_, f)| *f == face) {
-                    Some(i) => i,
-                    None => {
-                        self.runs.push((run.font().clone(), face));
-                        self.runs.len() - 1
-                    }
-                };
-                let color = glyphs.style().brush.linear();
+                let index = self.run(run.font(), face(run));
+                let color = glyphs.style().brush;
                 for glyph in glyphs.positioned_glyphs() {
-                    self.glyphs.push(Glyph {
-                        quad: self.quads.len(),
-                        run: index,
-                        id: glyph.id,
-                        x: x + glyph.x,
-                        // Baselines on whole pixels, where hinting put the
-                        // stems.
-                        y: (y + glyph.y).round(),
-                    });
-                    self.quads.push(Quad {
-                        color,
-                        flags: MASK | EXACT,
-                        ..Quad::default()
-                    });
-                    self.blend.push(true);
+                    self.glyph(index, glyph.id, x + glyph.x, y + glyph.y, color);
                 }
             }
         }
+    }
+
+    /// The glyph `id` of a grid's font (a terminal's cell) with its pen at
+    /// `x` and its baseline at `y`.
+    pub fn cell_glyph(&mut self, cells: &Cells, id: u32, x: f32, y: f32, color: Color) {
+        let index = self.run(&cells.font, cells.face.clone());
+        self.glyph(index, id, x, y, color);
+    }
+
+    /// The index of the run of `font` in `face`, new if it is.
+    fn run(&mut self, font: &FontData, face: Face) -> usize {
+        match self.runs.iter().position(|(_, f)| *f == face) {
+            Some(i) => i,
+            None => {
+                self.runs.push((font.clone(), face));
+                self.runs.len() - 1
+            }
+        }
+    }
+
+    fn glyph(&mut self, run: usize, id: u32, x: f32, y: f32, color: Color) {
+        self.glyphs.push(Glyph {
+            quad: self.quads.len(),
+            run,
+            id,
+            x,
+            // Baselines on whole pixels, where hinting put the stems.
+            y: y.round(),
+        });
+        self.quads.push(Quad {
+            color: color.linear(),
+            flags: MASK | EXACT,
+            ..Quad::default()
+        });
+        self.blend.push(true);
     }
 
     pub fn len(&self) -> usize {

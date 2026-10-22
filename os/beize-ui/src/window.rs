@@ -6,6 +6,7 @@
 //! Input comes from the seat (`input`).
 
 use std::ffi::c_void;
+use std::os::fd::{BorrowedFd, OwnedFd};
 use std::time::{Duration, Instant};
 
 use ash::vk;
@@ -30,9 +31,10 @@ use wayland_protocols::xdg::shell::client::{
     xdg_wm_base::{self, XdgWmBase},
 };
 
+use crate::clipboard::Clipboard;
 use crate::draw::Scene;
 use crate::gpu::Gpu;
-use crate::input::{Input, Keyboard, PointerState};
+use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::{After, Renderer, Target};
 
 /// sRGB: the GPU blends in linear light and stores sRGB (`draw`).
@@ -48,6 +50,9 @@ pub struct Events {
     /// The user closed the window.
     pub closed: bool,
     pub input: Vec<Input>,
+    /// Which of the app's own fds (`dispatch`'s `also`) are readable or
+    /// closed, by their index there.
+    pub ready: Vec<usize>,
 }
 
 impl Events {
@@ -56,7 +61,7 @@ impl Events {
     }
 }
 
-struct State {
+pub(crate) struct State {
     compositor: WlCompositor,
     surface: WlSurface,
     /// From the last toplevel configure; 0 means "choose".
@@ -66,6 +71,10 @@ struct State {
     wl_pointer: Option<WlPointer>,
     keyboard: Keyboard,
     pointer: PointerState,
+    pub(crate) clipboard: Clipboard,
+    /// Of the last key press or click: copying names the input it
+    /// answers.
+    serial: u32,
 }
 
 struct Swapchain {
@@ -86,7 +95,7 @@ pub struct Window {
     /// None: the compositor has no seat, the window gets no input.
     _seat: Option<WlSeat>,
     _xdg_surface: XdgSurface,
-    _toplevel: XdgToplevel,
+    toplevel: XdgToplevel,
     vk_surface: vk::SurfaceKHR,
     swapchain: Option<Swapchain>,
     /// A present said the swapchain no longer fits the surface.
@@ -110,6 +119,10 @@ impl Window {
         let seat: Option<WlSeat> = globals.bind(&qh, 5..=9, ()).ok();
         if seat.is_none() {
             warn!("the compositor has no seat: no input");
+        }
+        let mut clipboard = Clipboard::new(globals.bind(&qh, 3..=3, ()).ok());
+        if let Some(seat) = &seat {
+            clipboard.attach(seat, &qh);
         }
         let surface = compositor.create_surface(&qh, ());
         let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
@@ -146,15 +159,47 @@ impl Window {
                 wl_pointer: None,
                 keyboard: Keyboard::new(),
                 pointer: PointerState::default(),
+                clipboard,
+                serial: 0,
             },
             _wm_base: wm_base,
             _seat: seat,
             _xdg_surface: xdg_surface,
-            _toplevel: toplevel,
+            toplevel,
             vk_surface,
             swapchain: None,
             stale: false,
         })
+    }
+
+    /// The modifiers held now (for the pointer: Shift+click and the like).
+    pub fn modifiers(&self) -> Modifiers {
+        self.state.keyboard.modifiers()
+    }
+
+    /// Puts `text` on the clipboard, for the input just handled
+    /// (Ctrl+Shift+C).
+    pub fn copy(&mut self, text: String) {
+        let qh = self.queue.handle();
+        self.state.clipboard.copy(text, self.state.serial, &qh);
+    }
+
+    /// Asks for the clipboard's text: it arrives on the returned pipe,
+    /// which ends when all is there (wait for it with `dispatch`'s
+    /// `also`). None if the clipboard holds no text.
+    pub fn paste(&mut self) -> Result<Option<OwnedFd>> {
+        let pipe = self
+            .state
+            .clipboard
+            .paste()
+            .context("asking for the clipboard")?;
+        self.queue.flush().context("sending to the compositor")?;
+        Ok(pipe)
+    }
+
+    /// The title the shell shows for the window.
+    pub fn set_title(&self, title: &str) {
+        self.toplevel.set_title(title.into());
     }
 
     /// The GPU the window draws on.
@@ -171,8 +216,14 @@ impl Window {
     }
 
     /// Handles what the compositor sent and repeats a held key, waiting
-    /// at most `timeout` for either (`None`: until something comes).
-    pub fn dispatch(&mut self, timeout: Option<Duration>) -> Result<Events> {
+    /// at most `timeout` for either (`None`: until something comes) – or
+    /// for one of the app's own fds in `also` to become readable (a
+    /// terminal's PTY): one thread waits for all.
+    pub fn dispatch(
+        &mut self,
+        timeout: Option<Duration>,
+        also: &[BorrowedFd<'_>],
+    ) -> Result<Events> {
         let queue = &mut self.queue;
         queue
             .dispatch_pending(&mut self.state)
@@ -189,17 +240,38 @@ impl Window {
             let until = next.saturating_duration_since(Instant::now());
             timeout = Some(timeout.map_or(until, |t| t.min(until)));
         }
-        if let Some(guard) = queue.prepare_read() {
-            let fd = guard.connection_fd();
-            let mut fds = [PollFd::new(&fd, PollFlags::IN)];
-            let timeout = timeout
-                .map(Timespec::try_from)
-                .transpose()
-                .context("timeout")?;
-            let ready = poll(&mut fds, timeout.as_ref()).context("poll")?;
-            if ready > 0 {
-                guard.read().context("reading from the compositor")?;
-            }
+        // Without the guard, events wait in the queue already: the
+        // compositor's socket is not read now, the app's fds are.
+        let guard = queue.prepare_read();
+        let timeout = match guard {
+            Some(_) => timeout,
+            None => Some(Duration::ZERO),
+        };
+        let connection = guard.as_ref().map(|g| g.connection_fd());
+        let mut fds: Vec<PollFd<'_>> = connection
+            .iter()
+            .chain(also)
+            .map(|fd| PollFd::new(fd, PollFlags::IN))
+            .collect();
+        let timeout = timeout
+            .map(Timespec::try_from)
+            .transpose()
+            .context("timeout")?;
+        poll(&mut fds, timeout.as_ref()).context("poll")?;
+        let readable = |fd: &PollFd<'_>| !fd.revents().is_empty();
+        let own = usize::from(connection.is_some());
+        let ready = fds[own..]
+            .iter()
+            .enumerate()
+            .filter(|(_, fd)| readable(fd))
+            .map(|(i, _)| i)
+            .collect();
+        let incoming = connection.is_some() && readable(&fds[0]);
+        drop(fds);
+        if let Some(guard) = guard
+            && incoming
+        {
+            guard.read().context("reading from the compositor")?;
         }
         queue
             .dispatch_pending(&mut self.state)
@@ -208,6 +280,7 @@ impl Window {
         if let Some(repeat) = state.keyboard.repeat_due(Instant::now()) {
             state.events.input.push(repeat);
         }
+        state.events.ready = ready;
         Ok(std::mem::take(&mut state.events))
     }
 
@@ -546,6 +619,11 @@ impl Dispatch<WlKeyboard, ()> for State {
         _: &Connection,
         _: &QueueHandle<State>,
     ) {
+        if let wl_keyboard::Event::Key { serial, .. } | wl_keyboard::Event::Enter { serial, .. } =
+            &event
+        {
+            state.serial = *serial;
+        }
         state.keyboard.event(event, &mut state.events.input);
     }
 }
@@ -559,6 +637,9 @@ impl Dispatch<WlPointer, ()> for State {
         _: &Connection,
         _: &QueueHandle<State>,
     ) {
+        if let wl_pointer::Event::Button { serial, .. } = &event {
+            state.serial = *serial;
+        }
         state.pointer.event(event, &mut state.events.input);
     }
 }

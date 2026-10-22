@@ -10,11 +10,13 @@ use std::sync::Arc;
 use beize_vulkan::error::{Context, Result, error};
 use parley::fontique::{Blob, Collection, CollectionOptions, GenericFamily, SourceCache};
 use parley::{
-    Alignment, AlignmentOptions, FontContext, FontFamily, FontFamilyName, FontWeight, Layout,
-    LayoutContext, StyleProperty,
+    Alignment, AlignmentOptions, FontContext, FontData, FontFamily, FontFamilyName, FontWeight,
+    Layout, LayoutContext, PositionedLayoutItem, StyleProperty,
 };
+use skrifa::{FontRef, MetadataProvider};
 
-use crate::draw::Color;
+use crate::draw::{Color, face};
+use crate::glyphs::Face;
 
 /// Where the image keeps its fonts.
 pub const FONTS: &str = "/usr/share/fonts";
@@ -120,6 +122,65 @@ impl Text {
         layout.break_all_lines(width);
         layout.align(Alignment::Start, AlignmentOptions::default());
         layout
+    }
+
+    /// The monospace face in `size` and `weight`, measured for a grid.
+    pub fn cells(&mut self, size: f32, weight: f32) -> Result<Cells> {
+        let style = Style {
+            family: Family::Mono,
+            size,
+            weight,
+            color: Color::default(),
+        };
+        let layout = self.layout("M", &style, None);
+        let line = layout.lines().next().context("no line for a cell")?;
+        let glyphs = line
+            .items()
+            .find_map(|item| match item {
+                PositionedLayoutItem::GlyphRun(glyphs) => Some(glyphs),
+                PositionedLayoutItem::InlineBox(_) => None,
+            })
+            .context("no glyph for a cell")?;
+        let advance = glyphs
+            .positioned_glyphs()
+            .next()
+            .context("no glyph for a cell")?
+            .advance;
+        let run = glyphs.run();
+        let metrics = line.metrics();
+        Ok(Cells {
+            font: run.font().clone(),
+            face: face(run),
+            // Whole pixels: backgrounds and the cursor fill cells edge to
+            // edge; the glyphs keep their quarter pixels.
+            width: advance.round().max(1.0),
+            height: metrics.line_height.ceil().max(1.0),
+            baseline: metrics.baseline.round(),
+        })
+    }
+}
+
+/// A monospace face for a grid of cells, as terminals draw it: one glyph
+/// per character straight from the font's character map, unshaped, so each
+/// stays in its cell – no ligatures, as in Alacritty, foot and VTE.
+pub struct Cells {
+    pub(crate) font: FontData,
+    pub(crate) face: Face,
+    /// A cell's size in whole pixels.
+    pub width: f32,
+    pub height: f32,
+    /// From a cell's top to the baseline.
+    pub baseline: f32,
+}
+
+impl Cells {
+    /// The glyph of `c`; the font's box for missing characters (.notdef)
+    /// where it has none, until there is a fallback font (ADR 0027 §9).
+    pub fn glyph(&self, c: char) -> u32 {
+        FontRef::from_index(self.font.data.as_ref(), self.font.index)
+            .ok()
+            .and_then(|font| font.charmap().map(c))
+            .map_or(0, |id| id.to_u32())
     }
 }
 

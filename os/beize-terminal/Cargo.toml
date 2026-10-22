@@ -1,0 +1,22 @@
+[package]
+name = "beize-terminal"
+description = "Beize's terminal, the first app on Beize UI (ADR 0027 §9)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+beize-ui = { path = "../beize-ui" }
+# The terminal's state machine: escape sequences, grid, scrollback,
+# selection (Zed's terminal builds on it too). Its PTY and event loop stay
+# unused: they would set ALACRITTY_WINDOW_ID and WINDOWID for the shell and
+# read on a thread of their own; Beize's terminal reads the PTY in the
+# window's own poll.
+alacritty_terminal = { version = "0.26", default-features = false }
+rustix = { version = "1.1", default-features = false, features = ["event", "fs", "process", "pty", "std", "termios"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

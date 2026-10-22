@@ -71,7 +71,9 @@ fn window(text: &mut Text, seconds: u64) -> Result<(), String> {
     println!("gpu {}", window.gpu_name());
     let deadline = Instant::now() + Duration::from_secs(seconds);
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-        let events = window.dispatch(Some(left)).map_err(|e| e.to_string())?;
+        let events = window
+            .dispatch(Some(left), &[])
+            .map_err(|e| e.to_string())?;
         if events.closed {
             break;
         }
