@@ -95,8 +95,19 @@ fn measure<'a>(
         .arg(sysroot.join("usr/bin/systemd-analyze"))
         .args(["security", "--offline=true", "--no-pager"]);
     if scope == "user" {
+        // A user's manager needs a home and a runtime directory: empty ones,
+        // so no configuration of the build machine's user counts, and the
+        // value is the same in the CI's container (root, no session).
+        let empty = root.with_file_name("security-user");
+        if empty.exists() {
+            fs::remove_dir_all(&empty)?;
+        }
+        fs::create_dir_all(&empty)?;
         let units = root.join("usr/lib/systemd/user");
         command
+            .env_clear()
+            .env("HOME", &empty)
+            .env("XDG_RUNTIME_DIR", &empty)
             .arg("--user")
             .args(instances.keys().map(|unit| units.join(unit)));
     } else {
