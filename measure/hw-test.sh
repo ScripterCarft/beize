@@ -49,6 +49,9 @@ if [ "$mode" = test ]; then
     while systemctl --user -q is-active hw-test-client.timer hw-test-client.service; do
         sleep 1
     done
+    # The compositor sums the frames up once they stopped for a quarter
+    # second; it looks twice a second.
+    sleep 2
 fi
 
 b="-b $boot"
@@ -68,7 +71,9 @@ echo "== Ergebnis (alles in $out)"
 cat "$out/version.txt"
 grep -h -E 'GPU |screen |renderer on|rendering with|cursor plane|lavapipe|keyboard layout' \
     "$out/compositor.log" | sed 's/^.*\]: //' | sort -u
-grep -h -E 'frames:|configure|keymap' "$out/client.log" | sed 's/^.*\]: //'
+grep -h -E 'frames:|drawing:|configure|keymap' "$out/client.log" | sed 's/^.*\]: //'
+echo "Bildtakt, vom Compositor selbst gemessen:"
+grep -h 'pacing: ' "$out/compositor.log" | sed 's/^.*\]: //' | tail -n 3
 echo "Tasten im Fenster: $(grep -c ' key ' "$out/client.log"), Klicks: $(grep -c 'button ' "$out/client.log")"
 echo "Warnungen des Compositors:"
 journalctl --user $b -u beize-compositor.service -p warning -o cat 2>/dev/null | sort | uniq -c
