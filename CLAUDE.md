@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, nach Schritt 5)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, nach Schritt 6; Hardware-Test steht aus)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -401,10 +401,27 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    prüft: ADR 0027 §6 „Test“). Tippen auf tty1 mit `console::german_presses` (Y/Z
    vertauscht, `-` auf `slash`), Screenshot als PPM. Gegenprobe: eine falsche Farbe der
    Referenz → rot, 256 122 Pixel (ein Quadrant + Zeiger), Differenzbild in
-   `build/work/logs/boot/`. (7)
-   Hardware-Test beim Besitzer mit nummerierten Schritten: NVK, Maus, Tastatur, Frame-Pacing,
-   ob 1440p @ 240 Hz mit dem EDID-Fix auch läuft (Messbau), und ob die Sandbox des
-   Compositors mit NVK hält (in der VM nur lavapipe geprüft).
+   `build/work/logs/boot/`. Dazu (22.10.) Moduswahl wie KWin: Auflösung des bevorzugten
+   Modus mit der höchsten Bildrate (ADR 0027 §6 „Modus“), sonst bliebe das AW2723DF unter
+   240 Hz.
+   **(7) JETZT: Hardware-Test beim Besitzer, vorbereitet (22.10.).** Messbau 0.5.95 = Zweig
+   `measure/desktop` (lokal, nicht gepusht): `main` + EDID-Patch aus `kernel/measure/`
+   (byte-gleich mit 0.5.94, ohne dessen DRM-Debug) + `measure/hw-test.sh`. Gebaut, Smoke
+   grün (16/16), Skript in der VM geprüft (1499 Bilder in 20 s bei 75 Hz, 6 Tastenereignisse,
+   2 Klicks). Stick-Ordner `~/hw-test/beize-test` (Skript + `beize-testclient`) liegt bereit.
+   Ablauf für den Besitzer: `docs/hardware.md` „Desktop testen“ (signiert mit `bz release`,
+   Update vom Stick, `beize-session` auf tty1, Skript auf tty2). **Erwartet im nächsten Chat:**
+   der Besitzer meldet „Hardware-Test fertig“; die Logs liegen in `~/hw-logs/results-…`
+   (`compositor.log`, `client.log`, `system-journal.log`, `modes.txt`, `edid-*.bin`,
+   `version.txt`). Auswerten: Modus 2560x1440 @ 240 Hz? Abstand der Bilder ~4,17 ms, wie
+   viele verpasst (`at most`)? NVK als Renderer, Weg „straight into the screen buffer“ (dmabuf
+   direkt) oder Kopie, Cursor-Ebene genutzt? Warnungen, Fehler von nouveau/NVK im
+   Systemjournal, Sandbox (lief er überhaupt mit NVK?). Ergebnisse in ADR 0027 (Messwerte)
+   und `docs/hardware.md`, dann diesen Absatz, den Messzweig, `~/hw-test` und
+   `build/out/desktop/release/0.5.95` aufräumen; Tag `measure/desktop-0.5.95` setzen und
+   pushen wie bei 0.5.94. Danach Schritt 3 (Beize UI) mit dem Besitzer abstimmen.
+   Geht etwas schief (dunkler Bildschirm, Absturz): Logs mit `hw-test.sh logs`/`-1`, erst
+   nach der Ursache suchen (Quelltext von Mesa/nouveau/Smithay), dann ändern.
 
 **M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
 Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34

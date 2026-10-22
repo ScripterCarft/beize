@@ -40,6 +40,74 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
+## Desktop testen (M3, Schritt 7: Messbau 0.5.95)
+
+Prüft auf dem echten Rechner, was die VM nicht kann: NVK, den Bildschirmmodus (1440p @ 240 Hz
+mit dem EDID-Fix), Maus, Tastatur, den Bildtakt und ob die Sandbox des Compositors mit NVK
+hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.95; ersetzt 0.5.94,
+0.6 ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
+
+**A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
+
+1. `cd ~/beize && git switch measure/desktop && ./bz build && ./bz release`
+   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.95/` (6 Dateien).
+2. `git switch main` (zurück; WSL bleibt auf `main`).
+3. In Windows auf den Stick **BEIZE** kopieren (alte Ordner dürfen bleiben):
+   - `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\0.5.95` als
+     `beize-0.5.95`
+   - `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-test\beize-test` als `beize-test`
+     (Skript `hw-test.sh` und `beize-testclient`)
+
+**B. Update installieren (Beize, tty1, als du angemeldet)**
+
+4. Stick einstecken:
+   ```sh
+   run0 mkdir -p /run/stick
+   run0 mount -o ro /dev/disk/by-label/BEIZE /run/stick
+   run0 beize-update install /run/stick/beize-0.5.95
+   run0 umount /run/stick
+   systemctl reboot
+   ```
+   Erwartet: „Beize 0.5.95 is installed. It starts with the next restart.“, dann Neustart
+   (F8 → Samsung) ohne Recovery-Key. Danach `(. /usr/lib/os-release; echo $IMAGE_VERSION)`
+   → `0.5.95`. **Kein Bild beim Start:** neu starten, Leertaste halten, 0.5.94 wählen, mir
+   Bescheid geben.
+
+**C. Desktop testen**
+
+5. Auf tty1 anmelden und `beize-session` eingeben. Erwartet: nach etwa einer Sekunde ein
+   dunkel blaugrauer Bildschirm mit Mauszeiger, sonst nichts (Fenster, Dock und Terminal
+   kommen mit Beize UI und der Shell). Maus bewegen: folgt der Zeiger flüssig?
+   - Meldung `beize-session: …` und zurück an der Shell: abfotografieren, weiter mit 8
+     (`logs`).
+   - Schwarz oder eingefroren, Strg+Alt+F2 hilft nicht: Reset-Taste. Nichts geht verloren,
+     der Desktop startet nie von selbst; nach dem Neustart weiter mit 8 (`-1`).
+6. Strg+Alt+F2, auf tty2 anmelden, Stick **beschreibbar** einhängen und das Skript starten:
+   ```sh
+   run0 mkdir -p /run/stick
+   run0 mount -o uid=$(id -u),gid=$(id -g) /dev/disk/by-label/BEIZE /run/stick
+   bash /run/stick/beize-test/hw-test.sh
+   ```
+7. Sagt das Skript „JETZT Strg+Alt+F1“: wechseln. Nach 10 s füllt das Testfenster den
+   Bildschirm: oben rot und grün, unten blau und weiß, durch den oberen Rand läuft ein
+   dunkler Balken. Läuft er gleichmäßig, ohne Ruckler oder Risse? Dann a, s, d tippen, die
+   Maus über das Fenster bewegen, einmal links klicken. Nach 20 s ist das Fenster weg.
+   Strg+Alt+F2: das Skript fragt einmal dein Passwort (run0, für das Journal des Kernels)
+   und zeigt das Ergebnis. Erwartet:
+   - `GPU /dev/dri/card… (nouveau)`, `renderer on NVIDIA GeForce RTX 3070 Ti (NVK …)`,
+     `screen DP-…: 2560x1440 at 240 Hz`
+   - `frames: … 4.17 ms apart on average` (240 Hz; 6.94 wären 144 Hz)
+   - `Tasten im Fenster: 6` (drücken und loslassen), `Klicks: 2`
+   - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
+8. Ging etwas schief, statt 7: anmelden, Stick wie in 6 einhängen, dann
+   `bash /run/stick/beize-test/hw-test.sh logs` (Meldung von beize-session, derselbe Start)
+   oder `bash /run/stick/beize-test/hw-test.sh -1` (nach Reset: die Logs des Starts davor).
+   Weiter mit 9.
+9. Ende: `run0 umount /run/stick`, `systemctl reboot` (beendet auch den Desktop). In Windows
+   den Ordner `beize-test\results-…` vom Stick nach
+   `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\` kopieren. Mir sagen: „Hardware-Test
+   fertig“ und was du gesehen hast (flüssig? Farben richtig? Ruckler, Risse, Flackern?).
+
 ## Startzeit messen
 
 Das Journal auf der Root-Partition ist persistent; es lässt sich unter WSL ohne Neubau
