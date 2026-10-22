@@ -4,20 +4,26 @@
 # while beize-session runs on tty1. Steps: docs/hardware.md.
 #
 #   bash /run/stick/beize-test/hw-test.sh        the test, then the logs
+#   bash /run/stick/beize-test/hw-test.sh logs   only the logs of this start
 #   bash /run/stick/beize-test/hw-test.sh -1     only the logs of the start
 #                                                before (after a frozen screen)
 #
 # Everything lands in results-<time>/ next to this script, on the stick.
 set -u
 here=$(dirname "$(readlink -f "$0")")
-boot=${1:-0}
+mode=${1:-test}
+case $mode in
+    test | logs) boot=0 ;;
+    -1) boot=-1 ;;
+    *) echo "hw-test.sh [logs | -1]"; exit 1 ;;
+esac
 out=$here/results-$(date +%Y%m%d-%H%M%S)
 if ! mkdir -p "$out" 2>/dev/null; then
-    echo "Der Stick ist nicht beschreibbar: mit uid=\$(id -u) einhängen (Schritt 7 der Anleitung)."
+    echo "Der Stick ist nicht beschreibbar: mit uid=\$(id -u) einhängen (Schritt 6 der Anleitung)."
     exit 1
 fi
 
-if [ "$boot" = 0 ]; then
+if [ "$mode" = test ]; then
     if ! systemctl --user -q is-active beize-compositor.service; then
         echo "Der Desktop läuft nicht: zuerst auf tty1 anmelden und beize-session eingeben."
         exit 1
@@ -28,7 +34,9 @@ if [ "$boot" = 0 ]; then
     # runtime directory, whatever the stick's file system says of exec.
     cp "$here/beize-testclient" "$XDG_RUNTIME_DIR/beize-testclient" &&
         chmod 700 "$XDG_RUNTIME_DIR/beize-testclient" || exit 1
+    # A timer fires up to a minute late unless told otherwise (AccuracySec).
     systemd-run --user --quiet --unit=hw-test-client --on-active=10 \
+        --timer-property=AccuracySec=100ms \
         "$XDG_RUNTIME_DIR/beize-testclient" --frames 4800 --seconds 20 || exit 1
     echo
     echo "  In 10 Sekunden erscheint das Testfenster für 20 Sekunden."
@@ -36,8 +44,11 @@ if [ "$boot" = 0 ]; then
     echo "  die Maus über das Fenster bewegen und einmal links klicken."
     echo "  Wenn das Fenster weg ist: Strg+Alt+F2, hier geht es weiter."
     echo
-    sleep 40
-    while systemctl --user -q is-active hw-test-client.service; do sleep 1; done
+    # Until the timer has started the client and the client has ended.
+    sleep 5
+    while systemctl --user -q is-active hw-test-client.timer hw-test-client.service; do
+        sleep 1
+    done
 fi
 
 b="-b $boot"
