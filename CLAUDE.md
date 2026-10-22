@@ -75,7 +75,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; Fenster über Vulkan-WSI, sRGB; Text mit Parley, Skrifa, zeno und Glyphen-Atlas; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr; sd-bus zum Benutzermanager), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; Fenster über Vulkan-WSI, sRGB; Text mit Parley, Skrifa, zeno und Glyphen-Atlas; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr), `beize-systemd` (sd-login, sd-bus zum Benutzermanager; für beize-session und den Compositor, der damit Apps startet), `beize-terminal` (Terminal auf Beize UI, Unit `app-beize\x2dterminal@.service`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, nach dem Hardware-Test; Schritt 3 Beize UI)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, Schritt 3 Beize UI bis (e))
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -439,8 +439,13 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `@keys grave_accent e`. Terminal ✓ (22.10., ADR 0027 §9 „Terminal“), in der VM geprüft
    (Farben, Rahmen, Akzente, Scrollback, Auswahl, Kopieren/Einfügen); von Hand wie unten, dann
    `systemd-run -M smoke@ --user --unit=term /usr/lib/beize/beize-terminal`, Testskript als
-   root per `base64 -d > /home/smoke/t.sh`. **(e) JETZT:** Start über den Manager,
-   Strg+Alt+T; (f) Smoke mit Referenzbild; (g) ein Hardware-Test für Terminal **und** Zeitplan.
+   root per `base64 -d > /home/smoke/t.sh`. (e) ✓ (22.10., ADR 0027 §9 „Start“): Terminal beim
+   Start und mit Strg+Alt+T als Instanz von `app-beize\x2dterminal@.service`, gestartet vom
+   Compositor über `os/beize-systemd`; Smoke prüft beides und das Ende beim Abmelden. Nach
+   `beize-session` von Hand läuft also schon ein Terminal (Fenster darunter verdeckt: das
+   neueste liegt oben). Lehre: `bz debug --machine <name>` startet die Disk der liegengelassenen
+   Maschine, nicht den neuen Bau. **(f) JETZT:** Smoke mit Referenzbild des Terminals (Befehl
+   tippen, Textbereich vergleichen); (g) ein Hardware-Test für Terminal **und** Zeitplan.
    Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
    gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
    aus), wird vor Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige
