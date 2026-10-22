@@ -40,87 +40,98 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
-## Desktop testen (M3, Schritt 7: Messbau 0.5.97)
+## Desktop testen (M3, Schritt 3 g: Messbau 0.5.98)
 
-Prüft auf dem echten Rechner, was die VM nicht kann: NVK, den Bildschirmmodus (1440p @ 240 Hz
-mit dem EDID-Fix), Maus, Tastatur, den Bildtakt und ob die Sandbox des Compositors mit NVK
-hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.97; ersetzt
-0.5.96, 0.6 ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
+Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz (EDID-Fix), den
+**Zeitplan** des Compositors, das **Terminal** und die Schrift von Beize UI auf deinem Monitor.
+Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.98; ersetzt 0.5.97, 0.6
+ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
 
 **Ergebnis 0.5.97 (22.10., `~/hw-logs/results-20261022-192956`, Tag `measure/desktop-0.5.97`):**
-NVK auf der RTX 3070 Ti direkt in den Bildschirmpuffer, DP-1 2560x1440 @ 240 Hz, Testclient
-4786 von 4800 Bildern im Abstand von 4,17 ms, Tasten, Klick, VT-Wechsel gut, keine Fehler im
-Journal. Compositor je Bild: Zeichnen (CPU) Median 0,02 ms, GPU 0,06 ms, ausgelastet zu 2 %.
-Befund: 4781 von 4788 Bildern einen vblank zu spät (Änderung bis Bild Median 8,65 ms statt
-höchstens 4,17), alle beim Zeichnen: Der Compositor zeichnete am vblank, der Client
-committete gleich danach und fand einen wartenden Commit vor; einmal so, blieb jedes Bild
-einen vblank hinten. Behoben mit dem Zeitplan (ADR 0027 §6 „Zeitplan“); geprüft wird er mit
-dem Test von Beize UI. Davor: 0.5.95 verwürfelt (f14fa6b), 0.5.96 212 von 4800 Bildern zu
-spät (Testclient zeichnete auf der CPU).
+NVK direkt in den Bildschirmpuffer, DP-1 2560x1440 @ 240 Hz, 4786 von 4800 Bildern im
+Abstand von 4,17 ms, Tasten, Klick, VT-Wechsel gut; Compositor je Bild 0,02 ms CPU, 0,06 ms
+GPU, 2 % ausgelastet. Aber jedes Bild einen vblank zu spät (Änderung bis Bild Median 8,65 ms
+statt höchstens 4,17): Der Compositor zeichnete am vblank. Behoben mit dem Zeitplan (ADR 0027
+§6 „Zeitplan“), den 0.5.98 prüft.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
 1. `cd ~/beize && git switch measure/desktop && ./bz build && ./bz release`
-   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.97/` (6 Dateien).
+   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.98/` (6 Dateien).
 2. `git switch main` (zurück; WSL bleibt auf `main`).
-3. In Windows auf den Stick **BEIZE** kopieren (alte Ordner dürfen bleiben):
-   - `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\0.5.97` als
-     `beize-0.5.97`
-   - `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-test\beize-test` als `beize-test`
-     (Skript `hw-test.sh` und `beize-testclient`)
+3. Mir sagen „Release fertig“: Ich kopiere es als `D:\beize-0.5.98` auf den Stick **BEIZE**.
+   `D:\beize-test` (Skript und Testprogramme) liegt schon dort.
 
 **B. Update installieren (Beize, tty1, als du angemeldet)**
 
-4. Stick einstecken:
-   ```sh
+4. ```sh
    run0 mkdir -p /run/stick
    run0 mount -o ro /dev/disk/by-label/BEIZE /run/stick
-   run0 beize-update install /run/stick/beize-0.5.97
+   run0 beize-update install /run/stick/beize-0.5.98
    run0 umount /run/stick
    systemctl reboot
    ```
-   Erwartet: „Beize 0.5.97 is installed. It starts with the next restart.“, dann Neustart
-   (F8 → Samsung) ohne Recovery-Key. Danach `(. /usr/lib/os-release; echo $IMAGE_VERSION)`
-   → `0.5.97`. **Kein Bild beim Start:** neu starten, Leertaste halten, 0.5.96 wählen, mir
-   Bescheid geben.
+   Erwartet: „Beize 0.5.98 is installed. It starts with the next restart.“, dann Neustart
+   (F8 → Samsung) ohne Recovery-Key. **Kein Bild beim Start:** neu starten, Leertaste
+   halten, 0.5.97 wählen, mir Bescheid geben.
 
-**C. Desktop testen**
+**C. Desktop und Terminal (alles im Terminal, kein Wechsel nach tty2 mehr)**
 
-5. Auf tty1 anmelden und `beize-session` eingeben. Erwartet: nach etwa einer Sekunde ein
-   dunkel blaugrauer Bildschirm mit Mauszeiger, sonst nichts (Fenster, Dock und Terminal
-   kommen mit Beize UI und der Shell). Maus bewegen: folgt der Zeiger flüssig?
-   - Meldung `beize-session: …` und zurück an der Shell: abfotografieren, weiter mit 8
-     (`logs`).
+5. Auf tty1 anmelden, `beize-session` eingeben. Erwartet: nach etwa einer Sekunde füllt ein
+   dunkles Terminal den Bildschirm, oben links `beize ~ $` mit weißem Block-Cursor. Ohne
+   Titelleiste und Knöpfe – das ist so gewollt, die kommen mit der Shell (Schritt 4).
+   `ls` tippen: kommt die Ausgabe?
+   - Meldung `beize-session: …` und zurück an der Shell: abfotografieren, weiter mit 9.
    - Schwarz oder eingefroren, Strg+Alt+F2 hilft nicht: Reset-Taste. Nichts geht verloren,
-     der Desktop startet nie von selbst; nach dem Neustart weiter mit 8 (`-1`).
-6. Strg+Alt+F2, auf tty2 anmelden, Stick **beschreibbar** einhängen und das Skript starten:
+     der Desktop startet nie von selbst; nach dem Neustart weiter mit 9 (`-1`).
+6. Im Terminal den Stick **beschreibbar** einhängen und das Skript starten (run0 fragt dein
+   Passwort hier im Terminal):
    ```sh
    run0 mkdir -p /run/stick
    run0 mount -o uid=$(id -u),gid=$(id -g) /dev/disk/by-label/BEIZE /run/stick
    bash /run/stick/beize-test/hw-test.sh
    ```
-7. Sagt das Skript „JETZT Strg+Alt+F1“: wechseln. Nach 10 s füllt das Testfenster den
-   Bildschirm: oben rot und grün, unten blau und weiß, durch den oberen Rand läuft ein
-   dunkler Balken. Läuft er gleichmäßig, ohne Ruckler oder Risse? Dann a, s, d tippen, die
-   Maus über das Fenster bewegen, einmal links klicken. Nach 20 s ist das Fenster weg.
-   Strg+Alt+F2: das Skript fragt einmal dein Passwort (run0, für das Journal des Kernels)
-   und zeigt das Ergebnis. Erwartet:
+7. Das Skript führt durch drei Teile, jeweils weiter mit Enter:
+   1. **Terminal-Probe.** Erwartet, Zeile für Zeile: „Grüße aus Beize: äöü ÄÖÜ ß é ñ €
+      „Zitat“ – é“; „fett“ (kräftiger), „schwach“ (grauer), „unterstrichen“,
+      „durchgestrichen“, „invers“ (dunkel auf hell); die Wörter rot, grün, gelb, blau,
+      magenta, cyan in ihren Farben; zwei Reihen mit je 8 Farbfeldern (dunkel, dann hell);
+      ein Grauverlauf schwarz → weiß; ein Farbverlauf türkis → magenta; drei Kästen (dünn
+      mit runden Ecken und Trennstrich, dick, doppelt) mit „Ab Cd“, „Ef“, „Gh“, daneben
+      Schattierungen und Halbblöcke. Linien der Kästen ohne Lücken? Schrift scharf, nicht
+      pixelig?
+   2. **Beize UI**, 30 Sekunden ein Fenster mit Text in Inter und JetBrains Mono, hell auf
+      dunkel und dunkel auf hell. Bitte genau ansehen: Wirkt der helle Text deutlich
+      kräftiger als der dunkle? (Offener Punkt in ADR 0027 §9 „Text“.) Danach kommt das
+      Terminal von selbst zurück.
+   3. **Bildtakt**, 20 Sekunden das Testfenster: oben rot und grün, unten blau und weiß, durch
+      den oberen Rand läuft ein dunkler Balken. Gleichmäßig, ohne Ruckler oder Risse? Dabei
+      a, s, d tippen, die Maus über das Fenster bewegen, einmal links klicken.
+
+   Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
+   Erwartet:
    - `GPU /dev/dri/card… (nouveau)`, `renderer on NVIDIA GeForce RTX 3070 Ti (NVK …)`,
      `screen DP-…: 2560x1440 at 240 Hz`, `rendering with … straight into the screen buffer`
-   - `frames: 4800 of 4800, 4.17 ms apart on average` (240 Hz; 6.94 wären 144 Hz),
-     `drawing:` unter 0,1 ms (das Testfenster selbst)
-   - unter „Bildtakt, vom Compositor selbst gemessen“: `pacing: … 0 late`, `busy` nur wenige
-     Prozent der 4.17 ms; die CPU- und GPU-Zeiten je Bild sind die Messwerte für ADR 0027
-   - `Tasten im Fenster: 6` (drücken und loslassen), `Klicks: 2` (je Taste und Klick zwei Ereignisse)
+   - `frames: 4800 of 4800, 4.17 ms apart on average`
+   - unter „Bildtakt des Testfensters“: **`pacing: … 0 late`** und **`change to screen median`
+     höchstens 4.17 ms** (bei 0.5.97: 8,65 ms) – das ist der Prüfwert für den Zeitplan;
+     `busy` nur wenige Prozent
+   - `Tasten im Fenster: 6`, `Klicks: 2`
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
-8. Ging etwas schief, statt 7: anmelden, Stick wie in 6 einhängen, dann
-   `bash /run/stick/beize-test/hw-test.sh logs` (Meldung von beize-session, derselbe Start)
-   oder `bash /run/stick/beize-test/hw-test.sh -1` (nach Reset: die Logs des Starts davor).
-   Weiter mit 9.
-9. Ende: `run0 umount /run/stick`, `systemctl reboot` (beendet auch den Desktop). In Windows
-   den Ordner `beize-test\results-…` vom Stick nach
-   `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\` kopieren. Mir sagen: „Hardware-Test
-   fertig“ und was du gesehen hast (flüssig? Farben richtig? Ruckler, Risse, Flackern?).
+8. Noch von Hand im Terminal (je kurz, Foto nur bei Fehlern):
+   - **Strg+Alt+T**: ein zweites Terminal öffnet sich darüber. Darin `exit`: es schließt sich,
+     das erste ist wieder da und nimmt Tasten an.
+   - **Kopieren:** mit der Maus Text markieren (Doppelklick = Wort), **Strg+Shift+C**,
+     dann **Strg+Shift+V**: der Text erscheint am Prompt (mit Strg+U wieder löschen).
+   - **Mausrad** nach oben: scrollt durch die Ausgabe des Skripts zurück.
+   - **Tote Taste:** `^` und dann `e` ergibt ê (nur wenn dein Layout tote Tasten hat).
+9. Ging etwas schief, statt 6–8: Strg+Alt+F2, auf tty2 anmelden, Stick wie in 6 einhängen,
+   dann `bash /run/stick/beize-test/hw-test.sh logs` (derselbe Start) oder
+   `bash /run/stick/beize-test/hw-test.sh -1` (nach Reset: die Logs des Starts davor).
+10. Ende: `run0 umount /run/stick`, `systemctl reboot` (beendet auch den Desktop). Den Stick
+    stecken lassen und mir sagen: „Hardware-Test fertig“, dazu was du gesehen hast
+    (Terminal-Probe richtig? Heller Text kräftiger? Testfenster flüssig? Strg+Alt+T,
+    Kopieren, Mausrad?). Die Ergebnisse hole ich selbst vom Stick.
 
 ## Startzeit messen
 
