@@ -1,0 +1,59 @@
+# Compose tables (ADR 0027 §9): which key sequences make which character,
+# e.g. dead circumflex + e = ê on the German layout. libxkbcommon reads them
+# from /usr/share/X11/locale (its x-locale-root); every distribution ships
+# them with libX11 (Fedora: libX11-common). Only this data, not the X11
+# library: made from libX11's .pre files with upstream's own rules
+# (cpprules.in, nls/Makefile.am), host cpp as there. Only the tables of the
+# UTF-8 locales, as Beize has no others; compose.dir and locale.alias stay
+# whole, as upstream writes them.
+name = "libx11-compose"
+version = "1.8.14"
+stage = "target"
+
+[source]
+latest = { release-monitoring = 1764 }
+url = "https://www.x.org/releases/individual/lib/libX11-{version}.tar.xz"
+sha256 = "bbc78c46217174655c2b32b138ad119f3ac15f50808b4d0b3a2677a4b1afc950"
+signature = "https://www.x.org/releases/individual/lib/libX11-{version}.tar.xz.sig"
+keyring = "libx11"
+
+[build]
+script = '''
+dir=/usr/share/X11/locale
+# RAWCPP with RAWCPPFLAGS (configure: -undef -traditional on Linux),
+# CPP_FILES_FLAGS (WCHAR32=1 on glibc) and CPP_SED_MAGIC.
+pre() {
+  gcc -E -x c -undef -traditional -DWCHAR32=1 - < "$1" | LC_CTYPE=C sed \
+    -e '/^#  *[0-9][0-9]*  *.*$/d' \
+    -e '/^#line  *[0-9][0-9]*  *.*$/d' \
+    -e '/^[	 ]*XCOMM$/s/XCOMM/#/' \
+    -e '/^[	 ]*XCOMM[^a-zA-Z0-9_]/s/XCOMM/#/' \
+    -e '/^[	 ]*XHASH/s/XHASH/#/' \
+    -e "s,X11_LOCALEDATADIR,$dir,g" \
+    -e '/@@$/s/@@$/\\/' \
+    -e '/^$/d'
+}
+mkdir -p "$PKG$dir"
+for table in compose.dir locale.alias; do
+  pre "$SRC/nls/$table.pre" > "$table.l1"
+  LC_CTYPE=C sed -e '/^[^#][^	 ]*:/s/://' -e '/^[^#].*[	 ].*:/d' \
+    < "$table.l1" > "$table.l2"
+  cat "$table.l2" "$table.l1" > "$PKG$dir/$table"
+done
+# The Compose files compose.dir names for a UTF-8 locale.
+for file in $(awk '!/^#/ && $2 ~ /UTF-8$/ { sub(/:$/, "", $1); print $1 }' "$PKG$dir/compose.dir" | sort -u); do
+  install -d "$PKG$dir/${file%/*}"
+  pre "$SRC/nls/$file.pre" > "$PKG$dir/$file"
+done
+test -s "$PKG$dir/en_US.UTF-8/Compose"
+'''
+
+[sbom]
+# As Fedora's libX11 states it.
+license = "MIT AND X11"
+cpe = ["cpe:2.3:a:x.org:libx11"]
+
+[files]
+image = [
+  "usr/share/X11/locale/**",
+]

@@ -1,0 +1,40 @@
+# JetBrains Mono, Beize's monospaced font (terminal; ADR 0027 §5, §9):
+# upright and italic as variable fonts (weight). The release's files as they
+# are, as for Inter (see recipes/inter.toml); the files at the release tag
+# are byte-identical to the release archive's (checked for 2.304).
+name = "jetbrains-mono"
+version = "2.304"
+stage = "target"
+
+[source]
+latest = { release-monitoring = 229522 }
+url = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v{version}/fonts/variable/JetBrainsMono%5Bwght%5D.ttf"
+file = "JetBrainsMono.ttf"
+sha256 = "662a196d58f1183bf2d77428b6d5283fe3f45161ab021bea4036bc98e5cac016"
+unsigned = "JetBrains signs neither releases nor tags of JetBrains Mono (checked 2026-10-22); pinned by SHA-256, the same bytes as the release archive"
+
+[[extra]]
+url = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v{version}/fonts/variable/JetBrainsMono-Italic%5Bwght%5D.ttf"
+file = "JetBrainsMono-Italic-{version}.ttf"
+sha256 = "f115aaa12113718c02ce72864fe6823b87241bc23d3e44cf1220155f861063f2"
+unsigned = "as the upright font"
+dest = "italic"
+
+[build]
+script = '''
+dir="$PKG/usr/share/fonts/jetbrains-mono"
+install -Dm644 "$SRC/JetBrainsMono.ttf" "$dir/JetBrainsMono.ttf"
+install -Dm644 "$SRC/italic/JetBrainsMono-Italic-$VERSION.ttf" "$dir/JetBrainsMono-Italic.ttf"
+'''
+
+[sbom]
+# As Fedora's jetbrains-mono-fonts states it; the font's name table carries
+# the notice the OFL asks for.
+license = "OFL-1.1"
+# No CPE: a font (data); the NVD lists no product for it.
+cpe = []
+
+[files]
+image = [
+  "usr/share/fonts/jetbrains-mono/**",
+]

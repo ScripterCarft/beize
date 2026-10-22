@@ -1,0 +1,33 @@
+# Inter, Beize's system font (ADR 0027 §5, §9): the variable font (weight
+# and optical size). The file of the release as it is, not built from the
+# sources: that would take fontmake and its Python stack into the buildroot
+# for the same bytes (the owner's choice, 22.10.). The file at the release
+# tag is byte-identical to the release archive's (checked for 4.1); a single
+# file spares bz an unzip. The italic is only in the archive: it follows
+# when Beize UI sets italic text, with unzip in bz.
+name = "inter"
+version = "4.1"
+stage = "target"
+
+[source]
+latest = { release-monitoring = 178222 }
+url = "https://raw.githubusercontent.com/rsms/inter/v{version}/docs/font-files/InterVariable.ttf"
+sha256 = "4989b125924991b90d05b2d16e0e388c48f7d5bb8b30539bbf9c755278d0ccaf"
+unsigned = "Inter signs neither releases nor tags (checked 2026-10-22); pinned by SHA-256, the same bytes as the release archive"
+
+[build]
+script = '''
+install -Dm644 "$SRC/InterVariable.ttf" -t "$PKG/usr/share/fonts/inter"
+'''
+
+[sbom]
+# As Fedora's rsms-inter-fonts states it; the font's name table carries the
+# notice the OFL asks for.
+license = "OFL-1.1"
+# No CPE: a font (data); the NVD lists no product for it.
+cpe = []
+
+[files]
+image = [
+  "usr/share/fonts/inter/**",
+]

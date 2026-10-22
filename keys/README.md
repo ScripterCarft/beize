@@ -35,8 +35,10 @@ Prüfen aller Quellen: `./bz verify`
 | `grep` | Jim Meyering | `155D 3FC5 00C8 3448 6D1E EA67 7FD9 FCCB 000B EEEE` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `gzip` | Jim Meyering | `155D 3FC5 00C8 3448 6D1E EA67 7FD9 FCCB 000B EEEE` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `intel-microcode` | Intel signiert weder Archive noch Tags oder Commits (geprüft 2026-10-10) | Archiv per SHA-256 gepinnt; jedes Microcode-Update trägt Intels Signatur, die die CPU vor dem Einspielen prüft |
+| `inter` | Inter signiert weder Releases noch Tags (geprüft 2026-10-22) | Schriftdatei per SHA-256 gepinnt; vom Release-Tag, byte-gleich mit der im Release-Archiv |
 | `iproute2` | Stephen Hemminger | `9F6F C345 B05B E7E7 66B8 3C8F 80A7 7F60 95CD E47E` | keyserver.ubuntu.com; deckungsgleich mit dem pgpkeys-Repository von kernel.org und Arch Linux' `validpgpkeys`; signiert das unkomprimierte Archiv |
 | `iputils` | Petr Vorel (SUSE) | `2016 FEA4 858B 1C36 B32E 833A C0DE C2EE 72F3 3A5F` | keyserver.ubuntu.com; signiert die Release-Archive und die Tags auf GitHub |
+| `jetbrains-mono` | JetBrains signiert weder Releases noch Tags von JetBrains Mono (geprüft 2026-10-22) | Schriftdateien per SHA-256 gepinnt; vom Release-Tag, byte-gleich mit denen im Release-Archiv |
 | `json-c` | Upstream signiert weder Release-Archive noch Tags (geprüft 2026-10-07) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
 | `kbd` | Alexey Gladkov | `7F2A 3D07 2981 49A0 793C 9A4E A45A BA54 4CFF D434` | keyserver.ubuntu.com; deckungsgleich mit WKD kernel.org |
 | `kmod` | Lucas De Marchi | `EAB3 3C96 9001 3C73 3916 AC83 9BA2 A5A6 30CB EA53` | keyserver.ubuntu.com |
@@ -47,6 +49,7 @@ Prüfen aller Quellen: `./bz verify`
 | `libinput` | Peter Hutterer (Red Hat; signiert libinput und libevdev). Alter DSA-1024-Schlüssel von 2003 – schwächer als heute üblich, aber der einzige, mit dem Upstream signiert; Arch Linux prüft gegen denselben | `3C2C 43D9 447D 5938 EF45 51EB E23B 7E70 B467 F0BF` (DSA) | keyserver.ubuntu.com; deckungsgleich mit Arch Linux' `validpgpkeys`; signiert die Archive von libevdev und die Tags von libinput |
 | `libseccomp` | Tom Hromatka (Oracle) | `47A6 8FCE 37C7 D702 4FD6 5E11 356C E62C 2B52 4099` | keyserver.ubuntu.com; Maintainer laut `SECURITY.md` des Projekts |
 | `libxcrypt` | Björn Esser | `678C E3FE E430 3115 96DB 8C16 F52E 9800 7594 C21D` | keyserver.ubuntu.com; deckungsgleich mit `libxcrypt-gpgkey.asc` im Release |
+| `libx11` | Alan Coopersmith (X.Org; für die Compose-Tabellen aus libX11) | `3AB2 8523 2C46 AE43 D8E1 92F4 DAB0 F78E A6E7 E2D2` | keyserver.ubuntu.com; deckungsgleich mit Arch Linux' `validpgpkeys` |
 | `libxkbcommon` | Upstream signiert weder Tags noch Commits und veröffentlicht keine signierten Archive (geprüft 2026-10-11) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
 | `linux` | Greg Kroah-Hartman | `647F 2865 4894 E3BD 4571 99BE 38DB BDC8 6092 693E` | WKD kernel.org |
 | `linux-firmware` | Josh Boyer | `4CDE 8575 E547 BF83 5FE1 5807 A31B 6BD7 2486 CFD6` | keyserver.ubuntu.com |

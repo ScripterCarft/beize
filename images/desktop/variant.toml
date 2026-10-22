@@ -10,5 +10,9 @@ extends = "base"
 
 # Graphics (ADR 0027): Vulkan with Mesa's drivers (NVK for NVIDIA) and
 # Beize's compositor, which links libseat (logind hands it the devices) and
-# libinput; beize-session starts it from a login.
-packages = ["mesa", "vulkan-loader", "beize-compositor", "beize-session"]
+# libinput; beize-session starts it from a login. The system fonts and the
+# Compose tables for typing (ADR 0027 §9).
+packages = [
+  "mesa", "vulkan-loader", "beize-compositor", "beize-session",
+  "inter", "jetbrains-mono", "libx11-compose",
+]
