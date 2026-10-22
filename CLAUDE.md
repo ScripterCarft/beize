@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, Schritt 3 Beize UI bis (e))
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-22, Schritt 3 Beize UI bis (f))
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -444,8 +444,14 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    Compositor über `os/beize-systemd`; Smoke prüft beides und das Ende beim Abmelden. Nach
    `beize-session` von Hand läuft also schon ein Terminal (Fenster darunter verdeckt: das
    neueste liegt oben). Lehre: `bz debug --machine <name>` startet die Disk der liegengelassenen
-   Maschine, nicht den neuen Bau. **(f) JETZT:** Smoke mit Referenzbild des Terminals (Befehl
-   tippen, Textbereich vergleichen); (g) ein Hardware-Test für Terminal **und** Zeitplan.
+   Maschine, nicht den neuen Bau. (f) ✓ (22.10., ADR 0027 §9 „Test Terminal“): `bz` tippt
+   `/run/t/beize-terminal-sample` ins neue Terminal und vergleicht den ganzen Bildschirm mit
+   `os/beize-terminal/tests/sample.png` (Foto eines Laufs, nur von Hand ersetzen). Alle
+   Bildvergleiche erlauben Abweichungen nur noch im 24×24-Quadrat oben links (Zeiger bei
+   (0, 0)): „höchstens 576 Pixel irgendwo“ ließ ein falsches Zeichen durch (Gegenprobe ü → u,
+   12 Pixel). Die Bildtakt-Prüfung nimmt die `pacing:`-Zeile nach dem Start des Clients (das
+   Terminal hat vorher eine eigene). **(g) JETZT:** ein Hardware-Test für Terminal **und**
+   Zeitplan.
    Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
    gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
    aus), wird vor Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige

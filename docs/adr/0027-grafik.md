@@ -173,7 +173,8 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   vollen CI-Stufe. Umgesetzt (22.10., `smoke/desktop.rs`): Anmeldung mit echten Tasten
   (deutsche Belegung), dann geprüft: Wayland-Sitzung auf tty1, Compositor als Besitzer mit
   Systemaufruf-Filter, Fenster so groß wie der Bildschirm, Bild = Muster (die Referenz
-  rechnet `bz` aus, ±2 je Kanal, höchstens 24×24 Pixel Zeiger), keine Warnung außer
+  rechnet `bz` aus, ±2 je Kanal, Abweichungen nur im 24×24-Quadrat oben links, wo der
+  Zeiger beginnt; der Test bewegt ihn nie), keine Warnung außer
   Smithays bekannter, Abmelden stoppt alles. Bei Abweichung ein Differenzbild in den Logs.
 - **Bildtakt messen** (22.10., `pacing.rs`): Der Compositor misst sich selbst, nicht der
   Client. Aufgabe: eine Änderung beim ersten vblank zeigen, dessen Frist sie erreicht hat
@@ -387,9 +388,17 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   behält er auch beim Loslassen (wie anvil und niri). Geprüft im Smoke-Szenario `Desktop`: ein
   Terminal mit Shell nach dem Start, ein zweites nach Strg+Alt+T, keins nach dem Abmelden
   (Gegenprobe: andere Taste → rot).
-- **Test:** Smoke-Szenario: Terminal startet, Befehl tippen, Bildvergleich des Textbereichs
-  mit einer Referenz im Repo (wie openQA). Die Referenz erneuert `bz` nur auf ausdrücklichen
-  Wunsch und nach Sichtprüfung. Dazu der Hardware-Test mit `pacing:` (prüft den Zeitplan).
+- **Test Terminal** (22.10., Smoke-Szenario `Desktop`): In das neue Terminal (nach
+  Strg+Alt+T) tippt `bz` `/run/t/beize-terminal-sample`, sobald dessen Shell liest (readline
+  schaltet das Terminal aus dem kanonischen Modus; vorher getippte Tasten zeigte der
+  Terminaltreiber vor dem Prompt). Die Probe (`os/beize-terminal/tests/sample.sh`, auf dem
+  Test-Medium) zeigt je Zeile Umlaute und ein kombinierendes Zeichen, Attribute, die 16
+  Farben, Graustufen, Truecolor, Rahmen und Blöcke. Der Bildschirm muss
+  `os/beize-terminal/tests/sample.png` gleichen, einem Bildschirmfoto eines Laufs (wie
+  openQAs „Needles“), mit dem Zeiger, also ohne jede Abweichung. Wie openQA wartet `bz`
+  bis zu 10 s, bis das Bild stimmt. Fehlt die Referenz oder weicht sie ab, liegt das Foto in
+  den Logs; ersetzt wird sie nur von Hand nach Ansicht. Gegenprobe: ein „ü“ der Probe als
+  „u“ → rot, 12 Pixel. Dazu der Hardware-Test mit `pacing:` (prüft den Zeitplan).
 - **Noch nicht:** Barrierefreiheit (AccessKit mit den ersten Widgets), Eingabemethoden
   (`text-input-v3`), gebrochene Skalierung (Faktor 1 beim 27"-1440p des Besitzers; Protokoll
   mit den Einstellungen), Titelleiste und Fensterknöpfe (vor Schritt 4 entscheiden).
