@@ -20,9 +20,11 @@ ignore = [
 
 # Permissive licenses only, as the crates in use have them (checked
 # 2026-10-13); Beize's own crates are not published and carry none. ISC
-# (libloading, through ash, 2026-10-21) is MIT's equal in substance.
+# (libloading, through ash, 2026-10-21) is MIT's equal in substance; Zlib
+# (foldhash, through Parley's font collection, 2026-10-22) is as permissive,
+# the license of zlib itself.
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense", "ISC"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense", "ISC", "Zlib"]
 confidence-threshold = 0.93
 
 [licenses.private]

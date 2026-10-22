@@ -28,7 +28,8 @@ pub struct Quad {
     pub uv_y: [f32; 2],
     /// 1 / the texture's size: texel coordinates to normalised ones.
     pub texel: [f32; 2],
-    /// Premultiplied colour for solids; for textures only `[3]`, the alpha.
+    /// Premultiplied colour for solids and glyphs; for textures only
+    /// `[3]`, the alpha.
     pub color: [f32; 4],
     /// Index into the texture array.
     pub texture: u32,
@@ -40,6 +41,9 @@ pub const SOLID: u32 = 1;
 /// Texels 1:1 on whole pixels: fetched, not filtered – sharp by
 /// construction (ADR 0027 §3).
 pub const EXACT: u32 = 2;
+/// The texture is a glyph's coverage (red, 8 bits): drawn in `color`
+/// (ADR 0027 §9).
+pub const MASK: u32 = 4;
 
 /// The push constants (`shaders/quad.glsl`, `Push`).
 #[repr(C)]

@@ -2,11 +2,18 @@
 //! draw into sRGB images, so the GPU blends in linear light (ADR 0027 §9,
 //! gamma-correct): colours are given in sRGB, as designers name them, and
 //! turned linear and premultiplied here.
+//!
+//! A scene is data only: text adds its glyph runs, and the renderer turns
+//! each glyph into a quad when it draws (`glyphs`, the atlas).
 
-use beize_vulkan::pipeline::{Quad, SOLID};
+use beize_vulkan::pipeline::{EXACT, MASK, Quad, SOLID};
+use parley::{FontData, Layout, PositionedLayoutItem};
+
+use crate::glyphs::Face;
 
 /// A colour in sRGB, 8 bits a channel, alpha straight (not premultiplied).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The default is transparent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -62,6 +69,20 @@ pub struct Scene {
     pub(crate) quads: Vec<Quad>,
     /// Per quad: drawn with blending.
     pub(crate) blend: Vec<bool>,
+    /// The fonts of the glyph runs.
+    pub(crate) runs: Vec<(FontData, Face)>,
+    /// Glyphs whose quads the renderer fills in.
+    pub(crate) glyphs: Vec<Glyph>,
+}
+
+/// A glyph of a run, at its pen position: `x` in pixels with fraction,
+/// `y` the baseline on a whole pixel.
+pub(crate) struct Glyph {
+    pub quad: usize,
+    pub run: usize,
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
 }
 
 impl Scene {
@@ -79,6 +100,53 @@ impl Scene {
             ..Quad::default()
         });
         self.blend.push(color.a < 0xff);
+    }
+
+    /// The text of `layout` with its top left at `x`, `y`.
+    pub fn text(&mut self, layout: &Layout<Color>, x: f32, y: f32) {
+        for line in layout.lines() {
+            for item in line.items() {
+                let PositionedLayoutItem::GlyphRun(glyphs) = item else {
+                    continue;
+                };
+                let run = glyphs.run();
+                let face = Face {
+                    blob: run.font().data.id(),
+                    index: run.font().index,
+                    size: run.font_size().to_bits(),
+                    coords: run
+                        .normalized_coords()
+                        .iter()
+                        .map(|c| c.to_bits())
+                        .collect(),
+                };
+                let index = match self.runs.iter().position(|(_, f)| *f == face) {
+                    Some(i) => i,
+                    None => {
+                        self.runs.push((run.font().clone(), face));
+                        self.runs.len() - 1
+                    }
+                };
+                let color = glyphs.style().brush.linear();
+                for glyph in glyphs.positioned_glyphs() {
+                    self.glyphs.push(Glyph {
+                        quad: self.quads.len(),
+                        run: index,
+                        id: glyph.id,
+                        x: x + glyph.x,
+                        // Baselines on whole pixels, where hinting put the
+                        // stems.
+                        y: (y + glyph.y).round(),
+                    });
+                    self.quads.push(Quad {
+                        color,
+                        flags: MASK | EXACT,
+                        ..Quad::default()
+                    });
+                    self.blend.push(true);
+                }
+            }
+        }
     }
 
     pub fn len(&self) -> usize {

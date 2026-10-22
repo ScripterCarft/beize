@@ -18,6 +18,7 @@ struct Quad {
 
 const uint SOLID = 1u;
 const uint EXACT = 2u;
+const uint MASK = 4u;
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Quads {
     Quad quads[];

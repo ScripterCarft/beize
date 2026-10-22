@@ -1,5 +1,5 @@
 #version 460
-// Solids and textures alike, premultiplied. All textures sit in one array
+// Solids, textures and glyphs alike, premultiplied. All textures sit in one array
 // (bindless), so a frame's quads go out in few draws whatever they show.
 
 #extension GL_GOOGLE_include_directive : require
@@ -30,5 +30,11 @@ void main() {
     } else {
         sampled = textureLod(sampler2D(textures[t], linear), uv * texel, 0.0);
     }
-    result = sampled * color.a;
+    if ((flags & MASK) != 0u) {
+        // A glyph: the texture's red is its coverage, the colour is the
+        // text's (premultiplied).
+        result = color * sampled.r;
+    } else {
+        result = sampled * color.a;
+    }
 }

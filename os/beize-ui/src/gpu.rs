@@ -41,9 +41,10 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    /// Vulkan on the GPU the display `display` (a libwayland `wl_display`)
-    /// can be shown from: a real one before lavapipe.
-    pub fn new(display: *mut c_void) -> Result<Gpu> {
+    /// Vulkan on a GPU – a real one before lavapipe – that can show on
+    /// `display` (a libwayland `wl_display`); without one, for drawing
+    /// offscreen.
+    pub fn new(display: Option<*mut c_void>) -> Result<Gpu> {
         // SAFETY: libvulkan.so.1 is the Khronos loader (the desktop's
         // vulkan-loader); nothing else of it is used before this.
         let entry = unsafe { ash::Entry::load() }.context("loading Vulkan")?;
@@ -81,17 +82,9 @@ impl Gpu {
                 &device_extensions,
             )
         }?;
-        // SAFETY: as in `choose`; `display` is the caller's live display.
-        let presents = unsafe {
-            instance
-                .wayland
-                .get_physical_device_wayland_presentation_support(
-                    physical,
-                    created.family,
-                    &mut *display.cast(),
-                )
-        };
-        if !presents {
+        if let Some(display) = display
+            && !presents(&instance, physical, created.family, display)
+        {
             return Err(error(format!(
                 "{name} cannot show its graphics queue's images on Wayland"
             )));
@@ -126,9 +119,32 @@ impl Drop for Gpu {
     }
 }
 
+/// Whether queue family `family` of `physical` can show on `display`.
+fn presents(
+    instance: &Instance,
+    physical: vk::PhysicalDevice,
+    family: u32,
+    display: *mut c_void,
+) -> bool {
+    // SAFETY: the physical device comes from this instance; `display` is
+    // the caller's live libwayland display.
+    unsafe {
+        instance
+            .wayland
+            .get_physical_device_wayland_presentation_support(
+                physical,
+                family,
+                &mut *display.cast(),
+            )
+    }
+}
+
 /// The physical device to draw on: Vulkan 1.3, a graphics queue that can
-/// show on `display`; a GPU before a CPU (lavapipe).
-fn choose(instance: &Instance, display: *mut c_void) -> Result<(vk::PhysicalDevice, String)> {
+/// show on `display` if there is one; a GPU before a CPU (lavapipe).
+fn choose(
+    instance: &Instance,
+    display: Option<*mut c_void>,
+) -> Result<(vk::PhysicalDevice, String)> {
     // SAFETY: plain queries of this instance.
     let devices =
         unsafe { instance.instance.enumerate_physical_devices() }.context("listing the GPUs")?;
@@ -144,14 +160,7 @@ fn choose(instance: &Instance, display: *mut c_void) -> Result<(vk::PhysicalDevi
         };
         let shows = families.iter().enumerate().any(|(i, f)| {
             f.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                // SAFETY: as above; `display` is the caller's live display.
-                && unsafe {
-                    instance.wayland.get_physical_device_wayland_presentation_support(
-                        physical,
-                        i as u32,
-                        &mut *display.cast(),
-                    )
-                }
+                && display.is_none_or(|display| presents(instance, physical, i as u32, display))
         });
         if props.api_version >= vk::API_VERSION_1_3 && shows {
             let name = props
@@ -171,5 +180,5 @@ fn choose(instance: &Instance, display: *mut c_void) -> Result<(vk::PhysicalDevi
         .into_iter()
         .next()
         .map(|(_, physical, name)| (physical, name))
-        .context("no Vulkan 1.3 device can show on this display")
+        .context("no Vulkan 1.3 device (that can show on this display)")
 }

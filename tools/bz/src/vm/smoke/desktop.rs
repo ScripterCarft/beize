@@ -1,8 +1,10 @@
 //! The desktop (ADR 0027 §6): the owner signs in on tty1 at the keyboard
 //! and types `beize-session`; the compositor runs as the owner in its
 //! sandbox, logind knows the session as a Wayland one, a client's window
-//! fills the screen and the screen shows exactly its pattern. Signing out
-//! stops the desktop and takes its environment back.
+//! fills the screen and the screen shows exactly its pattern. Beize UI's
+//! test program shows its sample – text, colours, blending – exactly as it
+//! draws it offscreen, the reference in the repository. Signing out stops
+//! the desktop and takes its environment back.
 //!
 //! The owner's shell on the serial console looks on: the same user, so the
 //! same service manager as the login on tty1.
@@ -41,6 +43,12 @@ const POINTER_PIXELS: usize = 24 * 24;
 /// itself: it already is, through the device logind handed over (reported
 /// to Smithay, ~/upstream/smithay/ISSUES.md). Every other warning fails.
 const KNOWN_WARNING: &str = "Unable to become drm master, assuming unprivileged mode";
+
+/// Beize UI's sample as its test program draws it offscreen at the VM's
+/// screen size (`beize-ui-test --offscreen FILE 1280x800`), relative to the
+/// repository. Replaced only by hand, after looking at the screen the test
+/// leaves in the logs when they differ (ADR 0027 §9).
+const UI_SAMPLE: &str = "os/beize-ui/tests/sample.png";
 
 pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-desktop")?;
@@ -136,7 +144,12 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         screen.width,
         screen.height
     );
-    let differing = compare(&screen, &machine.logs.join("desktop-difference.ppm"))?;
+    let differing = compare(
+        &screen,
+        |x, y| expected(x, y, size.0, size.1),
+        "the client's pattern",
+        &machine.logs.join("desktop-difference.ppm"),
+    )?;
     say!(
         "  ok: the screen shows the client's window, {}x{} ({differing} pixels differ: the pointer)",
         size.0,
@@ -162,6 +175,55 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "the compositor counted {frames} frames of the client's 120: {pacing}"
     );
     say!("  ok: the compositor measured the client's frames: {pacing}");
+
+    // Beize UI: its window through Vulkan's WSI shows the sample as the
+    // reference has it – the same renderer, glyphs and blending offscreen.
+    let (_, lines) = shell.capture(
+        "systemctl --user stop beize-testclient \
+         && systemd-run --user --unit=beize-ui-test /run/t/beize-ui-test --seconds 60 \
+         && for i in $(seq 50); do journalctl --user -u beize-ui-test -o cat \
+         | grep -q '^configure ' && break; sleep 0.2; done; \
+         journalctl --user -u beize-ui-test -o cat",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l.starts_with("configure ")),
+        "Beize UI's test program got no window: {lines:?}"
+    );
+    thread::sleep(Duration::from_secs(1));
+    let file = machine.logs.join("beize-ui-screen.ppm");
+    screendump(&qmp, &file)?;
+    let screen = Image::read_ppm(&fs::read(&file)?)?;
+    let reference_file = paths.root.join(UI_SAMPLE);
+    let reference = Image::read_png(
+        &fs::read(&reference_file).with_context(|| format!("reading {UI_SAMPLE}"))?,
+    )?;
+    ensure!(
+        (screen.width, screen.height) == (reference.width, reference.height),
+        "the screen is {}x{}, {UI_SAMPLE} {}x{}",
+        screen.width,
+        screen.height,
+        reference.width,
+        reference.height
+    );
+    let compared = compare(
+        &screen,
+        |x, y| reference.pixel(x, y),
+        UI_SAMPLE,
+        &machine.logs.join("beize-ui-difference.ppm"),
+    );
+    let differing = match compared {
+        Ok(n) => n,
+        Err(e) => {
+            // To look at, and to take over if the new look is wanted.
+            let shown = machine.logs.join("beize-ui-screen.png");
+            screen.write_png(&shown)?;
+            return Err(e.context(format!("the screen is {}", shown.display())));
+        }
+    };
+    say!(
+        "  ok: Beize UI's window shows its sample as the reference has it ({differing} pixels \
+         differ: the pointer)"
+    );
 
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
@@ -252,6 +314,39 @@ impl Image {
         data.extend_from_slice(&self.pixels);
         Ok(fs::write(file, data)?)
     }
+
+    /// A PNG with 8-bit RGB, as the references in the repository are.
+    fn read_png(data: &[u8]) -> Result<Self> {
+        let mut reader = png::Decoder::new(std::io::Cursor::new(data)).read_info()?;
+        let mut pixels = vec![0; reader.output_buffer_size().context("a PNG too large")?];
+        let info = reader.next_frame(&mut pixels)?;
+        ensure!(
+            info.color_type == png::ColorType::Rgb && info.bit_depth == png::BitDepth::Eight,
+            "not an 8-bit RGB PNG: {:?}, {:?}",
+            info.color_type,
+            info.bit_depth
+        );
+        pixels.truncate(info.buffer_size());
+        Ok(Self {
+            width: info.width as usize,
+            height: info.height as usize,
+            pixels,
+        })
+    }
+
+    fn write_png(&self, file: &Path) -> Result<()> {
+        let out = std::io::BufWriter::new(fs::File::create(file)?);
+        let mut encoder = png::Encoder::new(out, self.width as u32, self.height as u32);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header()?.write_image_data(&self.pixels)?;
+        Ok(())
+    }
+
+    fn pixel(&self, x: usize, y: usize) -> [u8; 3] {
+        let at = (y * self.width + x) * 3;
+        [self.pixels[at], self.pixels[at + 1], self.pixels[at + 2]]
+    }
 }
 
 /// The client's pattern at (x, y) of a window `width`×`height`, as the
@@ -260,10 +355,15 @@ fn expected(x: usize, y: usize, width: usize, height: usize) -> [u8; 3] {
     QUADRANTS[usize::from(x >= width / 2) + 2 * usize::from(y >= height / 2)]
 }
 
-/// The pixels of `screen` that differ from the pattern; more than the
-/// pointer's fail, and `difference` then shows them in magenta over a dimmed
-/// screen.
-fn compare(screen: &Image, difference: &Path) -> Result<usize> {
+/// The pixels of `screen` that differ from what is `wanted` (named `what`
+/// in errors); more than the pointer's fail, and `difference` then shows
+/// them in magenta over a dimmed screen.
+fn compare(
+    screen: &Image,
+    wanted: impl Fn(usize, usize) -> [u8; 3],
+    what: &str,
+    difference: &Path,
+) -> Result<usize> {
     let mut marked = Image {
         width: screen.width,
         height: screen.height,
@@ -274,10 +374,9 @@ fn compare(screen: &Image, difference: &Path) -> Result<usize> {
         for x in 0..screen.width {
             let at = (y * screen.width + x) * 3;
             let shown = &screen.pixels[at..at + 3];
-            let wanted = expected(x, y, screen.width, screen.height);
             if shown
                 .iter()
-                .zip(wanted)
+                .zip(wanted(x, y))
                 .any(|(s, w)| s.abs_diff(w) > CHANNEL_TOLERANCE)
             {
                 differing += 1;
@@ -288,8 +387,8 @@ fn compare(screen: &Image, difference: &Path) -> Result<usize> {
     if differing > POINTER_PIXELS {
         marked.write_ppm(difference)?;
         bail!(
-            "{differing} pixels of the screen differ from the client's pattern (at most \
-             {POINTER_PIXELS} may, the pointer); they are magenta in {}",
+            "{differing} pixels of the screen differ from {what} (at most {POINTER_PIXELS} \
+             may, the pointer); they are magenta in {}",
             difference.display()
         );
     }
@@ -334,6 +433,14 @@ mod tests {
 
     #[test]
     fn the_pattern_passes_with_a_pointer_and_fails_otherwise() {
+        let compare = |screen: &Image, difference: &Path| {
+            compare(
+                screen,
+                |x, y| expected(x, y, 64, 40),
+                "the pattern",
+                difference,
+            )
+        };
         let difference = std::env::temp_dir().join(format!("bz-diff-{}.ppm", std::process::id()));
         let mut screen = pattern(64, 40);
         assert_eq!(compare(&screen, &difference).unwrap(), 0);
@@ -355,5 +462,17 @@ mod tests {
         swapped.pixels.reverse();
         assert!(compare(&swapped, &difference).is_err());
         fs::remove_file(&difference).unwrap();
+    }
+
+    #[test]
+    fn a_png_reads_back_as_written() {
+        let file = std::env::temp_dir().join(format!("bz-png-{}.png", std::process::id()));
+        let image = pattern(5, 3);
+        image.write_png(&file).unwrap();
+        let read = Image::read_png(&fs::read(&file).unwrap()).unwrap();
+        fs::remove_file(&file).unwrap();
+        assert_eq!((read.width, read.height), (5, 3));
+        assert_eq!(read.pixels, image.pixels);
+        assert_eq!(read.pixel(4, 2), expected(4, 2, 5, 3));
     }
 }
