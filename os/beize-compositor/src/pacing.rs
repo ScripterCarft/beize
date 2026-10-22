@@ -1,8 +1,8 @@
 //! How frames meet their vblank, measured by the compositor itself (ADR
 //! 0027 §6 "Bildtakt messen"). The compositor's task is to show a change at
-//! the first vblank after it arrived. Each drawn frame keeps when its change
-//! arrived, when drawing began and when it went to KMS; the vblank that
-//! shows it says whether it made it.
+//! the first vblank whose deadline it met (`schedule`). Each drawn frame
+//! keeps when its change arrived, that vblank, when drawing began and when
+//! it went to KMS; the vblank that shows it says whether it made it.
 //!
 //! A frame shown later than that vblank is late, and the time it passed
 //! says who held it up: still drawing (the compositor's CPU work) or
@@ -15,7 +15,8 @@
 //! a second on:
 //!
 //! `pacing: 4800 frames in 20.00 s at 240 Hz, 0 late (…); change to screen
-//! median 2.31 ms, …; busy 4 % of the 4.17 ms per frame`
+//! median 2.31 ms, …; commit median 1.21 ms before the vblank, …; busy 4 %
+//! of the 4.17 ms per frame`
 //!
 //! It costs a few numbers per frame, kept until the summary.
 //!
@@ -37,11 +38,13 @@ const PIECE: Duration = Duration::from_secs(30);
 /// a click) at debug level.
 const NOTABLE: Duration = Duration::from_secs(1);
 
-/// When a frame's change arrived, its drawing began and it was committed;
-/// on CLOCK_MONOTONIC, as KMS's vblank times.
+/// When a frame's change arrived, the vblank it is due at, when its drawing
+/// began and when it was committed; on CLOCK_MONOTONIC, as KMS's vblank
+/// times.
 #[derive(Clone, Copy, Debug)]
 pub struct Times {
     pub requested: Duration,
+    pub due: Duration,
     pub began: Duration,
     pub committed: Duration,
 }
@@ -56,16 +59,17 @@ struct Run {
     /// after that vblank (drawing), or before it (GPU, display).
     late_drawing: u32,
     late_display: u32,
-    /// Change to screen, drawing (CPU) and GPU time, in milliseconds.
+    /// Change to screen, drawing (CPU) and GPU time, and how long before
+    /// its due vblank the commit went out (negative: after), in
+    /// milliseconds.
     latency: Vec<f64>,
     cpu: Vec<f64>,
     gpu: Vec<f64>,
+    ahead: Vec<f64>,
 }
 
 pub struct Pacing {
     refresh: Duration,
-    /// A recent vblank: with `refresh`, where every vblank lies.
-    phase: Option<Duration>,
     /// The vblank of the last frame shown.
     last: Option<Duration>,
     run: Run,
@@ -75,21 +79,14 @@ impl Pacing {
     pub fn new(refresh: Duration) -> Pacing {
         Pacing {
             refresh,
-            phase: None,
             last: None,
             run: Run::default(),
         }
     }
 
-    /// A vblank passed, drawn frame or not.
-    pub fn vblank(&mut self, time: Duration) {
-        self.phase = Some(time);
-    }
-
     /// A drawn frame is on the screen since `vblank`; `gpu_ms` if its GPU
     /// time (or a recent frame's) was read since the last call.
     pub fn shown(&mut self, times: Times, vblank: Duration, gpu_ms: Option<f64>) {
-        self.vblank(vblank);
         if self
             .last
             .is_none_or(|last| vblank.saturating_sub(last) > IDLE)
@@ -100,7 +97,7 @@ impl Pacing {
         self.last = Some(vblank);
         let run = &mut self.run;
         run.frames += 1;
-        let due = self.next_vblank(times.requested);
+        let due = times.due;
         // Half a refresh of tolerance: vblank times jitter by microseconds.
         if vblank > due + self.refresh / 2 {
             if times.committed > due {
@@ -114,6 +111,7 @@ impl Pacing {
         run.cpu
             .push(ms(times.committed.saturating_sub(times.began)));
         run.gpu.extend(gpu_ms);
+        run.ahead.push(ms(due) - ms(times.committed));
         if vblank.saturating_sub(run.first) >= PIECE {
             self.report();
             self.run.first = vblank;
@@ -138,20 +136,6 @@ impl Pacing {
     pub fn pause(&mut self) {
         self.report();
         self.last = None;
-        self.phase = None;
-    }
-
-    /// The first vblank after `t`.
-    fn next_vblank(&self, t: Duration) -> Duration {
-        let Some(phase) = self.phase else {
-            return t + self.refresh;
-        };
-        let (p, r) = (
-            phase.as_nanos() as i128,
-            self.refresh.as_nanos().max(1) as i128,
-        );
-        let next = p + ((t.as_nanos() as i128 - p).div_euclid(r) + 1) * r;
-        Duration::from_nanos(u64::try_from(next.max(0)).unwrap_or(u64::MAX))
     }
 
     /// Logs the run's summary and starts a new one.
@@ -177,12 +161,13 @@ impl Pacing {
         let length = self.last?.saturating_sub(run.first);
         let budget = ms(self.refresh);
         let (cpu, gpu, latency) = (sorted(&run.cpu), sorted(&run.gpu), sorted(&run.latency));
+        let ahead = sorted(&run.ahead);
         let busy = (median(&cpu) + median(&gpu)) / budget * 100.0;
         Some(format!(
             "pacing: {} frames in {:.2} s at {:.0} Hz, {} late (drawing {}, GPU/display {}); \
-             change to screen median {:.2} ms, max {:.2}; drawing (CPU) median {:.2} ms, \
-             99 % {:.2}, max {:.2}; GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms \
-             per frame",
+             change to screen median {:.2} ms, max {:.2}; commit median {:.2} ms before the \
+             vblank, least {:.2}; drawing (CPU) median {:.2} ms, 99 % {:.2}, max {:.2}; GPU \
+             median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame",
             run.frames,
             length.as_secs_f64(),
             1000.0 / budget,
@@ -191,6 +176,8 @@ impl Pacing {
             run.late_display,
             median(&latency),
             max(&latency),
+            median(&ahead),
+            ahead.first().copied().unwrap_or(0.0),
             median(&cpu),
             percentile(&cpu, 0.99),
             max(&cpu),
@@ -246,6 +233,7 @@ mod tests {
         let requested = at(n * vblank - before);
         let times = Times {
             requested,
+            due: at(n * vblank),
             began: requested,
             committed: requested + at(cpu),
         };
@@ -255,7 +243,6 @@ mod tests {
     #[test]
     fn on_time_frames_are_not_late() {
         let mut p = Pacing::new(REFRESH);
-        p.vblank(at(0));
         for n in 1..=240 {
             frame(&mut p, n, 3000, 200, 0);
         }
@@ -264,12 +251,12 @@ mod tests {
         let line = p.summary(&p.run).unwrap();
         assert!(line.contains("240 frames"), "{line}");
         assert!(line.contains("0 late"), "{line}");
+        assert!(line.contains("commit median 2.80 ms before"), "{line}");
     }
 
     #[test]
     fn late_frames_are_blamed_on_who_held_them() {
         let mut p = Pacing::new(REFRESH);
-        p.vblank(at(0));
         frame(&mut p, 1, 3000, 200, 0);
         // Still drawing when vblank 2 passed.
         frame(&mut p, 2, 3000, 3500, 1);
@@ -281,7 +268,6 @@ mod tests {
     #[test]
     fn a_pause_in_frames_is_not_lateness() {
         let mut p = Pacing::new(REFRESH);
-        p.vblank(at(0));
         frame(&mut p, 1, 3000, 200, 0);
         // The client draws again 10 vblanks later: no frame was late.
         frame(&mut p, 11, 3000, 200, 0);
@@ -292,22 +278,11 @@ mod tests {
     #[test]
     fn idle_ends_the_run() {
         let mut p = Pacing::new(REFRESH);
-        p.vblank(at(0));
         frame(&mut p, 1, 3000, 200, 0);
         frame(&mut p, 2, 3000, 200, 0);
         assert!(p.idle(at(20_000)));
         assert!(!p.idle(at(400_000)));
         assert_eq!(p.run.frames, 0);
         assert!(!p.idle(at(800_000)));
-    }
-
-    #[test]
-    fn next_vblank_follows_the_phase() {
-        let mut p = Pacing::new(Duration::from_millis(4));
-        p.vblank(at(100_000));
-        assert_eq!(p.next_vblank(at(100_000)), at(104_000));
-        assert_eq!(p.next_vblank(at(101_000)), at(104_000));
-        assert_eq!(p.next_vblank(at(97_000)), at(100_000));
-        assert_eq!(p.next_vblank(at(109_000)), at(112_000));
     }
 }

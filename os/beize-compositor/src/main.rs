@@ -3,7 +3,8 @@
 //! (libseat). Its parts:
 //!
 //! - `gpu`, `output`: the GPU, the screen and Beize's own frame loop with
-//!   the Vulkan renderer (`render`, §7); it draws only what changed.
+//!   the Vulkan renderer (`render`, §7); it draws only what changed, just
+//!   before the vblank (`schedule`), and measures itself (`pacing`).
 //! - `state`: the Wayland protocols and when the screen is drawn;
 //!   `shell`: windows (xdg-shell).
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
@@ -18,6 +19,7 @@ mod input;
 mod keyboard;
 mod output;
 mod pacing;
+mod schedule;
 mod shell;
 mod state;
 
@@ -159,11 +161,8 @@ fn run() -> Result<()> {
     }
     event_loop
         .run(None, &mut state, |state| {
-            // Once per round of events: what they changed is drawn
-            // together, and the clients hear everything before we sleep.
-            if state.wants_render() {
-                state.render();
-            }
+            // Changes are drawn at their vblank's deadline (`State::changed`);
+            // the clients hear everything before we sleep.
             if let Err(e) = state.display.flush_clients() {
                 warn!("sending to clients: {e}");
             }

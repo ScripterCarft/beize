@@ -48,6 +48,12 @@ impl Screen {
             Screen::Cpu(o) => o.render(elements, cursor, requested, began),
         }
     }
+    pub fn draw_at(&mut self) -> Option<Duration> {
+        match self {
+            Screen::Gpu(o) => o.draw_at(),
+            Screen::Cpu(o) => o.draw_at(),
+        }
+    }
     pub fn pacing_idle(&mut self) -> bool {
         match self {
             Screen::Gpu(o) => o.pacing_idle(),

@@ -35,11 +35,13 @@ use smithay::reexports::drm::control::{
     Device as _, FbCmd2Flags, Mode, ModeFlags, ModeTypeFlags, connector, dumbbuffer, framebuffer,
     plane,
 };
+use smithay::reexports::drm::{Device as _, VblankWaitFlags, VblankWaitTarget};
 use smithay::utils::{Clock, Monotonic, Physical, Point, Rectangle, Transform};
 use tracing::{debug, info, warn};
 
 use crate::cursor;
 use crate::pacing::{Pacing, Times};
+use crate::schedule::Schedule;
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Target, VkRenderer};
 
@@ -538,6 +540,9 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     modeset: bool,
     frames: u64,
     last: Option<Duration>,
+    /// The CRTC's index, for asking KMS its last vblank.
+    pipe: u32,
+    schedule: Schedule,
     pacing: Pacing,
     clock: Clock<Monotonic>,
 }
@@ -568,6 +573,12 @@ where
             info!("no cursor plane: the pointer is drawn into the frame");
         }
         let refresh = period(&mode);
+        let pipe = drm
+            .resource_handles()
+            .ok()
+            .and_then(|r| r.crtcs().iter().position(|&c| c == surface.crtc()))
+            .and_then(|i| u32::try_from(i).ok())
+            .unwrap_or(0);
         Output {
             swapchain: Swapchain::new(allocator, w.into(), h.into(), Fourcc::Xrgb8888, modifiers),
             damage: OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal),
@@ -583,8 +594,42 @@ where
             modeset: true,
             frames: 0,
             last: None,
+            pipe,
+            schedule: Schedule::new(refresh),
             pacing: Pacing::new(refresh),
             clock: Clock::new(),
+        }
+    }
+
+    /// When to draw a change there now (`Schedule`); None while a commit
+    /// waits for its vblank, which asks again.
+    pub fn draw_at(&mut self) -> Option<Duration> {
+        if self.flipping {
+            return None;
+        }
+        let now: Duration = self.clock.now().into();
+        if self.schedule.stale(now)
+            && let Some(time) = self.last_vblank()
+        {
+            self.schedule.vblank(time);
+        }
+        Some(self.schedule.draw_at(now))
+    }
+
+    /// The last vblank, from KMS: the libdrm query (a wait for none).
+    /// Not every driver counts vblanks (virtio-gpu).
+    fn last_vblank(&self) -> Option<Duration> {
+        match self.drm.wait_vblank(
+            VblankWaitTarget::Relative(0),
+            VblankWaitFlags::empty(),
+            self.pipe,
+            0,
+        ) {
+            Ok(reply) => reply.time(),
+            Err(e) => {
+                debug!("no vblank time from KMS: {e}");
+                None
+            }
         }
     }
 
@@ -643,7 +688,11 @@ where
             .acquire()
             .context("screen buffer")?
             .context("no free screen buffer")?;
+        // Setting up a screen buffer or the mode is done once, not each
+        // frame: the schedule does not learn from it.
+        let mut setup = self.modeset;
         if slot.userdata().get::<Image<F::Framebuffer>>().is_none() {
+            setup = true;
             let image = self.image(&slot)?;
             if self.frames == 0 {
                 let way = if image.target.borrow().copies() {
@@ -710,12 +759,17 @@ where
             plane.committed();
         }
         self.flipping = true;
+        let committed: Duration = self.clock.now().into();
+        if !setup {
+            self.schedule.drawn(committed.saturating_sub(began));
+        }
         if damaged {
             self.swapchain.submitted(&slot);
             let times = Times {
                 requested,
+                due: self.schedule.target(requested),
                 began,
-                committed: self.clock.now().into(),
+                committed,
             };
             self.pending = Some((slot, times));
         }
@@ -729,15 +783,19 @@ where
             Some(DrmEventTime::Monotonic(time)) => Some(time),
             _ => None,
         };
+        if let Some(time) = time {
+            self.schedule.vblank(time);
+        }
+        let gpu_ms = self.renderer.take_gpu_ms();
+        if let Some(ms) = gpu_ms {
+            self.schedule.gpu(Duration::from_secs_f64(ms / 1000.0));
+        }
         let Some((slot, times)) = self.pending.take() else {
             debug!("cursor plane only, nothing drawn");
-            if let Some(time) = time {
-                self.pacing.vblank(time);
-            }
             return time;
         };
         if let Some(time) = time {
-            self.pacing.shown(times, time, self.renderer.take_gpu_ms());
+            self.pacing.shown(times, time, gpu_ms);
         }
         self.shown = Some(slot);
         self.frames += 1;
@@ -773,6 +831,7 @@ where
     /// The screen is ours again: everything is set anew; the caller draws.
     pub fn resume(&mut self) -> Result<()> {
         self.drm.activate(false).context("taking the screen back")?;
+        self.schedule.reset();
         self.surface.reset_state().context("screen state")?;
         self.swapchain.reset_buffers();
         self.flipping = false;

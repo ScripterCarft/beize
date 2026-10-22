@@ -4,10 +4,11 @@
 //! `shell`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
-//! screen for a redraw, which runs once after the events at hand
-//! (`main`), and clients hear "frame done" when their frame is on the
-//! screen (its vblank) – a client draws at most as often as the screen
-//! shows. With nothing to draw, they hear it one refresh later.
+//! screen for a redraw at the deadline of the next vblank (`schedule`),
+//! which draws all changes until then at once, and clients hear "frame
+//! done" when their frame is on the screen (its vblank) – a client draws
+//! at most as often as the screen shows. With nothing to draw, they hear
+//! it one refresh later.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -125,6 +126,8 @@ pub struct State {
     redraw: bool,
     /// When the first change since the last frame arrived (`Pacing`).
     changed_at: Option<Duration>,
+    /// Draws at the deadline of the next vblank.
+    draw_timer: Option<RegistrationToken>,
     /// Ends a measured run of frames once they stop (`Pacing`).
     pacing_timer: Option<RegistrationToken>,
     /// "Frame done" for clients when nothing was drawn.
@@ -184,6 +187,7 @@ impl State {
             clock: Clock::new(),
             redraw: false,
             changed_at: None,
+            draw_timer: None,
             pacing_timer: None,
             frame_timer: None,
             failure: None,
@@ -215,6 +219,7 @@ impl State {
             None => self.start()?,
         }
         self.redraw = true;
+        self.schedule_render();
         Ok(())
     }
 
@@ -238,7 +243,7 @@ impl State {
                     };
                     state.frame_done(time);
                     if state.redraw {
-                        state.render();
+                        state.schedule_render();
                     }
                     state.watch_pacing();
                 }
@@ -302,20 +307,48 @@ impl State {
             .unwrap_or_default()
     }
 
-    /// Something on the screen changed; it is drawn after the events at hand.
+    /// Something on the screen changed; it is drawn at the deadline of the
+    /// next vblank.
     pub fn changed(&mut self) {
         self.redraw = true;
         if self.changed_at.is_none() {
             self.changed_at = Some(self.clock.now().into());
         }
+        self.schedule_render();
     }
 
-    pub fn wants_render(&self) -> bool {
-        self.redraw
+    /// Sets the timer that draws, unless one is set or a commit waits for
+    /// its vblank (whose event calls again). Not while another session
+    /// has the screen: `activate` calls again.
+    fn schedule_render(&mut self) {
+        if self.draw_timer.is_some() || !self.session.is_active() {
+            return;
+        }
+        let Some(at) = self.screen.as_mut().and_then(Screen::draw_at) else {
+            return;
+        };
+        let now: Duration = self.clock.now().into();
+        let token = self.handle.insert_source(
+            Timer::from_duration(at.saturating_sub(now)),
+            |_, _, state| {
+                state.draw_timer = None;
+                if state.redraw {
+                    state.render();
+                }
+                TimeoutAction::Drop
+            },
+        );
+        match token {
+            Ok(token) => self.draw_timer = Some(token),
+            Err(e) => self.fail(error(format!("draw timer: {}", e.error))),
+        }
     }
 
     /// Draws what changed and places the cursor.
-    pub fn render(&mut self) {
+    fn render(&mut self) {
+        if !self.session.is_active() {
+            return;
+        }
         let (Some(screen), Some(output)) = (&mut self.screen, &self.output) else {
             return;
         };
