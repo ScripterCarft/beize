@@ -40,21 +40,21 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
-## Desktop testen (M3, Schritt 7: Messbau 0.5.95)
+## Desktop testen (M3, Schritt 7: Messbau 0.5.96)
 
 Prüft auf dem echten Rechner, was die VM nicht kann: NVK, den Bildschirmmodus (1440p @ 240 Hz
 mit dem EDID-Fix), Maus, Tastatur, den Bildtakt und ob die Sandbox des Compositors mit NVK
-hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.95; ersetzt 0.5.94,
-0.6 ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
+hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.96 (0.5.95
+zeigte ein verwürfeltes Bild, behoben in f14fa6b); ersetzt 0.5.95, 0.6 ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
 1. `cd ~/beize && git switch measure/desktop && ./bz build && ./bz release`
-   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.95/` (6 Dateien).
+   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.96/` (6 Dateien).
 2. `git switch main` (zurück; WSL bleibt auf `main`).
 3. In Windows auf den Stick **BEIZE** kopieren (alte Ordner dürfen bleiben):
-   - `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\0.5.95` als
-     `beize-0.5.95`
+   - `\\wsl.localhost\Ubuntu-26.04\home\joe\beize\build\out\desktop\release\0.5.96` als
+     `beize-0.5.96`
    - `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-test\beize-test` als `beize-test`
      (Skript `hw-test.sh` und `beize-testclient`)
 
@@ -64,13 +64,13 @@ hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.95; e
    ```sh
    run0 mkdir -p /run/stick
    run0 mount -o ro /dev/disk/by-label/BEIZE /run/stick
-   run0 beize-update install /run/stick/beize-0.5.95
+   run0 beize-update install /run/stick/beize-0.5.96
    run0 umount /run/stick
    systemctl reboot
    ```
-   Erwartet: „Beize 0.5.95 is installed. It starts with the next restart.“, dann Neustart
+   Erwartet: „Beize 0.5.96 is installed. It starts with the next restart.“, dann Neustart
    (F8 → Samsung) ohne Recovery-Key. Danach `(. /usr/lib/os-release; echo $IMAGE_VERSION)`
-   → `0.5.95`. **Kein Bild beim Start:** neu starten, Leertaste halten, 0.5.94 wählen, mir
+   → `0.5.96`. **Kein Bild beim Start:** neu starten, Leertaste halten, 0.5.95 wählen, mir
    Bescheid geben.
 
 **C. Desktop testen**
@@ -95,9 +95,9 @@ hält. Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.95; e
    Strg+Alt+F2: das Skript fragt einmal dein Passwort (run0, für das Journal des Kernels)
    und zeigt das Ergebnis. Erwartet:
    - `GPU /dev/dri/card… (nouveau)`, `renderer on NVIDIA GeForce RTX 3070 Ti (NVK …)`,
-     `screen DP-…: 2560x1440 at 240 Hz`
+     `screen DP-…: 2560x1440 at 240 Hz`, `rendering with … straight into the screen buffer`
    - `frames: … 4.17 ms apart on average` (240 Hz; 6.94 wären 144 Hz)
-   - `Tasten im Fenster: 6` (drücken und loslassen), `Klicks: 2`
+   - `Tasten im Fenster: 6` (drücken und loslassen), `Klicks: 2` (je Taste und Klick zwei Ereignisse)
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
 8. Ging etwas schief, statt 7: anmelden, Stick wie in 6 einhängen, dann
    `bash /run/stick/beize-test/hw-test.sh logs` (Meldung von beize-session, derselbe Start)

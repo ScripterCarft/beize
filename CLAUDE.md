@@ -404,11 +404,16 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    `build/work/logs/boot/`. Dazu (22.10.) Moduswahl wie KWin: Auflösung des bevorzugten
    Modus mit der höchsten Bildrate (ADR 0027 §6 „Modus“), sonst bliebe das AW2723DF unter
    240 Hz.
-   **(7) JETZT: Hardware-Test beim Besitzer, vorbereitet (22.10.).** Messbau 0.5.95 = Zweig
-   `measure/desktop` (lokal, nicht gepusht): `main` + EDID-Patch aus `kernel/measure/`
-   (byte-gleich mit 0.5.94, ohne dessen DRM-Debug) + `measure/hw-test.sh`. Gebaut, Smoke
-   grün (16/16), Skript in der VM geprüft (1499 Bilder in 20 s bei 75 Hz, 6 Tastenereignisse,
-   2 Klicks). Stick-Ordner `~/hw-test/beize-test` (Skript + `beize-testclient`) liegt bereit.
+   **(7) JETZT: Hardware-Test beim Besitzer, zweiter Lauf mit 0.5.96 (22.10.).** Erster Lauf
+   0.5.95 (Logs `~/hw-logs/results-20261022-180517`): 2560x1440 @ 240 Hz gesetzt, NVK
+   rendert, Cursor-Ebene flüssig, Klicks kommen an, VT-Wechsel geht, keine nouveau/NVK-Fehler
+   (Tasten nicht getippt, also ungeprüft). Aber das Bild war verwürfelt (Zickzack, schwarze
+   Ecke) und nur 1287 von 4800 Bildern: `gpu_screen` übergab `direct = false`, die CPU
+   kopierte zeilenweise in einen gekachelten Puffer. Behoben in f14fa6b (GPU zeichnet direkt,
+   Zeilenkopie nur noch in lineare Puffer). Messbau 0.5.96 = Zweig `measure/desktop` (lokal,
+   nicht gepusht, auf f14fa6b): `main` + EDID-Patch aus `kernel/measure/` (byte-gleich mit
+   0.5.94, ohne dessen DRM-Debug) + `measure/hw-test.sh`. Gebaut, Smoke
+   grün (16/16). Stick-Ordner `~/hw-test/beize-test` (Skript + `beize-testclient`) liegt bereit.
    Ablauf für den Besitzer: `docs/hardware.md` „Desktop testen“ (signiert mit `bz release`,
    Update vom Stick, `beize-session` auf tty1, Skript auf tty2). **Erwartet im nächsten Chat:**
    der Besitzer meldet „Hardware-Test fertig“; die Logs liegen in `~/hw-logs/results-…`
@@ -418,7 +423,7 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    direkt) oder Kopie, Cursor-Ebene genutzt? Warnungen, Fehler von nouveau/NVK im
    Systemjournal, Sandbox (lief er überhaupt mit NVK?). Ergebnisse in ADR 0027 (Messwerte)
    und `docs/hardware.md`, dann diesen Absatz, den Messzweig, `~/hw-test` und
-   `build/out/desktop/release/0.5.95` aufräumen; Tag `measure/desktop-0.5.95` setzen und
+   `build/out/desktop/release/0.5.9*` aufräumen; Tag `measure/desktop-0.5.96` setzen und
    pushen wie bei 0.5.94. Danach Schritt 3 (Beize UI) mit dem Besitzer abstimmen.
    Geht etwas schief (dunkler Bildschirm, Absturz): Logs mit `hw-test.sh logs`/`-1`, erst
    nach der Ursache suchen (Quelltext von Mesa/nouveau/Smithay), dann ändern.
