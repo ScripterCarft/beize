@@ -68,8 +68,13 @@ fn run() -> Result<(), String> {
     manager
         .set_environment(&environment)
         .map_err(at("setting the session's environment"))?;
+    // Watched is the compositor, not the target: the target is ordered
+    // after it, so on stopping it goes down first, and the compositor last.
+    let compositor = manager
+        .unit_path(COMPOSITOR)
+        .map_err(at("loading the compositor's unit"))?;
     let mut desktop = Desktop::default();
-    let watched = manager.watch(&target, &mut desktop, |manager| {
+    let watched = manager.watch(&compositor, &mut desktop, |manager| {
         manager.start(TARGET).map_err(at("starting the target"))
     });
     // The settings belong to this login only.
@@ -90,9 +95,6 @@ fn run() -> Result<(), String> {
         return Err(format!("the desktop did not start; {journal}"));
     }
     if !desktop.stopping {
-        let compositor = manager
-            .unit_path(COMPOSITOR)
-            .map_err(at("loading the compositor's unit"))?;
         let result = manager
             .property(&compositor, "org.freedesktop.systemd1.Service", "Result")
             .map_err(at("how the compositor ended"))?;
@@ -120,7 +122,7 @@ fn environment(session: &str) -> Vec<String> {
 }
 
 /// The desktop's course: the start job of `beize-session.target`, then
-/// its state.
+/// the compositor's state.
 #[derive(Default)]
 struct Desktop {
     /// The start job is done: the compositor is ready.
@@ -139,8 +141,8 @@ impl Watcher for Desktop {
     }
 
     fn changed(&mut self, state: &str) -> bool {
-        // Before the job is done, the target is still inactive with its job
-        // queued.
+        // Before the job is done, the compositor may still be inactive (or
+        // failed from an earlier login) with its job queued.
         !(self.started && matches!(state, "inactive" | "failed"))
     }
 
