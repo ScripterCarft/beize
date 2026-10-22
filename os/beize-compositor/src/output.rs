@@ -32,7 +32,8 @@ use smithay::reexports::drm::buffer::{
     Buffer as _, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
 use smithay::reexports::drm::control::{
-    Device as _, FbCmd2Flags, Mode, ModeTypeFlags, connector, dumbbuffer, framebuffer, plane,
+    Device as _, FbCmd2Flags, Mode, ModeFlags, ModeTypeFlags, connector, dumbbuffer, framebuffer,
+    plane,
 };
 use smithay::utils::{Physical, Point, Rectangle, Transform};
 use tracing::{debug, info, warn};
@@ -51,7 +52,35 @@ pub struct Info {
     pub mode: Mode,
 }
 
-/// A connected connector, its preferred mode and a CRTC that can drive it.
+/// What [`best_mode`] weighs of a mode.
+struct Candidate {
+    size: (u16, u16),
+    millihertz: u32,
+    preferred: bool,
+    interlaced: bool,
+}
+
+/// The screen's mode: the size of the preferred one (the panel's own) at
+/// the highest refresh rate it has, as KWin chooses. A monitor's preferred
+/// mode is often not its fastest (a 240 Hz panel may prefer 60 Hz, or list
+/// 240 Hz only in DisplayID). No interlaced modes; without a preferred
+/// mode, the first one's size.
+fn best_mode(modes: &[Candidate]) -> usize {
+    let size = modes
+        .iter()
+        .find(|m| m.preferred)
+        .or(modes.first())
+        .map(|m| m.size);
+    modes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| Some(m.size) == size && !m.interlaced)
+        // Equally fast: the preferred, then the first listed.
+        .max_by_key(|(i, m)| (m.millihertz, m.preferred, std::cmp::Reverse(*i)))
+        .map_or(0, |(i, _)| i)
+}
+
+/// A connected connector, its mode ([`best_mode`]) and a CRTC that can drive it.
 pub fn surface(drm: &mut DrmDevice) -> Result<(DrmSurface, Info)> {
     let fd = drm.device_fd().clone();
     let resources = fd.resource_handles().context("DRM resources")?;
@@ -60,12 +89,18 @@ pub fn surface(drm: &mut DrmDevice) -> Result<(DrmSurface, Info)> {
         if connector.state() != connector::State::Connected || connector.modes().is_empty() {
             continue;
         }
-        let mode = connector
-            .modes()
-            .iter()
-            .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
-            .copied()
-            .unwrap_or(connector.modes()[0]);
+        let modes = connector.modes();
+        let mode = modes[best_mode(
+            &modes
+                .iter()
+                .map(|m| Candidate {
+                    size: m.size(),
+                    millihertz: crate::gpu::millihertz(m),
+                    preferred: m.mode_type().contains(ModeTypeFlags::PREFERRED),
+                    interlaced: m.flags().contains(ModeFlags::INTERLACE),
+                })
+                .collect::<Vec<_>>(),
+        )];
         let crtc = connector
             .encoders()
             .iter()
@@ -722,5 +757,43 @@ where
         self.damage =
             OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mode(size: (u16, u16), hz: u32, preferred: bool, interlaced: bool) -> Candidate {
+        Candidate {
+            size,
+            millihertz: hz * 1000,
+            preferred,
+            interlaced,
+        }
+    }
+
+    #[test]
+    fn takes_the_preferred_size_at_its_fastest() {
+        let qhd = (2560, 1440);
+        // The AW2723DF on DisplayPort: 1440p preferred at 60 Hz, 144 and
+        // 240 Hz further down, a faster mode only at a lower size.
+        let modes = [
+            mode(qhd, 60, true, false),
+            mode((1920, 1080), 360, false, false),
+            mode(qhd, 144, false, false),
+            mode(qhd, 240, false, false),
+            mode(qhd, 300, false, true),
+        ];
+        assert_eq!(best_mode(&modes), 3);
+        // Equally fast: the preferred one.
+        let modes = [mode(qhd, 60, false, false), mode(qhd, 60, true, false)];
+        assert_eq!(best_mode(&modes), 1);
+        // No preferred mode: the first one's size.
+        let modes = [
+            mode(qhd, 60, false, false),
+            mode((800, 600), 75, false, false),
+        ];
+        assert_eq!(best_mode(&modes), 0);
     }
 }

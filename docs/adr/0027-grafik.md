@@ -143,6 +143,9 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   Grafikstapel, den Abschnitt 2 ausschließt. Vorbild: Valves gamescope (Steam Deck)
   allokiert seine Ausgabebilder ebenfalls in Vulkan. Die Bildschleife ist ohnehin Beizes Kern
   (Direct Scanout, Pacing).
+- **Modus:** die Auflösung des bevorzugten Modus (die des Panels) mit der höchsten Bildrate,
+  die der Monitor dafür anbietet, ohne Zeilensprung; wie KWin. Der bevorzugte Modus ist bei
+  schnellen Monitoren oft 60 Hz, das AW2723DF nennt 240 Hz nur im DisplayID-Block.
 - **Ausgabe mit lavapipe** (VM, Rechner ohne Vulkan-Treiber): lavapipe exportiert dmabufs nur
   über `/dev/udmabuf` und bietet ohne Export auch keine Modifier an, kann aber importieren. Der
   Compositor legt die Bilder deshalb als Dumb-Buffer beim KMS-Treiber an. Meldet der Treiber
