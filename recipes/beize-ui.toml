@@ -7,14 +7,14 @@
 # libwayland (Mesa's WSI takes the display), the compositor's test client
 # stays pure Rust – in one cargo build their features would merge.
 # libwayland and libvulkan are loaded at run time (dlopen), both from the
-# desktop's packages. Build scripts of its crates, checked (CLAUDE.md §8):
+# desktop's packages; libxkbcommon (keys) is linked, as in the compositor. Build scripts of its crates, checked (CLAUDE.md §8):
 # wayland-sys does nothing with dlopen, wayland-client only declares cfg
 # names; beize-vulkan's compiles its shaders (recipes/beize-compositor.toml).
 name = "beize-ui"
 version = "0.1.0"
 stage = "target"
 # libgcc_s for Rust's unwinding.
-deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader"]
+deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader", "libxkbcommon"]
 repo = ["os/beize-vulkan", "os/beize-ui", "Cargo.toml", "Cargo.lock"]
 
 [build]

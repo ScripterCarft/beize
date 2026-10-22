@@ -26,6 +26,10 @@ tracing = "0.1"
 parley = { version = "0.12", default-features = false, features = ["std"] }
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
 zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
+# Keys (ADR 0027 §9): libxkbcommon with the compositor's keymap and
+# Compose; the same crate and version as Smithay's. Linked, not loaded: the
+# desktop has it for the compositor, the buildroot to link that.
+xkbcommon = { version = "0.8", default-features = false, features = ["wayland"] }
 
 [lints]
 workspace = true

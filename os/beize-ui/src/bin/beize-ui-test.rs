@@ -5,8 +5,9 @@
 //! sRGB, blending in linear light).
 //!
 //! Without arguments it opens a window with the sample and redraws it on
-//! every configure, printing one line each: the GPU, the window's size;
-//! `--seconds S` ends it after S seconds (default 10). `--offscreen FILE
+//! every configure, printing one line each: the GPU, the window's size,
+//! and every input (keys with what they type, the pointer); `--seconds S`
+//! ends it after S seconds (default 10). `--offscreen FILE
 //! [WxH]` draws the sample without a compositor into FILE (PPM, 640x400 by
 //! default): at the screen's size, exactly what the window shows – the
 //! smoke test's reference (os/beize-ui/tests/sample.png).
@@ -73,6 +74,9 @@ fn window(text: &mut Text, seconds: u64) -> Result<(), String> {
         let events = window.dispatch(Some(left)).map_err(|e| e.to_string())?;
         if events.closed {
             break;
+        }
+        for input in &events.input {
+            println!("{input:?}");
         }
         if events.configured {
             let (w, h) = window.size();

@@ -157,6 +157,7 @@ dependencies = [
  "tracing",
  "wayland-client",
  "wayland-protocols",
+ "xkbcommon",
  "zeno",
 ]
 

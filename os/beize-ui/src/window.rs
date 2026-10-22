@@ -3,9 +3,10 @@
 //! lavapipe; FIFO paces it to the compositor's frames). Opaque, in the
 //! size the compositor asks for – full screen until the shell arranges
 //! windows (ADR 0027 §9). The renderer draws into the swapchain's images.
+//! Input comes from the seat (`input`).
 
 use std::ffi::c_void;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ash::vk;
 use beize_vulkan::error::{Context, Result, error};
@@ -14,10 +15,15 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use tracing::{debug, warn};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
-    wl_compositor::WlCompositor, wl_region::WlRegion, wl_registry::WlRegistry,
+    wl_compositor::WlCompositor,
+    wl_keyboard::{self, WlKeyboard},
+    wl_pointer::{self, WlPointer},
+    wl_region::WlRegion,
+    wl_registry::WlRegistry,
+    wl_seat::{self, WlSeat},
     wl_surface::WlSurface,
 };
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
+use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop};
 use wayland_protocols::xdg::shell::client::{
     xdg_surface::{self, XdgSurface},
     xdg_toplevel::{self, XdgToplevel},
@@ -26,6 +32,7 @@ use wayland_protocols::xdg::shell::client::{
 
 use crate::draw::Scene;
 use crate::gpu::Gpu;
+use crate::input::{Input, Keyboard, PointerState};
 use crate::renderer::{After, Renderer, Target};
 
 /// sRGB: the GPU blends in linear light and stores sRGB (`draw`).
@@ -34,12 +41,19 @@ const FORMAT: vk::Format = vk::Format::B8G8R8A8_SRGB;
 const DEFAULT_SIZE: (u32, u32) = (800, 600);
 
 /// What happened while waiting.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Events {
     /// The compositor asked for a size (the first, or a new one): draw.
     pub configured: bool,
     /// The user closed the window.
     pub closed: bool,
+    pub input: Vec<Input>,
+}
+
+impl Events {
+    fn any(&self) -> bool {
+        self.configured || self.closed || !self.input.is_empty()
+    }
 }
 
 struct State {
@@ -48,6 +62,10 @@ struct State {
     /// From the last toplevel configure; 0 means "choose".
     asked: (i32, i32),
     events: Events,
+    wl_keyboard: Option<WlKeyboard>,
+    wl_pointer: Option<WlPointer>,
+    keyboard: Keyboard,
+    pointer: PointerState,
 }
 
 struct Swapchain {
@@ -65,6 +83,8 @@ pub struct Window {
     queue: EventQueue<State>,
     state: State,
     _wm_base: XdgWmBase,
+    /// None: the compositor has no seat, the window gets no input.
+    _seat: Option<WlSeat>,
     _xdg_surface: XdgSurface,
     _toplevel: XdgToplevel,
     vk_surface: vk::SurfaceKHR,
@@ -86,6 +106,11 @@ impl Window {
         let wm_base: XdgWmBase = globals
             .bind(&qh, 1..=6, ())
             .context("the compositor has no xdg_wm_base")?;
+        // From version 5 on, pointer events come in frames.
+        let seat: Option<WlSeat> = globals.bind(&qh, 5..=9, ()).ok();
+        if seat.is_none() {
+            warn!("the compositor has no seat: no input");
+        }
         let surface = compositor.create_surface(&qh, ());
         let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
         let toplevel = xdg_surface.get_toplevel(&qh, ());
@@ -117,8 +142,13 @@ impl Window {
                 surface,
                 asked: (0, 0),
                 events: Events::default(),
+                wl_keyboard: None,
+                wl_pointer: None,
+                keyboard: Keyboard::new(),
+                pointer: PointerState::default(),
             },
             _wm_base: wm_base,
+            _seat: seat,
             _xdg_surface: xdg_surface,
             _toplevel: toplevel,
             vk_surface,
@@ -140,14 +170,25 @@ impl Window {
         }
     }
 
-    /// Handles what the compositor sent, waiting at most `timeout` for it
-    /// (`None`: until something comes).
+    /// Handles what the compositor sent and repeats a held key, waiting
+    /// at most `timeout` for either (`None`: until something comes).
     pub fn dispatch(&mut self, timeout: Option<Duration>) -> Result<Events> {
         let queue = &mut self.queue;
         queue
             .dispatch_pending(&mut self.state)
             .context("dispatching")?;
         queue.flush().context("sending to the compositor")?;
+        // Mesa's WSI reads the same socket and may have queued events
+        // already: then only a look, no waiting.
+        let mut timeout = if self.state.events.any() {
+            Some(Duration::ZERO)
+        } else {
+            timeout
+        };
+        if let Some(next) = self.state.keyboard.next_repeat() {
+            let until = next.saturating_duration_since(Instant::now());
+            timeout = Some(timeout.map_or(until, |t| t.min(until)));
+        }
         if let Some(guard) = queue.prepare_read() {
             let fd = guard.connection_fd();
             let mut fds = [PollFd::new(&fd, PollFlags::IN)];
@@ -163,7 +204,11 @@ impl Window {
         queue
             .dispatch_pending(&mut self.state)
             .context("dispatching")?;
-        Ok(std::mem::take(&mut self.state.events))
+        let state = &mut self.state;
+        if let Some(repeat) = state.keyboard.repeat_due(Instant::now()) {
+            state.events.input.push(repeat);
+        }
+        Ok(std::mem::take(&mut state.events))
     }
 
     /// Draws `scene` and shows it with the compositor's next frame. The
@@ -451,6 +496,70 @@ impl Dispatch<XdgToplevel, ()> for State {
             xdg_toplevel::Event::Close => state.events.closed = true,
             _ => {}
         }
+    }
+}
+
+impl Dispatch<WlSeat, ()> for State {
+    fn event(
+        state: &mut State,
+        seat: &WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<State>,
+    ) {
+        let wl_seat::Event::Capabilities {
+            capabilities: WEnum::Value(caps),
+        } = event
+        else {
+            return;
+        };
+        let keyboard = caps.contains(wl_seat::Capability::Keyboard);
+        match (state.wl_keyboard.take(), keyboard) {
+            (None, true) => state.wl_keyboard = Some(seat.get_keyboard(qh, ())),
+            (Some(gone), false) => {
+                gone.release();
+                // As if the window lost it: no key stays held.
+                let leave = wl_keyboard::Event::Leave {
+                    serial: 0,
+                    surface: state.surface.clone(),
+                };
+                state.keyboard.event(leave, &mut state.events.input);
+            }
+            (kept, _) => state.wl_keyboard = kept,
+        }
+        let pointer = caps.contains(wl_seat::Capability::Pointer);
+        match (state.wl_pointer.take(), pointer) {
+            (None, true) => state.wl_pointer = Some(seat.get_pointer(qh, ())),
+            (Some(gone), false) => gone.release(),
+            (kept, _) => state.wl_pointer = kept,
+        }
+    }
+}
+
+impl Dispatch<WlKeyboard, ()> for State {
+    fn event(
+        state: &mut State,
+        _: &WlKeyboard,
+        event: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        state.keyboard.event(event, &mut state.events.input);
+    }
+}
+
+impl Dispatch<WlPointer, ()> for State {
+    fn event(
+        state: &mut State,
+        _: &WlPointer,
+        event: wl_pointer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        state.pointer.event(event, &mut state.events.input);
     }
 }
 
