@@ -288,8 +288,16 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Vulkan-Grundlagen (Gerät, Quads, Texturen, Shader-Bau) teilen sich Compositor und Beize UI
   in einem gemeinsamen Crate, wie im Abschnitt 3 angelegt: `os/beize-vulkan` (22.10.), nur auf
   `ash`, ohne Smithay und Wayland; die Erweiterungen wählt der Aufrufer (Compositor: dmabufs
-  und Fences, Beize UI: Swapchain). Im Compositor bleiben dmabuf-Import, Sync-Files und die
-  Geometrie in Smithays Koordinaten.
+  und Fences, Beize UI: Swapchain), dazu Host-Puffer, Barrieren und das Aufzeichnen der Quads.
+  Im Compositor bleiben dmabuf-Import, Sync-Files und die Geometrie in Smithays Koordinaten.
+- **Fenster** (22.10., `os/beize-ui`): xdg-shell, Swapchain `B8G8R8A8_SRGB` (die GPU mischt in
+  linearem Licht, Farben gibt man in sRGB an und Beize UI rechnet sie um), FIFO, undurchsichtig.
+  libwayland und libvulkan per dlopen (wie Smithay libvulkan lädt; im Desktop für Mesa
+  ohnehin da, der Buildroot der CI hat keine libwayland). Eigenes Rezept `beize-ui`, getrennt
+  vom Compositor: im selben Cargo-Bau liefe sonst auch `beize-testclient` über libwayland.
+  Geprüft mit `beize-ui-test` (Test-Medium) in der VM auf lavapipe: alle Farben bytegenau,
+  halbes Weiß über `#1e1e1e` = 189 (linear gemischt; in sRGB wären es 143), Kanten
+  pixelgenau.
 - **Text:** **Parley** (Layout, Shaping mit HarfRust, Schriftwahl mit Fontique), **Skrifa**
   (Umrisse und Hinting; Googles FreeType-Ersatz, seit Chrome 133 dort für Web-Schriften),
   gerastert von **zeno** (der Rasterizer von swash, mit dem Zed und COSMIC Glyphen zeichnen).
