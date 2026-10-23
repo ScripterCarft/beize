@@ -47,26 +47,24 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut text = Text::new().map_err(|e| e.to_string())?;
     match args.as_slice() {
-        [flag, file] if flag == "--offscreen" => offscreen(&mut text, file, OFFSCREEN),
+        [flag, file] if flag == "--offscreen" => offscreen(file, OFFSCREEN),
         [flag, file, size] if flag == "--offscreen" => {
             let size = size
                 .split_once('x')
                 .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
                 .ok_or("the size is WIDTHxHEIGHT")?;
-            offscreen(&mut text, file, size)
+            offscreen(file, size)
         }
-        [] => window(&mut text, 10),
-        [flag, n] if flag == "--seconds" => window(
-            &mut text,
-            n.parse().map_err(|_| "--seconds needs a number")?,
-        ),
+        [] => window(10),
+        [flag, n] if flag == "--seconds" => {
+            window(n.parse().map_err(|_| "--seconds needs a number")?)
+        }
         _ => Err("usage: beize-ui-test [--seconds S | --offscreen FILE [WxH]]".into()),
     }
 }
 
-fn window(text: &mut Text, seconds: u64) -> Result<(), String> {
+fn window(seconds: u64) -> Result<(), String> {
     let mut window = Window::open("beize-ui-test", "beize-ui-test").map_err(|e| e.to_string())?;
     println!("gpu {}", window.gpu_name());
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -83,21 +81,21 @@ fn window(text: &mut Text, seconds: u64) -> Result<(), String> {
         if events.configured {
             let (w, h) = window.size();
             println!("configure {w}x{h}");
-            window
-                .draw(&sample(text, w, h))
-                .map_err(|e| e.to_string())?;
+            let scene = sample(window.text(), w, h);
+            window.draw(&scene).map_err(|e| e.to_string())?;
         }
     }
     println!("done");
     Ok(())
 }
 
-fn offscreen(text: &mut Text, file: &str, (w, h): (u32, u32)) -> Result<(), String> {
+fn offscreen(file: &str, (w, h): (u32, u32)) -> Result<(), String> {
+    let mut text = Text::new().map_err(|e| e.to_string())?;
     let mut offscreen = Offscreen::new((w, h)).map_err(|e| e.to_string())?;
     println!("gpu {}", offscreen.gpu_name());
     let start = Instant::now();
     let pixels = offscreen
-        .draw(&sample(text, w, h))
+        .draw(&sample(&mut text, w, h))
         .map_err(|e| e.to_string())?;
     println!("drawn in {:.1} ms", start.elapsed().as_secs_f64() * 1000.0);
     // PPM: RGB, from the image's BGRA.

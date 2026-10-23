@@ -22,9 +22,11 @@ ignore = [
 # 2026-10-13); Beize's own crates are not published and carry none. ISC
 # (libloading, through ash, 2026-10-21) is MIT's equal in substance; Zlib
 # (foldhash, through Parley's font collection, 2026-10-22) is as permissive,
-# the license of zlib itself.
+# the license of zlib itself. BSD-2-Clause and BSD-3-Clause (arrayref and
+# tiny-skia, through resvg for the symbols, 2026-10-23) ask for the notice
+# only, as MIT does; the third clause forbids using the authors' names.
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense", "ISC", "Zlib"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense", "ISC", "Zlib", "BSD-2-Clause", "BSD-3-Clause"]
 confidence-threshold = 0.93
 
 [licenses.private]

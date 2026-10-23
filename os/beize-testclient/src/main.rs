@@ -128,6 +128,8 @@ struct App {
     full: bool,
     buffers: Vec<Buffer>,
     frames_left: u32,
+    /// A "frame done" is on its way.
+    frame_asked: bool,
     /// "Frame done" times, in milliseconds.
     frame_times: Vec<u32>,
     /// How long each frame took to draw.
@@ -177,6 +179,7 @@ fn run() -> Result<()> {
         full: true,
         buffers: Vec::new(),
         frames_left: options.frames,
+        frame_asked: false,
         frame_times: Vec::new(),
         draw_times: Vec::new(),
         bar: 0,
@@ -293,7 +296,10 @@ impl App {
             // Only the strip the bar moves in changed.
             self.surface.damage_buffer(0, 0, size.0, BAR_SIZE.1);
         }
-        if self.frames_left > 0 {
+        // One "frame done" asked for at a time: a configure between frames
+        // redraws without starting a second chain.
+        if self.frames_left > 0 && !self.frame_asked {
+            self.frame_asked = true;
             self.surface.frame(qh, ());
             self.bar = (self.bar + BAR_STEP) % (size.0 - BAR_SIZE.0).max(1);
         }
@@ -467,6 +473,7 @@ impl Dispatch<WlCallback, ()> for App {
         qh: &QueueHandle<App>,
     ) {
         if let wl_callback::Event::Done { callback_data } = event {
+            app.frame_asked = false;
             app.frame_times.push(callback_data);
             app.frames_left = app.frames_left.saturating_sub(1);
             if app.frames_left > 0

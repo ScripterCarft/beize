@@ -340,7 +340,7 @@ impl Renderer {
     /// A full atlas starts over once.
     fn place_glyphs(&mut self, scene: &Scene) -> Result<Vec<Quad>> {
         let mut quads = scene.quads.clone();
-        if scene.glyphs.is_empty() {
+        if scene.glyphs.is_empty() && scene.symbols.is_empty() {
             return Ok(quads);
         }
         let slot = self.atlas()?;
@@ -371,6 +371,18 @@ impl Renderer {
             let (w, h) = (placed.w as f32, placed.h as f32);
             quad.pos = [(whole + placed.left) as f32, glyph.y + placed.top as f32];
             // Without ink: nothing covered.
+            quad.size = [w, h];
+            quad.uv = [placed.x as f32, placed.y as f32];
+            quad.uv_x = [w, 0.0];
+            quad.uv_y = [0.0, h];
+            quad.texel = [texel, texel];
+            quad.texture = slot;
+        }
+        for symbol in &scene.symbols {
+            let placed = self.glyphs.symbol(&symbol.name, symbol.size)?;
+            let quad = &mut quads[symbol.quad];
+            let (w, h) = (placed.w as f32, placed.h as f32);
+            quad.pos = [symbol.x, symbol.y];
             quad.size = [w, h];
             quad.uv = [placed.x as f32, placed.y as f32];
             quad.uv_x = [w, 0.0];

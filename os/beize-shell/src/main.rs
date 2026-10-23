@@ -34,7 +34,6 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let mut text = Text::new().map_err(|e| e.to_string())?;
     let mut bar = Window::panel("menu-bar", Edge::Top, HEIGHT).map_err(|e| e.to_string())?;
     info!("menu bar on {}", bar.gpu_name());
     let minutes = clock::Minutes::new().map_err(|e| format!("the minute's timer: {e}"))?;
@@ -54,7 +53,8 @@ fn run() -> Result<(), String> {
                 .map_err(|e| format!("the minute's timer: {e}"))?;
         }
         if events.configured || tick {
-            let scene = menu_bar(&mut text, bar.size(), clock::now());
+            let size = bar.size();
+            let scene = menu_bar(bar.text(), size, clock::now());
             bar.draw(&scene).map_err(|e| e.to_string())?;
         }
     }

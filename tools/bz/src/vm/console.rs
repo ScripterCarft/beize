@@ -318,9 +318,7 @@ pub(super) fn mouse(socket: &Path, dx: i32, dy: i32, click: bool) -> Result<()> 
 
 /// Drags with the left button of the machine's tablet (`Machine::tablet`)
 /// from `from` to `to`, pixels of a screen of `screen`, in steps as a hand
-/// would; without the button, only moves the pointer there. The tablet
-/// reports 0..=0x7fff across the screen, which libinput scales by
-/// `screen / 0x8000`: a pixel lands within 1/50 px.
+/// would; without the button, only moves the pointer there.
 pub(super) fn drag(
     socket: &Path,
     screen: (usize, usize),
@@ -329,37 +327,81 @@ pub(super) fn drag(
     button: bool,
 ) -> Result<()> {
     const STEPS: i32 = 10;
-    let mut qmp = Keyboard::connect(socket)?;
-    let mut send = |events: String| {
-        qmp.execute(&format!(
-            r#"{{"execute": "input-send-event", "arguments": {{"events": [{events}]}}}}"#
-        ))
-    };
-    let at = |(x, y): (i32, i32)| {
-        let scale = |n: i32, size: usize| (f64::from(n) * 32768.0 / size as f64).round() as i64;
-        format!(
-            r#"{{"type": "abs", "data": {{"axis": "x", "value": {}}}}}, {{"type": "abs", "data": {{"axis": "y", "value": {}}}}}"#,
-            scale(x, screen.0),
-            scale(y, screen.1)
-        )
-    };
-    let press =
-        |down: bool| format!(r#"{{"type": "btn", "data": {{"down": {down}, "button": "left"}}}}"#);
-    send(at(from))?;
+    let mut tablet = Tablet::connect(socket, screen)?;
+    tablet.to(from)?;
     if button {
         thread::sleep(Duration::from_millis(40));
-        send(press(true))?;
+        tablet.button(true)?;
     }
     for step in 1..=STEPS {
         thread::sleep(Duration::from_millis(20));
         let between = |a: i32, b: i32| a + (b - a) * step / STEPS;
-        send(at((between(from.0, to.0), between(from.1, to.1))))?;
+        tablet.to((between(from.0, to.0), between(from.1, to.1)))?;
     }
     if button {
         thread::sleep(Duration::from_millis(40));
-        send(press(false))?;
+        tablet.button(false)?;
     }
     Ok(())
+}
+
+/// Clicks the tablet's left button `times` at `at`, 60 ms down and up each:
+/// two are a double click (400 ms at most from press to press, GNOME's).
+pub(super) fn click(
+    socket: &Path,
+    screen: (usize, usize),
+    at: (i32, i32),
+    times: u32,
+) -> Result<()> {
+    let mut tablet = Tablet::connect(socket, screen)?;
+    tablet.to(at)?;
+    for _ in 0..times {
+        thread::sleep(Duration::from_millis(60));
+        tablet.button(true)?;
+        thread::sleep(Duration::from_millis(60));
+        tablet.button(false)?;
+    }
+    Ok(())
+}
+
+/// The machine's tablet, through QEMU's control socket. It reports
+/// 0..=0x7fff across the screen, which libinput scales by `screen /
+/// 0x8000`: a pixel lands within 1/50 px.
+struct Tablet {
+    qmp: Keyboard,
+    screen: (usize, usize),
+}
+
+impl Tablet {
+    fn connect(socket: &Path, screen: (usize, usize)) -> Result<Self> {
+        Ok(Self {
+            qmp: Keyboard::connect(socket)?,
+            screen,
+        })
+    }
+
+    fn send(&mut self, events: &str) -> Result<()> {
+        self.qmp.execute(&format!(
+            r#"{{"execute": "input-send-event", "arguments": {{"events": [{events}]}}}}"#
+        ))
+    }
+
+    /// The pointer onto the pixel `(x, y)`.
+    fn to(&mut self, (x, y): (i32, i32)) -> Result<()> {
+        let scale = |n: i32, size: usize| (f64::from(n) * 32768.0 / size as f64).round() as i64;
+        let events = format!(
+            r#"{{"type": "abs", "data": {{"axis": "x", "value": {}}}}}, {{"type": "abs", "data": {{"axis": "y", "value": {}}}}}"#,
+            scale(x, self.screen.0),
+            scale(y, self.screen.1)
+        );
+        self.send(&events)
+    }
+
+    fn button(&mut self, down: bool) -> Result<()> {
+        self.send(&format!(
+            r#"{{"type": "btn", "data": {{"down": {down}, "button": "left"}}}}"#
+        ))
+    }
 }
 
 /// The keyboard (and mouse) of a running machine, through QEMU's control

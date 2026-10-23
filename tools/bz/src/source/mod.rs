@@ -46,6 +46,10 @@ pub enum Latest {
     ReleaseMonitoring(u64),
     /// kernel.org's release list, the newest of a moniker: `{ kernel-org = "stable" }`.
     KernelOrg(String),
+    /// A package on npm's registry, for projects that publish there only
+    /// and that release-monitoring.org does not list (Anitya has the same
+    /// backend): `{ npm = "@phosphor-icons/core" }`.
+    Npm(String),
     /// A URL that always serves upstream's current file; newer when its
     /// SHA-256 differs from the pin: `{ file = "https://…" }`.
     File(String),

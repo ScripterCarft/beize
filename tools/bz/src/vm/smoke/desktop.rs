@@ -10,8 +10,10 @@
 //! its top it moves, dragged by its corner it grows, both by exactly the
 //! drag, and maximized it fills the screen below the bar and comes back.
 //! Beize UI's test program shows its sample – text, colours, blending –
-//! exactly as it draws it offscreen, the reference in the repository.
-//! Killed, the shell comes back and the window stays.
+//! below its title bar exactly as it draws it offscreen, the reference in
+//! the repository. Killed, the shell comes back and the window stays. The
+//! title bar moves the window, maximizes it with a double click and back,
+//! and closes it.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //!
@@ -29,8 +31,8 @@ use super::Installed;
 use crate::paths::Paths;
 use crate::say;
 use crate::vm::console::{
-    Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, drag, german_presses, keys,
-    screendump,
+    Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, click, drag, german_presses,
+    keys, screendump,
 };
 use crate::vm::debug::Shell;
 use crate::vm::machine::{Machine, test_medium};
@@ -97,6 +99,11 @@ const CLIENT_TITLE: usize = 32;
 /// bottom right corner: clear of the terminals' windows below it.
 const MOVE_BY: (i32, i32) = (-150, 80);
 const RESIZE_BY: (i32, i32) = (60, 40);
+
+/// Beize UI's title bar along the top of its windows (os/beize-ui,
+/// `titlebar`), and how far the test drags a window by it.
+const TITLE_BAR: usize = 32;
+const UI_MOVE_BY: (i32, i32) = (-100, 40);
 
 /// How long a screen may take to become what its reference shows.
 const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -337,10 +344,13 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          /run/t/beize-testclient --frames 120 --seconds 20 && for i in $(seq 100); do \
          [ \"$(p | wc -l)\" -gt \"$n\" ] && break; sleep 0.2; done; p | tail -n +$((n + 1))",
     )?;
-    let pacing = lines
-        .iter()
-        .find(|l| l.starts_with("pacing: "))
-        .with_context(|| format!("no pacing summary (exit status {status}): {lines:?}"))?;
+    let Some(pacing) = lines.iter().find(|l| l.starts_with("pacing: ")) else {
+        let said = last_said(&shell, &["beize-testclient-frames", "beize-compositor"])?;
+        bail!(
+            "no pacing summary (exit status {status}): {lines:?}; the client and the compositor \
+             last said: {said:?}"
+        );
+    };
     let frames = pacing
         .strip_prefix("pacing: ")
         .and_then(|s| s.split_once(' '))
@@ -366,8 +376,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "Beize UI's test program got no window: {lines:?}"
     );
     let ui = placed(&shell, "beize-ui-test", 1)?;
-    wait_for_screen(paths, &machine, ui, UI_SAMPLE, "beize-ui")?;
-    say!("  ok: Beize UI's window shows its sample as the reference has it");
+    wait_for_screen(paths, &machine, content(ui), UI_SAMPLE, "beize-ui")?;
+    say!("  ok: Beize UI's window shows its sample below its title bar as the reference has it");
 
     // Killed, the shell starts again (ADR 0028 §1): the compositor knows
     // it once more, the bar comes back, the desktop and the window stay.
@@ -384,8 +394,73 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "the shell did not come back after it was killed, or the desktop went: {lines:?}"
     );
     wait_for_menu_bar(&machine)?;
-    wait_for_screen(paths, &machine, ui, UI_SAMPLE, "beize-ui-after-shell")?;
+    wait_for_screen(
+        paths,
+        &machine,
+        content(ui),
+        UI_SAMPLE,
+        "beize-ui-after-shell",
+    )?;
     say!("  ok: killed, the shell came back with its menu bar; the desktop and the window stayed");
+
+    // Beize UI's title bar (ADR 0028 §2): dragged, it moves the window by
+    // exactly the drag; a double click maximizes the window, another
+    // brings it back; its close button ends the program.
+    let ((x, y), (w, h)) = ui;
+    let grip = (i32::try_from(x + w / 2)?, i32::try_from(y + TITLE_BAR / 2)?);
+    let to = (grip.0 + UI_MOVE_BY.0, grip.1 + UI_MOVE_BY.1);
+    drag(&qmp, screen, grip, to, true)?;
+    park(&qmp, screen)?;
+    let moved = (
+        usize::try_from(i32::try_from(x)? + UI_MOVE_BY.0)?,
+        usize::try_from(i32::try_from(y)? + UI_MOVE_BY.1)?,
+    );
+    wait_for_screen(
+        paths,
+        &machine,
+        content((moved, (w, h))),
+        UI_SAMPLE,
+        "beize-ui-moved",
+    )?;
+    click(&qmp, screen, to, 2)?;
+    park(&qmp, screen)?;
+    let full = (screen.0, screen.1 - MENU_BAR - TITLE_BAR);
+    wait_for_configure(&shell, "beize-ui-test", full)?;
+    // On the maximized window's bar, away from its buttons.
+    let bar = (
+        i32::try_from(screen.0 / 2)?,
+        i32::try_from(MENU_BAR + TITLE_BAR / 2)?,
+    );
+    click(&qmp, screen, bar, 2)?;
+    park(&qmp, screen)?;
+    wait_for_configure(&shell, "beize-ui-test", (w, h - TITLE_BAR))?;
+    wait_for_screen(
+        paths,
+        &machine,
+        content((moved, (w, h))),
+        UI_SAMPLE,
+        "beize-ui-restored",
+    )?;
+    // The close button, the bar's last 46 pixels.
+    let close = (
+        i32::try_from(moved.0 + w - 23)?,
+        i32::try_from(moved.1 + TITLE_BAR / 2)?,
+    );
+    click(&qmp, screen, close, 1)?;
+    park(&qmp, screen)?;
+    let (_, lines) = shell.capture(
+        "for i in $(seq 50); do systemctl --user -q is-active beize-ui-test || break; \
+         sleep 0.2; done; systemctl --user is-active beize-ui-test; \
+         journalctl --user -u beize-ui-test -o cat | tail -n 1",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "inactive") && lines.iter().any(|l| l == "done"),
+        "the close button did not end Beize UI's test program: {lines:?}"
+    );
+    say!(
+        "  ok: Beize UI's title bar moved the window by exactly the drag, a double click \
+         maximized it and back, its close button closed it"
+    );
 
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
@@ -528,6 +603,40 @@ fn screen_size(machine: &Machine) -> Result<(usize, usize)> {
     Ok((screen.width, screen.height))
 }
 
+/// What `units` last said but the pointer's moves, for a failure: the VM's
+/// journal is gone with the VM.
+fn last_said(shell: &Shell, units: &[&str]) -> Result<Vec<String>> {
+    let units: String = units.iter().map(|u| format!(" -u {u}")).collect();
+    let (_, said) = shell.capture(&format!(
+        "journalctl --user -b -o cat{units} | grep -v '^pointer at' | tail -n 30"
+    ))?;
+    Ok(said)
+}
+
+/// The content of a window of Beize UI: below its title bar.
+fn content(((x, y), (w, h)): Window) -> Window {
+    ((x, y + TITLE_BAR), (w, h.saturating_sub(TITLE_BAR)))
+}
+
+/// Waits until `app` (a program printing `configure WxH` for each
+/// configure, as Beize UI's test program does) was last configured to
+/// `size`.
+fn wait_for_configure(shell: &Shell, app: &str, size: (usize, usize)) -> Result<()> {
+    let wanted = format!("configure {}x{}", size.0, size.1);
+    let mut last = None;
+    for _ in 0..50 {
+        let (_, lines) = shell.capture(&format!(
+            "journalctl --user -u {app} -o cat | grep '^configure ' | tail -n 1"
+        ))?;
+        last = lines.into_iter().find(|l| l.starts_with("configure "));
+        if last.as_deref() == Some(wanted.as_str()) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    bail!("{app} was not configured to {wanted}, last: {last:?}")
+}
+
 /// Puts the pointer back on the screen's top left corner, on the menu bar.
 fn park(qmp: &Path, screen: (usize, usize)) -> Result<()> {
     drag(qmp, screen, (0, 0), (0, 0), false)
@@ -561,12 +670,7 @@ fn wait_for_pattern(
         match compared {
             Ok(()) => return Ok(()),
             Err(e) if Instant::now() >= deadline => {
-                // What the client and the compositor last said: the VM's
-                // journal is gone with it.
-                let (_, said) = shell.capture(
-                    "journalctl --user -b -o cat -u beize-testclient -u beize-compositor \
-                     | grep -v '^pointer at' | tail -n 20",
-                )?;
+                let said = last_said(shell, &["beize-testclient", "beize-compositor"])?;
                 return Err(e.context(format!(
                     "the client's window, {}x{} at {},{}, on {}; the client and the compositor \
                      last said: {said:?}",

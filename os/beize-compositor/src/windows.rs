@@ -38,9 +38,9 @@ use tracing::info;
 
 use crate::state::State;
 
-/// How far a new window moves from one in its place: the height of macOS'
-/// title bar, so the one below shows its title.
-const CASCADE: i32 = 28;
+/// How far a new window moves from one in its place: the height of Beize
+/// UI's title bar (os/beize-ui, `titlebar`), so the one below shows its title.
+const CASCADE: i32 = 32;
 
 /// The strip outside a window that resizes it, as wide as macOS' (about
 /// 4 px past the frame).
@@ -374,30 +374,18 @@ impl State {
         let Some((window, start)) = self.grab_for(toplevel, serial) else {
             return;
         };
-        let Some(mut geometry) = self.space.element_geometry(&window) else {
+        let Some(geometry) = self.space.element_geometry(&window) else {
             return;
         };
-        if toplevel
+        let maximized = toplevel
             .current_state()
             .states
-            .contains(XdgState::Maximized)
-        {
-            // Off the maximized place: the restored window under the pointer,
-            // as far across it as the pointer was across the maximized one
-            // (Windows, GNOME); its top where it was.
-            let restored = with_place(&window, |place| place.restore.map(|r| r.size));
-            if let Some(size) = restored {
-                let across = (start.location.x - f64::from(geometry.loc.x))
-                    / f64::from(geometry.size.w.max(1));
-                let x = start.location.x - across * f64::from(size.w);
-                geometry = Rectangle::new((x.round() as i32, geometry.loc.y).into(), size);
-            }
-            self.unmaximize(toplevel, Some(geometry.loc));
-        }
+            .contains(XdgState::Maximized);
         let grab = MoveGrab {
             start,
             window,
             initial: geometry,
+            maximized,
         };
         self.set_grab(grab, serial);
     }
@@ -511,11 +499,25 @@ struct MoveGrab {
     start: GrabStartData<State>,
     window: Window,
     initial: Rectangle<i32, Logical>,
+    /// The window is maximized and stays so until the pointer has moved
+    /// `DRAG_THRESHOLD`: a click (the first of a double click) moves nothing.
+    maximized: bool,
 }
 
+/// How far the pointer moves before a press on a maximized window's title
+/// bar becomes a drag (Windows' SM_CXDRAG).
+const DRAG_THRESHOLD: f64 = 4.0;
+
 impl MoveGrab {
-    fn follow(&self, state: &mut State, location: Point<f64, Logical>) {
+    fn follow(&mut self, state: &mut State, location: Point<f64, Logical>) {
         let delta = location - self.start.location;
+        if self.maximized {
+            if delta.x.hypot(delta.y) < DRAG_THRESHOLD {
+                return;
+            }
+            self.maximized = false;
+            self.leave_maximized(state);
+        }
         let at = self.initial.loc.to_f64() + delta;
         let at = constrain(
             state.window_area(),
@@ -531,6 +533,24 @@ impl MoveGrab {
             state.space.map_element(self.window.clone(), at, false);
         }
         state.changed();
+    }
+
+    /// Off the maximized place: the restored window under the pointer, as
+    /// far across it as the pointer was across the maximized one (Windows,
+    /// GNOME); its top where it was.
+    fn leave_maximized(&mut self, state: &mut State) {
+        let Some(toplevel) = self.window.toplevel().cloned() else {
+            return;
+        };
+        let restored = with_place(&self.window, |place| place.restore.map(|r| r.size));
+        if let Some(size) = restored {
+            let x = self.start.location.x;
+            let across =
+                (x - f64::from(self.initial.loc.x)) / f64::from(self.initial.size.w.max(1));
+            let left = x - across * f64::from(size.w);
+            self.initial = Rectangle::new((left.round() as i32, self.initial.loc.y).into(), size);
+        }
+        state.unmaximize(&toplevel, Some(self.initial.loc));
     }
 }
 
@@ -596,7 +616,7 @@ macro_rules! drag_grab {
                 event: &MotionEvent,
             ) {
                 handle.motion(data, None, event);
-                ($follow)(&*self, data, event.location);
+                ($follow)(self, data, event.location);
             }
 
             fn relative_motion(
@@ -719,7 +739,7 @@ macro_rules! drag_grab {
 drag_grab!(MoveGrab, MoveGrab::follow, |_: &MoveGrab| {});
 drag_grab!(
     ResizeGrab,
-    |grab: &ResizeGrab, state: &mut State, at| grab.follow(state, at),
+    |grab: &mut ResizeGrab, state: &mut State, at| grab.follow(state, at),
     ResizeGrab::release
 );
 

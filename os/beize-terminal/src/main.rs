@@ -26,7 +26,7 @@ use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::{ClipboardType, Config, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
-use beize_ui::{Input, Key, KeyState, Keysym, Text, Window};
+use beize_ui::{Appearance, Input, Key, KeyState, Keysym, Window};
 use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
 
@@ -111,12 +111,14 @@ struct App {
 }
 
 fn run() -> Result<(), String> {
-    let mut text = Text::new().map_err(|e| e.to_string())?;
+    let mut window = Window::open(TITLE, "beize-terminal").map_err(|e| e.to_string())?;
+    // Its title bar dark, as its content.
+    window.set_appearance(Appearance::Dark);
+    let text = window.text();
     let fonts = Fonts {
         regular: text.cells(FONT_SIZE, 400.0).map_err(|e| e.to_string())?,
         bold: text.cells(FONT_SIZE, 700.0).map_err(|e| e.to_string())?,
     };
-    let mut window = Window::open(TITLE, "beize-terminal").map_err(|e| e.to_string())?;
     window.prefer_size(view::size_for(OPENS_WITH.0, OPENS_WITH.1, &fonts.regular));
     info!("gpu {}", window.gpu_name());
     // The first configure names the size, and the shell starts in it.

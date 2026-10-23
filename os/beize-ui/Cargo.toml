@@ -35,6 +35,10 @@ zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
 # Compose; the same crate and version as Smithay's. Linked, not loaded: the
 # desktop has it for the compositor, the buildroot to link that.
 xkbcommon = { version = "0.8", default-features = false, features = ["wayland"] }
+# Symbols (ADR 0028 §8): Phosphor's SVGs, rasterized by resvg once per
+# size into the glyph atlas. Vector shapes only: no text, fonts or bitmaps
+# inside an SVG.
+resvg = { version = "0.48", default-features = false }
 
 [lints]
 workspace = true

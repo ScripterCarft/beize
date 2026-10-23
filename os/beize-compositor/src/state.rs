@@ -538,27 +538,25 @@ impl State {
     /// it (`shell::committed`): the protocol sends none before the
     /// client's initial commit.
     pub fn focus(&mut self, window: Option<Window>) {
-        let configure = |toplevel: &smithay::wayland::shell::xdg::ToplevelSurface| {
-            if toplevel.is_initial_configure_sent() {
-                toplevel.send_pending_configure();
-            }
-        };
         for other in self.space.elements() {
-            if Some(other) != window.as_ref()
-                && other.set_activated(false)
-                && let Some(toplevel) = other.toplevel()
-            {
-                configure(toplevel);
+            if Some(other) != window.as_ref() {
+                other.set_activated(false);
             }
         }
         let surface = window.as_ref().and_then(|window| {
+            // Raising activates it too (Smithay sets the state itself).
             self.space.raise_element(window, true);
-            let toplevel = window.toplevel()?;
-            if window.set_activated(true) {
-                configure(toplevel);
-            }
-            Some(toplevel.wl_surface().clone())
+            window.set_activated(true);
+            Some(window.toplevel()?.wl_surface().clone())
         });
+        // Each window hears what changed for it – which `set_activated`'s
+        // answer cannot tell once raising has set it; unchanged ones hear
+        // nothing (`send_pending_configure`).
+        for toplevel in self.space.elements().filter_map(Window::toplevel) {
+            if toplevel.is_initial_configure_sent() {
+                toplevel.send_pending_configure();
+            }
+        }
         let keyboard = self.keyboard.clone();
         keyboard.set_focus(self, surface, SERIAL_COUNTER.next_serial());
         self.changed();

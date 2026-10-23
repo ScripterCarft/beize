@@ -1,7 +1,9 @@
 //! Glyphs as the GPU draws them: rasterized once each – outlines from
 //! Skrifa with light hinting, coverage from zeno – and kept in the atlas,
 //! one 8-bit texture (ADR 0027 §9). Text is then a quad per glyph, its
-//! texels 1:1 on whole pixels.
+//! texels 1:1 on whole pixels. Symbols (ADR 0028 §8) share the atlas: an
+//! SVG rasterized by resvg once per size, drawn like a glyph – as SF
+//! Symbols are glyphs on macOS.
 //!
 //! Hinting is light, as FreeType's "light": vertical only, so baselines and
 //! horizontal stems sit on the pixel grid while Inter keeps its shapes and
@@ -10,6 +12,10 @@
 //! most, and even spacing.
 
 use std::collections::HashMap;
+use std::path::Path as FilePath;
+
+use resvg::{tiny_skia, usvg};
+use tracing::warn;
 
 use parley::FontData;
 use skrifa::instance::{LocationRef, NormalizedCoord, Size};
@@ -19,6 +25,9 @@ use skrifa::outline::{
 use skrifa::raw::types::F2Dot14;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 use zeno::{Command, Mask, Origin, Point, Vector};
+
+/// Beize's symbols, one SVG each by name (recipes/phosphor-icons.toml).
+const SYMBOLS: &str = "/usr/share/beize/symbols";
 
 /// The atlas' side in texels: 1 MiB, room for thousands of glyphs at text
 /// sizes. When it is full it starts over (`Atlas::clear`).
@@ -63,6 +72,8 @@ pub struct Placed {
 /// The glyphs in the atlas, and what the GPU's copy still lacks.
 pub struct Glyphs {
     placed: HashMap<Key, Placed>,
+    /// Symbols by name and size in pixels.
+    symbols: HashMap<(String, u32), Placed>,
     hinting: HashMap<Face, Option<HintingInstance>>,
     atlas: Atlas,
     /// Rasterized since the last `take_uploads`: their place and coverage.
@@ -83,6 +94,7 @@ impl Glyphs {
     pub fn new() -> Glyphs {
         Glyphs {
             placed: HashMap::new(),
+            symbols: HashMap::new(),
             hinting: HashMap::new(),
             atlas: Atlas::new(ATLAS_SIZE),
             uploads: Vec::new(),
@@ -127,9 +139,41 @@ impl Glyphs {
         Ok((placed, whole as i32))
     }
 
+    /// The symbol `name` in a square of `size` pixels: rasterized if new.
+    /// One that cannot be read draws nothing, and says so once.
+    pub fn symbol(&mut self, name: &str, size: u32) -> Result<Placed, Full> {
+        let key = (name.to_owned(), size);
+        if let Some(placed) = self.symbols.get(&key) {
+            return Ok(*placed);
+        }
+        let placed = match read_symbol(name).and_then(|svg| rasterize_svg(&svg, size)) {
+            Ok(coverage) if size > 0 => {
+                let (x, y) = self.atlas.place(size, size).ok_or(Full)?;
+                let placed = Placed {
+                    x,
+                    y,
+                    w: size,
+                    h: size,
+                    left: 0,
+                    top: 0,
+                };
+                self.uploads.push((placed, coverage));
+                placed
+            }
+            Ok(_) => Placed::default(),
+            Err(e) => {
+                warn!("the symbol {name}: {e}");
+                Placed::default()
+            }
+        };
+        self.symbols.insert(key, placed);
+        Ok(placed)
+    }
+
     /// Empties the atlas: every glyph is rasterized again when next used.
     pub fn clear(&mut self) {
         self.placed.clear();
+        self.symbols.clear();
         self.uploads.clear();
         self.atlas = Atlas::new(ATLAS_SIZE);
     }
@@ -225,6 +269,30 @@ fn rasterize(
             top: -(placement.top + placement.height as i32),
         },
     ))
+}
+
+/// The SVG of the symbol `name` (lower case and dashes, as Phosphor names
+/// them).
+fn read_symbol(name: &str) -> Result<Vec<u8>, String> {
+    if name.is_empty() || !name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') {
+        return Err("not a symbol's name".into());
+    }
+    let file = FilePath::new(SYMBOLS).join(format!("{name}.svg"));
+    std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))
+}
+
+/// The coverage of `svg` scaled into a square of `size` pixels, one byte a
+/// pixel.
+fn rasterize_svg(svg: &[u8], size: u32) -> Result<Vec<u8>, String> {
+    let tree = usvg::Tree::from_data(svg, &usvg::Options::default()).map_err(|e| e.to_string())?;
+    let mut pixmap = tiny_skia::Pixmap::new(size, size).ok_or("an empty size")?;
+    let scale = size as f32 / tree.size().width().max(tree.size().height());
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    Ok(pixmap.pixels().iter().map(|p| p.alpha()).collect())
 }
 
 /// An outline as zeno's path commands.
@@ -323,6 +391,22 @@ mod tests {
         assert_eq!(quarter(10.8), (10.0, 3));
         assert_eq!(quarter(10.9), (11.0, 0));
         assert_eq!(quarter(-0.1), (0.0, 0));
+    }
+
+    #[test]
+    fn a_symbol_covers_its_shape_and_nothing_else() {
+        // Phosphor's "square", regular: a frame 16/256 of its size wide.
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M208,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32Zm0,176H48V48H208V208Z"/></svg>"#;
+        let coverage = rasterize_svg(svg, 32).unwrap();
+        assert_eq!(coverage.len(), 32 * 32);
+        let at = |x: usize, y: usize| coverage[y * 32 + x];
+        // The frame from 4 to 6 px, its inside and outside empty.
+        assert_eq!(at(16, 4), 255);
+        assert_eq!(at(5, 16), 255);
+        assert_eq!(at(16, 16), 0);
+        assert_eq!(at(1, 16), 0);
+        assert!(rasterize_svg(b"<svg", 32).is_err());
+        assert!(read_symbol("../../etc/passwd").is_err());
     }
 
     #[test]

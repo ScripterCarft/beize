@@ -88,6 +88,18 @@ pub struct Scene {
     pub(crate) runs: Vec<(FontData, Face)>,
     /// Glyphs whose quads the renderer fills in.
     pub(crate) glyphs: Vec<Glyph>,
+    /// Symbols, likewise.
+    pub(crate) symbols: Vec<Symbol>,
+}
+
+/// A symbol (ADR 0028 §8) in a square of `size` pixels, its top left at
+/// `x`, `y` (whole pixels).
+pub(crate) struct Symbol {
+    pub quad: usize,
+    pub name: String,
+    pub size: u32,
+    pub x: f32,
+    pub y: f32,
 }
 
 /// A glyph of a run, at its pen position: `x` in pixels with fraction,
@@ -134,6 +146,24 @@ impl Scene {
         }
     }
 
+    /// The symbol `name` (Phosphor's, ADR 0028 §8) in `color`, a square of
+    /// `size` pixels with its top left at `x`, `y`, on whole pixels.
+    pub fn symbol(&mut self, name: &str, x: f32, y: f32, size: u32, color: Color) {
+        self.symbols.push(Symbol {
+            quad: self.quads.len(),
+            name: name.to_owned(),
+            size,
+            x: x.round(),
+            y: y.round(),
+        });
+        self.quads.push(Quad {
+            color: color.linear(),
+            flags: MASK | EXACT,
+            ..Quad::default()
+        });
+        self.blend.push(true);
+    }
+
     /// The glyph `id` of a grid's font (a terminal's cell) with its pen at
     /// `x` and its baseline at `y`.
     pub fn cell_glyph(&mut self, cells: &Cells, id: u32, x: f32, y: f32, color: Color) {
@@ -169,6 +199,32 @@ impl Scene {
         self.blend.push(true);
     }
 
+    /// `other`'s quads after (above) this scene's, moved down by `dy`, a
+    /// whole number of pixels: baselines stay on whole pixels.
+    pub(crate) fn append(&mut self, other: &Scene, dy: f32) {
+        let (quads, runs) = (self.quads.len(), self.runs.len());
+        self.quads.extend(other.quads.iter().map(|q| Quad {
+            pos: [q.pos[0], q.pos[1] + dy],
+            ..*q
+        }));
+        self.blend.extend_from_slice(&other.blend);
+        self.runs.extend(other.runs.iter().cloned());
+        self.glyphs.extend(other.glyphs.iter().map(|g| Glyph {
+            quad: g.quad + quads,
+            run: g.run + runs,
+            id: g.id,
+            x: g.x,
+            y: g.y + dy,
+        }));
+        self.symbols.extend(other.symbols.iter().map(|s| Symbol {
+            quad: s.quad + quads,
+            name: s.name.clone(),
+            size: s.size,
+            x: s.x,
+            y: s.y + dy,
+        }));
+    }
+
     pub fn len(&self) -> usize {
         self.quads.len()
     }
@@ -201,6 +257,27 @@ mod tests {
         let [r, g, b, a] = half.linear();
         assert!((a - 128.0 / 255.0).abs() < 1e-7);
         assert_eq!((r, g, b), (a, 0.0, 0.0));
+    }
+
+    #[test]
+    fn an_appended_scene_moves_down_with_its_glyphs() {
+        let rect = Rect {
+            x: 1.0,
+            y: 2.0,
+            w: 3.0,
+            h: 4.0,
+        };
+        let mut below = Scene::new();
+        below.fill(rect, Color::rgb(0x202020));
+        below.symbol("x", 5.0, 6.0, 16, Color::rgb(0xffffff));
+        let mut scene = Scene::new();
+        scene.fill(rect, Color::rgb(0x101010));
+        scene.append(&below, 32.0);
+        assert_eq!(scene.len(), 3);
+        assert_eq!(scene.quads[1].pos, [1.0, 34.0]);
+        assert_eq!(scene.blend, [false, false, true]);
+        let symbol = &scene.symbols[0];
+        assert_eq!((symbol.quad, symbol.x, symbol.y), (2, 5.0, 38.0));
     }
 
     #[test]

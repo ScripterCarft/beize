@@ -95,6 +95,14 @@ fn check(source: &Source, version: &str) -> Result<Option<String>> {
                 .with_context(|| format!("kernel.org lists no {moniker} release"))?;
             (compare_versions(newest, version) == Ordering::Greater).then(|| newest.to_owned())
         }
+        Latest::Npm(package) => {
+            // The registry's `latest` tag: what `npm install` takes.
+            let json = fetch_json(&format!("https://registry.npmjs.org/{package}/latest"))?;
+            let newest = json["version"]
+                .as_str()
+                .with_context(|| format!("npm names no version of {package}"))?;
+            (compare_versions(newest, version) == Ordering::Greater).then(|| newest.to_owned())
+        }
         Latest::File(url) => {
             let file = std::env::temp_dir().join(format!("bz-latest-{}", std::process::id()));
             util::run(

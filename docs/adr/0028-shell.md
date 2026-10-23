@@ -69,7 +69,7 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 
 - **Fenster schweben:** Neue Fenster öffnen in ihrer gewünschten Größe (die Fläche unter der
   Leiste erfahren sie als `bounds`), mittig in dieser Fläche. Liegt dort schon ein Fenster,
-  rückt das neue um eine Titelleistenhöhe (28 px) nach rechts unten, wie macOS' Kaskade.
+  rückt das neue um eine Titelleistenhöhe (32 px) nach rechts unten, wie macOS' Kaskade.
   Nichts füllt mehr von selbst den Bildschirm. Fenster bleiben unter der Menüleiste und
   mindestens 64 px auf dem Bildschirm, damit man sie wieder greifen kann. Ein neuer Ort kommt
   immer mit dem Commit der neuen Größe, nie vorher (kein Bild mit altem Inhalt am neuen Ort).
@@ -80,7 +80,11 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 - **Titelleiste von Beize UI** (xdg-decoration: Beize UI meldet `client_side`). Damit sind
   Werkzeugleisten in der Titelleiste möglich, wie bei Finder und Safari. Verschieben und
   Größe ändern gehen über `xdg_toplevel.move/resize` an den Compositor, er führt aus (Snap,
-  Ränder).
+  Ränder). Die Leiste ist 32 px hoch, der Titel mittig (Inter 13 px halbfett, grau bei
+  inaktivem Fenster), die Knöpfe 46 × 32 wie bei Windows 11, Schließen rot unter dem Zeiger.
+  Die App zeichnet und hört nur ihren Inhalt darunter, wie AppKits Content View. Ein
+  Doppelklick maximiert (400 ms, GNOMEs Vorgabe). Ein maximiertes Fenster löst sich erst
+  nach 4 px Ziehen (Windows' `SM_CXDRAG`), damit ein Klick es nicht verschiebt.
 - **Fremde Apps**, die über xdg-decoration `server_side` wollen (Qt, Chromium/Brave,
   Electron), bekommen vom Compositor denselben Rahmen. Dafür kommt der Textteil von Beize UI
   (Parley, Skrifa, Glyphen-Atlas) in ein gemeinsames Crate, wie `beize-vulkan`. GTK mit
@@ -94,7 +98,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Windows 11 kommen später.
 - **Fensterknöpfe:** Minimieren, Maximieren und Schließen rechts wie Windows und GNOME. Die
   Seite wählt man später in den Einstellungen (links wie macOS); Beize UI und der Rahmen des
-  Compositors lesen dieselbe Einstellung.
+  Compositors lesen dieselbe Einstellung. Minimieren kommt mit dem Dock (c), das ein Fenster
+  zurückholt; bis dahin gibt es den Knopf nicht.
 
 ### 3. Menüleiste (oben)
 
@@ -190,7 +195,9 @@ App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG).
   das offene Set, das SF Symbols am nächsten kommt: ein Stil in mehreren Strichstärken
   (passend zu Inters Gewichten) und je eine gefüllte Variante für „an“. Lucide und Tabler
   haben nur eine Strichstärke. Im Image liegen nur die Symbole, die Beize verwendet, als SVG
-  aus dem offiziellen Release mit fester Prüfsumme (wie die Schriften).
+  aus dem offiziellen Release mit fester Prüfsumme (wie die Schriften): Phosphor veröffentlicht
+  auf npm (`@phosphor-icons/core`), `bz outdated` fragt dort. Gerastert werden sie mit 16 px,
+  wo Phosphors Strich genau 1 px ist.
 - **App-Symbole von Beize** (Terminal, später Dateien, Einstellungen): eigene SVGs, wenige,
   in einer gemeinsamen Form mit Verlauf. Fertige „macOS-Look“-Sets (z. B. WhiteSur) kopieren
   Apples Optik; das schließt die VISION aus (Konzepte, nicht Optik).
@@ -207,9 +214,9 @@ prüft sie nur die Funktion, nicht die Zeit.
 
 a) `beize-shell` als Dienst, der Compositor erkennt sie, wlr-layer-shell nur für sie; eine
    Menüleiste mit Uhr, die Fenster darunter. ✓ 23.10.
-b) Schwebende Fenster, Verschieben und Größe, Fokus (✓ 23.10.); Titelleiste in Beize UI;
-   xdg-decoration mit Rahmen für fremde Apps (dafür das gemeinsame Text-Crate aus Beize UI);
-   runde Ecken und Schatten.
+b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI mit Phosphor
+   (✓ 23.10.); xdg-decoration mit Rahmen für fremde Apps (dafür das gemeinsame Text-Crate aus
+   Beize UI); runde Ecken und Schatten.
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste.
 d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein

@@ -1,0 +1,34 @@
+# Phosphor, Beize's symbols (ADR 0028 §8): in the window's title bar, the
+# menu bar and the control center, as SF Symbols on macOS. The regular
+# weight's SVGs of the official release as they are, and only those Beize
+# draws; Beize UI rasterizes them with resvg. Phosphor publishes its
+# releases on npm (@phosphor-icons/core); release-monitoring.org does not
+# list it.
+name = "phosphor-icons"
+version = "2.1.1"
+stage = "target"
+
+[source]
+latest = { npm = "@phosphor-icons/core" }
+url = "https://registry.npmjs.org/@phosphor-icons/core/-/core-{version}.tgz"
+sha256 = "313332be6190b724da24107addd781799b48bf76b13963f24501112ffe1baadd"
+unsigned = "Phosphor signs neither its npm releases nor its tags (checked 2026-10-23); pinned by SHA-256"
+
+[build]
+# Each symbol by the name Beize UI asks for (`Symbol`).
+script = '''
+for name in x square copy-simple; do
+  install -Dm644 "$SRC/assets/regular/$name.svg" "$PKG/usr/share/beize/symbols/$name.svg"
+done
+'''
+
+[sbom]
+# As the project states it (LICENSE).
+license = "MIT"
+# No CPE: symbols (data); the NVD lists no product for them.
+cpe = []
+
+[files]
+image = [
+  "usr/share/beize/symbols/**",
+]
