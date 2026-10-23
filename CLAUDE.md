@@ -323,12 +323,12 @@ Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Titelleiste (dem Besitzer
 Patches, der Messzweig wendet `kernel/measure/*.patch` an):
 - nouveau EDID (240 Hz): am 21.10. gesendet (b4-Tag `sent/20261021-nouveau-edid-segment-…`);
   Antworten leitet der Besitzer weiter.
-- nouveau GSP-Interrupts (`IRQDEST`): Patch `~/upstream/nouveau-gsp-irqdest`, senden mit
-  `~/upstream/send-nouveau-irq.sh`.
+- nouveau GSP-Interrupts (`IRQDEST`): am 23.10. gesendet (b4-Tag
+  `sent/20261023-nouveau-gsp-irqdest-…-v1`).
 - Smithay: drei Berichte in `~/upstream/smithay/ISSUES.md`.
-- ntpd-rs #2539 (32 Warnungen je Start, offline endlos): Kommentar
-  `~/upstream/ntpd-rs-2539-comment.md` bietet den Backoff-Patch an und fragt nach der Basis
-  (upstream baut den Daemon gerade um). Keine Umgehung in Beize (ADR 0011).
+- ntpd-rs #2539 (32 Warnungen je Start, offline endlos): am 23.10. kommentiert, Backoff-Patch
+  angeboten, Frage nach der Basis (upstream baut den Daemon um). Patch erst nach ihrer Antwort.
+  Keine Umgehung in Beize (ADR 0011).
 
 **(h) Aufräumen ist fertig (23.10.):** Befunde des Hardware-Tests belegt (NTS oben; schwarze
 Lücken und Zeitplan in ADR 0027 §6), je spätem Bild eine Zeile `late frame`, Doku gestrafft,
