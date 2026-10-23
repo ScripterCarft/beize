@@ -21,10 +21,15 @@ Slice=session.slice
 # udev's announcements
 # of new devices, which also keep it in the host's network namespace.
 # Lavapipe compiles its shaders to machine code, hence no
-# MemoryDenyWriteExecute.
+# MemoryDenyWriteExecute. Mesa keeps the compiled shaders in a cache
+# directory of the compositor's own (~/.cache/beize-compositor, writable
+# as the only place in the home), not in ~/.cache/mesa_shader_cache_db,
+# which every app's Mesa shares.
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%t
+CacheDirectory=beize-compositor
+Environment=MESA_SHADER_CACHE_DIR=%C/beize-compositor
 PrivateTmp=yes
 PrivateUsers=self
 ProtectProc=invisible
