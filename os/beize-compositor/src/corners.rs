@@ -20,9 +20,8 @@ use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transfo
 use std::cell::RefCell;
 
 /// The corners' radius: macOS 27's windows, with the continuous corner of
-/// `beize_vulkan`'s shader. Inferred: measured in Apple's press image of
-/// macOS 27 at the scale of its window buttons, taken as macOS 26's 14 pt
-/// (CLAUDE.md §11).
+/// `beize_vulkan`'s shader; measured 15.7 pt on a screenshot of macOS 27
+/// (2 px per pt).
 pub const RADIUS: i32 = 16;
 
 /// The squares the corners' curves lie in, along each edge.

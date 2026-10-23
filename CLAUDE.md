@@ -373,13 +373,14 @@ Passt die Kurve nicht (Punkt, Kapsel): Kreisbögen. Fenster und Dock von macOS h
 Kurve (Pressebilder, Anpassung an Kreis/UIKit/Maske: Restfehler halb so groß wie beim Kreis).
 **Dock gemessen** an Apples Pressebild macOS 26 „Messages“ (14″-MacBook Pro, Bildschirm
 3426,6×2225,3 px = 1512×982 pt, 2,2663 px/pt): Kachel 48 (Raster 52, Icon 38,6 = 48·824/1024),
-Abstand 4, Rand 9,7 → 10, unten 5,1 → 5, Ecke 22,0, Punkt 4,0 mit Mitte 3,7 über der Unterkante,
-Trenner +24 (noch nicht gebaut). **Fenster:** macOS 26 gemessen 26,5 pt (mit Werkzeugleiste),
-Knöpfe 14 pt im Abstand 23, Mitte 25,5 vom Rand. Beize nimmt macOS 27 (Besitzer): Radius 16,
-**erschlossen** (Pressebild 27 ohne belegbaren Maßstab, Knöpfe als 14 pt angenommen) – mit einem
-Bild von 27 mit bekanntem Bildschirm nachmessen. Offen dazu: Beizes Knöpfe sind noch 12 pt im
-Abstand 20 (macOS bis 15), Farben von Dock und Punkt kommen mit d3. Apples Bilder liegen nicht
-im Repo (Lizenz); Messskripte waren Wegwerf-Arbeit.
+Abstand 4, Rand 9,7 → 10, unten 5,1 → 5, Punkt 4,0 mit Mitte 3,7 über der Unterkante, Trenner +24
+(noch nicht gebaut). **macOS 27 gemessen** an einem echten Bildschirmfoto des Besitzers (3024×1964,
+2 px/pt; Maßstab für Beize, Besitzer): Fenster 15,7 pt → 16; Dock-Ecke 20,4 pt bei 76,3 pt Höhe
+(26 rundete stärker: 22 bei 67,3), im Verhältnis übernommen → 18,2. Knöpfe: gemessen 14 pt im
+Abstand 23, aber der Besitzer hat 14 auf dem Schirm als zu groß verworfen: sie bleiben 12/20/8
+(AppKit-Standard, wie online belegt); nicht wieder anfassen. Nur die linke obere Dock-Ecke war
+sauber messbar. Farben von Dock und Punkt kommen
+mit d3. Apples Bilder liegen nicht im Repo (Lizenz); Messskripte waren Wegwerf-Arbeit.
 **Als Nächstes:** d2 Symbole (Phosphor in der Leiste, eigene App-Symbole in
 einer Squircle-Form mit Verlauf und Phosphor-Motiv statt der Buchstaben-Kacheln: Terminal, später
 Sift = Dateimanager des Besitzers und Papierkorb; hicolor für fremde Apps; Zeigerbilder für die

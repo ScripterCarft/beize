@@ -36,8 +36,10 @@ pub const HEIGHT: u32 = TILE + 2 * PADDING;
 /// 5.1 pt.
 pub const MARGIN: u32 = 5;
 
-/// Measured 22.0 pt (fitted with the continuous corner).
-const RADIUS: f32 = 22.0;
+/// Its corners: measured 20.4 pt on a dock 76.3 pt high in a screenshot
+/// of macOS 27 (macOS 26 rounded it more), kept in proportion as the dock
+/// grows with its tiles.
+const RADIUS: f32 = HEIGHT as f32 * 20.4 / 76.3;
 /// The icon on its tile, as Apple's icon grid: 824 of 1024, its corners
 /// those of the mask of Apple's App Icon Template, a radius of 0.2449 of
 /// the side.
