@@ -38,6 +38,9 @@ use crate::view::Fonts;
 /// 27"/1440p); regular and bold.
 const FONT_SIZE: f32 = 14.0;
 const SCROLLBACK: usize = 10_000;
+/// The grid a new window opens with: 80×24, as Terminal.app and every
+/// terminal since the VT100.
+const OPENS_WITH: (usize, usize) = (80, 24);
 /// The shell's output read before the next frame is drawn: a fast program
 /// (cat of a large file) does not wait for frames, the window still shows
 /// its progress.
@@ -114,6 +117,7 @@ fn run() -> Result<(), String> {
         bold: text.cells(FONT_SIZE, 700.0).map_err(|e| e.to_string())?,
     };
     let mut window = Window::open(TITLE, "beize-terminal").map_err(|e| e.to_string())?;
+    window.prefer_size(view::size_for(OPENS_WITH.0, OPENS_WITH.1, &fonts.regular));
     info!("gpu {}", window.gpu_name());
     // The first configure names the size, and the shell starts in it.
     loop {

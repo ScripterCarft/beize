@@ -316,6 +316,52 @@ pub(super) fn mouse(socket: &Path, dx: i32, dy: i32, click: bool) -> Result<()> 
     Ok(())
 }
 
+/// Drags with the left button of the machine's tablet (`Machine::tablet`)
+/// from `from` to `to`, pixels of a screen of `screen`, in steps as a hand
+/// would; without the button, only moves the pointer there. The tablet
+/// reports 0..=0x7fff across the screen, which libinput scales by
+/// `screen / 0x8000`: a pixel lands within 1/50 px.
+pub(super) fn drag(
+    socket: &Path,
+    screen: (usize, usize),
+    from: (i32, i32),
+    to: (i32, i32),
+    button: bool,
+) -> Result<()> {
+    const STEPS: i32 = 10;
+    let mut qmp = Keyboard::connect(socket)?;
+    let mut send = |events: String| {
+        qmp.execute(&format!(
+            r#"{{"execute": "input-send-event", "arguments": {{"events": [{events}]}}}}"#
+        ))
+    };
+    let at = |(x, y): (i32, i32)| {
+        let scale = |n: i32, size: usize| (f64::from(n) * 32768.0 / size as f64).round() as i64;
+        format!(
+            r#"{{"type": "abs", "data": {{"axis": "x", "value": {}}}}}, {{"type": "abs", "data": {{"axis": "y", "value": {}}}}}"#,
+            scale(x, screen.0),
+            scale(y, screen.1)
+        )
+    };
+    let press =
+        |down: bool| format!(r#"{{"type": "btn", "data": {{"down": {down}, "button": "left"}}}}"#);
+    send(at(from))?;
+    if button {
+        thread::sleep(Duration::from_millis(40));
+        send(press(true))?;
+    }
+    for step in 1..=STEPS {
+        thread::sleep(Duration::from_millis(20));
+        let between = |a: i32, b: i32| a + (b - a) * step / STEPS;
+        send(at((between(from.0, to.0), between(from.1, to.1))))?;
+    }
+    if button {
+        thread::sleep(Duration::from_millis(40));
+        send(press(false))?;
+    }
+    Ok(())
+}
+
 /// The keyboard (and mouse) of a running machine, through QEMU's control
 /// socket (QMP).
 struct Keyboard {

@@ -121,6 +121,8 @@ pub struct State {
     /// it too, the window never hears of them.
     pub taken_keys: HashSet<Keycode>,
     pub space: Space<Window>,
+    /// New windows until their first content places them (`windows`).
+    pub unmapped: Vec<Window>,
     pub popups: PopupManager,
     /// The screen: None until the session is first active, as only then
     /// does logind hand out the GPU (a session started on a background VT
@@ -195,6 +197,7 @@ impl State {
             keyboard,
             taken_keys: HashSet::new(),
             space: Space::default(),
+            unmapped: Vec::new(),
             popups: PopupManager::default(),
             screen: None,
             output: None,
@@ -332,25 +335,6 @@ impl State {
         let mut area = layer_map_for_output(output).non_exclusive_zone();
         area.loc += screen.loc;
         area
-    }
-
-    /// Fits every window to the window area, which the panels changed.
-    /// Until the shell arranges windows (ADR 0028 §2), each fills it.
-    pub fn arrange_windows(&mut self) {
-        let area = self.window_area();
-        // Mapping again puts a window on top: bottom to top, the order stays,
-        // and so does which is active.
-        let windows: Vec<Window> = self.space.elements().cloned().collect();
-        for window in windows {
-            if let Some(toplevel) = window.toplevel() {
-                toplevel.with_pending_state(|state| state.size = Some(area.size));
-                if toplevel.is_initial_configure_sent() {
-                    toplevel.send_pending_configure();
-                }
-            }
-            self.space.map_element(window, area.loc, false);
-        }
-        self.changed();
     }
 
     /// Something on the screen changed; it is drawn at the deadline of the
@@ -612,11 +596,7 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some(window) = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &root))
-            {
+            if let Some(window) = self.window_for(&root) {
                 window.on_commit();
             }
         }

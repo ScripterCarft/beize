@@ -55,6 +55,9 @@ pub(super) struct Machine {
     /// Beize's test programs (`test_medium`), read-only: in the guest
     /// `/dev/disk/by-id/virtio-beize-test`. Never part of the image.
     pub(super) test_medium: Option<PathBuf>,
+    /// A virtio tablet beside the PS/2 mouse: an absolute pointer, so tests
+    /// put it on a pixel (`console::drag`); libinput accelerates the mouse.
+    pub(super) tablet: bool,
 }
 
 impl Machine {
@@ -69,6 +72,7 @@ impl Machine {
             unsigned_module: paths.out.join("unsigned-module.ko"),
             usb_stick: None,
             test_medium: None,
+            tablet: false,
         }
     }
 
@@ -472,6 +476,10 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
                 "-device",
                 "virtio-blk-pci,drive=test,serial=beize-test,addr=0x11",
             ]);
+    }
+    if machine.tablet {
+        // On a slot of its own, like the test medium.
+        cmd.args(["-device", "virtio-tablet-pci,id=tablet,addr=0x12"]);
     }
     if let Some(base) = machine.rtc {
         cmd.arg("-rtc").arg(format!("base={base}"));

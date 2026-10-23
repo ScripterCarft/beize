@@ -43,7 +43,8 @@ use crate::renderer::{After, Renderer, Target};
 
 /// sRGB: the GPU blends in linear light and stores sRGB (`draw`).
 const FORMAT: vk::Format = vk::Format::B8G8R8A8_SRGB;
-/// Until the compositor names a size.
+/// Until the app prefers another (`prefer_size`), the size it opens in when
+/// the compositor leaves the choice to it.
 const DEFAULT_SIZE: (u32, u32) = (800, 600);
 
 /// What happened while waiting.
@@ -124,6 +125,8 @@ pub struct Window {
     swapchain: Option<Swapchain>,
     /// A present said the swapchain no longer fits the surface.
     stale: bool,
+    /// The size where the compositor leaves the choice to the app.
+    preferred: (u32, u32),
 }
 
 impl Window {
@@ -240,6 +243,7 @@ impl Window {
             vk_surface,
             swapchain: None,
             stale: false,
+            preferred: DEFAULT_SIZE,
         })
     }
 
@@ -280,11 +284,18 @@ impl Window {
         &self.renderer.gpu.name
     }
 
+    /// The size the window has where the compositor leaves the choice to
+    /// it: when it opens, and when it comes back from being maximized
+    /// without a size from before (AppKit's content size).
+    pub fn prefer_size(&mut self, size: (u32, u32)) {
+        self.preferred = size;
+    }
+
     /// The size the next frame is drawn in.
     pub fn size(&self) -> (u32, u32) {
         match self.state.asked {
             (w, h) if w > 0 && h > 0 => (w as u32, h as u32),
-            _ => DEFAULT_SIZE,
+            _ => self.preferred,
         }
     }
 

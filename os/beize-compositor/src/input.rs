@@ -125,13 +125,19 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
 
 fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     let serial = SERIAL_COUNTER.next_serial();
-    if event.state() == ButtonState::Pressed {
+    let pressed = event.state() == ButtonState::Pressed;
+    let grabbed = state.seat.get_pointer().is_some_and(|p| p.is_grabbed());
+    if pressed && !grabbed {
         let window = state
             .space
             .element_under(state.pointer)
             .map(|(window, _)| window.clone());
         if window.is_some() {
             state.focus(window);
+        } else if state.surface_under(state.pointer).is_none() {
+            // Beside a window, on its edge: the compositor resizes it; the
+            // press goes to that drag (`windows`).
+            state.resize_from_edge(event.button_code(), serial);
         }
     }
     if let Some(pointer) = state.seat.get_pointer() {

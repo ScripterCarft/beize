@@ -6,6 +6,9 @@
 //! compositor sends, one line each: the globals it offers this client (an
 //! app sees no panels, ADR 0028 §1), the window's size, the keyboard's
 //! layout (the `xkb_symbols` of its keymap), keys, pointer and buttons.
+//! A press in its top `TITLE` rows moves the window, as on a title bar;
+//! the M key maximizes it and back (the compositor's side of both, ADR
+//! 0028 §2).
 //!
 //! `--frames N` draws N frames, each on the last one's "frame done", with
 //! a bar moving through the top, and prints the time between frames: the
@@ -23,6 +26,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use wayland_client::backend::WaylandError;
 use wayland_client::globals::{BindError, GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
     wl_buffer::{self, WlBuffer},
@@ -53,6 +57,11 @@ const BAR: u32 = 0xff20_2020;
 /// The moving bar of `--frames`, and how far it moves each frame.
 const BAR_SIZE: (i32, i32) = (32, 32);
 const BAR_STEP: i32 = 8;
+/// The rows at the top that act as a title bar.
+const TITLE: f64 = 32.0;
+/// The left button and the M key (linux/input-event-codes.h).
+const BTN_LEFT: u32 = 0x110;
+const KEY_M: u32 = 50;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -107,8 +116,12 @@ struct App {
     compositor: WlCompositor,
     shm: WlShm,
     surface: WlSurface,
-    /// The window; kept for as long as the client runs.
-    _toplevel: XdgToplevel,
+    toplevel: XdgToplevel,
+    seat: WlSeat,
+    /// As the last configure said.
+    maximized: bool,
+    /// Where the pointer is on the window, down.
+    pointer_y: f64,
     /// The size the compositor asked for; 0 means "choose".
     size: (i32, i32),
     /// The next draw damages everything (after a configure).
@@ -143,7 +156,7 @@ fn run() -> Result<()> {
     let wm_base: XdgWmBase = globals
         .bind(&qh, 1..=6, ())
         .map_err(missing("xdg_wm_base"))?;
-    let _seat: WlSeat = globals.bind(&qh, 5..=9, ()).map_err(missing("wl_seat"))?;
+    let seat: WlSeat = globals.bind(&qh, 5..=9, ()).map_err(missing("wl_seat"))?;
 
     let surface = compositor.create_surface(&qh, ());
     let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
@@ -156,7 +169,10 @@ fn run() -> Result<()> {
         compositor,
         shm,
         surface,
-        _toplevel: toplevel,
+        toplevel,
+        seat,
+        maximized: false,
+        pointer_y: 0.0,
         size: (0, 0),
         full: true,
         buffers: Vec::new(),
@@ -200,7 +216,13 @@ fn dispatch(queue: &mut EventQueue<App>, app: &mut App, timeout: Duration) -> Re
     let timeout = Timespec::try_from(timeout).map_err(|e| e.to_string())?;
     let ready = poll(&mut fds, Some(&timeout)).map_err(|e| format!("poll: {e}"))?;
     if ready > 0 {
-        guard.read().map_err(|e| format!("reading: {e}"))?;
+        match guard.read() {
+            Ok(_) => {}
+            // Nothing to read after all: the Rust backend says so as an
+            // error (smithay-client-toolkit and calloop ignore it too).
+            Err(WaylandError::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(format!("reading: {e}")),
+        }
     }
     queue
         .dispatch_pending(app)
@@ -416,7 +438,19 @@ impl Dispatch<XdgToplevel, ()> for App {
         _: &QueueHandle<App>,
     ) {
         match event {
-            xdg_toplevel::Event::Configure { width, height, .. } => app.size = (width, height),
+            xdg_toplevel::Event::Configure {
+                width,
+                height,
+                states,
+            } => {
+                app.size = (width, height);
+                let maximized = u32::from(xdg_toplevel::State::Maximized);
+                app.maximized = states
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|s| u32::from_ne_bytes(*s) == maximized);
+            }
             xdg_toplevel::Event::Close => app.running = false,
             _ => {}
         }
@@ -487,7 +521,7 @@ impl Dispatch<WlSeat, ()> for App {
 
 impl Dispatch<WlKeyboard, ()> for App {
     fn event(
-        _: &mut App,
+        app: &mut App,
         _: &WlKeyboard,
         event: wl_keyboard::Event,
         _: &(),
@@ -513,11 +547,15 @@ impl Dispatch<WlKeyboard, ()> for App {
                 state: WEnum::Value(state),
                 ..
             } => {
-                let state = match state {
-                    wl_keyboard::KeyState::Pressed => "pressed",
-                    _ => "released",
-                };
-                println!("key {key} {state}");
+                let pressed = state == wl_keyboard::KeyState::Pressed;
+                println!("key {key} {}", if pressed { "pressed" } else { "released" });
+                if pressed && key == KEY_M {
+                    if app.maximized {
+                        app.toplevel.unset_maximized();
+                    } else {
+                        app.toplevel.set_maximized();
+                    }
+                }
             }
             _ => {}
         }
@@ -526,7 +564,7 @@ impl Dispatch<WlKeyboard, ()> for App {
 
 impl Dispatch<WlPointer, ()> for App {
     fn event(
-        _: &mut App,
+        app: &mut App,
         _: &WlPointer,
         event: wl_pointer::Event,
         _: &(),
@@ -538,22 +576,32 @@ impl Dispatch<WlPointer, ()> for App {
                 surface_x,
                 surface_y,
                 ..
-            } => println!("pointer enter {surface_x:.0},{surface_y:.0}"),
+            } => {
+                app.pointer_y = surface_y;
+                println!("pointer enter {surface_x:.0},{surface_y:.0}");
+            }
             wl_pointer::Event::Motion {
                 surface_x,
                 surface_y,
                 ..
-            } => println!("pointer at {surface_x:.0},{surface_y:.0}"),
+            } => {
+                app.pointer_y = surface_y;
+                println!("pointer at {surface_x:.0},{surface_y:.0}");
+            }
             wl_pointer::Event::Button {
+                serial,
                 button,
                 state: WEnum::Value(state),
                 ..
             } => {
-                let state = match state {
-                    wl_pointer::ButtonState::Pressed => "pressed",
-                    _ => "released",
-                };
-                println!("button {button:#x} {state}");
+                let pressed = state == wl_pointer::ButtonState::Pressed;
+                println!(
+                    "button {button:#x} {}",
+                    if pressed { "pressed" } else { "released" }
+                );
+                if pressed && button == BTN_LEFT && app.pointer_y < TITLE {
+                    app.toplevel._move(&app.seat, serial);
+                }
             }
             _ => {}
         }

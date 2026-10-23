@@ -1,13 +1,14 @@
-//! Windows (xdg-shell). Until Beize's shell arranges windows (ADR 0028
-//! §2), every window fills what the panels leave of the screen, the newest
-//! on top and active, with the keyboard. Popups (menus) open where the client asks, kept on
-//! the screen.
+//! Windows (xdg-shell): floating, placed, moved and resized as `windows`
+//! has it (ADR 0028 §2), the newest on top and active, with the keyboard.
+//! Popups (menus) open where the client asks, kept on the screen.
 //!
 //! Popup grabs (a menu that closes on a click elsewhere) are declined: the
 //! protocol then closes the popup (`popup_done`), which every client
-//! handles. They come with Beize UI's menus.
+//! handles. They come with Beize UI's menus. Minimizing waits for the dock
+//! (ADR 0028 c), which brings a window back; until then the request is
+//! ignored, as the protocol allows.
 
-use smithay::desktop::{PopupKind, Window, find_popup_root_surface, get_popup_toplevel_coords};
+use smithay::desktop::{PopupKind, find_popup_root_surface, get_popup_toplevel_coords};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::{wl_seat, wl_surface::WlSurface};
 use smithay::utils::Serial;
@@ -24,22 +25,38 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        let area = self.window_area();
-        surface.with_pending_state(|state| {
-            state.size = Some(area.size);
-            state.states.set(xdg_toplevel::State::Maximized);
-        });
-        let window = Window::new_wayland_window(surface);
-        self.space.map_element(window.clone(), area.loc, false);
-        self.focus(Some(window));
+        self.new_window(surface);
     }
 
-    fn toplevel_destroyed(&mut self, _surface: ToplevelSurface) {
+    fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        self.window_destroyed(surface.wl_surface());
         // The window leaves the space with its surface (`Space::refresh`);
         // the one below takes over.
         self.space.refresh();
         let next = self.space.elements().last().cloned();
         self.focus(next);
+    }
+
+    fn move_request(&mut self, surface: ToplevelSurface, _seat: wl_seat::WlSeat, serial: Serial) {
+        self.start_move(&surface, serial);
+    }
+
+    fn resize_request(
+        &mut self,
+        surface: ToplevelSurface,
+        _seat: wl_seat::WlSeat,
+        serial: Serial,
+        edges: xdg_toplevel::ResizeEdge,
+    ) {
+        self.start_resize(&surface, serial, edges);
+    }
+
+    fn maximize_request(&mut self, surface: ToplevelSurface) {
+        self.maximize(&surface);
+    }
+
+    fn unmaximize_request(&mut self, surface: ToplevelSurface) {
+        self.unmaximize(&surface, None);
     }
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
@@ -72,15 +89,13 @@ impl XdgShellHandler for State {
 /// After a commit: the first configure of a new window or popup, which the
 /// protocol wants only after the client's initial commit.
 pub fn committed(state: &mut State, surface: &WlSurface) {
-    let toplevel = state
-        .space
-        .elements()
-        .filter_map(Window::toplevel)
-        .find(|t| t.wl_surface() == surface);
-    if let Some(toplevel) = toplevel {
-        if !toplevel.is_initial_configure_sent() {
+    if let Some(window) = state.window_for(surface) {
+        if let Some(toplevel) = window.toplevel()
+            && !toplevel.is_initial_configure_sent()
+        {
             toplevel.send_configure();
         }
+        state.window_committed(&window);
         return;
     }
     if let Some(PopupKind::Xdg(popup)) = state.popups.find_popup(surface)

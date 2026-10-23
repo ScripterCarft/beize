@@ -67,8 +67,16 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 
 ### 2. Fenster und Titelleiste
 
-- **Fenster schweben:** Neue Fenster öffnen in ihrer gewünschten Größe, mittig bzw. leicht
-  versetzt zum letzten. Nichts füllt mehr von selbst den Bildschirm.
+- **Fenster schweben:** Neue Fenster öffnen in ihrer gewünschten Größe (die Fläche unter der
+  Leiste erfahren sie als `bounds`), mittig in dieser Fläche. Liegt dort schon ein Fenster,
+  rückt das neue um eine Titelleistenhöhe (28 px) nach rechts unten, wie macOS' Kaskade.
+  Nichts füllt mehr von selbst den Bildschirm. Fenster bleiben unter der Menüleiste und
+  mindestens 64 px auf dem Bildschirm, damit man sie wieder greifen kann. Ein neuer Ort kommt
+  immer mit dem Commit der neuen Größe, nie vorher (kein Bild mit altem Inhalt am neuen Ort).
+- **Ränder:** Beize UI zeichnet keinen Rahmen. Darum gilt ein 5 px breiter Streifen außerhalb
+  jedes Fensters als sein Rand, an dem der Compositor die Größe ändert, wie der WindowServer
+  bei macOS. Apps mit eigenem Rand (GTK) behalten ihn, denn ihr Schatten liegt über dem
+  Streifen. Eigene Zeigerbilder für die Ränder kommen mit den Symbolen (d).
 - **Titelleiste von Beize UI** (xdg-decoration: Beize UI meldet `client_side`). Damit sind
   Werkzeugleisten in der Titelleiste möglich, wie bei Finder und Safari. Verschieben und
   Größe ändern gehen über `xdg_toplevel.move/resize` an den Compositor, er führt aus (Snap,
@@ -199,9 +207,9 @@ prüft sie nur die Funktion, nicht die Zeit.
 
 a) `beize-shell` als Dienst, der Compositor erkennt sie, wlr-layer-shell nur für sie; eine
    Menüleiste mit Uhr, die Fenster darunter. ✓ 23.10.
-b) Schwebende Fenster, Titelleiste in Beize UI, Verschieben und Größe, Fokus, xdg-decoration
-   mit Rahmen für fremde Apps (dafür das gemeinsame Text-Crate aus Beize UI); runde Ecken und
-   Schatten.
+b) Schwebende Fenster, Verschieben und Größe, Fokus (✓ 23.10.); Titelleiste in Beize UI;
+   xdg-decoration mit Rahmen für fremde Apps (dafür das gemeinsame Text-Crate aus Beize UI);
+   runde Ecken und Schatten.
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste.
 d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein

@@ -27,6 +27,7 @@ mod schedule;
 mod shell;
 mod state;
 mod trust;
+mod windows;
 
 use std::ffi::{c_char, c_int};
 use std::process::ExitCode;

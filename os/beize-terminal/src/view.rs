@@ -301,6 +301,12 @@ fn cursor_shape(
     }
 }
 
+/// The window's size for a grid of `columns` × `lines`.
+pub fn size_for(columns: usize, lines: usize, cells: &Cells) -> (u32, u32) {
+    let fit = |n: usize, cell: f32| (2.0 * PADDING + n as f32 * cell).ceil() as u32;
+    (fit(columns, cells.width), fit(lines, cells.height))
+}
+
 /// The grid's size for a window of `size` pixels: at least one cell.
 pub fn grid(size: (u32, u32), cells: &Cells) -> (usize, usize) {
     let fit =
