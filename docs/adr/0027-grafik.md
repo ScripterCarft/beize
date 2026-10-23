@@ -33,12 +33,13 @@ Stand der Bausteine (Oktober 2026):
 
 ## Entscheidung
 
-### 1. Compositor = Shell, auf Smithay
+### 1. Eigener Compositor auf Smithay, Shell daneben
 
-Ein eigener Compositor (`os/beize-compositor`), der zugleich die Shell ist: Fensterrahmen,
-Taskleiste, Kontrollzentrum, Sperrbildschirm, Animationen. Smithay übernimmt Protokoll,
-KMS und Eingabe und bleibt unverändert (Crate aus crates.io, keine Forks). Vorbild: macOS
-WindowServer mit Dock aus einer Hand.
+Ein eigener Compositor (`os/beize-compositor`): Fenster, Eingabe, Effekte (Blur, Schatten,
+Ecken, Animationen) und Bildschleife. Smithay übernimmt Protokoll, KMS und Eingabe und bleibt
+unverändert (Crate aus crates.io, keine Forks). Menüleiste, Dock und Kontrollzentrum zeichnet
+ein eigener Prozess mit Beize UI, aus derselben Hand (ADR 0028). Vorbild: macOS' WindowServer
+mit Dock und Menüleiste als eigenen Prozessen.
 
 ### 2. Nur Vulkan, eigener Renderer
 
@@ -379,11 +380,8 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Programme (SGR und X10), Shift übergeht sie wie bei xterm. Kopieren und Einfügen über
   `wl_data_device` (Beize UI: Senden in einem kurzen Thread, Empfangen über eine Pipe im Poll);
   eingefügt wird ohne ESC und, wenn das Programm es will, in Klammern (bracketed paste);
-  Programme dürfen kopieren (OSC 52), nicht lesen. Tasten vorerst Strg+Shift+C/V
-  (Linux-Standard, Strg+C bleibt Abbruch). Endgültig mit dem Tastenkürzel-Modell vor Schritt 4,
-  Maßstab macOS (Besitzer): Dort kopiert Cmd+C, eine eigene Taste neben Ctrl, Ctrl+C bricht
-  im Terminal immer ab; „Strg+C kopiert, wenn markiert“ ist Windows Terminal, nicht macOS.
-  Naheliegend ist daher die Super-Taste als Cmd (Super+C/V überall).
+  Programme dürfen kopieren (OSC 52), nicht lesen. Tasten Strg+Shift+C/V (wie GNOME
+  Terminal, Strg+C bleibt Abbruch), endgültig mit dem Strg-Modell aus ADR 0028 §7.
 - **Tastatur:** libxkbcommon mit Compose (22.10., `os/beize-ui/src/input.rs`). Die Keymap
   schickt der Compositor (wechselt das Layout, kommt eine neue), die Compose-Tabelle ist die
   der Locale (`LC_ALL`, `LC_CTYPE`, `LANG`; ohne passende die von `C.UTF-8`, Beize hat nur
@@ -420,7 +418,7 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   „u“ → rot, 12 Pixel. Dazu der Hardware-Test mit `pacing:` (prüft den Zeitplan).
 - **Noch nicht:** Barrierefreiheit (AccessKit mit den ersten Widgets), Eingabemethoden
   (`text-input-v3`), gebrochene Skalierung (Faktor 1 beim 27"-1440p des Besitzers; Protokoll
-  mit den Einstellungen), Titelleiste und Fensterknöpfe (vor Schritt 4 entscheiden).
+  mit den Einstellungen), Titelleiste und Fensterknöpfe (ADR 0028 §2).
 
 ## Reihenfolge
 
@@ -438,7 +436,7 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
      CET-Kennzeichen.
 2. **Compositor-Gerüst** nach Abschnitt 6–8. ✓ 22.10. (Hardware-Test 0.5.97).
 3. **Beize UI** und das Terminal nach Abschnitt 9. ✓ 23.10. (Hardware-Test 0.5.101).
-4. **Shell:** Taskleiste (Dock- oder Windows-Stil vorher entscheiden), Glas, Icons.
+4. **Shell:** nach ADR 0028 (Menüleiste, Dock, Fenster, Kontrollzentrum, Glas, Symbole).
 
 ## Konsequenzen
 

@@ -169,7 +169,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter) · 0028 Shell (eigener Prozess, Menüleiste + Dock, Strg-Modell, Phosphor). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -351,13 +351,13 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell), zuerst ein ADR-Entwurf mit dem Besitzer.** Vorher entscheiden: wer die Titelleiste zeichnet (Empfehlung:
-Beize UI wie AppKit, die Shell führt aus), Tastenkürzel-Modell (Maßstab macOS: Super als Cmd,
-Super+C/V überall; bis dahin Strg+Shift+C/V), Dock oder Windows-Stil. Der Besitzer wünscht
-einen „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten, runde Ecken,
-Animation; „der Compositor soll sich langweilen“) als feste Testszene durch den echten
-Compositor, gemessen mit `pacing:` – erst mit Schritt 4, Effekte nicht vorziehen. Schrift:
-sauber, nicht pixelig (Inter). Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`,
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), als Nächstes Teil (a):**
+gemeinsames Text-Crate aus Beize UI, `os/beize-shell` als Dienst, wlr-layer-shell und
+`beize-shell-v1`, eine Menüleiste mit Uhr. Entschieden: Shell als eigener Prozess wie macOS,
+aber aus einem Guss (Start ohne Flackern); Dock unten, Menüleiste oben; Titelleiste von Beize
+UI; Strg-Modell (Super gehört der Shell); Knöpfe rechts; Symbole Phosphor, App-Symbole
+eigen; gestaltete Animationen zuletzt (g). Der Lasttest (ADR 0028 §9) ist der Wunsch des
+Besitzers. Schrift: sauber, nicht pixelig (Inter). Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`,
 erst die Ursache im Quelltext (Mesa, nouveau, Smithay) suchen, dann ändern.
 
 **Grundlegende Vorschläge** (Durchsicht 23.10., je ein ADR, noch nicht entschieden):
