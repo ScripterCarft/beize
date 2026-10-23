@@ -363,6 +363,20 @@ Compositor, gemessen mit `pacing:` – erst mit Schritt 4, Effekte nicht vorzieh
 sauber, nicht pixelig (Inter). Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`,
 erst die Ursache im Quelltext (Mesa, nouveau, Smithay) suchen, dann ändern.
 
+**Grundlegende Vorschläge** (Durchsicht 23.10., je ein ADR, noch nicht entschieden):
+- **Delta-Updates** vor Updates übers Netz (M4): Heute lädt jedes Update das ganze Image
+  (0.5.101: 185 MB). macOS, Android und ChromeOS liefern Deltas. Die zstd-Komprimierung im
+  EROFS macht Binär-Diffs des Images wertlos, daher Stücke des unkomprimierten Inhalts
+  (casync/desync-artig oder je Datei), aus denen der Rechner das bitgleiche, signierte Image
+  wieder baut (setzt #5 voraus). Zuerst messen: Delta zweier aufeinanderfolgender Bauten.
+- **Apps als signierte EROFS-Images mit verity**, auf derselben Vertrauenskette wie `/usr`
+  (Vorbild: signierte .app auf macOS' versiegeltem Volume; systemd-sysext/portable services):
+  Installieren = eine Datei ablegen, Start ohne Entpacken, Integrität bei jedem Lesen. Für das
+  App-Modell vor M4.
+- **Tests (nach der Shell, Besitzer):** Von ~11 s je VM-Start sind nur ~5,4 s der Gast; 1–2 s
+  TPM-Emulation (#39) und ~3 s unzugeordnet (QEMU, swtpm, Journal-Disk). Das zuerst messen
+  und beheben, dann Szenarien ohne Startprüfung aus einem Snapshot der laufenden VM starten.
+
 **M3-Plan** (Besitzer, 17.10.): `m3-plan` sind #14 BTF (Basis), #17 Hardware (NVIDIA,
 Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34 zram/oomd und #35
 nftables (beide Basis). #36 fwupd kommt mit M4.
