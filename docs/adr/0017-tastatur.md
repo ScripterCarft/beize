@@ -58,7 +58,11 @@ ersten Start („saved“: Das „a“ liegt auf AZERTY woanders).
 - **Das Bestätigungswort beim ersten Start ist „stored“**: nur Buchstaben, die auf
   QWERTY, QWERTZ und AZERTY gleich liegen, weil die Keymap da noch nicht bekannt ist.
 - **Locale:** LANG bleibt C.UTF-8. Übersetzungen gibt es noch keine; regionale Formate
-  und glibc-Locales kommen mit Onboarding und Einstellungen (M3+).
+  und glibc-Locales kommen mit Onboarding und Einstellungen (M3+). C.UTF-8 selbst liefert
+  das glibc-Paket (`/usr/lib/locale/C.utf8`, wie Fedora und Debian; seit glibc 2.35 nicht
+  mehr eingebaut, 23.10. nachgeholt: ohne sie fiel jedes Programm auf ASCII zurück, bash las
+  ein getipptes „ê“ als Meta-Tasten). Konsolen-Logins lesen `/etc/locale.conf` in
+  `/etc/profile` (wie Fedoras `lang.sh`), der Desktop hat sie vom Service-Manager.
 - **Prüfungen im Smoke-Test:**
   - Das Setup antwortet „German“, nach Ctrl+C `de(nodeadkeys)`. Der Boot-Bericht zeigt
     die Keymap in `vconsole.conf`, was die Taste zwischen T und U auf tty1 ergibt (nur

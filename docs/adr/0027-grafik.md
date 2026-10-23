@@ -179,27 +179,44 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 - **Bildtakt messen** (22.10., `pacing.rs`): Der Compositor misst sich selbst, nicht der
   Client. Aufgabe: eine Änderung beim ersten vblank zeigen, dessen Frist sie erreicht hat
   (Zeitplan). Je Bild: Eingang der Änderung, Ziel-vblank, Beginn des Zeichnens, Commit,
-  vblank. Ein späteres Bild zählt als „late“, mit Schuld beim Zeichnen (Commit nach dem
-  Ziel-vblank) oder bei GPU/Anzeige (Commit davor). Bilder in Folge ergeben eine Zeile
-  `pacing: …` im Journal (Ende der Folge oder alle 30 s): Zahl, späte, Änderung bis Bild,
-  Commit vor dem vblank, CPU- und GPU-Zeit je Bild (Median, 99 %, Max) und Auslastung des
-  Bildbudgets. Im Leerlauf läuft kein Zeitgeber. In der VM sagen die Zeiten wenig,
+  vblank, dazu wann die GPU fertig war (Zeitstempel des Kernels am Fence,
+  `SYNC_IOC_FILE_INFO`). Ein späteres Bild zählt als „late“, gemessen am **Beginn** des
+  vblank (dort übernimmt die Anzeige ein Bild; KMS stempelt sein Ende): Schuld beim Zeichnen
+  (Commit danach), bei der GPU (Fence danach) oder bei der Anzeige (beides davor, trotzdem
+  verpasst: Kernel und Treiber). Bilder in Folge ergeben eine Zeile `pacing: …` im Journal
+  (Ende der Folge oder alle 30 s): Zahl, späte je Ursache, Änderung bis Bild, „ready“ (Commit
+  und GPU fertig) vor dem Beginn des vblank, CPU- und GPU-Zeit je Bild (Median, 99 %, Max)
+  und Auslastung des Bildbudgets. Im Leerlauf läuft kein Zeitgeber. In der VM sagen die Zeiten wenig,
   virtio-gpu hat keinen vblank.
   **Gemessen** (0.5.97, RTX 3070 Ti, NVK, 2560x1440 @ 240 Hz, Testclient 20 s): Zeichnen
   (CPU) Median 0,02 ms, GPU 0,06 ms, 2 % des Budgets von 4,17 ms; Bildabstand beim Client
   4,17 ms. Aber 4781 von 4788 Bildern einen vblank zu spät (Änderung bis Bild 8,65 ms): Der
   Compositor zeichnete am vblank, direkt nach „frame done“ – der Commit des Clients fand
   einen wartenden Bildwechsel vor und blieb danach für immer einen vblank zurück.
-- **Zeitplan** (22.10., `schedule.rs`): Gezeichnet wird so spät vor dem vblank, wie es noch
-  reicht, nicht am vblank. Alle Änderungen bis zur Frist (Client, Zeiger) kommen in ein Bild
-  zum nächsten vblank. Vorlauf = längste CPU- plus längste GPU-Zeit der letzten 120 Bilder +
-  1 ms für Commit und Kernel, höchstens ein Bild. Wie Westons „repaint window“, dessen Länge
-  KWin und Mutter wie hier aus den letzten Bildern lernen. Die Lage der vblanks kommt aus
+- **Zeitplan** (22.10., neu 23.10., `schedule.rs`): Gezeichnet wird so spät vor dem vblank,
+  wie es sicher reicht, nicht am vblank. Alle Änderungen bis zur Frist (Client, Zeiger) kommen
+  in ein Bild zum nächsten vblank. **Modell von KWin** (`RenderLoop`, `DrmCommitThread`),
+  jeder Teil gemessen oder aus dem Modus: Vorlauf = längste Zeit vom *geplanten* Beginn bis
+  „ready“ (Commit und Fence der GPU) der letzten 120 Bilder, mindestens 2 ms (KWin: darunter
+  sind Zeiten bei wechselnden Energiezuständen unberechenbar) + Dauer des vblank aus dem
+  Modus (Leerzeilen × Zeilenzeit, wie Mutter und KWin; 0,46 ms beim AW2723DF) + 1 ms für den
+  Kernel (KWin) + Gelerntes: war ein Bild später „ready“ als 1 ms vor dem Beginn des vblank,
+  wächst der Zuschlag um den Fehlbetrag, sonst schrumpft er um ein Zehntel des Spielraums,
+  höchstens 3 ms oder ein halbes Bild (KWin). Nach 100 Bildern Pause zeichnet er sofort (die
+  GPU hat heruntergetaktet; KWin). Höchstens ein Bild Vorlauf; eine Änderung nach der Frist
+  wird sofort gezeichnet und schafft den vblank vielleicht noch. **Warum neu:** 0.5.98 (Vorlauf
+  = CPU + GPU-Rechenzeit + 1 ms, gegen das *Ende* des vblank) verpasste auf nouveau fast
+  jedes Bild: der Commit kam im Median 1,07 ms vor dem Zeitstempel, also nur 0,6 ms vor dem
+  Beginn des vblank; die Wartezeit bis zum Fence und der Weckverzug fehlten im Modell. Die
+  Lage der vblanks kommt aus
   den Flip-Ereignissen; ist sie älter als 1 s (Leerlauf; Takt des Monitors weicht vom
   Nennwert ab), fragt der Compositor KMS nach dem letzten vblank (`drmWaitVBlank` relativ
   0); antwortet KMS nicht (virtio-gpu), rechnet er mit der alten Lage weiter, ohne jede Lage
   (erstes Bild, nach einem VT-Wechsel) zeichnet er sofort. Ziel auf der 3070 Ti: 0 späte
-  Bilder, Änderung bis Bild höchstens ein Bild.
+  Bilder, Änderung bis Bild höchstens ein Bild. Der Hardware-Test zeigt je Teil, ob er hält:
+  „ready“ vor dem Beginn des vblank (Spielraum) und die späten Bilder nach Ursache.
+  **Gemessen** (0.5.98): Testclient 2565 von 4800 Bildern (jedes einen vblank zu spät,
+  Abstand 7,79 ms), 2329 von 2569 späten Bildern, Änderung bis Bild 9,43 ms.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
 
@@ -305,11 +322,14 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   rastert (`offset` und `render_offset` zusammen, sonst kommt das Viertelpixel nicht an;
   `placement.top` ist die Unterkante: gemessen). Atlas 1024² R8 mit Ablagen, voll beginnt
   er neu; der Renderer füllt die Glyph-Quads beim Zeichnen (Flag `MASK` im gemeinsamen
-  Shader). Gemischt wird die reine Deckung in linearem Licht. **Offen:** heller Text auf
-  Dunkel wirkt dadurch kräftiger als dunkler auf Hell (Beizes dunkles Thema und das Terminal
-  sehen richtig aus). Ausgleich (FreeTypes „stem darkening“ für lineares Mischen oder eine
-  helligkeitsabhängige Korrektur wie Skia, DirectWrite) erst nach dem Blick auf dem Monitor
-  des Besitzers (Schritt 3 g), spätestens vor hellen Oberflächen in Schritt 4.
+  Shader). Gemischt wird in linearem Licht, mit **Skias Kontrast** für Text (23.10.;
+  `SkMaskGamma.cpp`, dessen Vorgaben: lineares Mischen in sRGB, `SK_GAMMA_CONTRAST` 0,5):
+  Deckung c' = c + (1 − c) · k · c mit k = 0,5 · linear(1 − Helligkeit der Textfarbe), also
+  voll für Schwarz, gar nicht für Weiß. Linear gemischt wirkt Teildeckung heller, als sie
+  ist: dunkler Text auf Hell wird dünn, heller auf Dunkel nicht (vom Besitzer auf dem
+  Monitor gesehen, 0.5.98). Verworfen: FreeTypes „stem darkening“ (verdickt jede Farbe, der
+  Unterschied bliebe; Skrifa hat es nicht), DirectWrites Korrektur (für Mischen in
+  Gamma-Raum gebaut).
 - **Test Beize UI** (22.10., Smoke-Szenario `Desktop`): `beize-ui-test` zeigt eine Probe
   (Text in Inter und JetBrains Mono auf Dunkel und Hell, Farben, halbes Weiß); der
   Bildschirm muss genau der Referenz `os/beize-ui/tests/sample.png` gleichen, die dasselbe

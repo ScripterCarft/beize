@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI, (g) Hardware-Test)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI, (g) Hardware-Test 0.5.99)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -451,13 +451,19 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (0, 0)): „höchstens 576 Pixel irgendwo“ ließ ein falsches Zeichen durch (Gegenprobe ü → u,
    12 Pixel). Die Bildtakt-Prüfung nimmt die `pacing:`-Zeile nach dem Start des Clients (das
    Terminal hat vorher eine eigene). **(g) JETZT:** Hardware-Test für Terminal **und**
-   Zeitplan: Messbau 0.5.98 (Zweig `measure/desktop` lokal, nicht gepusht: `main` 4de7713 +
-   EDID-Patch; Smoke grün, Skript in der VM geprüft). `hw-test.sh` läuft jetzt im Terminal
-   (Probe, Beize UI 30 s, Testclient 20 s, `pacing:` des Clients). Anleitung in
-   `docs/hardware.md`; `D:eize-test` liegt schon auf dem Stick. Wartet auf den Besitzer:
-   `bz release`, dann „Release fertig“ → ich kopiere `build/out/desktop/release/0.5.98` nach
-   `D:eize-0.5.98`. Nach dem Test: Ergebnisse von D: holen, Tag `measure/desktop-0.5.98`,
-   Werte in ADR 0027 §6/§9 und `docs/hardware.md`, Strichstärke-Frage entscheiden.
+   Zeitplan, zweiter Anlauf mit Messbau 0.5.99 (Zweig `measure/desktop` lokal, nicht gepusht:
+   `main` 09b9542 + EDID-Patch; Smoke grün). 0.5.98 (23.10., `~/hw-logs/results-20261023-001947`)
+   fiel beim Zeitplan durch (jedes Bild einen vblank zu spät); behoben nach KWins Modell (ADR
+   0027 §6 „Zeitplan“: vblank-Dauer, Fence-Zeit des Kernels, 2 ms Boden, 1 ms + Gelerntes),
+   dazu Skias Kontrast für dunklen Text (§9 „Text“), C.UTF-8 im glibc-Paket und LANG für
+   Konsolen-Logins (ADR 0017; `^`+`e` setzte alle Befehle in die Zeile: readline las ê als
+   Meta-*), Mesas Shader-Cache für den Compositor. Lehre: Den `^`-Fehler hat erst echtes
+   Halten und Tippen gezeigt – Skript `holdkeys`-Art (QMP `input-send-event` mit Haltezeit)
+   statt `@keys` (20 ms), Layout `de` per localectl. Anleitung in `docs/hardware.md`;
+   `D:\beize-test` (0.5.99) liegt auf dem Stick. Wartet auf den Besitzer: `bz release`, dann
+   „Release fertig“ → ich kopiere `build/out/desktop/release/0.5.99` nach `D:\beize-0.5.99`.
+   Nach dem Test: Ergebnisse von D: holen, Tag `measure/desktop-0.5.99`, Werte in ADR 0027
+   §6/§9 und `docs/hardware.md`. Der run0-Balken ist gewollt (run0 färbt Root-Ausgaben rot).
    Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
    gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
    aus), wird vor Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige
