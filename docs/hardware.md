@@ -40,7 +40,7 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
-## Desktop testen (M3, Schritt 3 g: Messbau 0.5.100)
+## Desktop testen (M3, Schritt 3 g: Messbau 0.5.101)
 
 Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz (EDID-Fix), den
 **Zeitplan** des Compositors, das **Terminal** und die Schrift von Beize UI auf deinem Monitor.
@@ -69,6 +69,15 @@ wartenden Bild gezeichnet wurden – eine Schleife (ADR 0027 §6 „Zeitplan“,
 aus geplanten Bildern). Der rote run0-Balken ohne Ausgabe ist systemds Absicht
 (`ptyfwd.c` färbt beim Start die aktuelle Zeile), der Cursor blinkt bewusst nicht (wie die
 Vorgabe von macOS' Terminal).
+
+**Ergebnis 0.5.100 (`results-20261023-101755`):** wieder 4674 von 4798 Bildern spät, alle
+„drawing“: Der vblank kommt an seinem Beginn, gestempelt mit seinem Ende; der Zeitplan hielt den
+gerade gemeldeten für den nächsten und zeichnete sofort, vor dem Commit des Clients.
+**Ergebnis 0.5.101 (`results-20261023-110929`, Tag `measure/desktop-0.5.101`):** 4 von 4797
+spät (1 GPU, 3 Anzeige, keines durchs Zeichnen). Änderung bis Bild 6,72 ms, weil die Maus die
+ganze Zeit bewegt wurde (erste Änderung je Bild: Vorlauf + im Mittel ein halber Takt). Dazu
+nouveaus GSP-Interrupts: `irqmask 01049042 irqdest 01000040` – Bit 18 (die Meldung
+`gsp: intr 00040000` von 0.5.99) gehört dem GSP; Patch `~/upstream/nouveau-gsp-irqdest`.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 

@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI, (g) Hardware-Test 0.5.100, dann (h) Aufräumen)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI: (h) Aufräumen als Nächstes)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -450,22 +450,20 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    Bildvergleiche erlauben Abweichungen nur noch im 24×24-Quadrat oben links (Zeiger bei
    (0, 0)): „höchstens 576 Pixel irgendwo“ ließ ein falsches Zeichen durch (Gegenprobe ü → u,
    12 Pixel). Die Bildtakt-Prüfung nimmt die `pacing:`-Zeile nach dem Start des Clients (das
-   Terminal hat vorher eine eigene). **(g) JETZT:** Hardware-Test für Terminal **und**
-   Zeitplan, dritter Anlauf mit Messbau 0.5.100 (Zweig `measure/desktop` lokal, nicht gepusht:
-   `main` 3287ae6 + EDID-Patch; Smoke grün). Ergebnisse von 0.5.98 und 0.5.99 in
-   `docs/hardware.md`; Zeitplan nach KWin (ADR 0027 §6 „Zeitplan“, mit Ursache der Schleife in
-   0.5.99), Skias Kontrast (§9), C.UTF-8 (ADR 0017), Shader-Cache – auf Hardware geprüft bis auf
-   den Zeitplan. Wartet auf den Besitzer: `bz release`, „Release fertig“ → ich kopiere
-   `build/out/desktop/release/0.5.100` nach `D:\beize-0.5.100` (`D:\beize-test` ist aktuell).
-   Danach: Ergebnisse von D: holen, Tag `measure/desktop-0.5.100`, Werte eintragen. Ziel:
-   `pacing:` des Testclients „0 late“, Änderung bis Bild ≤ 4,17 ms; sonst sagt die Klammer
-   (drawing/GPU/display) und `lead`, welcher Teil nicht hält. Lehren: Eingaben mit echter
-   Haltezeit nachstellen (QMP `input-send-event`), nicht `@keys` (20 ms). Warteschleifen auf ein
-   Log erst nach dessen Neuanlage starten (`rm` vorher), sonst liest man das alte „exit“; während
-   eines Baus nie den Zweig wechseln (bz liest das Repo, z. B. `kernel/measure/`).
-   **Offen beim Chatwechsel (23.10.):** `main` hat 2 lokale Commits (3287ae6 Zeitplan-Lernen,
-   dieser Doku-Commit), nicht gepusht: CI-Lauf 39917572884 (glibc-Änderung, daher Neubau von
-   gcc, LLVM usw. auf 4 vCPU) lief noch. Erst `gh run view 39917572884`, grün → `git push`.
+   Terminal hat vorher eine eigene). (g) ✓ (23.10.) Hardware-Test, Messbau 0.5.101 (Tag
+   `measure/desktop-0.5.101`, Werte in `docs/hardware.md`): Terminal, Text, Eingabe gut; Zeitplan
+   4 von 4797 Bildern spät (0.5.100: 4674 – der gerade gemeldete vblank galt als der nächste,
+   `schedule.rs`). Restpunkte für (h): nach einer Pause sofort gezeichnete Bilder (0,5 ms vor dem
+   vblank fertig) verpassen ihn öfter; die Vorlaufzeit hat 2,7 ms Luft (KWins Mindestwerte, später
+   abwägen). nouveau: der GSP-Interrupt-Handler liest `IRQDEST` nicht (NVIDIA: STAT & MASK & DEST),
+   nimmt der Firmware Bit 18 weg (Meldung `gsp: intr 00040000`, gemessen `irqdest 01000040`);
+   Patch `~/upstream/nouveau-gsp-irqdest`, Zweig `nouveau-gsp-irqdest` (b4, auf
+   drm-misc-next), senden: `~/upstream/send-nouveau-irq.sh` (Besitzer). Lehren: Eingaben mit
+   echter Haltezeit nachstellen (QMP `input-send-event`), nicht `@keys` (20 ms); während eines
+   Baus nie den Zweig wechseln (bz liest `kernel/measure/`); einen Bau mit Hintergrund-Job
+   abwarten, der meldet, nicht nachfragen vergessen.
+   **Offen:** `main` hat lokale Commits (Zeitplan, Doku), nicht gepusht: CI-Lauf 39917572884
+   (glibc-Änderung, Neubau von gcc, LLVM auf 4 vCPU) lief noch. Erst grün → `git push`.
    **Schwarzer Bildschirm (Besitzer, 23.10.):** je ~2 s schwarz beim Start (bis zur Konsole) und
    beim Wechsel Konsole → `beize-session`. Vermutung, ungeprüft: jeweils ein Moduswechsel, den
    der Monitor neu einrastet (GOP/simpledrm → nouveau; Konsole 1440p@60 → Desktop @240 Hz).
