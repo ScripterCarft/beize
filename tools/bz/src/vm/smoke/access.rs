@@ -305,6 +305,9 @@ fn base_tools(shell: &Shell) -> Result<()> {
             "cd /tmp && tar --zstd -cf a.tzst a && tar -tf a.tzst",
             "a",
         ),
+        // The system's locale exists (glibc) and a console login has it
+        // (/etc/profile): otherwise programs fall back to ASCII.
+        ("the locale C.UTF-8", "locale charmap 2>&1", "UTF-8"),
     ];
     for (tools, command, answer) in checks {
         let (_, lines) = shell.capture(&format!("echo BEIZE-TOOL-$({command})"))?;

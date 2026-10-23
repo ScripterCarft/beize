@@ -1,3 +1,18 @@
 # System-wide shell setup for login shells.
 export PATH=/usr/bin
 export PS1='\[\e[1m\]beize\[\e[0m\] \w \$ '
+# The system's language and formats (localectl, /etc/locale.conf), for
+# logins on a console too: the desktop's apps get them from the service
+# manager, which reads the same file, a console login from nowhere else. As
+# Fedora's /etc/profile.d/lang.sh: only its LANG= and LC_*= lines, read, not
+# run.
+if [ -r /etc/locale.conf ]; then
+    while IFS='=' read -r key value; do
+        case $key in
+            LANG | LC_[A-Z]*)
+                value=${value#\"}
+                export "$key=${value%\"}"
+                ;;
+        esac
+    done < /etc/locale.conf
+fi

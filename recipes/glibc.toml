@@ -44,6 +44,13 @@ export CXX=false
   libc_cv_supported_fortify_source=3 libc_cv_test_supported_fortify_source=3
 MAKEFLAGS="$JOBSERVER" make
 make DESTDIR="$PKG" install
+# C.UTF-8, the locale Beize runs in (ADR 0017), as its own directory
+# (/usr/lib/locale/C.utf8), as Fedora's and Debian's glibc packages ship
+# it. Since glibc 2.35 it is a locale like any other, not built in: without
+# it setlocale() fails and programs fall back to plain C (ASCII), and bash
+# reads a typed "ê" as Meta keys. glibc's own target, with its localedef
+# from this build.
+make DESTDIR="$PKG" localedata/install-locale-files SUPPORTED-LOCALES=C.UTF-8/UTF-8
 # Only /usr is shipped: /etc/rpc (Sun RPC names) and the nscd database
 # Makefile in /var are not used by Beize.
 rm -rf "$PKG/etc" "$PKG/var"
@@ -96,6 +103,7 @@ image = [
   "usr/lib/librt.so.*",
   "usr/lib/libthread_db.so.*",
   "usr/lib/libutil.so.*",
+  "usr/lib/locale/C.utf8/**",
 ]
 build = [
   { path = "usr/bin/localedef", why = "compiles locale sources" },
