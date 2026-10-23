@@ -274,7 +274,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI, (g) Hardware-Test 0.5.99)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI, (g) Hardware-Test 0.5.100, dann (h) Aufräumen)
 
 **M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
 `docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
@@ -451,19 +451,34 @@ auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 
    (0, 0)): „höchstens 576 Pixel irgendwo“ ließ ein falsches Zeichen durch (Gegenprobe ü → u,
    12 Pixel). Die Bildtakt-Prüfung nimmt die `pacing:`-Zeile nach dem Start des Clients (das
    Terminal hat vorher eine eigene). **(g) JETZT:** Hardware-Test für Terminal **und**
-   Zeitplan, zweiter Anlauf mit Messbau 0.5.99 (Zweig `measure/desktop` lokal, nicht gepusht:
-   `main` 09b9542 + EDID-Patch; Smoke grün). 0.5.98 (23.10., `~/hw-logs/results-20261023-001947`)
-   fiel beim Zeitplan durch (jedes Bild einen vblank zu spät); behoben nach KWins Modell (ADR
-   0027 §6 „Zeitplan“: vblank-Dauer, Fence-Zeit des Kernels, 2 ms Boden, 1 ms + Gelerntes),
-   dazu Skias Kontrast für dunklen Text (§9 „Text“), C.UTF-8 im glibc-Paket und LANG für
-   Konsolen-Logins (ADR 0017; `^`+`e` setzte alle Befehle in die Zeile: readline las ê als
-   Meta-*), Mesas Shader-Cache für den Compositor. Lehre: Den `^`-Fehler hat erst echtes
-   Halten und Tippen gezeigt – Skript `holdkeys`-Art (QMP `input-send-event` mit Haltezeit)
-   statt `@keys` (20 ms), Layout `de` per localectl. Anleitung in `docs/hardware.md`;
-   `D:\beize-test` (0.5.99) liegt auf dem Stick. Wartet auf den Besitzer: `bz release`, dann
-   „Release fertig“ → ich kopiere `build/out/desktop/release/0.5.99` nach `D:\beize-0.5.99`.
-   Nach dem Test: Ergebnisse von D: holen, Tag `measure/desktop-0.5.99`, Werte in ADR 0027
-   §6/§9 und `docs/hardware.md`. Der run0-Balken ist gewollt (run0 färbt Root-Ausgaben rot).
+   Zeitplan, dritter Anlauf mit Messbau 0.5.100 (Zweig `measure/desktop` lokal, nicht gepusht:
+   `main` 3287ae6 + EDID-Patch; Smoke grün). Ergebnisse von 0.5.98 und 0.5.99 in
+   `docs/hardware.md`; Zeitplan nach KWin (ADR 0027 §6 „Zeitplan“, mit Ursache der Schleife in
+   0.5.99), Skias Kontrast (§9), C.UTF-8 (ADR 0017), Shader-Cache – auf Hardware geprüft bis auf
+   den Zeitplan. Wartet auf den Besitzer: `bz release`, „Release fertig“ → ich kopiere
+   `build/out/desktop/release/0.5.100` nach `D:\beize-0.5.100` (`D:\beize-test` ist aktuell).
+   Danach: Ergebnisse von D: holen, Tag `measure/desktop-0.5.100`, Werte eintragen. Ziel:
+   `pacing:` des Testclients „0 late“, Änderung bis Bild ≤ 4,17 ms; sonst sagt die Klammer
+   (drawing/GPU/display) und `lead`, welcher Teil nicht hält. Lehren: Eingaben mit echter
+   Haltezeit nachstellen (QMP `input-send-event`), nicht `@keys` (20 ms). Warteschleifen auf ein
+   Log erst nach dessen Neuanlage starten (`rm` vorher), sonst liest man das alte „exit“; während
+   eines Baus nie den Zweig wechseln (bz liest das Repo, z. B. `kernel/measure/`).
+   **Offen beim Chatwechsel (23.10.):** `main` hat 2 lokale Commits (3287ae6 Zeitplan-Lernen,
+   dieser Doku-Commit), nicht gepusht: CI-Lauf 39917572884 (glibc-Änderung, daher Neubau von
+   gcc, LLVM usw. auf 4 vCPU) lief noch. Erst `gh run view 39917572884`, grün → `git push`.
+   **Schwarzer Bildschirm (Besitzer, 23.10.):** je ~2 s schwarz beim Start (bis zur Konsole) und
+   beim Wechsel Konsole → `beize-session`. Vermutung, ungeprüft: jeweils ein Moduswechsel, den
+   der Monitor neu einrastet (GOP/simpledrm → nouveau; Konsole 1440p@60 → Desktop @240 Hz).
+   macOS zeigt keine Lücke; Vorbild unter Linux: Fedoras „flicker-free boot“ (Modus der Firmware
+   behalten). Im Schritt (h) mit den Zeitstempeln im Journal (DRM-Modeset, Compositor
+   `Setting new mode`) belegen und eine saubere Lösung vorschlagen, nicht raten.
+   **(h) DANACH, vor Schritt 4 (Besitzer, 23.10.): Aufräumen.** Ein eigener Schritt in einem
+   neuen Chat, bevor die Shell kommt: alle `.md` schlank (CLAUDE.md §11 ist zur Chronik
+   geworden: nur Stand und Nächstes, Erledigtes in ADRs/Commits; ADR 0027 straffen, Messwerte
+   knapp), `docs/hardware.md` auf eine gültige Anleitung kürzen; Tests wieder schnell machen
+   (Smoke-Laufzeit, CI-Stufen, Wartezeiten in Szenarien messen und kürzen); kleine Fehler
+   suchen und direkt beheben (keine Issues anlegen, wenn es sich sofort beheben lässt);
+   Messbauten und `~/hw-test` danach löschen.
    Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
    gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
    aus), wird vor Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige

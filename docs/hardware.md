@@ -40,11 +40,11 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
-## Desktop testen (M3, Schritt 3 g: Messbau 0.5.99)
+## Desktop testen (M3, Schritt 3 g: Messbau 0.5.100)
 
 Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz (EDID-Fix), den
 **Zeitplan** des Compositors, das **Terminal** und die Schrift von Beize UI auf deinem Monitor.
-Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.99; ersetzt 0.5.98, 0.6
+Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.100; ersetzt 0.5.99, 0.6
 ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
 
 **Ergebnis 0.5.97 (22.10., `~/hw-logs/results-20261022-192956`, Tag `measure/desktop-0.5.97`):**
@@ -61,26 +61,35 @@ vblank gerechnet, ohne Wartezeit bis zum Fence (ADR 0027 §6 „Zeitplan“, jet
 Dunkler Text wirkte dünner als heller (jetzt Skias Kontrast), `^` + `e` setzte alle Befehle in
 die Zeile (fehlende Locale C.UTF-8, ADR 0017), Mesas Shader-Cache war in der Sandbox aus.
 
+**Ergebnis 0.5.99 (23.10., `~/hw-logs/results-20261023-093422`):** Text, tote Taste, Mausrad,
+Kopieren gut; dunkler Text jetzt leicht kräftiger (Besitzer: „normal und gut so“). Testclient
+wieder mit 240 Hz (4790 von 4800 Bildern, 4,17 ms), aber 4221 von 4797 Bildern einen vblank zu
+spät (8,65 ms): Der Zeitplan lernte seinen Zuschlag auch aus Änderungen, die hinter einem
+wartenden Bild gezeichnet wurden – eine Schleife (ADR 0027 §6 „Zeitplan“, jetzt wie KWin nur
+aus geplanten Bildern). Der rote run0-Balken ohne Ausgabe ist systemds Absicht
+(`ptyfwd.c` färbt beim Start die aktuelle Zeile), der Cursor blinkt bewusst nicht (wie die
+Vorgabe von macOS' Terminal).
+
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
 1. `cd ~/beize && git switch measure/desktop && ./bz build && ./bz release`
-   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.99/` (6 Dateien).
+   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.100/` (6 Dateien).
 2. `git switch main` (zurück; WSL bleibt auf `main`).
-3. Mir sagen „Release fertig“: Ich kopiere es als `D:\beize-0.5.99` auf den Stick **BEIZE**.
-   `D:\beize-test` (Skript und Testprogramme von 0.5.99) liegt schon dort.
+3. Mir sagen „Release fertig“: Ich kopiere es als `D:\beize-0.5.100` auf den Stick **BEIZE**.
+   `D:\beize-test` (Skript und Testprogramme von 0.5.100) liegt schon dort.
 
 **B. Update installieren (Beize, tty1, als du angemeldet)**
 
 4. ```sh
    run0 mkdir -p /run/stick
    run0 mount -o ro /dev/disk/by-label/BEIZE /run/stick
-   run0 beize-update install /run/stick/beize-0.5.99
+   run0 beize-update install /run/stick/beize-0.5.100
    run0 umount /run/stick
    systemctl reboot
    ```
-   Erwartet: „Beize 0.5.99 is installed. It starts with the next restart.“, dann Neustart
+   Erwartet: „Beize 0.5.100 is installed. It starts with the next restart.“, dann Neustart
    (F8 → Samsung) ohne Recovery-Key. **Kein Bild beim Start:** neu starten, Leertaste
-   halten, 0.5.98 wählen, mir Bescheid geben.
+   halten, 0.5.99 wählen, mir Bescheid geben.
 
 **C. Desktop und Terminal (alles im Terminal, kein Wechsel nach tty2 mehr)**
 
@@ -121,11 +130,12 @@ die Zeile (fehlende Locale C.UTF-8, ADR 0017), Mesas Shader-Cache war in der San
      `screen DP-…: 2560x1440 at 240 Hz`, `rendering with … straight into the screen buffer`
    - `frames: 4800 of 4800, 4.17 ms apart on average`
    - unter „Bildtakt des Testfensters“: **`pacing: … 0 late (drawing 0, GPU 0, display 0)`**
-     und **`change to screen median` höchstens 4.17 ms** (0.5.97: 8,65; 0.5.98: 9,43) – das
+     und **`change to screen median` höchstens 4.17 ms** (0.5.97: 8,65; 0.5.98: 9,43; 0.5.99: 8,65) – das
      ist der Prüfwert für den Zeitplan; `ready median … before the vblank begins, least …`
      über 0 (der Spielraum); `busy` nur wenige Prozent. Sind doch Bilder spät, sagt die
      Klammer, welcher Teil des Modells nicht hält.
-   - `Tasten im Fenster: 6`, `Klicks: 2`
+   - `Tasten im Fenster: 7` (das Loslassen der Enter-Taste, die das Fenster startete, gehört
+     ihm, wie Wayland es will), `Klicks: 2`
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
 8. Noch von Hand im Terminal (je kurz, Foto nur bei Fehlern):
    - **Strg+Alt+T**: ein zweites Terminal öffnet sich darüber. Darin `exit`: es schließt sich,

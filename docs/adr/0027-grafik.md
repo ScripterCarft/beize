@@ -216,7 +216,15 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   Bilder, Änderung bis Bild höchstens ein Bild. Der Hardware-Test zeigt je Teil, ob er hält:
   „ready“ vor dem Beginn des vblank (Spielraum) und die späten Bilder nach Ursache.
   **Gemessen** (0.5.98): Testclient 2565 von 4800 Bildern (jedes einen vblank zu spät,
-  Abstand 7,79 ms), 2329 von 2569 späten Bildern, Änderung bis Bild 9,43 ms.
+  Abstand 7,79 ms), 2329 von 2569 späten Bildern, Änderung bis Bild 9,43 ms. (0.5.99) Wieder
+  240 Hz, aber 4221 von 4797 Bildern einen vblank zu spät („drawing“, „ready“ 0,57 ms nach
+  Beginn des vblank): Der Zuschlag wurde gegen den vblank gelernt, zu dem eine *Änderung*
+  fällig war. Eine Änderung hinter einem wartenden Bild zählte so als Verspätung des
+  Compositors, der Zuschlag schob die Frist direkt hinter den vblank, vor den Commit der
+  Clients nach „frame done“ – deren nächste Änderung kam wieder zu spät. **Seitdem** lernt er
+  wie KWins Commit-Thread nur aus Bildern, die für einen vblank *geplant* waren, gegen diesen;
+  ein nach der Frist sofort gezeichnetes Bild lehrt nichts (Test im Code). Die Zeile `pacing:`
+  zeigt den Vorlauf („lead“) mit.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
 
