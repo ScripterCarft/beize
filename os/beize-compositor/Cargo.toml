@@ -32,5 +32,9 @@ tracing = "0.1"
 # Smithay reports through tracing; this writes it to stderr, the journal.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
 
+[dev-dependencies]
+# The test of `trust` asks for its own process as a pidfd.
+rustix = { version = "1.1", default-features = false, features = ["process"] }
+
 [lints]
 workspace = true

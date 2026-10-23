@@ -301,7 +301,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 3 und Aufräumen fertig, Schritt 4 Shell als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, Teil (a) fertig, (b) als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -351,9 +351,12 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), als Nächstes Teil (a):**
-gemeinsames Text-Crate aus Beize UI, `os/beize-shell` als Dienst, wlr-layer-shell und
-`beize-shell-v1`, eine Menüleiste mit Uhr. Entschieden: Shell als eigener Prozess wie macOS,
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a) fertig 23.10.:**
+`os/beize-shell` (Menüleiste mit Uhr, Dienst), Compositor `trust.rs` (Shell an ihrer cgroup per
+SO_PEERPIDFD/PIDFD_GET_INFO) und `layers.rs` (wlr-layer-shell nur für die Shell, Fenster
+darunter), Beize UI `Window::panel`; Desktop-Smoke prüft Menüleiste, Fensterbereich und den
+Neustart der Shell. **Als Nächstes (b):** schwebende Fenster, Titelleiste in Beize UI,
+Verschieben/Größe, Fokus, xdg-decoration. Entschieden: Shell als eigener Prozess wie macOS,
 aber aus einem Guss (Start ohne Flackern); Dock unten, Menüleiste oben; Titelleiste von Beize
 UI; Strg-Modell (Super gehört der Shell); Knöpfe rechts; Symbole Phosphor, App-Symbole
 eigen; gestaltete Animationen zuletzt (g). Der Lasttest (ADR 0028 §9) ist der Wunsch des

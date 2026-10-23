@@ -6,7 +6,8 @@
 //!   the Vulkan renderer (`render`, §7); it draws only what changed, just
 //!   before the vblank (`schedule`), and measures itself (`pacing`).
 //! - `state`: the Wayland protocols and when the screen is drawn;
-//!   `shell`: windows (xdg-shell).
+//!   `shell`: windows (xdg-shell); `layers`: the panels of Beize's shell
+//!   (wlr-layer-shell), which only the shell may draw (`trust`).
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
 //!   pointer on the cursor plane.
 //! - `apps`: apps in the user's service manager (the terminal).
@@ -19,11 +20,13 @@ mod cursor;
 mod gpu;
 mod input;
 mod keyboard;
+mod layers;
 mod output;
 mod pacing;
 mod schedule;
 mod shell;
 mod state;
+mod trust;
 
 use std::ffi::{c_char, c_int};
 use std::process::ExitCode;

@@ -1,0 +1,51 @@
+[Unit]
+Description=Beize's shell
+Documentation=file:/usr/lib/beize/beize-shell
+# Part of the desktop (ADR 0028 §1): beize-session.target wants it, it
+# needs the compositor's socket and stops with the desktop. Its own
+# process next to the compositor, as macOS runs Dock and SystemUIServer
+# beside the WindowServer: if it fails, it starts again and the windows
+# stay.
+PartOf=beize-session.target
+After=beize-compositor.service
+
+[Service]
+ExecStart=/usr/lib/beize/beize-shell
+Restart=on-failure
+# Next to the compositor: what the session cannot do without
+# (systemd.special(7)). The compositor knows the shell by this unit's
+# cgroup in this slice (os/beize-compositor/src/trust.rs).
+Slice=session.slice
+# Sandbox (images/desktop/security.toml), as the compositor's: Vulkan opens
+# the GPU's render node itself (no PrivateDevices); it writes nothing but
+# Mesa's shader cache, in a directory of its own. Lavapipe compiles shaders
+# to machine code, hence no MemoryDenyWriteExecute. Only the compositor's
+# socket (AF_UNIX).
+ProtectSystem=strict
+ProtectHome=read-only
+CacheDirectory=beize-shell
+Environment=MESA_SHADER_CACHE_DIR=%C/beize-shell
+PrivateTmp=yes
+PrivateUsers=self
+PrivateNetwork=yes
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+KeyringMode=private
+UMask=0077

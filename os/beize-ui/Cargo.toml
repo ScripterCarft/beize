@@ -17,6 +17,9 @@ ash = { version = "0.38", default-features = false, features = ["debug", "loaded
 # for Mesa anyway, and the buildroot, where CI lints and tests, has none.
 wayland-client = { version = "0.31", features = ["system", "dlopen"] }
 wayland-protocols = { version = "0.32", features = ["client"] }
+# Panels of Beize's shell (wlr-layer-shell, ADR 0028 §1); the version
+# Smithay serves.
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 rustix = { version = "1.1", default-features = false, features = ["event", "fs", "pipe", "std"] }
 tracing = "0.1"
 # An app's log to the journal (`log`), as the compositor writes its own.

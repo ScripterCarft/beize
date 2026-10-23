@@ -1,7 +1,7 @@
 //! The compositor's state and the Wayland protocols it serves: surfaces
 //! (wl_compositor, wl_shm, linux-dmabuf), the seat, the screen as
-//! wl_output, copy and paste (wl_data_device) and windows (xdg-shell,
-//! `shell`).
+//! wl_output, copy and paste (wl_data_device), windows (xdg-shell,
+//! `shell`) and the shell's panels (wlr-layer-shell, `layers`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
 //! screen for a redraw at the deadline of the next vblank (`schedule`),
@@ -17,14 +17,14 @@ use std::time::Duration;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::{DrmEvent, DrmNode};
 use smithay::backend::renderer::ImportDma;
-use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+use smithay::backend::renderer::element::{AsRenderElements, Kind};
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::desktop::utils::send_frames_surface_tree;
-use smithay::desktop::{PopupManager, Space, Window};
+use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
 use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::CursorImageStatus;
 use smithay::input::{Seat, SeatHandler, SeatState};
@@ -36,7 +36,9 @@ use smithay::reexports::wayland_server::backend::{ClientData, ClientId, Disconne
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
-use smithay::utils::{Clock, Logical, Monotonic, Point, Rectangle, SERIAL_COUNTER, Transform};
+use smithay::utils::{
+    Clock, Logical, Monotonic, Point, Rectangle, SERIAL_COUNTER, Scale, Transform,
+};
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
@@ -50,6 +52,7 @@ use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
     set_data_device_focus,
 };
+use smithay::wayland::shell::wlr_layer::{Layer, WlrLayerShellState};
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{
@@ -77,10 +80,11 @@ mod scene {
 
     render_elements! {
         /// What a frame draws, front to back: the pointer where no cursor
-        /// plane shows it, then the windows.
+        /// plane shows it, then the surfaces – panels above the windows,
+        /// windows, panels below them.
         pub Element<R> where R: ImportAll + ImportMem;
         Cursor=MemoryRenderBufferRenderElement<R>,
-        Window=WaylandSurfaceRenderElement<R>,
+        Surface=WaylandSurfaceRenderElement<R>,
     }
 }
 type Element = scene::Element<VkRenderer>;
@@ -106,6 +110,7 @@ pub struct State {
     shm: ShmState,
     dmabuf: DmabufState,
     pub xdg_shell: XdgShellState,
+    pub layer_shell: WlrLayerShellState,
     _outputs: OutputManagerState,
     seat_state: SeatState<State>,
     data_device: DataDeviceState,
@@ -142,6 +147,8 @@ pub struct State {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor: CompositorClientState,
+    /// The client is Beize's shell (`trust`): it may draw panels.
+    pub shell: bool,
 }
 
 impl ClientData for ClientState {
@@ -177,6 +184,10 @@ impl State {
             shm: ShmState::new::<State>(&display, Vec::new()),
             dmabuf: DmabufState::new(),
             xdg_shell: XdgShellState::new::<State>(&display),
+            // Other clients do not even see the global.
+            layer_shell: WlrLayerShellState::new_with_filter::<State, _>(&display, |client| {
+                client.get_data::<ClientState>().is_some_and(|c| c.shell)
+            }),
             _outputs: OutputManagerState::new_with_xdg_output::<State>(&display),
             data_device: DataDeviceState::new::<State>(&display),
             seat_state,
@@ -312,6 +323,36 @@ impl State {
             .unwrap_or_default()
     }
 
+    /// What the panels leave of the screen for windows.
+    pub fn window_area(&self) -> Rectangle<i32, Logical> {
+        let screen = self.screen_area();
+        let Some(output) = &self.output else {
+            return screen;
+        };
+        let mut area = layer_map_for_output(output).non_exclusive_zone();
+        area.loc += screen.loc;
+        area
+    }
+
+    /// Fits every window to the window area, which the panels changed.
+    /// Until the shell arranges windows (ADR 0028 §2), each fills it.
+    pub fn arrange_windows(&mut self) {
+        let area = self.window_area();
+        // Mapping again puts a window on top: bottom to top, the order stays,
+        // and so does which is active.
+        let windows: Vec<Window> = self.space.elements().cloned().collect();
+        for window in windows {
+            if let Some(toplevel) = window.toplevel() {
+                toplevel.with_pending_state(|state| state.size = Some(area.size));
+                if toplevel.is_initial_configure_sent() {
+                    toplevel.send_pending_configure();
+                }
+            }
+            self.space.map_element(window, area.loc, false);
+        }
+        self.changed();
+    }
+
     /// Something on the screen changed; it is drawn at the deadline of the
     /// next vblank.
     pub fn changed(&mut self) {
@@ -381,10 +422,13 @@ impl State {
                 Err(e) => warn!("drawing the pointer: {e}"),
             }
         }
+        let (upper, lower) = panels(screen.renderer(), output);
+        elements.extend(upper.into_iter().map(Element::Surface));
         let windows: Vec<WaylandSurfaceRenderElement<_>> =
             self.space
                 .render_elements_for_region(screen.renderer(), &area, 1.0, 1.0);
-        elements.extend(windows.into_iter().map(Element::Window));
+        elements.extend(windows.into_iter().map(Element::Surface));
+        elements.extend(lower.into_iter().map(Element::Surface));
         let cursor = self
             .cursor
             .image()
@@ -460,6 +504,11 @@ impl State {
                 Some(output.clone())
             });
         }
+        for panel in layer_map_for_output(&output).layers() {
+            panel.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| {
+                Some(output.clone())
+            });
+        }
         if let Some(surface) = self.cursor.surface() {
             send_frames_surface_tree(surface, &output, time, Some(HIDDEN_FRAMES), |_, _| {
                 Some(output.clone())
@@ -469,9 +518,25 @@ impl State {
         self.popups.cleanup();
     }
 
+    /// The topmost surface under `at` – a panel above the windows, a
+    /// window, a panel below them – and that surface's position.
+    pub fn surface_under(
+        &self,
+        at: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let panels = |layers: &[Layer]| {
+            self.output
+                .as_ref()
+                .and_then(|output| crate::layers::surface_under(output, layers, at))
+        };
+        panels(&[Layer::Overlay, Layer::Top])
+            .or_else(|| self.window_surface_under(at))
+            .or_else(|| panels(&[Layer::Bottom, Layer::Background]))
+    }
+
     /// The topmost window under `at`, its surface there and that surface's
     /// position.
-    pub fn surface_under(
+    fn window_surface_under(
         &self,
         at: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
@@ -557,6 +622,7 @@ impl CompositorHandler for State {
         }
         self.popups.commit(surface);
         crate::shell::committed(self, surface);
+        crate::layers::committed(self, surface);
         self.cursor.committed(surface);
         self.changed();
     }
@@ -638,12 +704,52 @@ delegate_data_device!(State);
 delegate_output!(State);
 delegate_xdg_shell!(State);
 
-/// Inserts a client that connected to the socket.
+/// The panels' surfaces to draw: those above the windows and those below,
+/// each front to back.
+fn panels(
+    renderer: &mut VkRenderer,
+    output: &WlOutput,
+) -> (
+    Vec<WaylandSurfaceRenderElement<VkRenderer>>,
+    Vec<WaylandSurfaceRenderElement<VkRenderer>>,
+) {
+    let map = layer_map_for_output(output);
+    let (mut upper, mut lower) = (Vec::new(), Vec::new());
+    // The map lists them back to front.
+    for panel in map.layers().rev() {
+        let Some(place) = map.layer_geometry(panel) else {
+            continue;
+        };
+        let elements = AsRenderElements::<VkRenderer>::render_elements(
+            panel,
+            renderer,
+            place.loc.to_physical(1),
+            Scale::from(1.0),
+            1.0,
+        );
+        match panel.layer() {
+            Layer::Overlay | Layer::Top => upper.extend(elements),
+            Layer::Bottom | Layer::Background => lower.extend(elements),
+        }
+    }
+    (upper, lower)
+}
+
+/// Inserts a client that connected to the socket, knowing whether it is
+/// the shell (`trust`).
 pub fn insert_client(state: &mut State, stream: std::os::unix::net::UnixStream) {
-    if let Err(e) = state
-        .display
-        .insert_client(stream, Arc::new(ClientState::default()))
-    {
+    let shell = crate::trust::is_shell(&stream).unwrap_or_else(|e| {
+        warn!("whether a client is the shell: {e}");
+        false
+    });
+    if shell {
+        info!("the shell connected");
+    }
+    let data = ClientState {
+        shell,
+        ..ClientState::default()
+    };
+    if let Err(e) = state.display.insert_client(stream, Arc::new(data)) {
         warn!("a client could not connect: {e}");
     }
 }

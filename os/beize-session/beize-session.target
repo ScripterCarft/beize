@@ -10,3 +10,6 @@ Before=graphical-session.target
 # Active once the compositor is ready, and down when it ends.
 BindsTo=beize-compositor.service
 After=beize-compositor.service
+# The shell (ADR 0028 §1): wanted, not bound – it may fail and come back
+# without taking the desktop down.
+Wants=beize-shell.service

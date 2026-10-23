@@ -1,13 +1,16 @@
 //! The desktop (ADR 0027 §6): the owner signs in on tty1 at the keyboard
 //! and types `beize-session`; the compositor runs as the owner in its
-//! sandbox, logind knows the session as a Wayland one, a terminal opens
-//! with the desktop and another with Ctrl+Alt+T. A command typed into it
-//! shows the terminal's sample as the reference in the repository has it.
-//! A client's window fills the screen and the screen shows exactly its
-//! pattern. Beize UI's
-//! test program shows its sample – text, colours, blending – exactly as it
-//! draws it offscreen, the reference in the repository. Signing out stops
-//! the desktop with its terminals and takes its environment back.
+//! sandbox, logind knows the session as a Wayland one. The shell (ADR 0028)
+//! runs in its own sandbox, the compositor knows it, and its menu bar lies
+//! along the top with the time. A terminal opens with the desktop and
+//! another with Ctrl+Alt+T. A command typed into it shows the terminal's
+//! sample as the reference in the repository has it. A client's window
+//! fills the screen below the menu bar, shows exactly its pattern and is
+//! offered no panels. Beize UI's test program shows its sample – text,
+//! colours, blending – exactly as it draws it offscreen, the reference in
+//! the repository. Killed, the shell comes back and the window stays.
+//! Signing out stops the desktop with its shell and terminals and takes
+//! its environment back.
 //!
 //! The owner's shell on the serial console looks on: the same user, so the
 //! same service manager as the login on tty1.
@@ -37,30 +40,47 @@ const QUADRANTS: [[u8; 3]; 4] = [[208, 48, 48], [48, 176, 64], [48, 80, 208], [2
 /// (XRGB8888 to the screen), so only rounding.
 const CHANNEL_TOLERANCE: u8 = 2;
 
-/// Where pixels may differ: in the square this wide at the screen's top
-/// left, the pointer, drawn into the image in the VM (ADR 0027 §8), 24×24
-/// at most. The compositor starts it at (0, 0) and the test never moves it,
-/// so any pixel elsewhere is a fault, down to one changed character.
+/// The pointer: drawn into the image in the VM (ADR 0027 §8), 24×24 at
+/// most, in the screen's top left corner – the compositor starts it at
+/// (0, 0) and the test never moves it. That is on the menu bar: windows
+/// below it are compared without exception, down to one changed character.
 const POINTER_SIZE: usize = 24;
+
+/// The menu bar along the top of the screen (os/beize-shell, `HEIGHT` and
+/// `BAR`); windows fill the screen below it.
+const MENU_BAR: usize = 24;
+const MENU_BAR_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
+/// Where the time is: the right end of the bar, this wide. "00:00" in
+/// Inter at 13 px is some 35 px; the rest of the bar is its colour alone.
+const CLOCK_WIDTH: usize = 80;
+/// The time's least ink, in dark pixels: well below the narrowest time,
+/// "11:11", and well above none.
+const CLOCK_INK: usize = 20;
 
 /// The compositor's warning that Smithay could not become DRM master
 /// itself: it already is, through the device logind handed over (reported
 /// to Smithay, ~/upstream/smithay/ISSUES.md). Every other warning fails.
 const KNOWN_WARNING: &str = "Unable to become drm master, assuming unprivileged mode";
 
-/// Beize UI's sample as its test program draws it offscreen at the VM's
-/// screen size (`beize-ui-test --offscreen FILE 1280x800`), relative to the
-/// repository. Replaced only by hand, after looking at the screen the test
-/// leaves in the logs when they differ (ADR 0027 §9).
+/// Beize UI's sample as its test program draws it offscreen at the size of
+/// a window in the VM (`beize-ui-test --offscreen FILE 1280x776`: the screen
+/// below the menu bar), relative to the repository. Replaced only by hand,
+/// after looking at the screen the test leaves in the logs when they
+/// differ (ADR 0027 §9).
 const UI_SAMPLE: &str = "os/beize-ui/tests/sample.png";
 
-/// The screen once the terminal has run its sample
+/// The terminal's window once it has run its sample
 /// (`os/beize-terminal/tests/sample.sh`), as a run of this test showed it
 /// (openQA's needles): replaced only by hand, after looking at it.
 const TERMINAL_SAMPLE: &str = "os/beize-terminal/tests/sample.png";
 
 /// What the sample is called on the test medium, typed into the terminal.
 const TERMINAL_SAMPLE_COMMAND: &str = "/run/t/beize-terminal-sample";
+
+/// How often the compositor has told the shell's connection apart
+/// (os/beize-compositor, `insert_client`), in this boot.
+const SHELL_CONNECTED: &str = "journalctl --user -b -u beize-compositor.service -o cat \
+                               | grep -c '^the shell connected$'";
 
 /// How long a screen may take to become what its reference shows.
 const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -133,6 +153,22 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "could not mount the test medium (exit status {status}): {lines:?}"
     );
 
+    // The shell: its own process in its system call filter, which the
+    // compositor knows as the shell by its unit; its menu bar on the screen.
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 1 ] && break; sleep 0.2; done; \
+         echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
+         p=$(systemctl --user show -P MainPID beize-shell.service); \
+         while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
+         done < /proc/$p/status"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-SHELL-1") && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
+        "the shell did not connect once as the shell, in its system call filter: {lines:?}"
+    );
+    wait_for_menu_bar(&machine)?;
+    say!("  ok: the shell runs sandboxed, the compositor knows it, its menu bar shows the time");
+
     // The desktop starts with a terminal, Ctrl+Alt+T opens another: each in
     // a unit of its own, with the owner's shell in it.
     let first = wait_for_terminals(&shell, 1)?;
@@ -154,10 +190,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         .context("no second terminal")?;
     wait_for_prompt(&shell, second)?;
     keys(&qmp, &german_presses(TERMINAL_SAMPLE_COMMAND)?)?;
-    let differing = wait_for_screen(paths, &machine, TERMINAL_SAMPLE, "terminal")?;
+    wait_for_screen(paths, &machine, TERMINAL_SAMPLE, "terminal")?;
     say!(
-        "  ok: the typed command ran in the terminal, the screen shows its sample as the reference \
-         has it ({differing} pixels differ: the pointer)"
+        "  ok: the typed command ran in the terminal, its window shows the sample as the \
+         reference has it"
     );
 
     // A client started by the service manager, which knows the socket only
@@ -179,27 +215,39 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         .and_then(|s| s.split_once('x'))
         .and_then(|(w, h)| Some((w.parse::<usize>().ok()?, h.parse::<usize>().ok()?)))
         .with_context(|| format!("the client got no window: {lines:?}"))?;
+    // An app is not offered the shell's panels (the list is real: it has
+    // xdg-shell).
+    let globals = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("globals "))
+        .with_context(|| format!("the client printed no globals: {lines:?}"))?;
+    let offered: Vec<&str> = globals.split(' ').collect();
+    ensure!(
+        offered.contains(&"xdg_wm_base") && !offered.contains(&"zwlr_layer_shell_v1"),
+        "an app was offered the shell's panels, or no windows: {globals}"
+    );
     // Its first frame reaches the screen with the next refresh.
     thread::sleep(Duration::from_secs(1));
     let file = machine.logs.join("desktop-screen.ppm");
     screendump(&qmp, &file)?;
-    let screen = Image::read_ppm(&fs::read(&file)?)?;
+    let window = Image::read_ppm(&fs::read(&file)?)?.below(MENU_BAR);
     ensure!(
-        (screen.width, screen.height) == size,
-        "the window is {}x{}, the screen {}x{}: it does not fill it",
+        (window.width, window.height) == size,
+        "the window is {}x{}, the screen below the menu bar {}x{}: it does not fill it",
         size.0,
         size.1,
-        screen.width,
-        screen.height
+        window.width,
+        window.height
     );
-    let differing = compare(
-        &screen,
+    compare(
+        &window,
         |x, y| expected(x, y, size.0, size.1),
         "the client's pattern",
         &machine.logs.join("desktop-difference.ppm"),
     )?;
     say!(
-        "  ok: the screen shows the client's window, {}x{} ({differing} pixels differ: the pointer)",
+        "  ok: the client's window fills the screen below the menu bar, {}x{}, exactly its \
+         pattern; it is offered no panels",
         size.0,
         size.1
     );
@@ -241,11 +289,26 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         lines.iter().any(|l| l.starts_with("configure ")),
         "Beize UI's test program got no window: {lines:?}"
     );
-    let differing = wait_for_screen(paths, &machine, UI_SAMPLE, "beize-ui")?;
-    say!(
-        "  ok: Beize UI's window shows its sample as the reference has it ({differing} pixels \
-         differ: the pointer)"
+    wait_for_screen(paths, &machine, UI_SAMPLE, "beize-ui")?;
+    say!("  ok: Beize UI's window shows its sample as the reference has it");
+
+    // Killed, the shell starts again (ADR 0028 §1): the compositor knows
+    // it once more, the bar comes back, the desktop and the window stay.
+    let (_, lines) = shell.capture(&format!(
+        "systemctl --user kill -s KILL beize-shell.service; \
+         for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 2 ] && break; sleep 0.2; done; \
+         echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
+         systemctl --user is-active beize-shell.service beize-compositor.service \
+         beize-session.target"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-SHELL-2")
+            && lines.iter().filter(|l| *l == "active").count() == 3,
+        "the shell did not come back after it was killed, or the desktop went: {lines:?}"
     );
+    wait_for_menu_bar(&machine)?;
+    wait_for_screen(paths, &machine, UI_SAMPLE, "beize-ui-after-shell")?;
+    say!("  ok: killed, the shell came back with its menu bar; the desktop and the window stayed");
 
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
@@ -268,10 +331,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
          || break; sleep 0.2; done; \
          systemctl --user is-active beize-session.target beize-compositor.service \
-         graphical-session.target; systemctl --user show-environment",
+         beize-shell.service graphical-session.target; systemctl --user show-environment",
     )?;
     ensure!(
-        lines.iter().filter(|l| *l == "inactive").count() == 3,
+        lines.iter().filter(|l| *l == "inactive").count() == 4,
         "signing out did not stop the desktop: {lines:?}"
     );
     ensure!(
@@ -285,7 +348,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         left.is_empty(),
         "terminals still run after signing out: {left:?}"
     );
-    say!("  ok: signing out stopped the desktop and its terminals and took its environment back");
+    say!(
+        "  ok: signing out stopped the desktop, its shell and terminals and took its environment \
+         back"
+    );
     shell.stop()?;
     machine.remove()
 }
@@ -340,11 +406,11 @@ fn wait_for_prompt(shell: &Shell, unit: &str) -> Result<()> {
     Ok(())
 }
 
-/// Waits until the screen shows what `reference` (relative to the
-/// repository) has, but the pointer, as openQA waits for a needle; the
-/// pixels that differ. If it does not, the last screen is `<name>-screen.png`
-/// in the logs, to look at and to take over if the new look is wanted.
-fn wait_for_screen(paths: &Paths, machine: &Machine, reference: &str, name: &str) -> Result<usize> {
+/// Waits until the screen below the menu bar – the window – shows exactly
+/// what `reference` (relative to the repository) has, as openQA waits for a
+/// needle. If it does not, the last window is `<name>-screen.png` in the
+/// logs, to look at and to take over if the new look is wanted.
+fn wait_for_screen(paths: &Paths, machine: &Machine, reference: &str, name: &str) -> Result<()> {
     let wanted = match fs::read(paths.root.join(reference)) {
         Ok(data) => Some(Image::read_png(&data).with_context(|| format!("reading {reference}"))?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -356,11 +422,11 @@ fn wait_for_screen(paths: &Paths, machine: &Machine, reference: &str, name: &str
     let failed = loop {
         thread::sleep(Duration::from_millis(500));
         screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?.below(MENU_BAR);
         let compared = match &wanted {
             None => Err(anyhow!("there is no {reference} yet")),
             Some(r) if (r.width, r.height) != (screen.width, screen.height) => Err(anyhow!(
-                "the screen is {}x{}, {reference} {}x{}",
+                "the window is {}x{}, {reference} {}x{}",
                 screen.width,
                 screen.height,
                 r.width,
@@ -369,7 +435,7 @@ fn wait_for_screen(paths: &Paths, machine: &Machine, reference: &str, name: &str
             Some(r) => compare(&screen, |x, y| r.pixel(x, y), reference, &difference),
         };
         match compared {
-            Ok(differing) => return Ok(differing),
+            Ok(()) => return Ok(()),
             Err(e) if Instant::now() >= deadline => break (screen, e),
             Err(_) => {}
         }
@@ -377,7 +443,74 @@ fn wait_for_screen(paths: &Paths, machine: &Machine, reference: &str, name: &str
     let (screen, e) = failed;
     let shown = machine.logs.join(format!("{name}-screen.png"));
     screen.write_png(&shown)?;
-    Err(e.context(format!("the screen is {}", shown.display())))
+    Err(e.context(format!("the window is {}", shown.display())))
+}
+
+/// Waits until the menu bar lies along the top of the screen with the time
+/// on its right; if it does not, the last screen is in the logs.
+fn wait_for_menu_bar(machine: &Machine) -> Result<()> {
+    let file = machine.logs.join("menu-bar-screen.ppm");
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        thread::sleep(Duration::from_millis(500));
+        screendump(&machine.qmp(), &file)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        match menu_bar(&screen) {
+            Ok(()) => return Ok(()),
+            Err(e) if Instant::now() >= deadline => {
+                let shown = machine.logs.join("menu-bar-screen.png");
+                screen.write_png(&shown)?;
+                return Err(e.context(format!("the screen is {}", shown.display())));
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+/// Whether `screen` has the menu bar: its colour across the top but the
+/// pointer and the time, and the time's ink at the right end. Which time
+/// it shows depends on the minute; Beize UI's text itself is checked
+/// exactly with the windows.
+fn menu_bar(screen: &Image) -> Result<()> {
+    ensure!(
+        screen.width > CLOCK_WIDTH + POINTER_SIZE && screen.height > MENU_BAR,
+        "a screen of {}x{} has no room for the menu bar",
+        screen.width,
+        screen.height
+    );
+    let near = |a: [u8; 3], b: [u8; 3]| {
+        a.iter()
+            .zip(b)
+            .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
+    };
+    let clock = screen.width - CLOCK_WIDTH;
+    let mut other = 0;
+    let mut ink = 0;
+    for y in 0..MENU_BAR {
+        for x in 0..screen.width {
+            let shown = screen.pixel(x, y);
+            if x < POINTER_SIZE && y < POINTER_SIZE {
+                continue;
+            }
+            if x >= clock {
+                ink += usize::from(shown.iter().all(|&c| c < 0x80));
+            } else if !near(shown, MENU_BAR_COLOR) {
+                other += 1;
+            }
+        }
+    }
+    ensure!(
+        other == 0,
+        "{other} pixels of the menu bar's strip are not its colour"
+    );
+    ensure!(
+        ink >= CLOCK_INK,
+        "the menu bar shows no time: {ink} dark pixels at its right end"
+    );
+    // Below it, something else: a window, not more bar.
+    let below = (POINTER_SIZE..clock).all(|x| near(screen.pixel(x, MENU_BAR), MENU_BAR_COLOR));
+    ensure!(!below, "the menu bar is higher than {MENU_BAR} pixels");
+    Ok(())
 }
 
 /// An RGB image.
@@ -464,6 +597,16 @@ impl Image {
         let at = (y * self.width + x) * 3;
         [self.pixels[at], self.pixels[at + 1], self.pixels[at + 2]]
     }
+
+    /// The image below its first `top` rows (the screen below the menu bar).
+    fn below(self, top: usize) -> Self {
+        let top = top.min(self.height);
+        Self {
+            width: self.width,
+            height: self.height - top,
+            pixels: self.pixels[top * self.width * 3..].to_vec(),
+        }
+    }
 }
 
 /// The client's pattern at (x, y) of a window `width`×`height`, as the
@@ -472,48 +615,43 @@ fn expected(x: usize, y: usize, width: usize, height: usize) -> [u8; 3] {
     QUADRANTS[usize::from(x >= width / 2) + 2 * usize::from(y >= height / 2)]
 }
 
-/// The pixels of `screen` that differ from what is `wanted` (named `what`
-/// in errors), all in the pointer's square; any outside it fail, and
-/// `difference` then shows them in magenta over a dimmed screen.
+/// Whether `window` shows exactly what is `wanted` (named `what` in
+/// errors), but rounding; if not, `difference` shows the pixels that
+/// differ in magenta over a dimmed window.
 fn compare(
-    screen: &Image,
+    window: &Image,
     wanted: impl Fn(usize, usize) -> [u8; 3],
     what: &str,
     difference: &Path,
-) -> Result<usize> {
+) -> Result<()> {
     let mut marked = Image {
-        width: screen.width,
-        height: screen.height,
-        pixels: screen.pixels.iter().map(|c| c / 3).collect(),
+        width: window.width,
+        height: window.height,
+        pixels: window.pixels.iter().map(|c| c / 3).collect(),
     };
-    let (mut pointer, mut elsewhere) = (0, 0);
-    for y in 0..screen.height {
-        for x in 0..screen.width {
-            let at = (y * screen.width + x) * 3;
-            let shown = &screen.pixels[at..at + 3];
+    let mut differing = 0;
+    for y in 0..window.height {
+        for x in 0..window.width {
+            let at = (y * window.width + x) * 3;
+            let shown = &window.pixels[at..at + 3];
             if shown
                 .iter()
                 .zip(wanted(x, y))
                 .any(|(s, w)| s.abs_diff(w) > CHANNEL_TOLERANCE)
             {
-                if x < POINTER_SIZE && y < POINTER_SIZE {
-                    pointer += 1;
-                } else {
-                    elsewhere += 1;
-                }
+                differing += 1;
                 marked.pixels[at..at + 3].copy_from_slice(&[255, 0, 255]);
             }
         }
     }
-    if elsewhere > 0 {
+    if differing > 0 {
         marked.write_ppm(difference)?;
         bail!(
-            "{elsewhere} pixels of the screen differ from {what} outside the pointer's \
-             {POINTER_SIZE}x{POINTER_SIZE} at the top left; they are magenta in {}",
+            "{differing} pixels of the window differ from {what}; they are magenta in {}",
             difference.display()
         );
     }
-    Ok(pointer)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -553,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pattern_passes_with_a_pointer_and_fails_otherwise() {
+    fn the_pattern_passes_exactly_and_fails_otherwise() {
         let compare = |screen: &Image, difference: &Path| {
             compare(
                 screen,
@@ -564,36 +702,13 @@ mod tests {
         };
         let difference = std::env::temp_dir().join(format!("bz-diff-{}.ppm", std::process::id()));
         let mut screen = pattern(64, 40);
-        assert_eq!(compare(&screen, &difference).unwrap(), 0);
-        // Rounding, and a pointer.
+        compare(&screen, &difference).unwrap();
+        // Rounding.
         screen.pixels[0] += CHANNEL_TOLERANCE;
-        for y in 0..POINTER_SIZE {
-            for x in 0..POINTER_SIZE {
-                let at = (y * 64 + x) * 3;
-                screen.pixels[at..at + 3].copy_from_slice(&[0, 0, 0]);
-            }
-        }
-        assert_eq!(
-            compare(&screen, &difference).unwrap(),
-            POINTER_SIZE * POINTER_SIZE
-        );
+        compare(&screen, &difference).unwrap();
         assert!(!difference.exists());
-        // One pixel more, beside the pointer: a character that changed.
-        let mut beside = screen.pixels.clone();
-        beside[3 * POINTER_SIZE] = 0;
-        assert!(
-            compare(
-                &Image {
-                    pixels: beside,
-                    ..pattern(64, 40)
-                },
-                &difference
-            )
-            .is_err()
-        );
-        fs::remove_file(&difference).unwrap();
-        // And far from it.
-        screen.pixels[3 * 64 * 39] = 0;
+        // One pixel in the corner: a character that changed.
+        screen.pixels[3] = 0;
         assert!(compare(&screen, &difference).is_err());
         assert!(difference.exists());
         fs::remove_file(&difference).unwrap();
@@ -608,6 +723,69 @@ mod tests {
         swapped.pixels.reverse();
         assert!(compare(&swapped, &difference).is_err());
         fs::remove_file(&difference).unwrap();
+    }
+
+    /// A screen of `width`×40 with the menu bar, ink for a time at its
+    /// right end, a dark window below it and a pointer.
+    fn desktop(width: usize) -> Image {
+        let mut screen = Image {
+            width,
+            height: 40,
+            pixels: [0x1e; 3].repeat(width * 40),
+        };
+        let mut set = |x: usize, y: usize, c: [u8; 3]| {
+            let at = (y * width + x) * 3;
+            screen.pixels[at..at + 3].copy_from_slice(&c);
+        };
+        for y in 0..MENU_BAR {
+            for x in 0..width {
+                set(x, y, MENU_BAR_COLOR);
+            }
+        }
+        for y in 8..16 {
+            for x in width - 40..width - 36 {
+                set(x, y, [0x1d; 3]);
+            }
+        }
+        for y in 0..POINTER_SIZE {
+            for x in 0..POINTER_SIZE / 2 {
+                set(x, y, [0, 0, 0]);
+            }
+        }
+        screen
+    }
+
+    #[test]
+    fn finds_the_menu_bar_with_its_time_and_nothing_else() {
+        let screen = desktop(200);
+        menu_bar(&screen).unwrap();
+        // The window below it is the rest of the screen.
+        let window = desktop(200).below(MENU_BAR);
+        assert_eq!((window.width, window.height), (200, 40 - MENU_BAR));
+        assert_eq!(window.pixel(0, 0), [0x1e; 3]);
+        // A stray pixel on the bar, no time, a bar too high, no bar at all.
+        let mut stray = desktop(200);
+        stray.pixels[(5 * 200 + 100) * 3] = 0;
+        assert!(menu_bar(&stray).is_err());
+        let mut no_time = desktop(200);
+        for x in 160..200 {
+            for y in 0..MENU_BAR {
+                let at = (y * 200 + x) * 3;
+                no_time.pixels[at..at + 3].copy_from_slice(&MENU_BAR_COLOR);
+            }
+        }
+        assert!(menu_bar(&no_time).is_err());
+        let mut high = desktop(200);
+        for x in 0..200 {
+            let at = (MENU_BAR * 200 + x) * 3;
+            high.pixels[at..at + 3].copy_from_slice(&MENU_BAR_COLOR);
+        }
+        assert!(menu_bar(&high).is_err());
+        let none = Image {
+            pixels: vec![0x1e; 200 * 40 * 3],
+            ..desktop(200)
+        };
+        assert!(menu_bar(&none).is_err());
     }
 
     #[test]

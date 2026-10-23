@@ -52,11 +52,18 @@ Das ändert die Formulierung „Compositor = Shell“ aus ADR 0027 §1. Gründe:
 Die Shell spricht mit dem Compositor über **wlr-layer-shell** (Ebenen oben und unten,
 reservierte Ränder; Smithay bringt es mit, COSMIC, KDE und niri nutzen es) und ein eigenes
 privilegiertes Protokoll **`beize-shell-v1`** (Fensterliste mit App-ID, aktivieren,
-minimieren, Blur hinter einer Fläche, Ursprung von Animationen). Dieses Protokoll bekommt
-nur der Prozess, den beize-session startet, kein anderer Client. Die Shell läuft als
-`beize-shell.service` an `graphical-session.target` und wird nach einem Absturz neu
-gestartet. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in seiner
-Sandbox (wie das Terminal, ADR 0027 §9).
+minimieren, Blur hinter einer Fläche, Ursprung von Animationen). Beides bekommt nur die
+Shell; andere Clients sehen die Globals gar nicht. Der Compositor erkennt sie an ihrer Unit,
+so wie xdg-desktop-portal eine App an ihrer `app-<ID>@`-Unit erkennt: Der Kernel nennt zur
+Verbindung den Prozess als pidfd (`SO_PEERPIDFD`), dieser seine cgroup (`PIDFD_GET_INFO`),
+und die muss die von `beize-shell.service` neben dem Compositor sein. Das ist ohne Wettlauf
+mit einer wiederverwendeten PID und braucht kein `/proc`, das die Sandbox des Compositors
+verbirgt. Einen Prozess in diese cgroup verschieben können nur Programme des Nutzers ohne
+Sandbox, und die könnten die Shell ohnehin steuern; Apps in einer Sandbox können es nicht.
+Die Shell läuft als `beize-shell.service` in `session.slice`; `beize-session.target` will
+sie, ohne an sie gebunden zu sein. Nach einem Absturz startet sie neu, und die Fenster
+bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in seiner Sandbox
+(wie das Terminal, ADR 0027 §9).
 
 ### 2. Fenster und Titelleiste
 
@@ -94,7 +101,9 @@ Durchgehend, so hoch wie macOS' Leiste (24 px bei Faktor 1), aus Grundglas (sieh
   Beenden. Die Apps behalten ihre eigenen Menüs im Fenster. Das ist ehrlich gesagt der eine
   Punkt, an dem Beize nicht wie macOS sein kann.
 - **Rechts:** Statussymbole (Netz, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
-  Datum und Uhrzeit. Ein Klick auf die Uhr öffnet später die Benachrichtigungen.
+  Datum und Uhrzeit. Bis es regionale Formate gibt (ADR 0017: LANG ist C.UTF-8), steht dort
+  nur die Uhrzeit mit 24 Stunden. Sie springt zu Beginn jeder Minute um, auch wenn die Uhr
+  gestellt wird (timerfd mit `CANCEL_ON_SET`). Ein Klick auf die Uhr öffnet später die Benachrichtigungen.
 
 ### 4. Dock (unten)
 
@@ -188,11 +197,13 @@ prüft sie nur die Funktion, nicht die Zeit.
 
 ## Reihenfolge
 
-a) Gemeinsames Text-Crate aus Beize UI, `beize-shell` als Dienst, wlr-layer-shell und
-   `beize-shell-v1`; eine Menüleiste mit Uhr.
+a) `beize-shell` als Dienst, der Compositor erkennt sie, wlr-layer-shell nur für sie; eine
+   Menüleiste mit Uhr, die Fenster darunter. ✓ 23.10.
 b) Schwebende Fenster, Titelleiste in Beize UI, Verschieben und Größe, Fokus, xdg-decoration
-   mit Rahmen für fremde Apps; runde Ecken und Schatten.
-c) Dock: angeheftet, laufend, starten, aktivieren, minimieren.
+   mit Rahmen für fremde Apps (dafür das gemeinsame Text-Crate aus Beize UI); runde Ecken und
+   Schatten.
+c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
+   minimieren; der Name der aktiven App in der Menüleiste.
 d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein
    Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,

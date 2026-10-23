@@ -19,4 +19,4 @@ pub use draw::{Color, Rect, Scene};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;
 pub use text::{Cells, Family, Style, Text};
-pub use window::{Events, Window};
+pub use window::{Edge, Events, Window};

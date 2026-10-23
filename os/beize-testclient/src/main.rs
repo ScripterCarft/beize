@@ -3,7 +3,8 @@
 //!
 //! It opens one window (xdg-shell) with a fixed pattern in wl_shm – four
 //! quadrants, red, green, blue and white, opaque – and prints what the
-//! compositor sends, one line each: the window's size, the keyboard's
+//! compositor sends, one line each: the globals it offers this client (an
+//! app sees no panels, ADR 0028 §1), the window's size, the keyboard's
 //! layout (the `xkb_symbols` of its keymap), keys, pointer and buttons.
 //!
 //! `--frames N` draws N frames, each on the last one's "frame done", with
@@ -128,6 +129,13 @@ fn run() -> Result<()> {
     let (globals, mut queue) =
         registry_queue_init::<App>(&connection).map_err(|e| format!("registry: {e}"))?;
     let qh = queue.handle();
+    let offered: Vec<String> = globals
+        .contents()
+        .clone_list()
+        .into_iter()
+        .map(|g| g.interface)
+        .collect();
+    println!("globals {}", offered.join(" "));
     let compositor: WlCompositor = globals
         .bind(&qh, 4..=6, ())
         .map_err(missing("wl_compositor"))?;

@@ -1,7 +1,8 @@
 # Beize UI (os/beize-ui, ADR 0027 §9): the toolkit of Beize's own apps,
 # windows on Wayland drawn with Vulkan through beize-vulkan. A library;
-# what goes into the image are the apps built with it, in the same cargo
-# build: the terminal (os/beize-terminal), and the test program for the VM.
+# what goes into the image are the programs built with it, in the same
+# cargo build: the shell (os/beize-shell, ADR 0028), the terminal
+# (os/beize-terminal), and the test program for the VM.
 #
 # Built apart from the compositor: its wayland-client goes through
 # libwayland (Mesa's WSI takes the display), the compositor's test client
@@ -17,7 +18,7 @@ version = "0.1.0"
 stage = "target"
 # libgcc_s for Rust's unwinding.
 deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader", "libxkbcommon"]
-repo = ["os/beize-vulkan", "os/beize-ui", "os/beize-terminal", "Cargo.toml", "Cargo.lock"]
+repo = ["os/beize-vulkan", "os/beize-ui", "os/beize-shell", "os/beize-terminal", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''
@@ -25,7 +26,11 @@ script = '''
 # the build itself runs offline.
 "$CARGO" fetch --locked --manifest-path "$REPO/Cargo.toml"
 MAKEFLAGS="$JOBSERVER" "$CARGO" build --offline --locked --release --manifest-path "$REPO/Cargo.toml" \
-  -p beize-ui -p beize-terminal --target x86_64-unknown-linux-gnu
+  -p beize-ui -p beize-shell -p beize-terminal --target x86_64-unknown-linux-gnu
+install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-shell" \
+  "$PKG/usr/lib/beize/beize-shell"
+install -D -m 644 "$REPO/os/beize-shell/beize-shell.service" \
+  "$PKG/usr/lib/systemd/user/beize-shell.service"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-terminal" \
   "$PKG/usr/lib/beize/beize-terminal"
 # Its unit: an instance per window, which the compositor starts.
@@ -43,6 +48,8 @@ license = "MPL-2.0"
 
 [files]
 image = [
+  "usr/lib/beize/beize-shell",
+  "usr/lib/systemd/user/beize-shell.service",
   "usr/lib/beize/beize-terminal",
   'usr/lib/systemd/user/app-beize\x2dterminal@.service',
 ]

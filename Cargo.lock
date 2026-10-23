@@ -185,6 +185,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "beize-shell"
+version = "0.1.0"
+dependencies = [
+ "beize-ui",
+ "libc",
+ "rustix 1.1.5",
+ "tracing",
+]
+
+[[package]]
 name = "beize-systemd"
 version = "0.1.0"
 
@@ -227,6 +237,7 @@ dependencies = [
  "tracing-subscriber",
  "wayland-client",
  "wayland-protocols",
+ "wayland-protocols-wlr",
  "xkbcommon",
  "zeno",
 ]
@@ -1869,6 +1880,7 @@ checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
 dependencies = [
  "bitflags",
  "wayland-backend",
+ "wayland-client",
  "wayland-protocols",
  "wayland-scanner",
  "wayland-server",

@@ -1,9 +1,9 @@
-//! A window: an xdg-shell toplevel, shown through a Vulkan swapchain on
-//! the same libwayland display (Mesa's WSI: dmabufs on a GPU, shm on
-//! lavapipe; FIFO paces it to the compositor's frames). Opaque, in the
-//! size the compositor asks for – full screen until the shell arranges
-//! windows (ADR 0027 §9). The renderer draws into the swapchain's images.
-//! Input comes from the seat (`input`).
+//! A window: an xdg-shell toplevel, or a panel of Beize's shell along an
+//! edge of the screen (wlr-layer-shell, ADR 0028 §1), shown through a
+//! Vulkan swapchain on the same libwayland display (Mesa's WSI: dmabufs on
+//! a GPU, shm on lavapipe; FIFO paces it to the compositor's frames).
+//! Opaque, in the size the compositor asks for. The renderer draws into
+//! the swapchain's images. Input comes from the seat (`input`).
 
 use std::ffi::c_void;
 use std::os::fd::{BorrowedFd, OwnedFd};
@@ -14,7 +14,7 @@ use beize_vulkan::error::{Context, Result, error};
 use beize_vulkan::image;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use tracing::{debug, warn};
-use wayland_client::globals::{GlobalListContents, registry_queue_init};
+use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
     wl_compositor::WlCompositor,
     wl_keyboard::{self, WlKeyboard},
@@ -29,6 +29,10 @@ use wayland_protocols::xdg::shell::client::{
     xdg_surface::{self, XdgSurface},
     xdg_toplevel::{self, XdgToplevel},
     xdg_wm_base::{self, XdgWmBase},
+};
+use wayland_protocols_wlr::layer_shell::v1::client::{
+    zwlr_layer_shell_v1::{self, ZwlrLayerShellV1},
+    zwlr_layer_surface_v1::{self, ZwlrLayerSurfaceV1},
 };
 
 use crate::clipboard::Clipboard;
@@ -86,16 +90,36 @@ struct Swapchain {
     drawn: Vec<vk::Semaphore>,
 }
 
+/// The edge of the screen a panel lies along.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Edge {
+    Top,
+    Bottom,
+}
+
+/// What the window is to the compositor.
+enum Role {
+    /// An app's window.
+    Toplevel {
+        _wm_base: XdgWmBase,
+        _xdg_surface: XdgSurface,
+        toplevel: XdgToplevel,
+    },
+    /// A panel of the shell: the compositor keeps windows out of its strip.
+    Panel {
+        _layer_shell: ZwlrLayerShellV1,
+        _layer: ZwlrLayerSurfaceV1,
+    },
+}
+
 pub struct Window {
     renderer: Renderer,
     _connection: Connection,
     queue: EventQueue<State>,
     state: State,
-    _wm_base: XdgWmBase,
     /// None: the compositor has no seat, the window gets no input.
     _seat: Option<WlSeat>,
-    _xdg_surface: XdgSurface,
-    toplevel: XdgToplevel,
+    role: Role,
     vk_surface: vk::SurfaceKHR,
     swapchain: Option<Swapchain>,
     /// A present said the swapchain no longer fits the surface.
@@ -105,6 +129,61 @@ pub struct Window {
 impl Window {
     /// Opens a window; it shows once the first `configured` is drawn.
     pub fn open(title: &str, app_id: &str) -> Result<Window> {
+        Window::new(|globals, qh, surface| {
+            let wm_base: XdgWmBase = globals
+                .bind(qh, 1..=6, ())
+                .context("the compositor has no xdg_wm_base")?;
+            let xdg_surface = wm_base.get_xdg_surface(surface, qh, ());
+            let toplevel = xdg_surface.get_toplevel(qh, ());
+            toplevel.set_title(title.into());
+            toplevel.set_app_id(app_id.into());
+            Ok(Role::Toplevel {
+                _wm_base: wm_base,
+                _xdg_surface: xdg_surface,
+                toplevel,
+            })
+        })
+    }
+
+    /// Opens a panel of Beize's shell: `height` pixels across the whole
+    /// `edge`, above the windows, which the compositor keeps out of that
+    /// strip. Only the shell may (the compositor offers the protocol to no
+    /// other client). `namespace` names it in the compositor's log.
+    pub fn panel(namespace: &str, edge: Edge, height: u32) -> Result<Window> {
+        use zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity};
+        Window::new(|globals, qh, surface| {
+            let layer_shell: ZwlrLayerShellV1 = globals
+                .bind(qh, 1..=4, ())
+                .context("the compositor offers no panels (wlr-layer-shell) to this program")?;
+            let layer = layer_shell.get_layer_surface(
+                surface,
+                None,
+                zwlr_layer_shell_v1::Layer::Top,
+                namespace.into(),
+                qh,
+                (),
+            );
+            let along = match edge {
+                Edge::Top => Anchor::Top,
+                Edge::Bottom => Anchor::Bottom,
+            };
+            layer.set_anchor(Anchor::Left | Anchor::Right | along);
+            // Width 0: as wide as the screen (the anchors left and right).
+            layer.set_size(0, height);
+            layer.set_exclusive_zone(i32::try_from(height).unwrap_or(i32::MAX));
+            layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+            Ok(Role::Panel {
+                _layer_shell: layer_shell,
+                _layer: layer,
+            })
+        })
+    }
+
+    /// Connects, gives a new surface its `role` and readies the renderer;
+    /// the surface's first commit asks the compositor for a configure.
+    fn new(
+        role: impl FnOnce(&GlobalList, &QueueHandle<State>, &WlSurface) -> Result<Role>,
+    ) -> Result<Window> {
         let connection = Connection::connect_to_env().context("connecting to the compositor")?;
         let (globals, queue) =
             registry_queue_init::<State>(&connection).context("the compositor's globals")?;
@@ -112,9 +191,6 @@ impl Window {
         let compositor: WlCompositor = globals
             .bind(&qh, 4..=6, ())
             .context("the compositor has no wl_compositor")?;
-        let wm_base: XdgWmBase = globals
-            .bind(&qh, 1..=6, ())
-            .context("the compositor has no xdg_wm_base")?;
         // From version 5 on, pointer events come in frames.
         let seat: Option<WlSeat> = globals.bind(&qh, 5..=9, ()).ok();
         if seat.is_none() {
@@ -125,10 +201,7 @@ impl Window {
             clipboard.attach(seat, &qh);
         }
         let surface = compositor.create_surface(&qh, ());
-        let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
-        let toplevel = xdg_surface.get_toplevel(&qh, ());
-        toplevel.set_title(title.into());
-        toplevel.set_app_id(app_id.into());
+        let role = role(&globals, &qh, &surface)?;
         surface.commit();
 
         let display = connection.backend().display_ptr().cast::<c_void>();
@@ -162,10 +235,8 @@ impl Window {
                 clipboard,
                 serial: 0,
             },
-            _wm_base: wm_base,
             _seat: seat,
-            _xdg_surface: xdg_surface,
-            toplevel,
+            role,
             vk_surface,
             swapchain: None,
             stale: false,
@@ -197,9 +268,11 @@ impl Window {
         Ok(pipe)
     }
 
-    /// The title the shell shows for the window.
+    /// The title the shell shows for the window (a panel has none).
     pub fn set_title(&self, title: &str) {
-        self.toplevel.set_title(title.into());
+        if let Role::Toplevel { toplevel, .. } = &self.role {
+            toplevel.set_title(title.into());
+        }
     }
 
     /// The GPU the window draws on.
@@ -572,6 +645,35 @@ impl Dispatch<XdgToplevel, ()> for State {
     }
 }
 
+impl Dispatch<ZwlrLayerSurfaceV1, ()> for State {
+    fn event(
+        state: &mut State,
+        layer: &ZwlrLayerSurfaceV1,
+        event: zwlr_layer_surface_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        match event {
+            zwlr_layer_surface_v1::Event::Configure {
+                serial,
+                width,
+                height,
+            } => {
+                // As for a toplevel (`XdgSurface`): acknowledged before the
+                // frame for it is presented.
+                layer.ack_configure(serial);
+                let size = |n: u32| i32::try_from(n).unwrap_or(i32::MAX);
+                state.asked = (size(width), size(height));
+                state.events.configured = true;
+            }
+            // The compositor took the panel away (its screen went).
+            zwlr_layer_surface_v1::Event::Closed => state.events.closed = true,
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<WlSeat, ()> for State {
     fn event(
         state: &mut State,
@@ -647,3 +749,4 @@ impl Dispatch<WlPointer, ()> for State {
 delegate_noop!(State: ignore WlCompositor);
 delegate_noop!(State: ignore WlSurface);
 delegate_noop!(State: ignore WlRegion);
+delegate_noop!(State: ignore ZwlrLayerShellV1);

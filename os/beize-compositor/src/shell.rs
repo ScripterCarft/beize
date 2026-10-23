@@ -1,6 +1,6 @@
-//! Windows (xdg-shell). Until Beize's shell arranges windows (ADR 0027
-//! step 4), every window fills the screen, the newest on top and active,
-//! with the keyboard. Popups (menus) open where the client asks, kept on
+//! Windows (xdg-shell). Until Beize's shell arranges windows (ADR 0028
+//! §2), every window fills what the panels leave of the screen, the newest
+//! on top and active, with the keyboard. Popups (menus) open where the client asks, kept on
 //! the screen.
 //!
 //! Popup grabs (a menu that closes on a click elsewhere) are declined: the
@@ -24,13 +24,13 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        let size = self.screen_area().size;
+        let area = self.window_area();
         surface.with_pending_state(|state| {
-            state.size = Some(size);
+            state.size = Some(area.size);
             state.states.set(xdg_toplevel::State::Maximized);
         });
         let window = Window::new_wayland_window(surface);
-        self.space.map_element(window.clone(), (0, 0), false);
+        self.space.map_element(window.clone(), area.loc, false);
         self.focus(Some(window));
     }
 
