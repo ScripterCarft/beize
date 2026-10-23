@@ -19,7 +19,7 @@ use wayland_client::protocol::{
 };
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, event_created_child};
 
-use crate::window::State;
+use crate::app::State;
 
 /// Text, in the order a paste asks for it.
 const TEXT: [&str; 2] = ["text/plain;charset=utf-8", "text/plain"];

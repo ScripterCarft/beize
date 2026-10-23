@@ -26,7 +26,7 @@ use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::{ClipboardType, Config, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
-use beize_ui::{Appearance, Input, Key, KeyState, Keysym, Window};
+use beize_ui::{Appearance, Input, Key, KeyState, Keysym, WindowId};
 use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
 
@@ -93,7 +93,8 @@ impl Dimensions for Size {
 }
 
 struct App {
-    window: Window,
+    ui: beize_ui::App,
+    window: WindowId,
     fonts: Fonts,
     term: Term<Listener>,
     events: Listener,
@@ -111,19 +112,28 @@ struct App {
 }
 
 fn run() -> Result<(), String> {
-    let mut window = Window::open(TITLE, "beize-terminal").map_err(|e| e.to_string())?;
+    let mut ui = beize_ui::App::connect().map_err(|e| e.to_string())?;
+    let window = ui
+        .open(TITLE, "beize-terminal")
+        .map_err(|e| e.to_string())?;
     // Its title bar dark, as its content.
-    window.set_appearance(Appearance::Dark);
-    let text = window.text();
+    ui.set_appearance(window, Appearance::Dark);
+    let text = ui.text();
     let fonts = Fonts {
         regular: text.cells(FONT_SIZE, 400.0).map_err(|e| e.to_string())?,
         bold: text.cells(FONT_SIZE, 700.0).map_err(|e| e.to_string())?,
     };
-    window.prefer_size(view::size_for(OPENS_WITH.0, OPENS_WITH.1, &fonts.regular));
-    info!("gpu {}", window.gpu_name());
+    ui.prefer_size(
+        window,
+        view::size_for(OPENS_WITH.0, OPENS_WITH.1, &fonts.regular),
+    );
+    info!("gpu {}", ui.gpu_name());
     // The first configure names the size, and the shell starts in it.
     loop {
-        let events = window.dispatch(None, &[]).map_err(|e| e.to_string())?;
+        let events = ui
+            .dispatch(None, &[])
+            .map_err(|e| e.to_string())?
+            .take(window);
         if events.closed {
             return Ok(());
         }
@@ -131,7 +141,7 @@ fn run() -> Result<(), String> {
             break;
         }
     }
-    let (columns, lines) = view::grid(window.size(), &fonts.regular);
+    let (columns, lines) = view::grid(ui.size(window), &fonts.regular);
     let size = Size { columns, lines };
     let events = Listener::default();
     let config = Config {
@@ -141,6 +151,7 @@ fn run() -> Result<(), String> {
     let term = Term::new(config, &size, events.clone());
     let pty = Pty::spawn(winsize(size, &fonts)).map_err(|e| format!("starting the shell: {e}"))?;
     let mut app = App {
+        ui,
         window,
         fonts,
         term,
@@ -172,11 +183,10 @@ impl App {
             }
             let mut fds = vec![self.pty.output(), self.pty.ended()];
             fds.extend(self.paste.as_ref().map(|(pipe, _)| pipe.as_fd()));
-            let events = self
-                .window
-                .dispatch(timeout, &fds)
-                .map_err(|e| e.to_string())?;
+            let mut dispatched = self.ui.dispatch(timeout, &fds).map_err(|e| e.to_string())?;
             drop(fds);
+            let events = dispatched.take(self.window);
+            let ready = dispatched.ready;
             if events.closed {
                 return Ok(());
             }
@@ -186,7 +196,7 @@ impl App {
             for input in &events.input {
                 self.input(input);
             }
-            if events.ready.contains(&0) {
+            if ready.contains(&0) {
                 output.clear();
                 let open = self
                     .pty
@@ -208,20 +218,23 @@ impl App {
                 self.parser.stop_sync(&mut self.term);
                 self.dirty = true;
             }
-            if events.ready.contains(&2) {
+            if ready.contains(&2) {
                 self.receive_paste();
             }
             self.answer();
             self.flush()?;
-            if events.ready.contains(&1) {
+            if ready.contains(&1) {
                 let status = self.pty.wait().map_err(|e| e.to_string())?;
                 info!("the shell ended: {status}");
                 return Ok(());
             }
             if self.dirty {
                 self.dirty = false;
-                let scene = view::draw(&self.term, &self.fonts, self.focused, self.window.size());
-                self.window.draw(&scene).map_err(|e| e.to_string())?;
+                let size = self.ui.size(self.window);
+                let scene = view::draw(&self.term, &self.fonts, self.focused, size);
+                self.ui
+                    .draw(self.window, &scene)
+                    .map_err(|e| e.to_string())?;
             }
         }
     }
@@ -229,7 +242,7 @@ impl App {
     /// A new window size: a new grid, and the shell learns of it.
     fn resize(&mut self) {
         self.dirty = true;
-        let (columns, lines) = view::grid(self.window.size(), &self.fonts.regular);
+        let (columns, lines) = view::grid(self.ui.size(self.window), &self.fonts.regular);
         let size = Size { columns, lines };
         if size == self.size {
             return;
@@ -254,7 +267,7 @@ impl App {
                 }
             }
             Input::Pointer(pointer) => {
-                let mods = self.window.modifiers();
+                let mods = self.ui.modifiers();
                 self.dirty |= self.mouse.event(
                     pointer,
                     mods,
@@ -275,12 +288,12 @@ impl App {
             match key.sym {
                 Keysym::C | Keysym::c => {
                     if let Some(text) = self.term.selection_to_string() {
-                        self.window.copy(text);
+                        self.ui.copy(text);
                     }
                     return;
                 }
                 Keysym::V | Keysym::v => {
-                    match self.window.paste() {
+                    match self.ui.paste() {
                         Ok(pipe) => self.paste = pipe.map(|p| (p, Vec::new())),
                         Err(e) => warn!("pasting: {e}"),
                     }
@@ -331,9 +344,9 @@ impl App {
                     let size = window_size(self.size, &self.fonts);
                     self.outgoing.extend_from_slice(format(size).as_bytes());
                 }
-                Event::ClipboardStore(ClipboardType::Clipboard, text) => self.window.copy(text),
-                Event::Title(title) => self.window.set_title(&title),
-                Event::ResetTitle => self.window.set_title(TITLE),
+                Event::ClipboardStore(ClipboardType::Clipboard, text) => self.ui.copy(text),
+                Event::Title(title) => self.ui.set_title(self.window, &title),
+                Event::ResetTitle => self.ui.set_title(self.window, TITLE),
                 Event::MouseCursorDirty | Event::CursorBlinkingChange | Event::Wakeup => {
                     self.dirty = true
                 }

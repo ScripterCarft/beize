@@ -12,7 +12,7 @@ mod clock;
 
 use std::process::ExitCode;
 
-use beize_ui::{Color, Edge, Family, Rect, Scene, Style, Text, Window};
+use beize_ui::{App, Color, Edge, Family, Panel, Rect, Scene, Style, Text};
 use tracing::info;
 
 /// The menu bar's height at scale 1, as macOS'.
@@ -34,28 +34,38 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let mut bar = Window::panel("menu-bar", Edge::Top, HEIGHT).map_err(|e| e.to_string())?;
-    info!("menu bar on {}", bar.gpu_name());
+    let mut app = App::connect().map_err(|e| e.to_string())?;
+    let bar = app
+        .panel(&Panel {
+            namespace: "menu-bar",
+            edge: Edge::Top,
+            width: 0,
+            height: HEIGHT,
+            margin: 0,
+        })
+        .map_err(|e| e.to_string())?;
+    info!("menu bar on {}", app.gpu_name());
     let minutes = clock::Minutes::new().map_err(|e| format!("the minute's timer: {e}"))?;
     loop {
-        let events = bar
+        let mut dispatched = app
             .dispatch(None, &[minutes.fd()])
             .map_err(|e| e.to_string())?;
+        let events = dispatched.take(bar);
         if events.closed {
             // Its screen went: a failure, so the service manager starts the
             // shell again.
             return Err("the compositor closed the menu bar".into());
         }
-        let tick = !events.ready.is_empty();
+        let tick = !dispatched.ready.is_empty();
         if tick {
             minutes
                 .take()
                 .map_err(|e| format!("the minute's timer: {e}"))?;
         }
         if events.configured || tick {
-            let size = bar.size();
-            let scene = menu_bar(bar.text(), size, clock::now());
-            bar.draw(&scene).map_err(|e| e.to_string())?;
+            let size = app.size(bar);
+            let scene = menu_bar(app.text(), size, clock::now());
+            app.draw(bar, &scene).map_err(|e| e.to_string())?;
         }
     }
 }

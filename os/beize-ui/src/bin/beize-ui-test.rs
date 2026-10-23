@@ -15,7 +15,7 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use beize_ui::{Color, Family, Offscreen, Rect, Scene, Style, Text, Window};
+use beize_ui::{App, Color, Family, Offscreen, Rect, Scene, Style, Text};
 
 const DARK: Color = Color::rgb(0x1e1e1e);
 const LIGHT: Color = Color::rgb(0xf4f4f4);
@@ -65,13 +65,17 @@ fn run() -> Result<(), String> {
 }
 
 fn window(seconds: u64) -> Result<(), String> {
-    let mut window = Window::open("beize-ui-test", "beize-ui-test").map_err(|e| e.to_string())?;
-    println!("gpu {}", window.gpu_name());
+    let mut app = App::connect().map_err(|e| e.to_string())?;
+    let window = app
+        .open("beize-ui-test", "beize-ui-test")
+        .map_err(|e| e.to_string())?;
+    println!("gpu {}", app.gpu_name());
     let deadline = Instant::now() + Duration::from_secs(seconds);
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-        let events = window
+        let events = app
             .dispatch(Some(left), &[])
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+            .take(window);
         if events.closed {
             break;
         }
@@ -79,10 +83,10 @@ fn window(seconds: u64) -> Result<(), String> {
             println!("{input:?}");
         }
         if events.configured {
-            let (w, h) = window.size();
+            let (w, h) = app.size(window);
             println!("configure {w}x{h}");
-            let scene = sample(window.text(), w, h);
-            window.draw(&scene).map_err(|e| e.to_string())?;
+            let scene = sample(app.text(), w, h);
+            app.draw(window, &scene).map_err(|e| e.to_string())?;
         }
     }
     println!("done");

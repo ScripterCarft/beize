@@ -4,15 +4,16 @@
 //! beize-draw, which the compositor shares; input from the keyboard and
 //! the pointer. Widgets come with the shell (step 4).
 
+mod app;
 mod clipboard;
 pub mod gpu;
 pub mod input;
 pub mod log;
 pub mod offscreen;
 mod renderer;
-pub mod window;
+mod window;
 
+pub use app::{App, Dispatched, Edge, Events, Panel, WindowId};
 pub use beize_draw::{Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, text};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;
-pub use window::{Edge, Events, Window};
