@@ -59,6 +59,73 @@ pub fn attach(
     unsafe { ioctl(dmabuf, Setter::<IMPORT_SYNC_FILE, SyncFileArg>::new(arg)) }
 }
 
+/// `struct sync_fence_info` (linux/sync_file.h).
+#[repr(C)]
+struct FenceInfo {
+    obj_name: [u8; 32],
+    driver_name: [u8; 32],
+    status: i32,
+    flags: u32,
+    timestamp_ns: u64,
+}
+
+/// `struct sync_file_info` (linux/sync_file.h).
+#[repr(C)]
+struct FileInfo {
+    name: [u8; 32],
+    status: i32,
+    flags: u32,
+    num_fences: u32,
+    pad: u32,
+    sync_fence_info: u64,
+}
+
+const SYNC_IOC_FILE_INFO: rustix::ioctl::Opcode = opcode::read_write::<FileInfo>(b'>', 4);
+
+/// When the last fence of `sync_file` signalled, by the kernel's
+/// CLOCK_MONOTONIC (as KMS's vblank times); None while one is pending.
+pub fn signalled_at(sync_file: BorrowedFd<'_>) -> Option<std::time::Duration> {
+    let info = |fences: &mut [FenceInfo]| {
+        let mut arg = FileInfo {
+            name: [0; 32],
+            status: 0,
+            flags: 0,
+            num_fences: u32::try_from(fences.len()).ok()?,
+            pad: 0,
+            sync_fence_info: fences.as_mut_ptr() as u64,
+        };
+        // SAFETY: the argument has the kernel's layout and lives during the
+        // call; the kernel writes at most `num_fences` entries to the array
+        // it points to (none when it is 0, which asks for the number).
+        unsafe {
+            ioctl(
+                sync_file,
+                Updater::<SYNC_IOC_FILE_INFO, FileInfo>::new(&mut arg),
+            )
+        }
+        .ok()?;
+        Some(arg)
+    };
+    let count = info(&mut [])?.num_fences as usize;
+    let mut fences: Vec<FenceInfo> = (0..count)
+        .map(|_| FenceInfo {
+            obj_name: [0; 32],
+            driver_name: [0; 32],
+            status: 0,
+            flags: 0,
+            timestamp_ns: 0,
+        })
+        .collect();
+    let file = info(&mut fences)?;
+    if file.status != 1 {
+        return None;
+    }
+    fences
+        .iter()
+        .map(|f| std::time::Duration::from_nanos(f.timestamp_ns))
+        .max()
+}
+
 /// The end of a frame, as Smithay's `SyncPoint` carries it.
 #[derive(Debug)]
 pub struct SyncFile(pub OwnedFd);

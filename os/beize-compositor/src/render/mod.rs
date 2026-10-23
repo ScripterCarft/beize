@@ -38,6 +38,7 @@ use beize_vulkan::buffer::HostBuffer;
 use beize_vulkan::pipeline::Pipelines;
 use device::{Caps, Ext, Garbage, Shared};
 pub use frame::VkFrame;
+pub use sync::signalled_at;
 pub use target::{Target, VkFramebuffer};
 pub use texture::VkTexture;
 

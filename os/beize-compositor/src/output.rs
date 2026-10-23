@@ -13,7 +13,7 @@
 //! alone, without drawing (`CursorPlane`).
 
 use std::cell::RefCell;
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::time::Duration;
 
 use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
@@ -43,7 +43,7 @@ use crate::cursor;
 use crate::pacing::{Pacing, Times};
 use crate::schedule::Schedule;
 use beize_compositor::error::{Context, Result, error};
-use beize_compositor::render::{Target, VkRenderer};
+use beize_compositor::render::{Target, VkRenderer, signalled_at};
 
 /// What the screen is, for clients (`wl_output`).
 #[derive(Debug, Clone)]
@@ -509,6 +509,28 @@ fn period(mode: &Mode) -> Duration {
     Duration::from_nanos(1_000_000_000_000 / u64::from(millihertz))
 }
 
+/// How long a vblank of `mode` lasts: its blank lines (total less shown)
+/// at the time a line takes, as Mutter and KWin compute it.
+fn blank(mode: &Mode) -> Duration {
+    blank_lines(mode.size().1, mode.vsync().2, mode.hsync().2, mode.clock())
+}
+
+/// `vtotal - vdisplay` lines of `htotal` pixels at `khz`.
+fn blank_lines(vdisplay: u16, vtotal: u16, htotal: u16, khz: u32) -> Duration {
+    let lines = u64::from(vtotal.saturating_sub(vdisplay));
+    Duration::from_nanos(lines * u64::from(htotal) * 1_000_000 / u64::from(khz).max(1))
+}
+
+/// A drawn frame waiting for its vblank: its image, its times, its fence
+/// (when the GPU is done) and whether the schedule learns from it (not
+/// from one that also set up a buffer or the mode).
+struct Pending<B: Buffer> {
+    slot: Slot<B>,
+    times: Times,
+    fence: Option<OwnedFd>,
+    learn: bool,
+}
+
 /// What `Output::render` did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Frame {
@@ -534,7 +556,9 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     /// A commit waits for its vblank.
     flipping: bool,
     /// Its image, if it brought one, and when it was asked for and drawn.
-    pending: Option<(Slot<A::Buffer>, Times)>,
+    pending: Option<Pending<A::Buffer>>,
+    /// When the next frame is planned to be drawn (`draw_at`).
+    planned: Option<Duration>,
     /// On the screen.
     shown: Option<Slot<A::Buffer>>,
     modeset: bool,
@@ -590,13 +614,14 @@ where
             direct,
             flipping: false,
             pending: None,
+            planned: None,
             shown: None,
             modeset: true,
             frames: 0,
             last: None,
             pipe,
-            schedule: Schedule::new(refresh),
-            pacing: Pacing::new(refresh),
+            schedule: Schedule::new(refresh, blank(&mode)),
+            pacing: Pacing::new(refresh, blank(&mode)),
             clock: Clock::new(),
         }
     }
@@ -613,7 +638,9 @@ where
         {
             self.schedule.vblank(time);
         }
-        Some(self.schedule.draw_at(now))
+        let at = self.schedule.draw_at(now);
+        self.planned = Some(at);
+        Some(at)
     }
 
     /// The last vblank, from KMS: the libdrm query (a wait for none).
@@ -760,18 +787,24 @@ where
         }
         self.flipping = true;
         let committed: Duration = self.clock.now().into();
-        if !setup {
-            self.schedule.drawn(committed.saturating_sub(began));
-        }
+        // Planned by the timer; a frame drawn without it (after a pause)
+        // from when it began.
+        let planned = self.planned.take().map_or(began, |p| p.min(began));
         if damaged {
             self.swapchain.submitted(&slot);
             let times = Times {
                 requested,
                 due: self.schedule.target(requested),
+                planned,
                 began,
                 committed,
             };
-            self.pending = Some((slot, times));
+            self.pending = Some(Pending {
+                slot,
+                times,
+                fence,
+                learn: !setup,
+            });
         }
         Ok(Frame::Queued)
     }
@@ -787,15 +820,24 @@ where
             self.schedule.vblank(time);
         }
         let gpu_ms = self.renderer.take_gpu_ms();
-        if let Some(ms) = gpu_ms {
-            self.schedule.gpu(Duration::from_secs_f64(ms / 1000.0));
-        }
-        let Some((slot, times)) = self.pending.take() else {
+        let Some(Pending {
+            slot,
+            times,
+            fence,
+            learn,
+        }) = self.pending.take()
+        else {
             debug!("cursor plane only, nothing drawn");
             return time;
         };
+        // KMS showed it, so its fence has signalled: when, the kernel says.
+        let gpu_done = fence.as_ref().and_then(|f| signalled_at(f.as_fd()));
+        if learn {
+            let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
+            self.schedule.ready(times.planned, ready, times.due);
+        }
         if let Some(time) = time {
-            self.pacing.shown(times, time, gpu_ms);
+            self.pacing.shown(times, time, gpu_ms, gpu_done);
         }
         self.shown = Some(slot);
         self.frames += 1;
@@ -836,6 +878,7 @@ where
         self.swapchain.reset_buffers();
         self.flipping = false;
         self.pending = None;
+        self.planned = None;
         self.shown = None;
         self.modeset = true;
         self.last = None;
@@ -886,5 +929,16 @@ mod tests {
             mode((800, 600), 75, false, false),
         ];
         assert_eq!(best_mode(&modes), 0);
+    }
+
+    #[test]
+    fn the_vblank_lasts_its_blank_lines() {
+        // The AW2723DF's 2560x1440 at 240 Hz, as KMS listed it on the
+        // owner's PC: 179 blank lines of 2720 pixels at 1056.75 MHz.
+        assert_eq!(
+            blank_lines(1440, 1619, 2720, 1_056_750),
+            Duration::from_nanos(460_733)
+        );
+        assert_eq!(blank_lines(800, 800, 1280, 0), Duration::ZERO);
     }
 }
