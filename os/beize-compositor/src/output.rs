@@ -41,7 +41,7 @@ use tracing::{debug, info, warn};
 
 use crate::cursor;
 use crate::pacing::{Pacing, Times};
-use crate::schedule::Schedule;
+use crate::schedule::{Plan, Schedule};
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Target, VkRenderer, signalled_at};
 
@@ -522,9 +522,11 @@ fn blank_lines(vdisplay: u16, vtotal: u16, htotal: u16, khz: u32) -> Duration {
 }
 
 /// A drawn frame waiting for its vblank: its image, its times, its fence
-/// (when the GPU is done) and whether the schedule learns from it (not
-/// from one that also set up a buffer or the mode).
+/// (when the GPU is done), whether the schedule learns from it (not from
+/// one that also set up a buffer or the mode) and the vblank it was planned
+/// for, if one.
 struct Pending<B: Buffer> {
+    aim: Option<Duration>,
     slot: Slot<B>,
     times: Times,
     fence: Option<OwnedFd>,
@@ -557,8 +559,9 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     flipping: bool,
     /// Its image, if it brought one, and when it was asked for and drawn.
     pending: Option<Pending<A::Buffer>>,
-    /// When the next frame is planned to be drawn (`draw_at`).
-    planned: Option<Duration>,
+    /// When the next frame is planned to be drawn, and for which vblank
+    /// (`draw_at`).
+    planned: Option<Plan>,
     /// On the screen.
     shown: Option<Slot<A::Buffer>>,
     modeset: bool,
@@ -638,9 +641,9 @@ where
         {
             self.schedule.vblank(time);
         }
-        let at = self.schedule.draw_at(now);
-        self.planned = Some(at);
-        Some(at)
+        let plan = self.schedule.draw_at(now);
+        self.planned = Some(plan);
+        Some(plan.at)
     }
 
     /// The last vblank, from KMS: the libdrm query (a wait for none).
@@ -788,22 +791,24 @@ where
         self.flipping = true;
         let committed: Duration = self.clock.now().into();
         // Planned by the timer; a frame drawn without it (after a pause)
-        // from when it began.
-        let planned = self.planned.take().map_or(began, |p| p.min(began));
+        // from when it began, for no vblank.
+        let plan = self.planned.take();
         if damaged {
             self.swapchain.submitted(&slot);
             let times = Times {
                 requested,
                 due: self.schedule.target(requested),
-                planned,
+                planned: plan.map_or(began, |p| p.at.min(began)),
                 began,
                 committed,
+                lead: plan.map(|p| p.lead),
             };
             self.pending = Some(Pending {
                 slot,
                 times,
                 fence,
                 learn: !setup,
+                aim: plan.and_then(|p| p.aim),
             });
         }
         Ok(Frame::Queued)
@@ -825,6 +830,7 @@ where
             times,
             fence,
             learn,
+            aim,
         }) = self.pending.take()
         else {
             debug!("cursor plane only, nothing drawn");
@@ -834,7 +840,7 @@ where
         let gpu_done = fence.as_ref().and_then(|f| signalled_at(f.as_fd()));
         if learn {
             let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
-            self.schedule.ready(times.planned, ready, times.due);
+            self.schedule.ready(times.planned, ready, aim);
         }
         if let Some(time) = time {
             self.pacing.shown(times, time, gpu_ms, gpu_done);

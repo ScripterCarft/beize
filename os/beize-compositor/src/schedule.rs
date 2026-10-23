@@ -15,6 +15,13 @@
 //! - Ready a margin before the vblank begins, for the kernel to program the
 //!   display: 1 ms (KWin), plus what frames that were ready later than that
 //!   lacked, learnt and slowly given back, at most 3 ms or half a refresh.
+//!   Learnt only from frames planned for a vblank, against that vblank (as
+//!   KWin's commit thread against its target): a change that came after
+//!   the deadline, or while a frame waited for its vblank, is drawn at once
+//!   and says nothing about the margin. Learning from it (0.5.99) fed
+//!   itself: a late change raised the margin, which moved the deadline next
+//!   to the vblank, before clients that heard "frame done" there commit,
+//!   so their next change came late too – every frame a vblank behind.
 //! - After an idle stretch (100 refreshes, KWin) the GPU clocks down: the
 //!   next frame is drawn at once.
 //!
@@ -44,6 +51,15 @@ const RECENT: usize = 120;
 /// the display's clock drifts from the mode's nominal refresh (50 ppm are
 /// 50 µs a second).
 const STALE: Duration = Duration::from_secs(1);
+
+/// When a frame is to be drawn, the vblank (where it ends) it is planned
+/// for if its deadline is not past, and the lead it was planned with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub at: Duration,
+    pub aim: Option<Duration>,
+    pub lead: Duration,
+}
 
 pub struct Schedule {
     refresh: Duration,
@@ -88,15 +104,19 @@ impl Schedule {
         self.last = None;
     }
 
-    /// A frame planned to begin at `planned` for vblank `due` was ready
-    /// (committed and done on the GPU) at `ready`.
-    pub fn ready(&mut self, planned: Duration, ready: Duration, due: Duration) {
+    /// A frame planned to begin at `planned`, for vblank `aim` if it was
+    /// planned for one, was ready (committed and done on the GPU) at
+    /// `ready`.
+    pub fn ready(&mut self, planned: Duration, ready: Duration, aim: Option<Duration>) {
         if self.drawing.len() == RECENT {
             self.drawing.pop_front();
         }
         self.drawing.push_back(ready.saturating_sub(planned));
         self.last = Some(ready);
-        let deadline = due.saturating_sub(self.blank + MARGIN);
+        let Some(aim) = aim else {
+            return;
+        };
+        let deadline = aim.saturating_sub(self.blank + MARGIN);
         if ready > deadline {
             self.learnt += ready - deadline;
         } else {
@@ -125,12 +145,30 @@ impl Schedule {
     }
 
     /// When to draw a change there at `now`: the deadline of the next
-    /// vblank, or at once if it is past (the frame may still make it).
-    pub fn draw_at(&self, now: Duration) -> Duration {
+    /// vblank, or at once if it is past (the frame may still make it, but
+    /// it is planned for none).
+    pub fn draw_at(&self, now: Duration) -> Plan {
+        let lead = self.lead(now);
         if self.phase.is_none() {
-            return now;
+            return Plan {
+                at: now,
+                aim: None,
+                lead,
+            };
         }
-        self.after(now).saturating_sub(self.lead(now)).max(now)
+        let next = self.after(now);
+        match next.checked_sub(lead) {
+            Some(at) if at >= now => Plan {
+                at,
+                aim: Some(next),
+                lead,
+            },
+            _ => Plan {
+                at: now,
+                aim: None,
+                lead,
+            },
+        }
     }
 
     /// The first vblank after `t`; without a phase, a refresh after it.
@@ -161,7 +199,7 @@ mod tests {
     fn schedule() -> Schedule {
         let mut s = Schedule::new(at(8000), at(500));
         s.vblank(at(100_000));
-        s.ready(at(101_000), at(102_500), at(108_000));
+        s.ready(at(101_000), at(102_500), Some(at(108_000)));
         s
     }
 
@@ -170,11 +208,11 @@ mod tests {
         let mut s = schedule();
         assert_eq!(s.lead(at(103_000)), at(3500));
         // A frame that took 2.5 ms: it sets the lead while it is recent.
-        s.ready(at(110_000), at(112_500), at(116_000));
+        s.ready(at(110_000), at(112_500), Some(at(116_000)));
         assert_eq!(s.lead(at(113_000)), at(4000));
         for n in 0..RECENT as u64 {
             let t = 120_000 + n * 8000;
-            s.ready(at(t), at(t + 1000), at(t + 4000));
+            s.ready(at(t), at(t + 1000), Some(at(t + 4000)));
         }
         assert_eq!(s.lead(at(120_000 + RECENT as u64 * 8000)), at(3500));
     }
@@ -182,32 +220,55 @@ mod tests {
     #[test]
     fn a_frame_ready_too_late_raises_the_margin_and_it_goes_back_slowly() {
         let mut s = schedule();
-        // Due at 116 ms: ready by 114.5. Ready at 115: 0.5 ms short.
-        s.ready(at(112_000), at(115_000), at(116_000));
+        // Planned for 116 ms: ready by 114.5. Ready at 115: 0.5 ms short.
+        s.ready(at(112_000), at(115_000), Some(at(116_000)));
         assert_eq!(s.learnt, at(500));
         // 1.5 ms of room: a tenth of it goes back.
-        s.ready(at(120_000), at(121_000), at(124_000));
+        s.ready(at(120_000), at(121_000), Some(at(124_000)));
         assert_eq!(s.learnt, at(350));
         // At most 3 ms, at most half a refresh.
-        s.ready(at(130_000), at(140_000), at(132_000));
+        s.ready(at(130_000), at(140_000), Some(at(132_000)));
         assert_eq!(s.learnt, at(3000));
         let mut fast = Schedule::new(at(4000), at(500));
-        fast.ready(at(0), at(10_000), at(4000));
+        fast.ready(at(0), at(10_000), Some(at(4000)));
         assert_eq!(fast.learnt, at(2000));
+    }
+
+    #[test]
+    fn a_frame_drawn_at_once_teaches_nothing() {
+        // 0.5.99: a change that came while a frame waited for its vblank is
+        // drawn after that vblank, late for the one its change was due
+        // at. It must not raise the margin: that moved the deadline next to
+        // the vblank and kept every frame a vblank behind.
+        let mut s = schedule();
+        for n in 0..50u64 {
+            let vblank = 108_000 + n * 8000;
+            s.ready(at(vblank + 100), at(vblank + 400), None);
+        }
+        assert_eq!(s.learnt, Duration::ZERO);
+        assert_eq!(s.lead(at(508_500)), at(3500));
     }
 
     #[test]
     fn a_change_is_drawn_at_its_vblanks_deadline() {
         let s = schedule();
-        // Right after a vblank: drawn 3.5 ms before the next.
+        // Right after a vblank: drawn 3.5 ms before the next, for it.
         assert_eq!(s.target(at(103_000)), at(108_000));
-        assert_eq!(s.draw_at(at(103_000)), at(104_500));
+        assert_eq!(
+            s.draw_at(at(103_000)),
+            Plan {
+                at: at(104_500),
+                aim: Some(at(108_000)),
+                lead: at(3500)
+            }
+        );
         // Past the deadline: due at the next vblank but one, drawn at
-        // once for the next.
+        // once, planned for none.
         assert_eq!(s.target(at(105_000)), at(116_000));
-        assert_eq!(s.draw_at(at(105_000)), at(105_000));
+        let plan = s.draw_at(at(105_000));
+        assert_eq!((plan.at, plan.aim), (at(105_000), None));
         // Long after the known vblank, on its phase.
-        assert_eq!(s.draw_at(at(503_000)), at(504_500));
+        assert_eq!(s.draw_at(at(503_000)).at, at(504_500));
     }
 
     #[test]
@@ -215,11 +276,11 @@ mod tests {
         let s = schedule();
         let later = at(102_500) + at(8000) * IDLE_REFRESHES + at(1);
         assert_eq!(s.lead(later), at(8000));
-        assert_eq!(s.draw_at(later), later);
+        assert_eq!(s.draw_at(later).at, later);
         // A frame never drawn yet: the same.
         let mut first = Schedule::new(at(8000), at(500));
         first.vblank(at(100_000));
-        assert_eq!(first.draw_at(at(101_000)), at(101_000));
+        assert_eq!(first.draw_at(at(101_000)).at, at(101_000));
     }
 
     #[test]
@@ -227,7 +288,7 @@ mod tests {
         let mut s = schedule();
         s.reset();
         assert!(s.stale(at(0)));
-        assert_eq!(s.draw_at(at(103_000)), at(103_000));
+        assert_eq!(s.draw_at(at(103_000)).at, at(103_000));
     }
 
     #[test]

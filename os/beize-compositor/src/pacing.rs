@@ -43,7 +43,8 @@ const NOTABLE: Duration = Duration::from_secs(1);
 
 /// When a frame's change arrived, the vblank it is due at (where it ends),
 /// when its drawing was planned to begin and began, and when it was
-/// committed; on CLOCK_MONOTONIC, as KMS's vblank times.
+/// committed; on CLOCK_MONOTONIC, as KMS's vblank times. And the schedule's
+/// lead it was planned with, if it was planned.
 #[derive(Clone, Copy, Debug)]
 pub struct Times {
     pub requested: Duration,
@@ -51,6 +52,7 @@ pub struct Times {
     pub planned: Duration,
     pub began: Duration,
     pub committed: Duration,
+    pub lead: Option<Duration>,
 }
 
 /// The frames of one run.
@@ -71,6 +73,8 @@ struct Run {
     cpu: Vec<f64>,
     gpu: Vec<f64>,
     ahead: Vec<f64>,
+    /// The schedule's lead, in milliseconds.
+    lead: Vec<f64>,
 }
 
 pub struct Pacing {
@@ -131,6 +135,7 @@ impl Pacing {
             .push(ms(times.committed.saturating_sub(times.began)));
         run.gpu.extend(gpu_ms);
         run.ahead.push(ms(begins) - ms(ready));
+        run.lead.extend(times.lead.map(ms));
         if vblank.saturating_sub(run.first) >= PIECE {
             self.report();
             self.run.first = vblank;
@@ -180,12 +185,13 @@ impl Pacing {
         let length = self.last?.saturating_sub(run.first);
         let budget = ms(self.refresh);
         let (cpu, gpu, latency) = (sorted(&run.cpu), sorted(&run.gpu), sorted(&run.latency));
-        let ahead = sorted(&run.ahead);
+        let (ahead, lead) = (sorted(&run.ahead), sorted(&run.lead));
         let busy = (median(&cpu) + median(&gpu)) / budget * 100.0;
         Some(format!(
             "pacing: {} frames in {:.2} s at {:.0} Hz, {} late (drawing {}, GPU {}, display {}); \
              change to screen median {:.2} ms, max {:.2}; ready median {:.2} ms before the \
-             vblank begins, least {:.2}; drawing (CPU) median {:.2} ms, 99 % {:.2}, max {:.2}; \
+             vblank begins, least {:.2}; lead median {:.2} ms, max {:.2}; drawing (CPU) median \
+             {:.2} ms, 99 % {:.2}, max {:.2}; \
              GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame",
             run.frames,
             length.as_secs_f64(),
@@ -198,6 +204,8 @@ impl Pacing {
             max(&latency),
             median(&ahead),
             ahead.first().copied().unwrap_or(0.0),
+            median(&lead),
+            max(&lead),
             median(&cpu),
             percentile(&cpu, 0.99),
             max(&cpu),
@@ -258,6 +266,7 @@ mod tests {
             planned: requested,
             began: requested,
             committed: requested + at(cpu),
+            lead: Some(at(3000)),
         };
         p.shown(times, at((n + shown) * vblank), Some(0.1), None);
     }
@@ -275,6 +284,7 @@ mod tests {
         assert!(line.contains("0 late"), "{line}");
         // Committed 2.8 ms before the vblank's end, 0.461 ms of blank.
         assert!(line.contains("ready median 2.34 ms before"), "{line}");
+        assert!(line.contains("lead median 3.00 ms, max 3.00"), "{line}");
     }
 
     #[test]
@@ -297,6 +307,7 @@ mod tests {
             planned: at(6 * vblank - 3000),
             began: at(6 * vblank - 3000),
             committed: at(6 * vblank - 2800),
+            lead: None,
         };
         p.shown(times, at(7 * vblank), None, Some(at(6 * vblank - 100)));
         assert_eq!(p.run.late_gpu, 1);
