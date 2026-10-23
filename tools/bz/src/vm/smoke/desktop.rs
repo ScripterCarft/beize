@@ -16,7 +16,8 @@
 //! and closes it. A client that asks the compositor for its frame
 //! (xdg-decoration) gets the same title bar, its buttons the same to the
 //! pixel, above its pattern, centred with it; the bar moves, maximizes and
-//! closes its window as Beize UI's does.
+//! closes its window as Beize UI's does. Windows have round corners
+//! (compared without them), maximized ones do not.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //!
@@ -105,11 +106,18 @@ const RESIZE_BY: (i32, i32) = (60, 40);
 
 /// Beize UI's title bar along the top of its windows (os/beize-ui,
 /// `titlebar`), and how far the test drags a window by it.
-const TITLE_BAR: usize = 32;
+const TITLE_BAR: usize = 28;
 const UI_MOVE_BY: (i32, i32) = (-100, 40);
-/// The bar's buttons at its right end, 46 px each (os/beize-draw,
-/// `titlebar`): maximize and close.
-const BUTTONS: usize = 2 * 46;
+/// The bar's circles at its left end, 20 px apart from 8 px on, close
+/// centred 14 px in (os/beize-draw, `titlebar`); compared from the end of
+/// the round corner on.
+const BUTTONS: (usize, usize) = (CORNER, 68);
+const CLOSE_X: usize = 14;
+/// A place on a bar away from its circles.
+const BAR_GRIP_X: usize = 120;
+/// The windows' round corners (os/beize-compositor, `corners`): the
+/// squares they lie in are left out where windows are compared.
+const CORNER: usize = 10;
 /// How far the test drags the framed client's window by the compositor's
 /// bar.
 const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);
@@ -290,6 +298,12 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         centred.1
     );
     wait_for_pattern(&shell, &machine, at, size, "desktop")?;
+    // Its corner is round: the corner pixel shows what is below.
+    let desktop = Image::read_ppm(&fs::read(machine.logs.join("desktop-screen.ppm"))?)?;
+    ensure!(
+        desktop.pixel(at.0, at.1) != QUADRANTS[0],
+        "the client's window has a square corner"
+    );
     say!(
         "  ok: the client's window opened in its own size, {}x{}, centred below the menu bar, \
          exactly its pattern; it is offered no panels",
@@ -337,6 +351,12 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         (screen.0, screen.1 - MENU_BAR),
         "maximized",
     )?;
+    // Maximized, its corners are the screen's: square.
+    let maximized = Image::read_ppm(&fs::read(machine.logs.join("maximized-screen.ppm"))?)?;
+    ensure!(
+        maximized.pixel(0, MENU_BAR) == QUADRANTS[0],
+        "the maximized window has a round corner"
+    );
     keys(&qmp, &["m"])?;
     wait_for_pattern(&shell, &machine, moved, grown, "restored")?;
     say!(
@@ -453,11 +473,13 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     // Its buttons, as the screen shows them now (the window active, the
     // pointer away): the compositor's frame has to show the same.
     let restored = machine.logs.join("beize-ui-restored-screen.ppm");
-    let ui_buttons = Image::read_ppm(&fs::read(&restored)?)?
-        .crop((moved.0 + w - BUTTONS, moved.1), (BUTTONS, TITLE_BAR))?;
-    // The close button, the bar's last 46 pixels.
+    let ui_buttons = Image::read_ppm(&fs::read(&restored)?)?.crop(
+        (moved.0 + BUTTONS.0, moved.1),
+        (BUTTONS.1 - BUTTONS.0, TITLE_BAR),
+    )?;
+    // The close button, the red circle.
     let close = (
-        i32::try_from(moved.0 + w - 23)?,
+        i32::try_from(moved.0 + CLOSE_X)?,
         i32::try_from(moved.1 + TITLE_BAR / 2)?,
     );
     click(&qmp, screen, close, 1)?;
@@ -565,8 +587,12 @@ fn framed(
         centred.1
     );
     wait_for_pattern(shell, machine, at, size, "framed")?;
-    let buttons =
-        |(x, y): (usize, usize)| ((x + size.0 - BUTTONS, y - TITLE_BAR), (BUTTONS, TITLE_BAR));
+    let buttons = |(x, y): (usize, usize)| {
+        (
+            (x + BUTTONS.0, y - TITLE_BAR),
+            (BUTTONS.1 - BUTTONS.0, TITLE_BAR),
+        )
+    };
     wait_for_image(
         machine,
         buttons(at),
@@ -580,7 +606,10 @@ fn framed(
     );
 
     let on_bar = |(x, y): (usize, usize)| -> Result<(i32, i32)> {
-        Ok((i32::try_from(x + 40)?, i32::try_from(y - TITLE_BAR / 2)?))
+        Ok((
+            i32::try_from(x + BAR_GRIP_X)?,
+            i32::try_from(y - TITLE_BAR / 2)?,
+        ))
     };
     let grip = on_bar(at)?;
     let to = (grip.0 + FRAMED_MOVE_BY.0, grip.1 + FRAMED_MOVE_BY.1);
@@ -601,7 +630,7 @@ fn framed(
     park(qmp, screen)?;
     wait_for_pattern(shell, machine, moved, size, "framed-restored")?;
     let close = (
-        i32::try_from(moved.0 + size.0 - 23)?,
+        i32::try_from(moved.0 + CLOSE_X)?,
         i32::try_from(moved.1 - TITLE_BAR / 2)?,
     );
     click(qmp, screen, close, 1)?;
@@ -1042,8 +1071,9 @@ fn expected(x: usize, y: usize, width: usize, height: usize) -> [u8; 3] {
 }
 
 /// Whether `window` shows exactly what is `wanted` (named `what` in
-/// errors), but rounding; if not, `difference` shows the pixels that
-/// differ in magenta over a dimmed window.
+/// errors), but rounding and its round corners (`CORNER`); if not,
+/// `difference` shows the pixels that differ in magenta over a dimmed
+/// window.
 fn compare(
     window: &Image,
     wanted: impl Fn(usize, usize) -> [u8; 3],
@@ -1056,8 +1086,14 @@ fn compare(
         pixels: window.pixels.iter().map(|c| c / 3).collect(),
     };
     let mut differing = 0;
-    for y in 0..window.height {
-        for x in 0..window.width {
+    let (w, h) = (window.width, window.height);
+    let corner =
+        |x: usize, y: usize| (x < CORNER || x + CORNER >= w) && (y < CORNER || y + CORNER >= h);
+    for y in 0..h {
+        for x in 0..w {
+            if corner(x, y) {
+                continue;
+            }
             let at = (y * window.width + x) * 3;
             let shown = &window.pixels[at..at + 3];
             if shown
@@ -1133,8 +1169,11 @@ mod tests {
         screen.pixels[0] += CHANNEL_TOLERANCE;
         compare(&screen, &difference).unwrap();
         assert!(!difference.exists());
-        // One pixel in the corner: a character that changed.
+        // A round corner is left out.
         screen.pixels[3] = 0;
+        compare(&screen, &difference).unwrap();
+        // One pixel past it: a character that changed.
+        screen.pixels[CORNER * 3] = 0;
         assert!(compare(&screen, &difference).is_err());
         assert!(difference.exists());
         fs::remove_file(&difference).unwrap();

@@ -212,7 +212,8 @@ impl State {
             match released {
                 Some(Button::Close) => toplevel.send_close(),
                 Some(Button::Maximize) => self.toggle_maximized(&toplevel),
-                None => {}
+                // Not available until the dock (`titlebar`).
+                Some(Button::Minimize) | None => {}
             }
         }
     }

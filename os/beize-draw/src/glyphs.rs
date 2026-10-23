@@ -145,11 +145,29 @@ impl Glyphs {
     /// The symbol `name` in a square of `size` pixels: rasterized if new.
     /// One that cannot be read draws nothing, and says so once.
     pub fn symbol(&mut self, name: &str, size: u32) -> Result<Placed, Full> {
-        let key = (name.to_owned(), size);
+        self.place_svg(name.to_owned(), size, || read_symbol(name))
+    }
+
+    /// A shape of Beize's own (`Scene::shape`), `svg`, as `symbol` places
+    /// one; `name` keeps it apart from the symbols.
+    pub fn shape(&mut self, name: &str, svg: &str, size: u32) -> Result<Placed, Full> {
+        self.place_svg(format!("shape:{name}"), size, || {
+            Ok(svg.as_bytes().to_vec())
+        })
+    }
+
+    fn place_svg(
+        &mut self,
+        name: String,
+        size: u32,
+        read: impl FnOnce() -> Result<Vec<u8>, String>,
+    ) -> Result<Placed, Full> {
+        let key = (name, size);
         if let Some(placed) = self.symbols.get(&key) {
             return Ok(*placed);
         }
-        let placed = match read_symbol(name).and_then(|svg| rasterize_svg(&svg, size)) {
+        let name = &key.0;
+        let placed = match read().and_then(|svg| rasterize_svg(&svg, size)) {
             Ok(coverage) if size > 0 => {
                 let (x, y) = self.atlas.place(size, size).ok_or(Full)?;
                 let placed = Placed {

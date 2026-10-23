@@ -27,7 +27,23 @@ use crate::error::{Error, Result};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
-use beize_vulkan::pipeline::{Attachment, Pipelines};
+use beize_vulkan::pipeline::{Attachment, Pipelines, SHADOW};
+
+/// Round corners for what a frame draws (`VkFrame::set_rounding`), in the
+/// framebuffer: the rectangle, the radius, the corners' squares.
+struct Rounding {
+    clip: [f32; 4],
+    radius: f32,
+    corners: [[f32; 4]; 4],
+}
+
+/// Whether `quad` reaches into the rectangle `r` (x, y, w, h).
+fn overlaps(quad: &Quad, r: &[f32; 4]) -> bool {
+    quad.pos[0] < r[0] + r[2]
+        && r[0] < quad.pos[0] + quad.size[0]
+        && quad.pos[1] < r[1] + r[3]
+        && r[1] < quad.pos[1] + quad.size[1]
+}
 
 /// What a frame has gathered for its submission.
 pub(super) struct Recorded<'a> {
@@ -47,6 +63,9 @@ pub struct VkFrame<'frame, 'buffer> {
     renderer: &'frame mut VkRenderer,
     recorded: Recorded<'frame>,
     space: Space,
+    /// What is drawn now shows only inside this rounded rectangle
+    /// (`set_rounding`), in the framebuffer.
+    rounding: Option<Rounding>,
     finished: bool,
     _buffer: PhantomData<&'buffer ()>,
 }
@@ -75,14 +94,91 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
                 family,
             },
             space,
+            rounding: None,
             finished: false,
             _buffer: PhantomData,
         })
     }
 
-    fn push(&mut self, quad: Quad, blend: bool) {
+    fn push(&mut self, mut quad: Quad, mut blend: bool) {
+        if let Some(r) = &self.rounding {
+            quad.clip = r.clip;
+            quad.radius = r.radius;
+            // Its corners let what is below show through.
+            blend |= r.corners.iter().any(|c| overlaps(&quad, c));
+        }
         self.recorded.quads.push(quad);
         self.recorded.blend.push(blend);
+    }
+
+    /// Round corners: what is drawn from now on shows only inside `rect`
+    /// (the output's space) with corners of `radius`, until it is set to
+    /// None (ADR 0028 §2).
+    pub fn set_rounding(&mut self, rounding: Option<(Rectangle<i32, Physical>, f32)>) {
+        self.rounding = rounding.map(|(rect, radius)| {
+            let fb = self.space.framebuffer_rect(rect);
+            let (x, y, w, h) = (
+                fb.loc.x as f32,
+                fb.loc.y as f32,
+                fb.size.w as f32,
+                fb.size.h as f32,
+            );
+            let r = radius;
+            Rounding {
+                clip: [x, y, w, h],
+                radius,
+                corners: [
+                    [x, y, r, r],
+                    [x + w - r, y, r, r],
+                    [x, y + h - r, r, r],
+                    [x + w - r, y + h - r, r, r],
+                ],
+            }
+        });
+    }
+
+    /// The shadow of `caster` (the output's space) with corners of
+    /// `radius`, blurred by `sigma`, in `color` (premultiplied): in `dst`,
+    /// cut to its `damage`, but not under the caster, which covers it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_shadow(
+        &mut self,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        caster: Rectangle<i32, Physical>,
+        radius: i32,
+        sigma: f32,
+        color: [f32; 4],
+    ) {
+        let parts: Vec<_> = geometry::absolute(dst, damage).collect();
+        // The caster but its corners, which let the shadow show.
+        let covered = [
+            Rectangle::new(
+                (caster.loc.x + radius, caster.loc.y).into(),
+                (caster.size.w - 2 * radius, caster.size.h).into(),
+            ),
+            Rectangle::new(
+                (caster.loc.x, caster.loc.y + radius).into(),
+                (caster.size.w, caster.size.h - 2 * radius).into(),
+            ),
+        ];
+        let fb = self.space.framebuffer_rect(caster);
+        let clip = [
+            fb.loc.x as f32,
+            fb.loc.y as f32,
+            fb.size.w as f32,
+            fb.size.h as f32,
+        ];
+        for part in Rectangle::subtract_rects_many(parts, covered) {
+            let mut quad = geometry::quad(&self.space, part, None);
+            quad.flags = SHADOW;
+            quad.color = color;
+            quad.clip = clip;
+            quad.radius = radius as f32;
+            quad.sigma = sigma;
+            self.recorded.quads.push(quad);
+            self.recorded.blend.push(true);
+        }
     }
 
     fn uses(&mut self, texture: &VkTexture) {

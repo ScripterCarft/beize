@@ -24,8 +24,8 @@ Vom Besitzer entschieden (23.10.):
   Netz, Ton, Akku) und das Kontrollzentrum, links das Beize-Menü und die aktive App.
 - **Shell als eigener Prozess** wie bei macOS, und trotzdem aus einem Guss: Der Start bis in
   die Oberfläche läuft ohne Flackern (Abschnitt 6). Aufwendige Animationen kommen später.
-- **Fensterknöpfe rechts**, weil das einfacher ist; die Wahl „links“ kommt später in die
-  Einstellungen.
+- **Fensterknöpfe wie macOS** (23.10. geändert, vorher rechts): drei Kreise links. Das
+  Aussehen der Leiste ist austauschbar (`Look`), ein Windows-Aussehen bleibt wählbar.
 - **Symbole aus einem guten fertigen Set**, das an macOS erinnert, keine wochenlange eigene
   Zeichnung; App-Symbole selbst gezeichnet (Abschnitt 8).
 
@@ -81,8 +81,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   dem Protokoll selbst). Damit sind
   Werkzeugleisten in der Titelleiste möglich, wie bei Finder und Safari. Verschieben und
   Größe ändern gehen über `xdg_toplevel.move/resize` an den Compositor, er führt aus (Snap,
-  Ränder). Die Leiste ist 32 px hoch, der Titel mittig (Inter 13 px halbfett, grau bei
-  inaktivem Fenster), die Knöpfe 46 × 32 wie bei Windows 11, Schließen rot unter dem Zeiger.
+  Ränder). Der Titel steht mittig (Inter 13 px halbfett, grau bei inaktivem Fenster). Die
+  Knöpfe zeigt die Leiste je nach Aussehen (`titlebar::Look`, Fensterknöpfe unten).
   Die App zeichnet und hört nur ihren Inhalt darunter, wie AppKits Content View. Ein
   Doppelklick maximiert (400 ms, GNOMEs Vorgabe). Ein maximiertes Fenster löst sich erst
   nach 4 px Ziehen (Windows' `SM_CXDRAG`), damit ein Klick es nicht verschiebt.
@@ -97,17 +97,28 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   über dem Inhalt. Platziert, maximiert und unter der Menüleiste gehalten wird der ganze
   Rahmen. GTK mit libadwaita zeichnet immer selbst. Das lässt sich nicht ändern und ist bei
   GNOME genauso.
-- **Für alle Fenster** zeichnet der Compositor runde Ecken (Maske im Shader), den Schatten
-  (je Fenstergröße einmal gerechnet, im Cache) und die Animationen beim Öffnen,
-  Schließen und Minimieren. Ein minimiertes Fenster fliegt in sein Dock-Symbol, und von dort
+- **Für alle Fenster** zeichnet der Compositor runde Ecken (Radius 10 wie macOS, Maske über
+  die Abstandsfunktion im Shader wie KWin und Mutter) und den Schatten, je Pixel geschlossen
+  berechnet (Evan Wallaces Formel, wie Zed und Figma), also ohne Textur je Fenstergröße. Das
+  aktive Fenster hat den größeren, dunkleren Schatten. Ohne beides bleiben maximierte Fenster
+  und Apps mit eigenem Rahmen und Schatten (GTK), wie bei GNOME. Später kommen die Animationen
+  beim Öffnen, Schließen und Minimieren dazu. Ein minimiertes Fenster fliegt in sein Dock-Symbol, und von dort
   kommt es zurück.
 - **Snap:** Ziehen an einen Bildschirmrand oder Super+Pfeiltaste gibt die halbe Fläche bzw.
   maximiert (Windows). Ein Doppelklick auf die Titelleiste maximiert. Snap-Layouts wie bei
   Windows 11 kommen später.
-- **Fensterknöpfe:** Minimieren, Maximieren und Schließen rechts wie Windows und GNOME. Die
-  Seite wählt man später in den Einstellungen (links wie macOS); Beize UI und der Rahmen des
-  Compositors lesen dieselbe Einstellung. Minimieren kommt mit dem Dock (c), das ein Fenster
-  zurückholt; bis dahin gibt es den Knopf nicht.
+- **Fensterknöpfe** (`os/beize-draw`, `titlebar`), ein Code für Beize UI und den Rahmen des
+  Compositors. Das Aussehen ist ein `Look`, heute fest `Mac`, später eine Einstellung:
+  - **Mac (Vorgabe):** Die Leiste ist 28 px hoch. Links liegen drei Kreise (12 px, alle 20 px),
+    Schließen rot, Minimieren gelb, Zoom grün. Bei inaktivem Fenster sind sie grau. Ist der
+    Zeiger über ihnen, zeigen alle drei ihr Zeichen, gedrückt werden sie dunkler.
+  - **Windows:** Die Leiste ist 32 px hoch, rechts flache Knöpfe 46 × 32, Schließen rot unter
+    dem Zeiger.
+  - Die Zeichen sind eigene Formen, für ihre Größe auf das Pixelraster gezeichnet, wie bei
+    AppKit und Windows. Aus Phosphor wäre das Quadrat größer als das X.
+  - Minimieren kommt mit dem Dock (c), bis dahin ist der gelbe Kreis grau, wie macOS einen
+    nicht verfügbaren Knopf zeigt. Grün maximiert (Zoom). Vollbild und die Wahltaste
+    (Zoom statt Vollbild) kommen mit echtem Vollbild.
 
 ### 3. Menüleiste (oben)
 
@@ -205,7 +216,9 @@ App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG).
   haben nur eine Strichstärke. Im Image liegen nur die Symbole, die Beize verwendet, als SVG
   aus dem offiziellen Release mit fester Prüfsumme (wie die Schriften): Phosphor veröffentlicht
   auf npm (`@phosphor-icons/core`), `bz outdated` fragt dort. Gerastert werden sie mit 16 px,
-  wo Phosphors Strich genau 1 px ist.
+  wo Phosphors Strich genau 1 px ist. Am 23.10. erneut gegen Lucide und Tabler abgewogen:
+  Phosphor bleibt, weil nur es jede Stärke eigens zeichnet und gefüllte und zweifarbige
+  Varianten für alle Symbole hat, wie SF Symbols.
 - **App-Symbole von Beize** (Terminal, später Dateien, Einstellungen): eigene SVGs, wenige,
   in einer gemeinsamen Form mit Verlauf. Fertige „macOS-Look“-Sets (z. B. WhiteSur) kopieren
   Apples Optik; das schließt die VISION aus (Konzepte, nicht Optik).
@@ -223,8 +236,8 @@ prüft sie nur die Funktion, nicht die Zeit.
 a) `beize-shell` als Dienst, der Compositor erkennt sie, wlr-layer-shell nur für sie; eine
    Menüleiste mit Uhr, die Fenster darunter. ✓ 23.10.
 b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI mit Phosphor
-   (✓ 23.10.); xdg-decoration mit Rahmen für fremde Apps, `beize-draw` (✓ 23.10.); runde Ecken
-   und Schatten.
+   (✓ 23.10.); xdg-decoration mit Rahmen für fremde Apps, `beize-draw` (✓ 23.10.); Knöpfe wie
+   macOS, runde Ecken und Schatten (✓ 23.10.).
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste.
 d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein

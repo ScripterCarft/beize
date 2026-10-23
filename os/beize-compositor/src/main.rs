@@ -7,7 +7,8 @@
 //!   before the vblank (`schedule`), and measures itself (`pacing`).
 //! - `state`: the Wayland protocols and when the screen is drawn;
 //!   `shell`: windows (xdg-shell), `windows` their places, `decorations`
-//!   the frames of other apps' windows (xdg-decoration); `layers`: the
+//!   the frames of other apps' windows (xdg-decoration), `corners` round
+//!   corners and shadows of all; `layers`: the
 //!   panels of Beize's shell (wlr-layer-shell), which only the shell may
 //!   draw (`trust`).
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
@@ -18,6 +19,7 @@
 //! `beize-compositor.service`, which beize-session starts.
 
 mod apps;
+mod corners;
 mod cursor;
 mod decorations;
 mod gpu;

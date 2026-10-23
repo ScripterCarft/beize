@@ -19,7 +19,9 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::{DrmEvent, DrmNode};
 use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
-use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+use smithay::backend::renderer::element::surface::{
+    WaylandSurfaceRenderElement, render_elements_from_surface_tree,
+};
 use smithay::backend::renderer::element::{AsRenderElements, Kind};
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::session::Session;
@@ -63,6 +65,7 @@ use smithay::{
 };
 use tracing::{error, info, warn};
 
+use crate::corners::{Rounded, Shadow};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
 use crate::gpu::{self, Screen};
@@ -83,14 +86,19 @@ mod scene {
     use smithay::backend::renderer::element::texture::TextureRenderElement;
     use smithay::render_elements;
 
+    use crate::corners::{Rounded, Rounding, Shadow};
+
     render_elements! {
         /// What a frame draws, front to back: the pointer where no cursor
         /// plane shows it, then the surfaces – panels above the windows,
-        /// windows each with its title bar, panels below them.
-        pub Element<R> where R: ImportAll + ImportMem;
+        /// windows each with its popups, title bar, round corners and
+        /// shadow, panels below them.
+        pub Element<R> where R: ImportAll + ImportMem + Rounding;
         Cursor=MemoryRenderBufferRenderElement<R>,
         Surface=WaylandSurfaceRenderElement<R>,
-        Bar=TextureRenderElement<<R as RendererSuper>::TextureId>,
+        Window=Rounded<WaylandSurfaceRenderElement<R>>,
+        Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
+        Shadow=Shadow,
     }
 }
 type Element = scene::Element<VkRenderer>;
@@ -429,17 +437,45 @@ impl State {
             .collect();
         let mut bars = self.decorations.elements(screen.renderer(), &windows);
         for (window, geometry) in &windows {
-            let origin = (geometry.loc - window.geometry().loc).to_physical(1);
-            let surfaces = AsRenderElements::<VkRenderer>::render_elements(
-                window,
+            let Some(toplevel) = window.toplevel() else {
+                continue;
+            };
+            let frame = crate::decorations::frame(window, *geometry);
+            let rounded = crate::corners::rounded(window, frame).then_some(frame);
+            let origin = geometry.loc - window.geometry().loc;
+            // Popups in front, never cut by the corners (as Smithay's
+            // `Window` places them).
+            for (popup, offset) in PopupManager::popups_for_surface(toplevel.wl_surface()) {
+                let at = origin + window.geometry().loc + offset - popup.geometry().loc;
+                let surfaces = render_elements_from_surface_tree(
+                    screen.renderer(),
+                    popup.wl_surface(),
+                    at.to_physical(1),
+                    Scale::from(1.0),
+                    1.0,
+                    Kind::Unspecified,
+                );
+                elements.extend(surfaces.into_iter().map(Element::Surface));
+            }
+            let surfaces: Vec<WaylandSurfaceRenderElement<_>> = render_elements_from_surface_tree(
                 screen.renderer(),
-                origin,
+                toplevel.wl_surface(),
+                origin.to_physical(1),
                 Scale::from(1.0),
                 1.0,
+                Kind::Unspecified,
             );
-            elements.extend(surfaces.into_iter().map(Element::Surface));
+            elements.extend(
+                surfaces
+                    .into_iter()
+                    .map(|s| Element::Window(Rounded::new(s, rounded))),
+            );
             if let Some(i) = bars.iter().position(|(w, _)| w == window) {
-                elements.push(Element::Bar(bars.swap_remove(i).1));
+                let bar = bars.swap_remove(i).1;
+                elements.push(Element::Bar(Rounded::new(bar, rounded)));
+            }
+            if let Some(frame) = rounded {
+                elements.push(Element::Shadow(Shadow::new(window, frame)));
             }
         }
         elements.extend(lower.into_iter().map(Element::Surface));

@@ -34,6 +34,13 @@ pub struct Quad {
     /// Index into the texture array.
     pub texture: u32,
     pub flags: u32,
+    /// A rounded rectangle in framebuffer pixels (x, y, width, height):
+    /// with a `radius`, the quad shows only inside it – a window's round
+    /// corners; for a `SHADOW`, the rectangle that casts it.
+    pub clip: [f32; 4],
+    pub radius: f32,
+    /// A `SHADOW`'s blur, the Gaussian's standard deviation in pixels.
+    pub sigma: f32,
 }
 
 /// A solid colour, no texture.
@@ -44,6 +51,9 @@ pub const EXACT: u32 = 2;
 /// The texture is a glyph's coverage (red, 8 bits): drawn in `color`
 /// (ADR 0027 §9).
 pub const MASK: u32 = 4;
+/// The shadow of the rounded rectangle `clip` in `color`, blurred by
+/// `sigma` (ADR 0028 §2): computed per pixel, no texture.
+pub const SHADOW: u32 = 8;
 
 /// The push constants (`shaders/quad.glsl`, `Push`).
 #[repr(C)]

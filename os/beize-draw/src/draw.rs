@@ -98,6 +98,8 @@ pub struct Scene {
 struct Symbol {
     pub quad: usize,
     pub name: String,
+    /// A shape of Beize's own (`Scene::shape`), else Phosphor's file.
+    pub svg: Option<&'static str>,
     pub size: u32,
     pub x: f32,
     pub y: f32,
@@ -150,9 +152,38 @@ impl Scene {
     /// The symbol `name` (Phosphor's, ADR 0028 §8) in `color`, a square of
     /// `size` pixels with its top left at `x`, `y`, on whole pixels.
     pub fn symbol(&mut self, name: &str, x: f32, y: f32, size: u32, color: Color) {
+        self.push_symbol(name, None, x, y, size, color);
+    }
+
+    /// A shape of Beize's own, `svg` (its view box scaled to the square),
+    /// drawn like a symbol: the window buttons' marks, which are drawn for
+    /// their size on the pixel grid, as AppKit and Windows draw theirs –
+    /// not taken from a set of symbols. `name` tells it apart in the atlas.
+    pub fn shape(
+        &mut self,
+        name: &'static str,
+        svg: &'static str,
+        x: f32,
+        y: f32,
+        size: u32,
+        color: Color,
+    ) {
+        self.push_symbol(name, Some(svg), x, y, size, color);
+    }
+
+    fn push_symbol(
+        &mut self,
+        name: &str,
+        svg: Option<&'static str>,
+        x: f32,
+        y: f32,
+        size: u32,
+        color: Color,
+    ) {
         self.symbols.push(Symbol {
             quad: self.quads.len(),
             name: name.to_owned(),
+            svg,
             size,
             x: x.round(),
             y: y.round(),
@@ -220,6 +251,7 @@ impl Scene {
         self.symbols.extend(other.symbols.iter().map(|s| Symbol {
             quad: s.quad + quads,
             name: s.name.clone(),
+            svg: s.svg,
             size: s.size,
             x: s.x,
             y: s.y + dy,
@@ -279,7 +311,10 @@ impl Scene {
             quad.texture = slot;
         }
         for symbol in &self.symbols {
-            let placed = glyphs.symbol(&symbol.name, symbol.size)?;
+            let placed = match symbol.svg {
+                Some(svg) => glyphs.shape(&symbol.name, svg, symbol.size)?,
+                None => glyphs.symbol(&symbol.name, symbol.size)?,
+            };
             let quad = &mut quads[symbol.quad];
             let (w, h) = (placed.w as f32, placed.h as f32);
             quad.pos = [symbol.x, symbol.y];

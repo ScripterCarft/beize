@@ -44,9 +44,9 @@ use tracing::info;
 use crate::decorations::{bar_height, frame};
 use crate::state::State;
 
-/// How far a new window moves from one in its place: the height of Beize
-/// UI's title bar (os/beize-ui, `titlebar`), so the one below shows its title.
-const CASCADE: i32 = 32;
+/// How far a new window moves from one in its place: the height of the
+/// title bar (os/beize-draw, `titlebar`), so the one below shows its title.
+const CASCADE: i32 = crate::decorations::HEIGHT;
 
 /// The strip outside a window that resizes it, as wide as macOS' (about
 /// 4 px past the frame).

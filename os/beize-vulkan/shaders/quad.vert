@@ -10,6 +10,8 @@ layout(location = 1) flat out vec4 color;
 layout(location = 2) flat out vec2 texel;
 layout(location = 3) flat out uint texture;
 layout(location = 4) flat out uint flags;
+layout(location = 5) flat out vec4 clip;
+layout(location = 6) flat out vec2 rounding;
 
 void main() {
     Quad q = push.quads.quads[gl_InstanceIndex];
@@ -20,4 +22,6 @@ void main() {
     texel = q.texel;
     texture = q.texture;
     flags = q.flags;
+    clip = q.clip;
+    rounding = vec2(q.radius, q.sigma);
 }

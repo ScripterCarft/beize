@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a), b1–b3 fertig, b4 als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a) und (b) fertig, (c) Dock als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -365,9 +365,12 @@ b2 fertig 23.10.: Beize UI `titlebar.rs` (32 px, Knöpfe wie Windows 11, Phospho
 `os/beize-draw` (Text, Atlas, Szene, Titelleiste, geteilt), Compositor `decorations.rs`
 (xdg-decoration; Leiste als eigenes Bild über eine sRGB-Ansicht, `VkRenderer::draw_picture`;
 platziert wird der ganze Rahmen), Testprogramm `--server-side`; Smoke prüft die Knöpfe
-pixelgleich zu Beize UI, Ziehen, Doppelklick, Schließen. **Offen beim Besitzer:** Knöpfe wie
-macOS (drei Kreise links) statt Windows 11 rechts? Vor b4 klären. **Dann b4:** runde Ecken
-und Schatten. Zeigerbilder für die Ränder kommen mit (d). Die Beize-UI-Referenz entsteht offscreen
+pixelgleich zu Beize UI, Ziehen, Doppelklick, Schließen (getestet nur mit dem Testprogramm;
+echte Qt-/Chromium-Apps beim nächsten Hardware-Test). b4 fertig 23.10.: Knöpfe wie macOS
+(Besitzer; `titlebar::Look`, Windows wählbar, eigene Zeichen statt Phosphor), runde Ecken
+und Schatten im Shader (`corners.rs`, `SHADOW`); Smoke vergleicht ohne die Ecken, prüft rund
+bzw. eckig maximiert. Phosphor ist im Image, aber bis (d) ungenutzt. **Als Nächstes (c):**
+`beize-shell-v1`, Dock, Minimieren, App-Name in der Menüleiste. Zeigerbilder für die Ränder kommen mit (d). Die Beize-UI-Referenz entsteht offscreen
 in der VM: `./bz debug --machine run 'mkdir -p /run/t && mount -o ro
 /dev/disk/by-id/virtio-beize-test /run/t' '/run/t/beize-ui-test --offscreen /run/s.ppm 800x600'
 'gzip -9c /run/s.ppm | base64 -w0'`, auf dem Host zurück und nach PNG. Entschieden: Shell als eigener Prozess wie macOS,

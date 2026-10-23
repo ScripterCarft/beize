@@ -538,7 +538,8 @@ impl Window {
                         Some(titlebar::Button::Maximize) => {
                             toggle_maximized(toplevel, maximized);
                         }
-                        None => {}
+                        // Not available until the dock (`titlebar`).
+                        Some(titlebar::Button::Minimize) | None => {}
                     }
                     self.bar_changed = true;
                 }
