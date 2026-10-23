@@ -132,6 +132,34 @@ impl Scene {
         self.blend.push(color.a < 0xff);
     }
 
+    /// `rect` transparent, whatever was there: where a translucent panel
+    /// shows what is below. Not blended – blending nothing over an image's
+    /// undefined start would leave it undefined.
+    pub fn clear(&mut self, rect: Rect) {
+        self.quads.push(Quad {
+            pos: [rect.x, rect.y],
+            size: [rect.w, rect.h],
+            flags: SOLID,
+            ..Quad::default()
+        });
+        self.blend.push(false);
+    }
+
+    /// `rect` with corners of `radius` in `color`, its edge antialiased –
+    /// so always blended.
+    pub fn rounded(&mut self, rect: Rect, radius: f32, color: Color) {
+        self.quads.push(Quad {
+            pos: [rect.x, rect.y],
+            size: [rect.w, rect.h],
+            color: color.linear(),
+            flags: SOLID,
+            clip: [rect.x, rect.y, rect.w, rect.h],
+            radius,
+            ..Quad::default()
+        });
+        self.blend.push(true);
+    }
+
     /// The text of `layout` with its top left at `x`, `y`.
     pub fn text(&mut self, layout: &Layout<Color>, x: f32, y: f32) {
         for line in layout.lines() {
@@ -235,8 +263,10 @@ impl Scene {
     /// whole number of pixels: baselines stay on whole pixels.
     pub fn append(&mut self, other: &Scene, dy: f32) {
         let (quads, runs) = (self.quads.len(), self.runs.len());
+        // A rounded quad's rectangle moves with it.
         self.quads.extend(other.quads.iter().map(|q| Quad {
             pos: [q.pos[0], q.pos[1] + dy],
+            clip: [q.clip[0], q.clip[1] + dy, q.clip[2], q.clip[3]],
             ..*q
         }));
         self.blend.extend_from_slice(&other.blend);
@@ -398,5 +428,27 @@ mod tests {
         );
         assert_eq!(scene.blend, [false, true]);
         assert_eq!(scene.quads[0].flags, SOLID);
+    }
+
+    #[test]
+    fn clearing_overwrites_and_rounded_rects_keep_their_corners_when_moved() {
+        let rect = Rect {
+            x: 2.0,
+            y: 3.0,
+            w: 40.0,
+            h: 20.0,
+        };
+        let mut panel = Scene::new();
+        panel.clear(rect);
+        panel.rounded(rect, 8.0, Color::rgb(0xf5f5f5));
+        // Transparent, written as it is; the rounded one blends its edge.
+        assert_eq!(panel.blend, [false, true]);
+        assert_eq!(panel.quads[0].color, [0.0; 4]);
+        let mut scene = Scene::new();
+        scene.append(&panel, 28.0);
+        let moved = &scene.quads[1];
+        assert_eq!(moved.pos, [2.0, 31.0]);
+        assert_eq!(moved.clip, [2.0, 31.0, 40.0, 20.0]);
+        assert_eq!(moved.radius, 8.0);
     }
 }

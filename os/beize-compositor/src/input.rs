@@ -1,6 +1,7 @@
 //! Input from libinput (devices opened by logind) to the seat: keys to the
 //! window with the keyboard, the pointer to the window under it, a click
-//! makes a window the active one. Ctrl+Alt+F1…F12 switch the VT, as on
+//! makes a window the active one – not through a panel of the shell above
+//! it. Ctrl+Alt+F1…F12 switch the VT, as on
 //! every Linux desktop – the compositor holds the keyboard, so it asks
 //! logind; Ctrl+Alt+T opens a terminal (`apps`).
 
@@ -99,6 +100,13 @@ fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Opt
     (only_ctrl_alt && latin == Some(Keysym::t)).then_some(Action::OpenTerminal)
 }
 
+/// The pointer over what is under it now, without moving: after a window
+/// left the screen or came back.
+pub fn refresh_pointer(state: &mut State) {
+    let (at, time) = (state.pointer, state.time_msec());
+    move_to(state, at, time);
+}
+
 fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
     let area = state.screen_area().to_f64();
     // The last pixel is the limit: the cursor never leaves the screen.
@@ -129,7 +137,7 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     let serial = SERIAL_COUNTER.next_serial();
     let pressed = event.state() == ButtonState::Pressed;
     let grabbed = state.seat.get_pointer().is_some_and(|p| p.is_grabbed());
-    if pressed && !grabbed {
+    if pressed && !grabbed && !state.panel_under(state.pointer) {
         let under = state.window_under(state.pointer);
         if let Some((window, hit)) = under {
             state.focus(Some(window.clone()));

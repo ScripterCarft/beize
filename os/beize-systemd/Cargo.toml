@@ -7,5 +7,10 @@ rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[dependencies]
+# Random instance names for apps' units (`apps`).
+rustix = { version = "1.1", default-features = false, features = ["rand", "std"] }
+tracing = "0.1"
+
 [lints]
 workspace = true

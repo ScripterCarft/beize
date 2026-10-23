@@ -30,6 +30,7 @@ mod output;
 mod pacing;
 mod schedule;
 mod shell;
+mod shell_v1;
 mod state;
 mod trust;
 mod windows;

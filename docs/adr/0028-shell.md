@@ -51,8 +51,13 @@ Das ändert die Formulierung „Compositor = Shell“ aus ADR 0027 §1. Gründe:
 
 Die Shell spricht mit dem Compositor über **wlr-layer-shell** (Ebenen oben und unten,
 reservierte Ränder; Smithay bringt es mit, COSMIC, KDE und niri nutzen es) und ein eigenes
-privilegiertes Protokoll **`beize-shell-v1`** (Fensterliste mit App-ID, aktivieren,
-minimieren, Blur hinter einer Fläche, Ursprung von Animationen). Beides bekommt nur die
+privilegiertes Protokoll **`beize-shell-v1`** (`os/beize-protocols`, nach dem Vorbild von
+ext-foreign-toplevel-list und wlr-foreign-toplevel-management): die Fensterliste mit App-ID,
+Titel und Zustand (aktiv, minimiert) und das Aktivieren, das ein minimiertes Fenster
+zurückholt; Blur hinter einer Fläche und der Ursprung von Animationen kommen mit (d) und (g).
+Minimiert wird vom Fenster aus (`xdg_toplevel.set_minimized`). Beize UI hält die Verbindung
+einer App mit allen ihren Fenstern (`App`, wie NSApplication), so sind Menüleiste und Dock zwei
+Fenster eines Prozesses auf einer Verbindung. Beides bekommt nur die
 Shell; andere Clients sehen die Globals gar nicht. Der Compositor erkennt sie an ihrer Unit,
 so wie xdg-desktop-portal eine App an ihrer `app-<ID>@`-Unit erkennt: Der Kernel nennt zur
 Verbindung den Prozess als pidfd (`SO_PEERPIDFD`), dieser seine cgroup (`PIDFD_GET_INFO`),
@@ -116,8 +121,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
     dem Zeiger.
   - Die Zeichen sind eigene Formen, für ihre Größe auf das Pixelraster gezeichnet, wie bei
     AppKit und Windows. Aus Phosphor wäre das Quadrat größer als das X.
-  - Minimieren kommt mit dem Dock (c), bis dahin ist der gelbe Kreis grau, wie macOS einen
-    nicht verfügbaren Knopf zeigt. Grün maximiert (Zoom). Vollbild und die Wahltaste
+  - Gelb minimiert: Das Fenster verlässt den Bildschirm, das darunter wird aktiv, und das Dock
+    holt es an seinen Platz zurück. Grün maximiert (Zoom). Vollbild und die Wahltaste
     (Zoom statt Vollbild) kommen mit echtem Vollbild.
 
 ### 3. Menüleiste (oben)
@@ -144,10 +149,16 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 - **Vorgaben wie macOS:** keine Vergrößerung beim Überfahren, nicht automatisch
   ausblenden. Beides wird später in den Einstellungen abschaltbar.
-- **Ein Klick** startet die App bzw. holt ihre Fenster nach vorn. Gestartet wird wie das
-  Terminal heute, als `app-<App-ID>@<Zufall>.service` über den Manager.
-- **App-Identität:** `xdg_toplevel.app_id` ↔ Desktop-Datei (freedesktop) für fremde Apps.
-  Beizes App-Bundles (VISION, vor M4) werden dieselbe ID tragen.
+- **Ein Klick** startet die App bzw. holt ihre Fenster nach vorn, das zuletzt benutzte
+  obenauf; sind alle minimiert, kommt das zuletzt minimierte zurück (wie macOS' Dock).
+  Gestartet wird als `app-<App-ID>@<Zufall>.service` über den Manager (`beize-systemd`,
+  `apps`), von der Shell selbst, wie Strg+Alt+T vom Compositor. Fremde Apps ohne eigene
+  Unit-Vorlage (nur `Exec=`) kommen mit ihnen.
+- **App-Identität:** `xdg_toplevel.app_id` ↔ Desktop-Datei (freedesktop); ihr `Name` steht
+  in der Menüleiste, ohne Desktop-Datei die ID. Beizes App-Bundles (VISION, vor M4) werden
+  dieselbe ID tragen.
+- **Bis (d)** ist das Dock hell und deckend wie die Menüleiste, jede App eine Kachel mit
+  ihrem Anfangsbuchstaben; Glas und App-Symbole kommen mit (d).
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 
 ### 5. Kontrollzentrum
@@ -239,7 +250,7 @@ b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI m
    (✓ 23.10.); xdg-decoration mit Rahmen für fremde Apps, `beize-draw` (✓ 23.10.); Knöpfe wie
    macOS, runde Ecken und Schatten (✓ 23.10.).
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
-   minimieren; der Name der aktiven App in der Menüleiste.
+   minimieren; der Name der aktiven App in der Menüleiste. ✓ 23.10.
 d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein
    Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,

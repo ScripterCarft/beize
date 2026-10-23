@@ -35,6 +35,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 use crate::clipboard::Clipboard;
+use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId};
 use crate::gpu::Gpu;
 use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::Renderer;
@@ -70,6 +71,8 @@ pub struct Dispatched {
     /// Which of the app's own fds (`dispatch`'s `also`) are readable or
     /// closed, by their index there.
     pub ready: Vec<usize>,
+    /// The desktop's windows changed (`watch_desktop`).
+    pub desktop: bool,
 }
 
 impl Dispatched {
@@ -102,6 +105,9 @@ pub struct Panel<'a> {
     pub height: u32,
     /// The space between it and its edge, kept from windows too.
     pub margin: u32,
+    /// What the scene leaves transparent (`Scene::clear`) shows what is
+    /// below: a panel with round corners.
+    pub translucent: bool,
 }
 
 /// What the compositor tells of one window.
@@ -127,6 +133,8 @@ pub(crate) struct State {
     keyboard: Keyboard,
     pointer: PointerState,
     pub(crate) clipboard: Clipboard,
+    /// The desktop's windows, for the shell (`watch_desktop`).
+    pub(crate) desktop: Option<Desktop>,
     /// Of the last key press or click: copying names the input it
     /// answers, a title bar's move the press.
     pub(crate) serial: u32,
@@ -204,6 +212,7 @@ impl App {
                 keyboard: Keyboard::new(),
                 pointer: PointerState::default(),
                 clipboard,
+                desktop: None,
                 serial: 0,
             },
             globals,
@@ -216,27 +225,31 @@ impl App {
     /// Opens a window with Beize UI's title bar; it shows once its first
     /// `configured` is drawn.
     pub fn open(&mut self, title: &str, app_id: &str) -> Result<WindowId> {
-        self.add(Some(TitleBar::new(title)), |globals, qh, surface, id| {
-            let wm_base: XdgWmBase = globals
-                .bind(qh, 1..=6, ())
-                .context("the compositor has no xdg_wm_base")?;
-            let xdg_surface = wm_base.get_xdg_surface(surface, qh, id);
-            let toplevel = xdg_surface.get_toplevel(qh, id);
-            toplevel.set_title(title.into());
-            toplevel.set_app_id(app_id.into());
-            Ok(Role::Toplevel {
-                _wm_base: wm_base,
-                _xdg_surface: xdg_surface,
-                toplevel,
-            })
-        })
+        self.add(
+            Some(TitleBar::new(title)),
+            false,
+            |globals, qh, surface, id| {
+                let wm_base: XdgWmBase = globals
+                    .bind(qh, 1..=6, ())
+                    .context("the compositor has no xdg_wm_base")?;
+                let xdg_surface = wm_base.get_xdg_surface(surface, qh, id);
+                let toplevel = xdg_surface.get_toplevel(qh, id);
+                toplevel.set_title(title.into());
+                toplevel.set_app_id(app_id.into());
+                Ok(Role::Toplevel {
+                    _wm_base: wm_base,
+                    _xdg_surface: xdg_surface,
+                    toplevel,
+                })
+            },
+        )
     }
 
     /// Opens a panel of Beize's shell. Only the shell may: the compositor
     /// offers the protocol to no other client.
     pub fn panel(&mut self, panel: &Panel<'_>) -> Result<WindowId> {
         use zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity};
-        self.add(None, |globals, qh, surface, id| {
+        self.add(None, panel.translucent, |globals, qh, surface, id| {
             let layer_shell: ZwlrLayerShellV1 = globals
                 .bind(qh, 1..=4, ())
                 .context("the compositor offers no panels (wlr-layer-shell) to this program")?;
@@ -271,7 +284,7 @@ impl App {
             layer.set_keyboard_interactivity(KeyboardInteractivity::None);
             Ok(Role::Panel {
                 _layer_shell: layer_shell,
-                _layer: layer,
+                layer,
             })
         })
     }
@@ -281,6 +294,7 @@ impl App {
     fn add(
         &mut self,
         bar: Option<TitleBar>,
+        translucent: bool,
         role: impl FnOnce(&GlobalList, &QueueHandle<State>, &WlSurface, WindowId) -> Result<Role>,
     ) -> Result<WindowId> {
         let id = WindowId(self.next_id);
@@ -302,7 +316,8 @@ impl App {
                 .create_wayland_surface(&info, None)
         }
         .context("a Vulkan surface for the window")?;
-        self.windows.push(Window::new(id, role, vk_surface, bar));
+        self.windows
+            .push(Window::new(id, role, vk_surface, bar, translucent));
         self.state.surfaces.push(Surface {
             id,
             wl,
@@ -318,6 +333,48 @@ impl App {
     /// nothing.
     fn window(&mut self, id: WindowId) -> Option<&mut Window> {
         self.windows.iter_mut().find(|w| w.id == id)
+    }
+
+    /// A panel's new size: the compositor configures it, then it is drawn
+    /// in it.
+    pub fn set_panel_size(&mut self, id: WindowId, size: (u32, u32)) {
+        let Some(wl) = self.state.surface(id).map(|s| s.wl.clone()) else {
+            return;
+        };
+        if let Some(window) = self.window(id) {
+            window.set_panel_size(size);
+            wl.commit();
+        }
+    }
+
+    /// Hears of the desktop's windows from now on: only the shell may
+    /// (beize-shell-v1; the compositor offers it to no other client).
+    pub fn watch_desktop(&mut self) -> Result<()> {
+        if self.state.desktop.is_none() {
+            let shell = self
+                .globals
+                .bind(&self.queue.handle(), 1..=1, ())
+                .context("the compositor offers this program no list of windows")?;
+            self.state.desktop = Some(Desktop::new(shell));
+        }
+        Ok(())
+    }
+
+    /// The desktop's windows, in the order they opened (`watch_desktop`).
+    pub fn desktop_windows(&self) -> Vec<DesktopWindow> {
+        self.state
+            .desktop
+            .as_ref()
+            .map(|d| d.windows().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Brings a window of the desktop to the front, back on the screen if
+    /// it was minimized.
+    pub fn activate_desktop_window(&mut self, id: DesktopWindowId) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.activate(id);
+        }
     }
 
     /// The modifiers held now (for the pointer: Shift+click and the like).
@@ -433,7 +490,9 @@ impl App {
         queue.flush().context("sending to the compositor")?;
         // Mesa's WSI reads the same socket and may have queued events
         // already: then only a look, no waiting.
-        let mut timeout = if self.state.surfaces.iter().any(|s| s.events.any()) {
+        let pending = self.state.surfaces.iter().any(|s| s.events.any())
+            || self.state.desktop.as_ref().is_some_and(|d| d.changed);
+        let mut timeout = if pending {
             Some(Duration::ZERO)
         } else {
             timeout
@@ -509,7 +568,16 @@ impl App {
             }
         }
         windows.retain(|(_, events)| events.any());
-        Ok(Dispatched { windows, ready })
+        let desktop = self
+            .state
+            .desktop
+            .as_mut()
+            .is_some_and(|d| std::mem::take(&mut d.changed));
+        Ok(Dispatched {
+            windows,
+            ready,
+            desktop,
+        })
     }
 }
 

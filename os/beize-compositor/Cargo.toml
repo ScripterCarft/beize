@@ -12,6 +12,8 @@ license.workspace = true
 beize-vulkan = { path = "../beize-vulkan" }
 # The title bar of other apps' windows, as Beize UI draws it (ADR 0028 §2).
 beize-draw = { path = "../beize-draw" }
+# Beize's own protocols: the windows for the shell (ADR 0028 §1).
+beize-protocols = { path = "../beize-protocols", features = ["server"] }
 # Starts apps in the user's service manager (ADR 0027 §9), as beize-session
 # starts the desktop.
 beize-systemd = { path = "../beize-systemd" }
@@ -28,8 +30,8 @@ smithay = { version = "0.7.0", default-features = false, features = [
   "wayland_frontend",
 ] }
 # sync_file in and out of dmabufs (ioctls) and polling it; inotify for the
-# keyboard layout; random instance names for apps.
-rustix = { version = "1.1", default-features = false, features = ["event", "fs", "rand", "std"] }
+# keyboard layout.
+rustix = { version = "1.1", default-features = false, features = ["event", "fs", "std"] }
 tracing = "0.1"
 # Smithay reports through tracing; this writes it to stderr, the journal.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }

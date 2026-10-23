@@ -4,9 +4,8 @@
 //!
 //! Popup grabs (a menu that closes on a click elsewhere) are declined: the
 //! protocol then closes the popup (`popup_done`), which every client
-//! handles. They come with Beize UI's menus. Minimizing waits for the dock
-//! (ADR 0028 c), which brings a window back; until then the request is
-//! ignored, as the protocol allows.
+//! handles. They come with Beize UI's menus. A minimized window comes back
+//! through the shell (`windows`, `shell_v1`).
 
 use smithay::desktop::{PopupKind, find_popup_root_surface, get_popup_toplevel_coords};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -49,6 +48,20 @@ impl XdgShellHandler for State {
         edges: xdg_toplevel::ResizeEdge,
     ) {
         self.start_resize(&surface, serial, edges);
+    }
+
+    fn minimize_request(&mut self, surface: ToplevelSurface) {
+        if let Some(window) = self.window_for(surface.wl_surface()) {
+            self.minimize(&window);
+        }
+    }
+
+    fn app_id_changed(&mut self, _surface: ToplevelSurface) {
+        self.refresh_listing();
+    }
+
+    fn title_changed(&mut self, _surface: ToplevelSurface) {
+        self.refresh_listing();
     }
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {

@@ -15,9 +15,8 @@
 //! pixel grid (`Scene::shape`), as AppKit's and Windows' are: a set of
 //! symbols draws a square larger than an X, which looks wrong at this size.
 //!
-//! Minimizing comes with the dock, which brings a window back (ADR 0028 c):
-//! until then macOS' yellow circle is grey, as macOS shows a button that
-//! is not available, and Windows' look has none.
+//! Minimizing takes the window off the screen; the dock brings it back
+//! (ADR 0028 §4).
 
 use std::time::{Duration, Instant};
 
@@ -80,8 +79,7 @@ struct Colors {
     faint: Color,
     hover: Color,
     pressed: Color,
-    /// macOS' circle of a window that is not active, or of a button that
-    /// is not available, and its rim.
+    /// macOS' circle of a window that is not active, and its rim.
     idle: Color,
     idle_rim: Color,
 }
@@ -156,6 +154,7 @@ const MAC_CLOSE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
 const MAC_MINIMIZE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M3 6h6" stroke="#000" stroke-width="1.2" stroke-linecap="round"/></svg>"##;
 const MAC_ZOOM: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M3.5 3.5h4.2l-4.2 4.2zM8.5 8.5H4.3l4.2-4.2z"/></svg>"#;
 const WIN_CLOSE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 3l10 10M13 3L3 13" stroke="#000" stroke-width="1"/></svg>"##;
+const WIN_MINIMIZE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 8.5h10" stroke="#000" stroke-width="1"/></svg>"##;
 const WIN_MAXIMIZE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" fill="none" stroke="#000" stroke-width="1"/></svg>"##;
 const WIN_RESTORE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.5 5.5h7v7h-7zM5.5 5.5v-2h7v7h-2" fill="none" stroke="#000" stroke-width="1"/></svg>"##;
 
@@ -164,13 +163,6 @@ pub enum Button {
     Close,
     Minimize,
     Maximize,
-}
-
-impl Button {
-    /// Whether it does something yet: minimizing waits for the dock.
-    fn available(self) -> bool {
-        self != Button::Minimize
-    }
 }
 
 /// What a press on the bar asks for.
@@ -231,18 +223,22 @@ impl TitleBar {
                     (button, rect)
                 })
                 .collect(),
-            Look::Windows => [(Button::Close, 1.0), (Button::Maximize, 2.0)]
-                .into_iter()
-                .map(|(button, n)| {
-                    let rect = Rect {
-                        x: width - n * BUTTON_WIDTH,
-                        y: 0.0,
-                        w: BUTTON_WIDTH,
-                        h: height,
-                    };
-                    (button, rect)
-                })
-                .collect(),
+            Look::Windows => [
+                (Button::Close, 1.0),
+                (Button::Maximize, 2.0),
+                (Button::Minimize, 3.0),
+            ]
+            .into_iter()
+            .map(|(button, n)| {
+                let rect = Rect {
+                    x: width - n * BUTTON_WIDTH,
+                    y: 0.0,
+                    w: BUTTON_WIDTH,
+                    h: height,
+                };
+                (button, rect)
+            })
+            .collect(),
         }
     }
 
@@ -286,10 +282,10 @@ impl TitleBar {
     }
 
     /// The left button came up: the button it went down on, if it is still
-    /// under the pointer and does something.
+    /// under the pointer.
     pub fn release(&mut self) -> Option<Button> {
         let pressed = self.pressed.take();
-        pressed.filter(|p| Some(*p) == self.hover && p.available())
+        pressed.filter(|p| Some(*p) == self.hover)
     }
 
     /// Whether a button is held.
@@ -362,7 +358,7 @@ impl TitleBar {
             };
             // A window that is not active shows grey circles, but where
             // the pointer is over them: macOS shows them in colour then.
-            let lit = (self.active || self.over_buttons) && button.available();
+            let lit = self.active || self.over_buttons;
             let held = self.pressed == Some(button) && self.hover == Some(button);
             let (fill, rim) = if !lit {
                 (colors.idle, colors.idle_rim)
@@ -373,7 +369,7 @@ impl TitleBar {
             };
             scene.shape("disc", DISC, x, y, CIRCLE, fill);
             scene.shape("rim", RIM, x, y, CIRCLE, rim);
-            if self.over_buttons && button.available() {
+            if self.over_buttons {
                 let (name, svg) = match button {
                     Button::Close => ("mac-close", MAC_CLOSE),
                     Button::Minimize => ("mac-minimize", MAC_MINIMIZE),
@@ -400,7 +396,8 @@ impl TitleBar {
             let (name, svg) = match button {
                 Button::Close => ("win-close", WIN_CLOSE),
                 Button::Maximize if self.maximized => ("win-restore", WIN_RESTORE),
-                Button::Maximize | Button::Minimize => ("win-maximize", WIN_MAXIMIZE),
+                Button::Maximize => ("win-maximize", WIN_MAXIMIZE),
+                Button::Minimize => ("win-minimize", WIN_MINIMIZE),
             };
             let size = MARK as f32;
             scene.shape(
@@ -443,7 +440,8 @@ mod tests {
         assert_eq!(bar.button_at(400.0, 399.0, 0.0), Some(Button::Close));
         assert_eq!(bar.button_at(400.0, 354.0, 31.0), Some(Button::Close));
         assert_eq!(bar.button_at(400.0, 353.0, 10.0), Some(Button::Maximize));
-        assert_eq!(bar.button_at(400.0, 307.0, 10.0), None);
+        assert_eq!(bar.button_at(400.0, 307.0, 10.0), Some(Button::Minimize));
+        assert_eq!(bar.button_at(400.0, 261.0, 10.0), None);
         assert_eq!(bar.button_at(400.0, 380.0, 32.0), None);
     }
 
@@ -459,10 +457,9 @@ mod tests {
         bar.hover(400.0, Some((54.0, 10.0)));
         assert_eq!(bar.release(), None);
         assert!(!bar.holding());
-        // Minimize does nothing until the dock.
         bar.hover(400.0, Some((34.0, 10.0)));
         assert_eq!(bar.press(400.0, 34.0, 10.0, now), Press::Button);
-        assert_eq!(bar.release(), None);
+        assert_eq!(bar.release(), Some(Button::Minimize));
     }
 
     #[test]

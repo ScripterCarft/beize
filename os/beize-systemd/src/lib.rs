@@ -2,7 +2,10 @@
 //! the session beize-session runs in, sd-bus to the user's service manager
 //! over its private socket (as `systemctl --user`, no session bus needed),
 //! sd-event for the bus and the signals of the login. beize-session starts
-//! the desktop with it, the compositor the apps (ADR 0027 §9).
+//! the desktop with it, the compositor and the shell the apps (`apps`,
+//! ADR 0027 §9).
+
+pub mod apps;
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ptr;

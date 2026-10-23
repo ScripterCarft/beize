@@ -2,8 +2,9 @@
 //! shell along an edge of the screen (wlr-layer-shell, ADR 0028 §1), shown
 //! through a Vulkan swapchain on the app's libwayland display (Mesa's WSI:
 //! dmabufs on a GPU, shm on lavapipe; FIFO paces it to the compositor's
-//! frames). Opaque, in the size the compositor asks for. The app's renderer
-//! draws into the swapchain's images.
+//! frames). Opaque – a translucent panel premultiplied –, in the size the
+//! compositor asks for. The app's renderer draws into the swapchain's
+//! images.
 //!
 //! An app's window has Beize UI's title bar along its top (`titlebar`):
 //! the app draws and hears its content only, below the bar, in its own
@@ -60,7 +61,7 @@ pub(crate) enum Role {
     /// A panel of the shell: the compositor keeps windows out of its strip.
     Panel {
         _layer_shell: ZwlrLayerShellV1,
-        _layer: ZwlrLayerSurfaceV1,
+        layer: ZwlrLayerSurfaceV1,
     },
 }
 
@@ -82,6 +83,8 @@ pub(crate) struct Window {
     swapchain: Option<Swapchain>,
     /// A present said the swapchain no longer fits the surface.
     stale: bool,
+    /// Shows what is below where it is transparent.
+    translucent: bool,
     /// The content's size where the compositor leaves the choice to the
     /// app.
     pub(crate) preferred: (u32, u32),
@@ -93,6 +96,7 @@ impl Window {
         role: Role,
         vk_surface: vk::SurfaceKHR,
         bar: Option<TitleBar>,
+        translucent: bool,
     ) -> Window {
         Window {
             id,
@@ -106,6 +110,7 @@ impl Window {
             vk_surface,
             swapchain: None,
             stale: false,
+            translucent,
             preferred: DEFAULT_SIZE,
         }
     }
@@ -121,6 +126,13 @@ impl Window {
         {
             bar.title = title.to_owned();
             self.bar_changed = true;
+        }
+    }
+
+    /// A panel's size, with the surface's next commit.
+    pub(crate) fn set_panel_size(&self, (w, h): (u32, u32)) {
+        if let Role::Panel { layer, .. } = &self.role {
+            layer.set_size(w, h);
         }
     }
 
@@ -252,8 +264,8 @@ impl Window {
                         Some(titlebar::Button::Maximize) => {
                             toggle_maximized(toplevel, maximized);
                         }
-                        // Not available until the dock (`titlebar`).
-                        Some(titlebar::Button::Minimize) | None => {}
+                        Some(titlebar::Button::Minimize) => toplevel.set_minimized(),
+                        None => {}
                     }
                     self.bar_changed = true;
                 }
@@ -405,11 +417,13 @@ impl Window {
         {
             return Err(error(format!("the surface does not offer {FORMAT:?}")));
         }
-        if !caps
-            .supported_composite_alpha
-            .contains(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        {
-            return Err(error("the surface cannot be opaque"));
+        let alpha = if self.translucent {
+            vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED
+        } else {
+            vk::CompositeAlphaFlagsKHR::OPAQUE
+        };
+        if !caps.supported_composite_alpha.contains(alpha) {
+            return Err(error(format!("the surface does not offer {alpha:?}")));
         }
         // Wayland leaves the size to the window (u32::MAX).
         let extent = if caps.current_extent.width != u32::MAX {
@@ -439,7 +453,7 @@ impl Window {
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(caps.current_transform)
-            .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+            .composite_alpha(alpha)
             .present_mode(vk::PresentModeKHR::FIFO)
             .clipped(true)
             .old_swapchain(old.as_ref().map_or(vk::SwapchainKHR::null(), |s| s.handle));
@@ -488,10 +502,14 @@ impl Window {
     }
 
     /// The window is opaque: the compositor need not draw what is under it.
+    /// A translucent panel says nothing (all of it may show through).
     fn set_opaque(&self, surface: &Surface, compositor: &WlCompositor, qh: &QueueHandle<State>) {
         let Some(swapchain) = &self.swapchain else {
             return;
         };
+        if self.translucent {
+            return;
+        }
         let (w, h) = swapchain.size;
         let region: WlRegion = compositor.create_region(qh, ());
         region.add(0, 0, w as i32, h as i32);

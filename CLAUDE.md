@@ -80,7 +80,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-draw` (was Beize UI und Compositor gleich zeichnen: Szene aus Quads, Text mit Parley, Skrifa, zeno, Symbole (Phosphor, resvg) im Glyphen-Atlas, Titelleiste `titlebar`, ADR 0028 §2; ohne Wayland und GPU), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; Fenster über Vulkan-WSI, sRGB, mit der Titelleiste aus `beize-draw`; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `windows` schwebende Fenster (Platz, Maximieren, Verschieben/Größe per Grab), `decorations` Rahmen fremder Apps (xdg-decoration, Leiste als eigenes Bild über `VkRenderer::draw_picture`), `trust`/`layers` die Shell und ihre Leisten, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr), `beize-systemd` (sd-login, sd-bus zum Benutzermanager; für beize-session und den Compositor, der damit Apps startet), `beize-terminal` (Terminal auf Beize UI, Unit `app-beize\x2dterminal@.service`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-draw` (was Beize UI und Compositor gleich zeichnen: Szene aus Quads, Text mit Parley, Skrifa, zeno, Symbole (Phosphor, resvg) im Glyphen-Atlas, Titelleiste `titlebar`, ADR 0028 §2; ohne Wayland und GPU), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; `App` hält Verbindung, Eingabe, GPU, Atlas und Schrift für alle Fenster einer App (`app`), Fenster über Vulkan-WSI, sRGB, mit der Titelleiste aus `beize-draw` (`window`), Leisten der Shell, auch durchsichtig; `desktop` die Fensterliste für die Shell; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `windows` schwebende Fenster (Platz, Maximieren, Verschieben/Größe per Grab), `decorations` Rahmen fremder Apps (xdg-decoration, Leiste als eigenes Bild über `VkRenderer::draw_picture`), `trust`/`layers` die Shell und ihre Leisten, `shell_v1` ihre Fensterliste (beize-shell-v1; Minimieren und Zurückholen in `windows`), `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr), `beize-systemd` (sd-login, sd-bus zum Benutzermanager; für beize-session; `apps` startet Apps als `app-<ID>@<Zufall>.service`, für Compositor und Dock), `beize-protocols` (eigene Wayland-Protokolle aus XML, `client`/`server`: `beize-shell-v1.xml`), `beize-shell` (Menüleiste mit App-Name und Uhr, `dock`, `apps` Namen aus Desktop-Dateien), `beize-terminal` (Terminal auf Beize UI, Unit `app-beize\x2dterminal@.service`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity` `desktop`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -170,7 +170,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter) · 0028 Shell (eigener Prozess, Menüleiste + Dock, Strg-Modell, Phosphor). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter) · 0028 Shell (eigener Prozess, Menüleiste + Dock, `beize-shell-v1`, Strg-Modell, Phosphor). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a) und (b) fertig, (c) Dock als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a)–(c) fertig, (d) Glas und Symbole als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -352,33 +352,38 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a) fertig 23.10.:**
-`os/beize-shell` (Menüleiste mit Uhr, Dienst), Compositor `trust.rs` (Shell an ihrer cgroup per
-SO_PEERPIDFD/PIDFD_GET_INFO) und `layers.rs` (wlr-layer-shell nur für die Shell, Fenster
-darunter), Beize UI `Window::panel`; Desktop-Smoke prüft Menüleiste, Fensterbereich und den
-Neustart der Shell. **(b) ist geteilt.** b1 fertig 23.10.: Compositor `windows.rs` (Fenster in
-eigener Größe, mittig, Kaskade; Maximieren; Verschieben/Größe per Grab, Randstreifen 5 px),
-Terminal öffnet mit 80x24, der Smoke zieht pixelgenau über ein virtio-Tablet (`VIRTIO_INPUT=m`).
-b2 fertig 23.10.: Beize UI `titlebar.rs` (32 px, Knöpfe wie Windows 11, Phosphor-Symbole aus
-`recipes/phosphor-icons.toml` über resvg in den Glyphen-Atlas, `Window::text()`/
-`set_appearance`); Smoke zieht, maximiert per Doppelklick und schließt. b3 fertig 23.10.:
-`os/beize-draw` (Text, Atlas, Szene, Titelleiste, geteilt), Compositor `decorations.rs`
-(xdg-decoration; Leiste als eigenes Bild über eine sRGB-Ansicht, `VkRenderer::draw_picture`;
-platziert wird der ganze Rahmen), Testprogramm `--server-side`; Smoke prüft die Knöpfe
-pixelgleich zu Beize UI, Ziehen, Doppelklick, Schließen (getestet nur mit dem Testprogramm;
-echte Qt-/Chromium-Apps beim nächsten Hardware-Test). b4 fertig 23.10.: Knöpfe wie macOS
-(Besitzer; `titlebar::Look`, Windows wählbar, eigene Zeichen statt Phosphor), runde Ecken
-und Schatten im Shader (`corners.rs`, `SHADOW`); Smoke vergleicht ohne die Ecken, prüft rund
-bzw. eckig maximiert. Phosphor ist im Image, aber bis (d) ungenutzt. **Als Nächstes (c):**
-`beize-shell-v1`, Dock, Minimieren, App-Name in der Menüleiste. Zeigerbilder für die Ränder kommen mit (d). Die Beize-UI-Referenz entsteht offscreen
-in der VM: `./bz debug --machine run 'mkdir -p /run/t && mount -o ro
-/dev/disk/by-id/virtio-beize-test /run/t' '/run/t/beize-ui-test --offscreen /run/s.ppm 800x600'
-'gzip -9c /run/s.ppm | base64 -w0'`, auf dem Host zurück und nach PNG. Entschieden: Shell als eigener Prozess wie macOS,
-aber aus einem Guss (Start ohne Flackern); Dock unten, Menüleiste oben; Titelleiste von Beize
-UI; Strg-Modell (Super gehört der Shell); Knöpfe rechts; Symbole Phosphor, App-Symbole
-eigen; gestaltete Animationen zuletzt (g). Der Lasttest (ADR 0028 §9) ist der Wunsch des
-Besitzers. Schrift: sauber, nicht pixelig (Inter). Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`,
-erst die Ursache im Quelltext (Mesa, nouveau, Smithay) suchen, dann ändern.
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) fertig 23.10.:**
+(a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
+(`windows.rs`, Randstreifen 5 px, Grabs), Titelleiste wie macOS aus `beize-draw` (`titlebar::Look`,
+Windows wählbar), Rahmen für fremde Apps (`decorations.rs`, getestet nur mit dem Testprogramm;
+echte Qt-/Chromium-Apps beim nächsten Hardware-Test), runde Ecken und Schatten im Shader. (c)
+Beize UI `App` (mehrere Fenster auf einer Verbindung), Protokoll `beize-shell-v1`
+(`os/beize-protocols`, Fensterliste und Aktivieren), Minimieren (gelber Kreis, xdg, Rahmen),
+Dock (unten, angeheftet: Terminal; laufende Apps mit Punkt; Klick startet oder holt nach vorn,
+wie macOS), App-Name fett in der Menüleiste (`Name` der Desktop-Datei, sonst die ID); ein Klick
+auf eine Leiste fokussiert kein Fenster darunter. Smoke prüft Dock (Breite, runde Ecke),
+Minimieren und Zurückholen, Start aus dem Dock, App-Namen über das Journal der Shell (`dock: …`,
+`menu bar: …`). Das Dock ist bis (d) hell, deckend, Kacheln mit Anfangsbuchstaben.
+**Als Nächstes (d), geteilt (Besitzer, 23.10.):** d1 Squircle-Ecken (stetig gekrümmt wie
+Apples Icon-Raster 824/1024, im Shader; klären, ob Fenster mitgehen) und Dock-Werte
+abgemessen statt geschätzt (heute geschätzt: Kachel 48, Radius 18/11, Abstände 8, Rand 6; der
+Besitzer hat keinen Mac: an Apples Bildschirmfotos von macOS 26 und den Design Resources messen,
+Gemessenes von Geschätztem trennen); d2 Symbole (Phosphor in der Leiste, eigene App-Symbole in
+einer Squircle-Form mit Verlauf und Phosphor-Motiv statt der Buchstaben-Kacheln: Terminal, später
+Sift = Dateimanager des Besitzers und Papierkorb; hicolor für fremde Apps; Zeigerbilder für die
+Ränder); d3 Grundglas und Hintergrund; d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9,
+Wunsch des Besitzers) und ein Hardware-Test. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
+Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
+liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
+App-Installation); fremde Apps ohne Unit-Vorlage startet das Dock noch nicht (nur `Exec=`).
+Die Beize-UI-Referenz entsteht offscreen in der VM: `./bz debug --machine run 'mkdir -p /run/t &&
+mount -o ro /dev/disk/by-id/virtio-beize-test /run/t' '/run/t/beize-ui-test --offscreen /run/s.ppm
+800x600' 'gzip -9c /run/s.ppm | base64 -w0'`, auf dem Host zurück und nach PNG. Entschieden: Shell
+als eigener Prozess wie macOS, aber aus einem Guss (Start ohne Flackern); Dock unten, Menüleiste
+oben; Titelleiste von Beize UI; Strg-Modell (Super gehört der Shell); Symbole Phosphor,
+App-Symbole eigen; gestaltete Animationen zuletzt (g). Schrift: sauber, nicht pixelig (Inter).
+Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`, erst die Ursache im Quelltext
+(Mesa, nouveau, Smithay) suchen, dann ändern.
 
 **Grundlegende Vorschläge** (Durchsicht 23.10., je ein ADR, noch nicht entschieden):
 - **Delta-Updates** vor Updates übers Netz (M4): Heute lädt jedes Update das ganze Image

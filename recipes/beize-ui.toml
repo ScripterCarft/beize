@@ -8,8 +8,9 @@
 # libwayland (Mesa's WSI takes the display), the compositor's test client
 # stays pure Rust – in one cargo build their features would merge.
 # libwayland and libvulkan are loaded at run time (dlopen), both from the
-# desktop's packages; libxkbcommon (keys) is linked, as in the compositor. Build scripts of its crates, checked (CLAUDE.md §8):
-# wayland-sys does nothing with dlopen, wayland-client only declares cfg
+# desktop's packages; libxkbcommon (keys) is linked, as in the compositor,
+# and libsystemd for the shell, whose dock starts apps. Build scripts of
+# its crates, checked (CLAUDE.md §8): wayland-sys does nothing with dlopen, wayland-client only declares cfg
 # names; beize-vulkan's compiles its shaders (recipes/beize-compositor.toml);
 # the terminal's: parking_lot_core's only sets a cfg for thread sanitizers,
 # signal-hook's compiles C only with a feature that stays off.
@@ -17,8 +18,8 @@ name = "beize-ui"
 version = "0.1.0"
 stage = "target"
 # libgcc_s for Rust's unwinding.
-deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader", "libxkbcommon"]
-repo = ["os/beize-vulkan", "os/beize-draw", "os/beize-ui", "os/beize-shell", "os/beize-terminal", "Cargo.toml", "Cargo.lock"]
+deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader", "libxkbcommon", "systemd"]
+repo = ["os/beize-vulkan", "os/beize-draw", "os/beize-protocols", "os/beize-systemd", "os/beize-ui", "os/beize-shell", "os/beize-terminal", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''
@@ -33,9 +34,12 @@ install -D -m 644 "$REPO/os/beize-shell/beize-shell.service" \
   "$PKG/usr/lib/systemd/user/beize-shell.service"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-terminal" \
   "$PKG/usr/lib/beize/beize-terminal"
-# Its unit: an instance per window, which the compositor starts.
+# Its unit: an instance per window, which the compositor and the dock
+# start; its desktop file names it (freedesktop).
 install -D -m 644 "$REPO/os/beize-terminal/app.service" \
   "$PKG/usr/lib/systemd/user/app-beize\x2dterminal@.service"
+install -D -m 644 "$REPO/os/beize-terminal/beize-terminal.desktop" \
+  "$PKG/usr/share/applications/beize-terminal.desktop"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-ui-test" \
   "$PKG/usr/lib/beize/test/beize-ui-test"
 install -D -m 755 "$REPO/os/beize-terminal/tests/sample.sh" \
@@ -52,6 +56,7 @@ image = [
   "usr/lib/systemd/user/beize-shell.service",
   "usr/lib/beize/beize-terminal",
   'usr/lib/systemd/user/app-beize\x2dterminal@.service',
+  "usr/share/applications/beize-terminal.desktop",
 ]
 build = [
   { path = "usr/lib/beize/test/beize-ui-test", why = "checks Beize UI's window in the VM, on bz's test medium; not for computers" },

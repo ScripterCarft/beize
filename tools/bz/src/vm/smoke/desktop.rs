@@ -13,11 +13,15 @@
 //! below its title bar exactly as it draws it offscreen, the reference in
 //! the repository. Killed, the shell comes back and the window stays. The
 //! title bar moves the window, maximizes it with a double click and back,
-//! and closes it. A client that asks the compositor for its frame
+//! minimizes it, and closes it; the dock brings it back. A client that asks the compositor for its frame
 //! (xdg-decoration) gets the same title bar, its buttons the same to the
 //! pixel, above its pattern, centred with it; the bar moves, maximizes and
 //! closes its window as Beize UI's does. Windows have round corners
-//! (compared without them), maximized ones do not.
+//! (compared without them), maximized ones do not. The dock (ADR 0028 §4)
+//! floats along the bottom with round corners, the pinned terminal first and
+//! every running app with it; a click starts the terminal once none runs.
+//! The menu bar names the active app; the shell's list of windows is
+//! offered to no app.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //!
@@ -60,6 +64,21 @@ const POINTER_SIZE: usize = 24;
 /// `BAR`); windows lie below it.
 const MENU_BAR: usize = 24;
 const MENU_BAR_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
+/// Where the active app's name is: the left end of the bar, at most this
+/// wide (the shell's journal says which name it shows, `SHELL_SAID`).
+const APP_NAME_WIDTH: usize = 200;
+// The pointer, parked on the bar, lies in that end too.
+const _: () = assert!(APP_NAME_WIDTH >= POINTER_SIZE);
+/// The dock (os/beize-shell, `dock`): this high, this far above the bottom
+/// of the screen, its tiles this wide with this gap and padding; windows
+/// stay above it, so the window area ends `DOCK_ZONE` above the bottom.
+const DOCK_HEIGHT: usize = 64;
+const DOCK_MARGIN: usize = 6;
+const DOCK_TILE: usize = 48;
+const DOCK_GAP: usize = 8;
+const DOCK_PADDING: usize = 8;
+const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
+const DOCK_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
 /// Where the time is: the right end of the bar, this wide. "00:00" in
 /// Inter at 13 px is some 35 px; the rest of the bar is its colour alone.
 const CLOCK_WIDTH: usize = 80;
@@ -92,6 +111,10 @@ const TERMINAL_SAMPLE_COMMAND: &str = "/run/t/beize-terminal-sample";
 const SHELL_CONNECTED: &str = "journalctl --user -b -u beize-compositor.service -o cat \
                                | grep -c '^the shell connected$'";
 
+/// What the shell said in this boot (os/beize-shell): `dock: …` for the
+/// apps in the dock, `menu bar: <name>` for the active app.
+const SHELL_SAID: &str = "journalctl --user -b -u beize-shell.service -o cat";
+
 /// The compositor's line for each window it places (os/beize-compositor,
 /// `windows`): `window <app id> <w>x<h> at <x>,<y>`.
 const PLACED: &str = "journalctl --user -b -u beize-compositor.service -o cat | grep '^window '";
@@ -100,19 +123,22 @@ const PLACED: &str = "journalctl --user -b -u beize-compositor.service -o cat | 
 /// (os/beize-testclient, `TITLE`).
 const CLIENT_TITLE: usize = 32;
 /// How far the test drags the client's window, by its top and then by its
-/// bottom right corner: clear of the terminals' windows below it.
-const MOVE_BY: (i32, i32) = (-150, 80);
+/// bottom right corner: clear of the terminals' windows below it, and of
+/// the dock, which lies over windows dragged under it (as macOS' does).
+const MOVE_BY: (i32, i32) = (-150, 60);
 const RESIZE_BY: (i32, i32) = (60, 40);
 
 /// Beize UI's title bar along the top of its windows (os/beize-ui,
 /// `titlebar`), and how far the test drags a window by it.
 const TITLE_BAR: usize = 28;
-const UI_MOVE_BY: (i32, i32) = (-100, 40);
+// Its 800x628 window stays clear of the dock (`MOVE_BY`).
+const UI_MOVE_BY: (i32, i32) = (-100, 20);
 /// The bar's circles at its left end, 20 px apart from 8 px on, close
 /// centred 14 px in (os/beize-draw, `titlebar`); compared from the end of
 /// the round corner on.
 const BUTTONS: (usize, usize) = (CORNER, 68);
 const CLOSE_X: usize = 14;
+const CIRCLE_STEP: usize = 20;
 /// A place on a bar away from its circles.
 const BAR_GRIP_X: usize = 120;
 /// The windows' round corners (os/beize-compositor, `corners`): the
@@ -208,8 +234,11 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         lines.iter().any(|l| l == "BEIZE-SHELL-1") && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
         "the shell did not connect once as the shell, in its system call filter: {lines:?}"
     );
-    wait_for_menu_bar(&machine)?;
-    say!("  ok: the shell runs sandboxed, the compositor knows it, its menu bar shows the time");
+    wait_for_panels(&machine)?;
+    say!(
+        "  ok: the shell runs sandboxed, the compositor knows it, its menu bar shows the time, \
+         its dock floats along the bottom with round corners"
+    );
 
     // The desktop starts with a terminal, Ctrl+Alt+T opens another: each in
     // a unit of its own, with the owner's shell in it.
@@ -220,8 +249,11 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         both.contains(&first[0]),
         "the first terminal ended when the second opened: {both:?}"
     );
+    wait_for_shell_line(&shell, |l| l == "dock: beize-terminal running")?;
+    wait_for_shell_line(&shell, |l| l == "menu bar: Terminal")?;
     say!(
-        "  ok: the desktop started with a terminal, Ctrl+Alt+T opened another, each with its shell"
+        "  ok: the desktop started with a terminal, Ctrl+Alt+T opened another, each with its \
+         shell; the dock shows the terminal running, the menu bar names it"
     );
 
     // The new terminal has the keyboard: typed into once its shell reads,
@@ -270,8 +302,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         .with_context(|| format!("the client printed no globals: {lines:?}"))?;
     let offered: Vec<&str> = globals.split(' ').collect();
     ensure!(
-        offered.contains(&"xdg_wm_base") && !offered.contains(&"zwlr_layer_shell_v1"),
-        "an app was offered the shell's panels, or no windows: {globals}"
+        offered.contains(&"xdg_wm_base")
+            && !offered.contains(&"zwlr_layer_shell_v1")
+            && !offered.contains(&"beize_shell_v1"),
+        "an app was offered the shell's panels or list of windows, or no windows: {globals}"
     );
     // It opens in the size it chose (the compositor left it the choice),
     // centred in what the menu bar leaves of the screen.
@@ -287,7 +321,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let screen = screen_size(&machine)?;
     let centred = (
         (screen.0 - size.0) / 2,
-        MENU_BAR + (screen.1 - MENU_BAR - size.1) / 2,
+        MENU_BAR + (screen.1 - MENU_BAR - DOCK_ZONE - size.1) / 2,
     );
     ensure!(
         at == centred,
@@ -348,7 +382,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         &shell,
         &machine,
         (0, MENU_BAR),
-        (screen.0, screen.1 - MENU_BAR),
+        (screen.0, screen.1 - MENU_BAR - DOCK_ZONE),
         "maximized",
     )?;
     // Maximized, its corners are the screen's: square.
@@ -360,8 +394,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     keys(&qmp, &["m"])?;
     wait_for_pattern(&shell, &machine, moved, grown, "restored")?;
     say!(
-        "  ok: maximized the window filled the screen below the menu bar, and came back to its \
-         place and size"
+        "  ok: maximized the window filled the screen between the menu bar and the dock, and \
+         came back to its place and size"
     );
 
     // Frames in a row: a second client draws 120, each on "frame done";
@@ -406,6 +440,11 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     let ui = placed(&shell, "beize-ui-test", 1)?;
     wait_for_screen(paths, &machine, content(ui), UI_SAMPLE, "beize-ui")?;
+    // An app without a desktop file: its id stands for its name.
+    wait_for_shell_line(&shell, |l| l == "menu bar: beize-ui-test")?;
+    wait_for_shell_line(&shell, |l| {
+        l.starts_with("dock: beize-terminal running, ") && l.contains("beize-ui-test running")
+    })?;
     say!("  ok: Beize UI's window shows its sample below its title bar as the reference has it");
 
     // Killed, the shell starts again (ADR 0028 §1): the compositor knows
@@ -422,7 +461,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
             && lines.iter().filter(|l| *l == "active").count() == 3,
         "the shell did not come back after it was killed, or the desktop went: {lines:?}"
     );
-    wait_for_menu_bar(&machine)?;
+    wait_for_panels(&machine)?;
     wait_for_screen(
         paths,
         &machine,
@@ -430,7 +469,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         UI_SAMPLE,
         "beize-ui-after-shell",
     )?;
-    say!("  ok: killed, the shell came back with its menu bar; the desktop and the window stayed");
+    say!(
+        "  ok: killed, the shell came back with its menu bar and dock; the desktop and the \
+         window stayed"
+    );
 
     // Beize UI's title bar (ADR 0028 §2): dragged, it moves the window by
     // exactly the drag; a double click maximizes the window, another
@@ -453,7 +495,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     )?;
     click(&qmp, screen, to, 2)?;
     park(&qmp, screen)?;
-    let full = (screen.0, screen.1 - MENU_BAR - TITLE_BAR);
+    let full = (screen.0, screen.1 - MENU_BAR - DOCK_ZONE - TITLE_BAR);
     wait_for_configure(&shell, "beize-ui-test", full)?;
     // On the maximized window's bar, away from its buttons.
     let bar = (
@@ -473,9 +515,41 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     // Its buttons, as the screen shows them now (the window active, the
     // pointer away): the compositor's frame has to show the same.
     let restored = machine.logs.join("beize-ui-restored-screen.ppm");
-    let ui_buttons = Image::read_ppm(&fs::read(&restored)?)?.crop(
+    let restored_screen = Image::read_ppm(&fs::read(&restored)?)?;
+    let ui_shown = restored_screen.crop(content((moved, (w, h))).0, content((moved, (w, h))).1)?;
+    let ui_buttons = restored_screen.crop(
         (moved.0 + BUTTONS.0, moved.1),
         (BUTTONS.1 - BUTTONS.0, TITLE_BAR),
+    )?;
+    // The yellow circle minimizes it: off the screen; its app's tile in the
+    // dock brings it back to its place.
+    let minimize = (
+        i32::try_from(moved.0 + CLOSE_X + CIRCLE_STEP)?,
+        i32::try_from(moved.1 + TITLE_BAR / 2)?,
+    );
+    click(&qmp, screen, minimize, 1)?;
+    park(&qmp, screen)?;
+    wait_for_compositor_line(&shell, "minimized beize-ui-test")?;
+    wait_for_gone(
+        &machine,
+        content((moved, (w, h))),
+        &ui_shown,
+        "beize-ui-minimized",
+    )?;
+    let apps = last_dock(&shell)?;
+    let tile = apps
+        .iter()
+        .position(|a| a == "beize-ui-test running")
+        .with_context(|| format!("beize-ui-test is not in the dock: {apps:?}"))?;
+    click(&qmp, screen, dock_tile(screen, apps.len(), tile)?, 1)?;
+    park(&qmp, screen)?;
+    wait_for_compositor_line(&shell, "brought back beize-ui-test")?;
+    wait_for_screen(
+        paths,
+        &machine,
+        content((moved, (w, h))),
+        UI_SAMPLE,
+        "beize-ui-back",
     )?;
     // The close button, the red circle.
     let close = (
@@ -495,10 +569,26 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     say!(
         "  ok: Beize UI's title bar moved the window by exactly the drag, a double click \
-         maximized it and back, its close button closed it"
+         maximized it and back, the yellow circle minimized it and the dock brought it back, \
+         its close button closed it"
     );
 
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
+
+    // With no terminal left, the dock's first tile starts one.
+    let (_, lines) = shell.capture("systemctl --user stop 'app-beize\\x2dterminal@*'")?;
+    ensure!(
+        terminals(&shell)?.is_empty(),
+        "the terminals did not stop: {lines:?}"
+    );
+    let apps = wait_for_dock(&shell, |apps| {
+        apps.first().is_some_and(|a| a == "beize-terminal")
+    })?;
+    click(&qmp, screen, dock_tile(screen, apps.len(), 0)?, 1)?;
+    park(&qmp, screen)?;
+    wait_for_terminals(&shell, 1)?;
+    wait_for_shell_line(&shell, |l| l.starts_with("dock: beize-terminal running"))?;
+    say!("  ok: with no terminal running, the dock's tile started one");
 
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
@@ -575,7 +665,7 @@ fn framed(
     let frame_height = size.1 + TITLE_BAR;
     let centred = (
         (screen.0 - size.0) / 2,
-        MENU_BAR + (screen.1 - MENU_BAR - frame_height) / 2 + TITLE_BAR,
+        MENU_BAR + (screen.1 - MENU_BAR - DOCK_ZONE - frame_height) / 2 + TITLE_BAR,
     );
     ensure!(
         at == centred,
@@ -622,7 +712,7 @@ fn framed(
     wait_for_pattern(shell, machine, moved, size, "framed-moved")?;
     click(qmp, screen, on_bar(moved)?, 2)?;
     park(qmp, screen)?;
-    let full = (screen.0, screen.1 - MENU_BAR - TITLE_BAR);
+    let full = (screen.0, screen.1 - MENU_BAR - DOCK_ZONE - TITLE_BAR);
     wait_for_configure(shell, UNIT, full)?;
     let below_bar = (0, MENU_BAR + TITLE_BAR);
     wait_for_pattern(shell, machine, below_bar, full, "framed-maximized")?;
@@ -888,18 +978,19 @@ fn wait_for_image(
 }
 
 /// Waits until the menu bar lies along the top of the screen with the time
-/// on its right; if it does not, the last screen is in the logs.
-fn wait_for_menu_bar(machine: &Machine) -> Result<()> {
-    let file = machine.logs.join("menu-bar-screen.ppm");
+/// on its right, and the dock along the bottom; if they do not, the last
+/// screen is in the logs.
+fn wait_for_panels(machine: &Machine) -> Result<()> {
+    let file = machine.logs.join("panels-screen.ppm");
     let deadline = Instant::now() + SCREEN_TIMEOUT;
     loop {
         thread::sleep(Duration::from_millis(500));
         screendump(&machine.qmp(), &file)?;
         let screen = Image::read_ppm(&fs::read(&file)?)?;
-        match menu_bar(&screen) {
+        match menu_bar(&screen).and_then(|()| dock(&screen).map(|_| ())) {
             Ok(()) => return Ok(()),
             Err(e) if Instant::now() >= deadline => {
-                let shown = machine.logs.join("menu-bar-screen.png");
+                let shown = machine.logs.join("panels-screen.png");
                 screen.write_png(&shown)?;
                 return Err(e.context(format!("the screen is {}", shown.display())));
             }
@@ -909,12 +1000,12 @@ fn wait_for_menu_bar(machine: &Machine) -> Result<()> {
 }
 
 /// Whether `screen` has the menu bar: its colour across the top but the
-/// pointer and the time, and the time's ink at the right end. Which time
-/// it shows depends on the minute; Beize UI's text itself is checked
-/// exactly with the windows.
+/// pointer, the app's name and the time, and the time's ink at the right
+/// end. Which time it shows depends on the minute, which name the shell's
+/// journal says; Beize UI's text itself is checked exactly with the windows.
 fn menu_bar(screen: &Image) -> Result<()> {
     ensure!(
-        screen.width > CLOCK_WIDTH + POINTER_SIZE && screen.height > MENU_BAR,
+        screen.width > CLOCK_WIDTH + APP_NAME_WIDTH && screen.height > MENU_BAR,
         "a screen of {}x{} has no room for the menu bar",
         screen.width,
         screen.height
@@ -930,7 +1021,7 @@ fn menu_bar(screen: &Image) -> Result<()> {
     for y in 0..MENU_BAR {
         for x in 0..screen.width {
             let shown = screen.pixel(x, y);
-            if x < POINTER_SIZE && y < POINTER_SIZE {
+            if x < APP_NAME_WIDTH {
                 continue;
             }
             if x >= clock {
@@ -949,9 +1040,151 @@ fn menu_bar(screen: &Image) -> Result<()> {
         "the menu bar shows no time: {ink} dark pixels at its right end"
     );
     // Below it, something else: a window, not more bar.
-    let below = (POINTER_SIZE..clock).all(|x| near(screen.pixel(x, MENU_BAR), MENU_BAR_COLOR));
+    let below = (APP_NAME_WIDTH..clock).all(|x| near(screen.pixel(x, MENU_BAR), MENU_BAR_COLOR));
     ensure!(!below, "the menu bar is higher than {MENU_BAR} pixels");
     Ok(())
+}
+
+/// The dock in `screen`, centred along the bottom: its colour in its
+/// middle row from edge to edge, but for its tiles, and what is below
+/// showing at its round corner. Its width says how many apps it has; that
+/// number.
+fn dock(screen: &Image) -> Result<usize> {
+    let near = |a: [u8; 3]| {
+        a.iter()
+            .zip(DOCK_COLOR)
+            .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
+    };
+    ensure!(
+        screen.height > DOCK_ZONE + MENU_BAR,
+        "a screen {} high has no room for the dock",
+        screen.height
+    );
+    let top = screen.height - DOCK_ZONE;
+    // Through the tiles, where the corners are far.
+    let row = top + DOCK_HEIGHT / 2;
+    let centre = screen.width / 2;
+    // Leftwards from the middle, over tiles (never wider than one), to the
+    // dock's last pixel of its colour.
+    let mut left = None;
+    let mut run = 0;
+    for x in (0..=centre).rev() {
+        if near(screen.pixel(x, row)) {
+            left = Some(x);
+            run = 0;
+        } else {
+            run += 1;
+            if run > DOCK_TILE {
+                break;
+            }
+        }
+    }
+    let left = left.context("no dock along the bottom of the screen")?;
+    // The hairline is one pixel outside the colour.
+    let x = left - 1;
+    let width = 2 * (centre - x);
+    let tiles = (width + DOCK_GAP).saturating_sub(2 * DOCK_PADDING) / (DOCK_TILE + DOCK_GAP);
+    let expected = 2 * DOCK_PADDING + tiles * DOCK_TILE + tiles.saturating_sub(1) * DOCK_GAP;
+    ensure!(
+        tiles >= 1 && width.abs_diff(expected) <= 1,
+        "the dock is {width} wide, which is no number of apps"
+    );
+    // A round corner shows what is below, as the pixel beside the dock.
+    let same = |a: [u8; 3], b: [u8; 3]| {
+        a.iter()
+            .zip(b)
+            .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
+    };
+    ensure!(
+        x > 0 && same(screen.pixel(x, top), screen.pixel(x - 1, top)),
+        "the dock's corner is square"
+    );
+    Ok(tiles)
+}
+
+/// The middle of the `i`th of `apps` tiles of the dock.
+fn dock_tile(screen: (usize, usize), apps: usize, i: usize) -> Result<(i32, i32)> {
+    let width = 2 * DOCK_PADDING + apps * DOCK_TILE + apps.saturating_sub(1) * DOCK_GAP;
+    let x = (screen.0 - width) / 2 + DOCK_PADDING + i * (DOCK_TILE + DOCK_GAP) + DOCK_TILE / 2;
+    let y = screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE / 2;
+    Ok((i32::try_from(x)?, i32::try_from(y)?))
+}
+
+/// Waits until the shell said a line `wanted` takes, in this boot.
+fn wait_for_shell_line(shell: &Shell, wanted: impl Fn(&str) -> bool) -> Result<String> {
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        let (_, lines) = shell.capture(SHELL_SAID)?;
+        if let Some(line) = lines.iter().find(|l| wanted(l)) {
+            return Ok(line.clone());
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "the shell did not say what was waited for; it said: {lines:?}"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The apps of the shell's last `dock:` line.
+fn last_dock(shell: &Shell) -> Result<Vec<String>> {
+    let (_, lines) = shell.capture(SHELL_SAID)?;
+    let line = lines
+        .iter()
+        .rev()
+        .find_map(|l| l.strip_prefix("dock: "))
+        .with_context(|| format!("the shell named no apps in its dock: {lines:?}"))?;
+    Ok(line.split(", ").map(str::to_owned).collect())
+}
+
+/// Waits until the shell's last `dock:` line has apps that `wanted` takes.
+fn wait_for_dock(shell: &Shell, wanted: impl Fn(&[String]) -> bool) -> Result<Vec<String>> {
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        let apps = last_dock(shell)?;
+        if wanted(&apps) {
+            return Ok(apps);
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "the dock did not become what was waited for: {apps:?}"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Waits until the compositor said `line`, in this boot.
+fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<()> {
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 50); do journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -qx '{line}' && break; sleep 0.2; done; \
+         journalctl --user -b -u beize-compositor.service -o cat | grep -cx '{line}'"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l != "0"),
+        "the compositor did not say \"{line}\": {lines:?}"
+    );
+    Ok(())
+}
+
+/// Waits until `window` on the screen no longer shows `shown` – the window
+/// left; if it does not, the last screen is in the logs.
+fn wait_for_gone(machine: &Machine, (at, size): Window, shown: &Image, name: &str) -> Result<()> {
+    let file = machine.logs.join(format!("{name}-screen.ppm"));
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        thread::sleep(Duration::from_millis(500));
+        screendump(&machine.qmp(), &file)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?.crop(at, size)?;
+        if screen.pixels != shown.pixels {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let png = machine.logs.join(format!("{name}-screen.png"));
+            screen.write_png(&png)?;
+            bail!("the window still shows: {}", png.display());
+        }
+    }
 }
 
 /// An RGB image.
@@ -1220,9 +1453,59 @@ mod tests {
         screen
     }
 
+    /// A dark screen with a dock of `apps` tiles, its corners round or not.
+    fn with_dock(apps: usize, round: bool) -> Image {
+        let (w, h) = (400, 200);
+        let mut screen = Image {
+            width: w,
+            height: h,
+            pixels: [0x1e; 3].repeat(w * h),
+        };
+        let width = 2 * DOCK_PADDING + apps * DOCK_TILE + (apps - 1) * DOCK_GAP;
+        let (x0, y0) = ((w - width) / 2, h - DOCK_ZONE);
+        for y in y0..y0 + DOCK_HEIGHT {
+            for x in x0..x0 + width {
+                let corner = round && (x - x0).min(x0 + width - 1 - x) < 3 && y - y0 < 3;
+                let edge = x == x0 || x == x0 + width - 1 || y == y0;
+                let c = if corner {
+                    [0x1e; 3]
+                } else if edge {
+                    [0xd0; 3]
+                } else {
+                    DOCK_COLOR
+                };
+                let at = (y * w + x) * 3;
+                screen.pixels[at..at + 3].copy_from_slice(&c);
+            }
+        }
+        for i in 0..apps {
+            let tx = x0 + DOCK_PADDING + i * (DOCK_TILE + DOCK_GAP);
+            for y in y0 + DOCK_PADDING..y0 + DOCK_PADDING + DOCK_TILE {
+                for x in tx..tx + DOCK_TILE {
+                    let at = (y * w + x) * 3;
+                    screen.pixels[at..at + 3].copy_from_slice(&[0x3a; 3]);
+                }
+            }
+        }
+        screen
+    }
+
+    #[test]
+    fn counts_the_dock_by_its_width_and_wants_round_corners() {
+        for apps in 1..=4 {
+            assert_eq!(dock(&with_dock(apps, true)).unwrap(), apps);
+        }
+        assert!(dock(&with_dock(2, false)).is_err());
+        let none = Image {
+            pixels: vec![0x1e; 400 * 200 * 3],
+            ..with_dock(1, true)
+        };
+        assert!(dock(&none).is_err());
+    }
+
     #[test]
     fn finds_the_menu_bar_with_its_time_and_nothing_else() {
-        let screen = desktop(200);
+        let screen = desktop(400);
         menu_bar(&screen).unwrap();
         // A window below it, cut out of the screen.
         let window = desktop(200)
@@ -1233,26 +1516,26 @@ mod tests {
         assert_eq!(window.pixel(13, 0), [0x1e; 3]);
         assert!(desktop(200).crop((151, MENU_BAR), (50, 1)).is_err());
         // A stray pixel on the bar, no time, a bar too high, no bar at all.
-        let mut stray = desktop(200);
-        stray.pixels[(5 * 200 + 100) * 3] = 0;
+        let mut stray = desktop(400);
+        stray.pixels[(5 * 400 + 300) * 3] = 0;
         assert!(menu_bar(&stray).is_err());
-        let mut no_time = desktop(200);
-        for x in 160..200 {
+        let mut no_time = desktop(400);
+        for x in 360..400 {
             for y in 0..MENU_BAR {
-                let at = (y * 200 + x) * 3;
+                let at = (y * 400 + x) * 3;
                 no_time.pixels[at..at + 3].copy_from_slice(&MENU_BAR_COLOR);
             }
         }
         assert!(menu_bar(&no_time).is_err());
-        let mut high = desktop(200);
-        for x in 0..200 {
-            let at = (MENU_BAR * 200 + x) * 3;
+        let mut high = desktop(400);
+        for x in 0..400 {
+            let at = (MENU_BAR * 400 + x) * 3;
             high.pixels[at..at + 3].copy_from_slice(&MENU_BAR_COLOR);
         }
         assert!(menu_bar(&high).is_err());
         let none = Image {
-            pixels: vec![0x1e; 200 * 40 * 3],
-            ..desktop(200)
+            pixels: vec![0x1e; 400 * 40 * 3],
+            ..desktop(400)
         };
         assert!(menu_bar(&none).is_err());
     }

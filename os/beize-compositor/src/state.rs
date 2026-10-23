@@ -1,8 +1,9 @@
 //! The compositor's state and the Wayland protocols it serves: surfaces
 //! (wl_compositor, wl_shm, linux-dmabuf), the seat, the screen as
 //! wl_output, copy and paste (wl_data_device), windows (xdg-shell,
-//! `shell`) with their frames (xdg-decoration, `decorations`) and the
-//! shell's panels (wlr-layer-shell, `layers`).
+//! `shell`) with their frames (xdg-decoration, `decorations`), the
+//! shell's panels (wlr-layer-shell, `layers`) and its list of windows
+//! (beize-shell-v1, `shell_v1`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
 //! screen for a redraw at the deadline of the next vblank (`schedule`),
@@ -138,6 +139,11 @@ pub struct State {
     pub space: Space<Window>,
     /// New windows until their first content places them (`windows`).
     pub unmapped: Vec<Window>,
+    /// Minimized windows, off the screen until the shell brings them back
+    /// (`windows`).
+    pub minimized: Vec<Window>,
+    /// The shell's view of the windows (`shell_v1`).
+    pub shell_windows: crate::shell_v1::ShellWindows,
     pub popups: PopupManager,
     /// What the title bars of other apps' windows share (`decorations`).
     decorations: Decorations,
@@ -216,6 +222,8 @@ impl State {
             taken_keys: HashSet::new(),
             space: Space::default(),
             unmapped: Vec::new(),
+            minimized: Vec::new(),
+            shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
             decorations: Decorations::default(),
             screen: None,
@@ -554,6 +562,10 @@ impl State {
                 Some(output.clone())
             });
         }
+        // Not on the screen: "frame done" at most every HIDDEN_FRAMES.
+        for window in &self.minimized {
+            window.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| None);
+        }
         for panel in layer_map_for_output(&output).layers() {
             panel.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| {
                 Some(output.clone())
@@ -584,6 +596,19 @@ impl State {
             .or_else(|| panels(&[Layer::Bottom, Layer::Background]))
     }
 
+    /// Whether a panel above the windows (the menu bar, the dock) is under
+    /// `at`: a click there is the shell's, not the window's behind it.
+    pub fn panel_under(&self, at: Point<f64, Logical>) -> bool {
+        self.output.as_ref().is_some_and(|output| {
+            crate::layers::surface_under(output, &[Layer::Overlay, Layer::Top], at).is_some()
+        })
+    }
+
+    /// The input clock now, in milliseconds as input events carry it.
+    pub fn time_msec(&self) -> u32 {
+        Duration::from(self.clock.now()).as_millis() as u32
+    }
+
     /// The topmost window under `at`, its surface there and that surface's
     /// position; none on its title bar, which is the compositor's.
     fn window_surface_under(
@@ -607,7 +632,7 @@ impl State {
     /// it (`shell::committed`): the protocol sends none before the
     /// client's initial commit.
     pub fn focus(&mut self, window: Option<Window>) {
-        for other in self.space.elements() {
+        for other in self.space.elements().chain(&self.minimized) {
             if Some(other) != window.as_ref() {
                 other.set_activated(false);
             }
@@ -621,13 +646,19 @@ impl State {
         // Each window hears what changed for it – which `set_activated`'s
         // answer cannot tell once raising has set it; unchanged ones hear
         // nothing (`send_pending_configure`).
-        for toplevel in self.space.elements().filter_map(Window::toplevel) {
+        for toplevel in self
+            .space
+            .elements()
+            .chain(&self.minimized)
+            .filter_map(Window::toplevel)
+        {
             if toplevel.is_initial_configure_sent() {
                 toplevel.send_pending_configure();
             }
         }
         let keyboard = self.keyboard.clone();
         keyboard.set_focus(self, surface, SERIAL_COUNTER.next_serial());
+        self.refresh_listing();
         self.changed();
     }
 

@@ -6,6 +6,7 @@
 
 mod app;
 mod clipboard;
+mod desktop;
 pub mod gpu;
 pub mod input;
 pub mod log;
@@ -15,5 +16,6 @@ mod window;
 
 pub use app::{App, Dispatched, Edge, Events, Panel, WindowId};
 pub use beize_draw::{Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, text};
+pub use desktop::{DesktopWindow, DesktopWindowId};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="beize_shell_v1">
+  <copyright>
+    SPDX-License-Identifier: MPL-2.0
+  </copyright>
+
+  <description summary="what Beize's shell knows of the windows (ADR 0028 §1)">
+    The compositor tells Beize's shell which windows there are – their app,
+    title and state – and does what the shell asks of them: the dock lists
+    the running apps and brings their windows back, the menu bar names the
+    active app. Modelled on ext-foreign-toplevel-list-v1 (the list) and
+    wlr-foreign-toplevel-management (what the shell asks).
+
+    Only the shell is offered the global; the compositor knows it by its
+    unit (os/beize-compositor, trust.rs). Both ends live in Beize's
+    repository and change together: until a version of Beize promises
+    otherwise, the protocol grows without new versions.
+  </description>
+
+  <interface name="beize_shell_v1" version="1">
+    <description summary="the list of windows">
+      On bind the compositor announces every window there is, in the order
+      they opened, then each new one when it first shows.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="no more news of windows">
+        The windows announced so far stay valid until destroyed.
+      </description>
+    </request>
+
+    <event name="window">
+      <description summary="a window">
+        A window is there: its app_id, title and state follow, then done.
+      </description>
+      <arg name="window" type="new_id" interface="beize_window_v1"/>
+    </event>
+  </interface>
+
+  <interface name="beize_window_v1" version="1">
+    <description summary="one window">
+      Its properties come as events, each set of changes ended by done.
+    </description>
+
+    <enum name="state" bitfield="true">
+      <entry name="active" value="1" summary="it has the keyboard; at most one window is active"/>
+      <entry name="minimized" value="2" summary="it is minimized: not on the screen"/>
+    </enum>
+
+    <event name="app_id">
+      <description summary="the window's app">
+        The app's id (xdg_toplevel.app_id): the name of its desktop file
+        without ".desktop". Empty if the app named none.
+      </description>
+      <arg name="app_id" type="string"/>
+    </event>
+
+    <event name="title">
+      <arg name="title" type="string"/>
+    </event>
+
+    <event name="state">
+      <arg name="state" type="uint" enum="state"/>
+    </event>
+
+    <event name="done">
+      <description summary="the changes before it belong together"/>
+    </event>
+
+    <event name="closed">
+      <description summary="the window is gone">
+        No more events come; the shell destroys the object.
+      </description>
+    </event>
+
+    <request name="activate">
+      <description summary="bring the window to the front">
+        Shows it again if it is minimized, raises it and gives it the
+        keyboard.
+      </description>
+    </request>
+
+    <request name="destroy" type="destructor"/>
+  </interface>
+</protocol>

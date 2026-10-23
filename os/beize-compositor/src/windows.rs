@@ -16,6 +16,11 @@
 //! was. A new place goes with the commit that has the new size, never ahead
 //! of it, so no frame shows a window's old content in its new place.
 //!
+//! Minimized, a window leaves the screen and keeps its place; the shell
+//! brings it back there (beize-shell-v1, `shell_v1`; `bring_back`), raised
+//! and active.
+//! The window below takes over the keyboard.
+//!
 //! A window with the compositor's title bar (`decorations`) is placed by
 //! its frame, the bar and its content: the frame is centred, stays below
 //! the menu bar and fills the area maximized; the content keeps its place
@@ -68,6 +73,8 @@ struct Place {
     unmaximized_at: Option<Point<i32, Logical>>,
     /// Being resized: which edges move, and the window before.
     resize: Option<Resize>,
+    /// Where it was when it was minimized.
+    minimized_at: Option<Point<i32, Logical>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -144,6 +151,19 @@ fn constrain_content(
     let bar = bar_height(window);
     let lifted = Point::from((at.x, at.y - bar));
     constrain(area, (size.w, size.h + bar).into(), lifted) + Point::from((0, bar))
+}
+
+/// The window's app, for the log.
+fn app_id(window: &Window) -> String {
+    let id = window.toplevel().and_then(|toplevel| {
+        with_states(toplevel.wl_surface(), |states| {
+            states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .and_then(|d| d.lock().ok().and_then(|d| d.app_id.clone()))
+        })
+    });
+    id.unwrap_or_else(|| "(no app id)".into())
 }
 
 /// The size a drag from `initial` by `delta` on `edges` asks for, within
@@ -249,21 +269,16 @@ impl State {
             let bar = bar_height(&window);
             let at =
                 initial_place(area, (size.w, size.h + bar).into(), &taken) + Point::from((0, bar));
-            let app = with_states(toplevel.wl_surface(), |states| {
-                states
-                    .data_map
-                    .get::<XdgToplevelSurfaceData>()
-                    .and_then(|d| d.lock().ok().and_then(|d| d.app_id.clone()))
-            });
             info!(
                 "window {} {}x{} at {},{}",
-                app.as_deref().unwrap_or("(no app id)"),
+                app_id(&window),
                 size.w,
                 size.h,
                 at.x,
                 at.y
             );
             self.space.map_element(window.clone(), at, false);
+            self.list_window(&window);
             self.focus(Some(window));
             return;
         }
@@ -305,10 +320,46 @@ impl State {
         }
     }
 
-    /// A window that is gone, placed or not.
+    /// A window that is gone, placed, minimized or not yet placed.
     pub fn window_destroyed(&mut self, surface: &WlSurface) {
-        self.unmapped
-            .retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != surface));
+        if let Some(window) = self.window_for(surface) {
+            self.unlist_window(&window);
+        }
+        let other = |w: &Window| w.toplevel().is_some_and(|t| t.wl_surface() != surface);
+        self.unmapped.retain(other);
+        self.minimized.retain(other);
+    }
+
+    /// Takes `window` off the screen; the one below it becomes active.
+    pub fn minimize(&mut self, window: &Window) {
+        let Some(at) = self.space.element_location(window) else {
+            return;
+        };
+        with_place(window, |place| place.minimized_at = Some(at));
+        info!("minimized {}", app_id(window));
+        self.space.unmap_elem(window);
+        self.minimized.push(window.clone());
+        let next = self.space.elements().last().cloned();
+        self.focus(next);
+        // The pointer may have been over it.
+        crate::input::refresh_pointer(self);
+    }
+
+    /// Raises `window` and makes it the active one; back on the screen, in
+    /// its place, if it was minimized.
+    pub fn bring_back(&mut self, window: Window) {
+        if let Some(i) = self.minimized.iter().position(|w| *w == window) {
+            self.minimized.remove(i);
+            let at = with_place(&window, |place| place.minimized_at.take());
+            let area = self.window_area();
+            let at = at.map_or(area.loc, |at| {
+                constrain_content(area, &window, window.geometry().size, at)
+            });
+            self.space.map_element(window.clone(), at, false);
+            info!("brought back {}", app_id(&window));
+        }
+        self.focus(Some(window));
+        crate::input::refresh_pointer(self);
     }
 
     pub fn maximize(&mut self, toplevel: &ToplevelSurface) {
@@ -388,6 +439,22 @@ impl State {
         for window in &self.unmapped {
             if let Some(toplevel) = window.toplevel() {
                 toplevel.with_pending_state(|state| state.bounds = Some(area.size));
+            }
+        }
+        // Minimized ones fit the area when they come back (`bring_back`).
+        for window in &self.minimized {
+            let Some(toplevel) = window.toplevel() else {
+                continue;
+            };
+            let content = Size::from((area.size.w, area.size.h - bar_height(window)));
+            toplevel.with_pending_state(|state| {
+                state.bounds = Some(content);
+                if state.states.contains(XdgState::Maximized) {
+                    state.size = Some(content);
+                }
+            });
+            if toplevel.is_initial_configure_sent() {
+                toplevel.send_pending_configure();
             }
         }
         self.changed();

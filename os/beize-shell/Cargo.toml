@@ -1,6 +1,6 @@
 [package]
 name = "beize-shell"
-description = "Beize's shell: menu bar, later dock and control center, with Beize UI (ADR 0028)"
+description = "Beize's shell: menu bar and dock, later the control center, with Beize UI (ADR 0028)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,8 @@ license.workspace = true
 
 [dependencies]
 beize-ui = { path = "../beize-ui" }
+# The dock starts apps in the user's service manager.
+beize-systemd = { path = "../beize-systemd" }
 # The local time: glibc's localtime_r with the zone in /etc/localtime.
 libc = "0.2"
 # The minute's timer (timerfd), which also hears when the clock is set.
