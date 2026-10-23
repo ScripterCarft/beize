@@ -55,6 +55,23 @@ pub const MASK: u32 = 4;
 /// `sigma` (ADR 0028 §2): computed per pixel, no texture.
 pub const SHADOW: u32 = 8;
 
+/// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
+/// `radius` reaches this many radii along each edge.
+pub const CORNER_EXTENT: f32 = 1.48744;
+
+/// How far a corner of `radius` reaches along the edges of a `w`×`h`
+/// rectangle, as the shader draws it: the squares there show what is
+/// below. Where the curve does not fit – a capsule, a dot – the corners
+/// are circular.
+pub fn corner_extent(radius: f32, w: f32, h: f32) -> f32 {
+    let limit = w.min(h) / 2.0;
+    if radius * CORNER_EXTENT <= limit {
+        radius * CORNER_EXTENT
+    } else {
+        radius.min(limit)
+    }
+}
+
 /// The push constants (`shaders/quad.glsl`, `Push`).
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -422,4 +439,24 @@ unsafe fn module(d: &ash::Device, bytes: &[u8]) -> Result<vk::ShaderModule> {
     // the call returns.
     unsafe { d.create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&code), None) }
         .context("shader module")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shader_draws_the_same_corner() {
+        let shader = include_str!("../shaders/quad.frag");
+        assert!(shader.contains(&format!("const float EXTENT = {CORNER_EXTENT};")));
+    }
+
+    #[test]
+    fn a_corner_that_does_not_fit_is_circular() {
+        assert_eq!(corner_extent(16.0, 800.0, 600.0), 16.0 * CORNER_EXTENT);
+        // A dot: a circle.
+        assert_eq!(corner_extent(2.0, 4.0, 4.0), 2.0);
+        // A capsule's ends are half circles.
+        assert_eq!(corner_extent(20.0, 200.0, 30.0), 15.0);
+    }
 }

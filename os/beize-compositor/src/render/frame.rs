@@ -27,7 +27,7 @@ use crate::error::{Error, Result};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
-use beize_vulkan::pipeline::{Attachment, Pipelines, SHADOW};
+use beize_vulkan::pipeline::{Attachment, Pipelines, SHADOW, corner_extent};
 
 /// Round corners for what a frame draws (`VkFrame::set_rounding`), in the
 /// framebuffer: the rectangle, the radius, the corners' squares.
@@ -123,7 +123,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
                 fb.size.w as f32,
                 fb.size.h as f32,
             );
-            let r = radius;
+            // The squares the corners' curves lie in.
+            let r = corner_extent(radius, w, h).ceil();
             Rounding {
                 clip: [x, y, w, h],
                 radius,
@@ -152,14 +153,16 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     ) {
         let parts: Vec<_> = geometry::absolute(dst, damage).collect();
         // The caster but its corners, which let the shadow show.
+        let c =
+            corner_extent(radius as f32, caster.size.w as f32, caster.size.h as f32).ceil() as i32;
         let covered = [
             Rectangle::new(
-                (caster.loc.x + radius, caster.loc.y).into(),
-                (caster.size.w - 2 * radius, caster.size.h).into(),
+                (caster.loc.x + c, caster.loc.y).into(),
+                (caster.size.w - 2 * c, caster.size.h).into(),
             ),
             Rectangle::new(
-                (caster.loc.x, caster.loc.y + radius).into(),
-                (caster.size.w, caster.size.h - 2 * radius).into(),
+                (caster.loc.x, caster.loc.y + c).into(),
+                (caster.size.w, caster.size.h - 2 * c).into(),
             ),
         ];
         let fb = self.space.framebuffer_rect(caster);

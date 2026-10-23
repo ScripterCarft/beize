@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a)–(c) fertig, (d) Glas und Symbole als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a)–(c) und d1 fertig, d2 Symbole als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -352,7 +352,7 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) fertig 23.10.:**
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10.:**
 (a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
 (`windows.rs`, Randstreifen 5 px, Grabs), Titelleiste wie macOS aus `beize-draw` (`titlebar::Look`,
 Windows wählbar), Rahmen für fremde Apps (`decorations.rs`, getestet nur mit dem Testprogramm;
@@ -364,11 +364,23 @@ wie macOS), App-Name fett in der Menüleiste (`Name` der Desktop-Datei, sonst di
 auf eine Leiste fokussiert kein Fenster darunter. Smoke prüft Dock (Breite, runde Ecke),
 Minimieren und Zurückholen, Start aus dem Dock, App-Namen über das Journal der Shell (`dock: …`,
 `menu bar: …`). Das Dock ist bis (d) hell, deckend, Kacheln mit Anfangsbuchstaben.
-**Als Nächstes (d), geteilt (Besitzer, 23.10.):** d1 Squircle-Ecken (stetig gekrümmt wie
-Apples Icon-Raster 824/1024, im Shader; klären, ob Fenster mitgehen) und Dock-Werte
-abgemessen statt geschätzt (heute geschätzt: Kachel 48, Radius 18/11, Abstände 8, Rand 6; der
-Besitzer hat keinen Mac: an Apples Bildschirmfotos von macOS 26 und den Design Resources messen,
-Gemessenes von Geschätztem trennen); d2 Symbole (Phosphor in der Leiste, eigene App-Symbole in
+**(d1) fertig 23.10.: stetige Ecken und gemessene Werte.** Kurve (Shader `quad.frag`, Tabelle;
+`CORNER_EXTENT` in `beize-vulkan`): **belegt** aus dem Vektorpfad der Maske in Apples App Icon
+Template (iOS 27, `.ai` aus der Design-Resources-DMG): Mittelbogen r, Übergang mit von null
+steigender Krümmung, reicht 1,4874 r je Kante (nicht UIKits 1,5287 r laut PaintCode); Icon-Radius
+0,2449 der Seite. Shader-Formel in numpy nachgerechnet: ≤ 0,11 px bei 1024, ≤ 0,01 px bei r 16/22.
+Passt die Kurve nicht (Punkt, Kapsel): Kreisbögen. Fenster und Dock von macOS haben die stetige
+Kurve (Pressebilder, Anpassung an Kreis/UIKit/Maske: Restfehler halb so groß wie beim Kreis).
+**Dock gemessen** an Apples Pressebild macOS 26 „Messages“ (14″-MacBook Pro, Bildschirm
+3426,6×2225,3 px = 1512×982 pt, 2,2663 px/pt): Kachel 48 (Raster 52, Icon 38,6 = 48·824/1024),
+Abstand 4, Rand 9,7 → 10, unten 5,1 → 5, Ecke 22,0, Punkt 4,0 mit Mitte 3,7 über der Unterkante,
+Trenner +24 (noch nicht gebaut). **Fenster:** macOS 26 gemessen 26,5 pt (mit Werkzeugleiste),
+Knöpfe 14 pt im Abstand 23, Mitte 25,5 vom Rand. Beize nimmt macOS 27 (Besitzer): Radius 16,
+**erschlossen** (Pressebild 27 ohne belegbaren Maßstab, Knöpfe als 14 pt angenommen) – mit einem
+Bild von 27 mit bekanntem Bildschirm nachmessen. Offen dazu: Beizes Knöpfe sind noch 12 pt im
+Abstand 20 (macOS bis 15), Farben von Dock und Punkt kommen mit d3. Apples Bilder liegen nicht
+im Repo (Lizenz); Messskripte waren Wegwerf-Arbeit.
+**Als Nächstes:** d2 Symbole (Phosphor in der Leiste, eigene App-Symbole in
 einer Squircle-Form mit Verlauf und Phosphor-Motiv statt der Buchstaben-Kacheln: Terminal, später
 Sift = Dateimanager des Besitzers und Papierkorb; hicolor für fremde Apps; Zeigerbilder für die
 Ränder); d3 Grundglas und Hintergrund; d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9,

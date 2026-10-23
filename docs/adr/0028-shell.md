@@ -102,7 +102,7 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   über dem Inhalt. Platziert, maximiert und unter der Menüleiste gehalten wird der ganze
   Rahmen. GTK mit libadwaita zeichnet immer selbst. Das lässt sich nicht ändern und ist bei
   GNOME genauso.
-- **Für alle Fenster** zeichnet der Compositor runde Ecken (Radius 10 wie macOS, Maske über
+- **Für alle Fenster** zeichnet der Compositor runde Ecken (Radius 16 wie macOS 27, Maske über
   die Abstandsfunktion im Shader wie KWin und Mutter) und den Schatten, je Pixel geschlossen
   berechnet (Evan Wallaces Formel, wie Zed und Figma), also ohne Textur je Fenstergröße. Das
   aktive Fenster hat den größeren, dunkleren Schatten. Ohne beides bleiben maximierte Fenster
@@ -157,6 +157,9 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 - **App-Identität:** `xdg_toplevel.app_id` ↔ Desktop-Datei (freedesktop); ihr `Name` steht
   in der Menüleiste, ohne Desktop-Datei die ID. Beizes App-Bundles (VISION, vor M4) werden
   dieselbe ID tragen.
+- **Ecken wie Apples:** stetig gekrümmt (die Kurve der Maske aus Apples App-Icon-Vorlage) für
+  Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
+  die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen.
 - **Bis (d)** ist das Dock hell und deckend wie die Menüleiste, jede App eine Kachel mit
   ihrem Anfangsbuchstaben; Glas und App-Symbole kommen mit (d).
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.

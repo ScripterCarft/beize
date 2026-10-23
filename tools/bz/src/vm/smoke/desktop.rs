@@ -72,11 +72,11 @@ const _: () = assert!(APP_NAME_WIDTH >= POINTER_SIZE);
 /// The dock (os/beize-shell, `dock`): this high, this far above the bottom
 /// of the screen, its tiles this wide with this gap and padding; windows
 /// stay above it, so the window area ends `DOCK_ZONE` above the bottom.
-const DOCK_HEIGHT: usize = 64;
-const DOCK_MARGIN: usize = 6;
+const DOCK_HEIGHT: usize = 68;
+const DOCK_MARGIN: usize = 5;
 const DOCK_TILE: usize = 48;
-const DOCK_GAP: usize = 8;
-const DOCK_PADDING: usize = 8;
+const DOCK_GAP: usize = 4;
+const DOCK_PADDING: usize = 10;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
 const DOCK_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
 /// Where the time is: the right end of the bar, this wide. "00:00" in
@@ -142,8 +142,9 @@ const CIRCLE_STEP: usize = 20;
 /// A place on a bar away from its circles.
 const BAR_GRIP_X: usize = 120;
 /// The windows' round corners (os/beize-compositor, `corners`): the
-/// squares they lie in are left out where windows are compared.
-const CORNER: usize = 10;
+/// squares they lie in (radius 16, the continuous corner reaching 1.49
+/// radii) are left out where windows are compared.
+const CORNER: usize = 24;
 /// How far the test drags the framed client's window by the compositor's
 /// bar.
 const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);

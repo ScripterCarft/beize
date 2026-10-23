@@ -44,18 +44,64 @@ float coverage(float raw, vec4 text) {
     return raw + (1.0 - raw) * k * raw;
 }
 
-// How much of the pixel at `p` lies inside the rectangle `box` with
-// corners of `radius`: its signed distance, a pixel wide antialiased.
-float inside(vec2 p, vec4 box, float radius) {
+// Apple's continuous corner, as its icons, windows and Dock have it
+// (ADR 0028 §2): an arc of `radius` in the middle, eased into each edge by
+// a curve whose curvature rises from zero – no kink in curvature where a
+// circle meets the edge. Measured from the mask of Apple's App Icon
+// Template (iOS 27, vector): it reaches EXTENT radii along each edge. RHO:
+// from the corner's centre, EXTENT radii in from both edges, the distance
+// to the curve in EXTENT radii, every 45/16 degrees from the edge to the
+// diagonal, about which the corner is symmetric. Linear between them it
+// is off by less than 3e-4 of the extent (src/pipeline.rs, CORNER_EXTENT).
+const float EXTENT = 1.48744;
+const float RHO[17] = float[](
+    1.000000, 1.001193, 1.004700, 1.010436, 1.018224, 1.027838,
+    1.038913, 1.050913, 1.063232, 1.075213, 1.086245, 1.095866,
+    1.103823, 1.110052, 1.114512, 1.117195, 1.118093
+);
+const float STEPS_PER_RADIAN = 16.0 / 0.7853981633974483;
+
+// The signed distance of `p` to the rectangle `box` with corners of
+// `radius`, negative inside. Where the curve does not fit – a capsule, a
+// dot – the corners are circular, as SwiftUI's Capsule.
+float edge_distance(vec2 p, vec4 box, float radius) {
     vec2 half_size = box.zw * 0.5;
-    vec2 q = abs(p - (box.xy + half_size)) - (half_size - radius);
-    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-    return clamp(0.5 - d, 0.0, 1.0);
+    // From the nearest vertical and horizontal edge, positive inside.
+    vec2 u = half_size - abs(p - (box.xy + half_size));
+    float limit = min(half_size.x, half_size.y);
+    float extent = radius * EXTENT;
+    if (extent > limit) {
+        float r = min(radius, limit);
+        vec2 q = r - u;
+        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    }
+    vec2 w = u - extent;
+    if (w.x >= 0.0 || w.y >= 0.0) {
+        return -min(u.x, u.y);
+    }
+    // In the corner: from its centre, the curve's distance by angle.
+    float r = length(w);
+    float phi = atan(-w.x, -w.y);
+    float a = min(phi, 1.5707963267948966 - phi) * STEPS_PER_RADIAN;
+    int i = min(int(a), 15);
+    float rho = mix(RHO[i], RHO[i + 1], a - float(i)) * extent;
+    // Along the ray the distance is r - rho; the curve's slant to it
+    // shortens the true distance: divide by the gradient's length.
+    float slope = (RHO[i + 1] - RHO[i]) * STEPS_PER_RADIAN * extent / max(r, 1e-3);
+    return (r - rho) / sqrt(1.0 + slope * slope);
+}
+
+// How much of the pixel at `p` lies inside the rectangle `box` with
+// corners of `radius`: a pixel wide antialiased.
+float inside(vec2 p, vec4 box, float radius) {
+    return clamp(0.5 - edge_distance(p, box, radius), 0.0, 1.0);
 }
 
 // The shadow of a rounded rectangle, blurred by a Gaussian: Evan Wallace's
 // closed form ("Fast rounded rectangle shadows", as Zed and Figma draw
 // theirs). Across, the blur of each row is exact (erf); down, four samples.
+// Its corners are circular of the same radius: the continuous corner lies
+// within less than a pixel of that, far below a shadow's blur.
 const float PI = 3.141592653589793;
 
 vec2 erf2(vec2 x) {

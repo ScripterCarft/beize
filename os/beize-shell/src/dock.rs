@@ -9,8 +9,11 @@
 //! Dock does. Like a button, an app acts when the press is released over
 //! it.
 //!
-//! For now light and opaque, an app a tile with its initial: glass and the
-//! apps' symbols come with (d) (ADR 0028, Reihenfolge).
+//! Its measures are macOS 26's, measured in Apple's press image of it (a
+//! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), its corners the
+//! continuous ones of `beize_vulkan`'s shader. For now light and opaque, an
+//! app an icon with its initial: glass and the apps' symbols come with (d)
+//! (ADR 0028, Reihenfolge).
 
 use std::collections::HashMap;
 
@@ -20,21 +23,30 @@ use beize_ui::{Color, DesktopWindow, DesktopWindowId, Family, Rect, Scene, Style
 /// has them.
 const PINNED: [&str; 1] = ["beize-terminal"];
 
-/// An app's tile, square; the space between tiles, around them, and from
-/// the dock's bottom to the dot.
+/// An app's tile, square, and the space between tiles: measured 52 pt
+/// from tile to tile, the icon 38.6 pt – 48 on Apple's icon grid.
 pub const TILE: u32 = 48;
-pub const GAP: u32 = 8;
-pub const PADDING: u32 = 8;
+pub const GAP: u32 = 4;
+/// Around the tiles: measured 9.7 pt to the middle of the dock's rim.
+pub const PADDING: u32 = 10;
 /// The dock's height: tile and padding above and below, the dot in the
 /// lower padding.
 pub const HEIGHT: u32 = TILE + 2 * PADDING;
-/// Between the dock and the bottom of the screen: it floats.
-pub const MARGIN: u32 = 6;
+/// Between the dock and the bottom of the screen, it floats: measured
+/// 5.1 pt.
+pub const MARGIN: u32 = 5;
 
-const RADIUS: f32 = 18.0;
-/// macOS' icon grid: corners of some 22 % of the side.
-const TILE_RADIUS: f32 = 11.0;
+/// Measured 22.0 pt (fitted with the continuous corner).
+const RADIUS: f32 = 22.0;
+/// The icon on its tile, as Apple's icon grid: 824 of 1024, its corners
+/// those of the mask of Apple's App Icon Template, a radius of 0.2449 of
+/// the side.
+const ICON: f32 = TILE as f32 * 824.0 / 1024.0;
+const ICON_RADIUS: f32 = ICON * 0.2449;
+/// The dot below a running app: measured 4.0 pt, its middle 3.7 pt above
+/// the dock's bottom.
 const DOT: f32 = 4.0;
+const DOT_ABOVE: f32 = 3.7;
 
 const BACKGROUND: Color = Color::rgb(0xf5f5f5);
 /// A hairline around it, so it stands out on a light window below.
@@ -235,7 +247,13 @@ impl Dock {
         };
         for (i, item) in self.items.iter().enumerate() {
             let tile = Dock::tile(i);
-            scene.rounded(tile, TILE_RADIUS, TILE_COLOR);
+            let icon = Rect {
+                x: tile.x + (tile.w - ICON) / 2.0,
+                y: tile.y + (tile.h - ICON) / 2.0,
+                w: ICON,
+                h: ICON,
+            };
+            scene.rounded(icon, ICON_RADIUS, TILE_COLOR);
             let initial: String = item.name.chars().take(1).collect();
             let layout = text.layout(&initial.to_uppercase(), &style, None);
             scene.text(
@@ -244,12 +262,12 @@ impl Dock {
                 (tile.y + (tile.h - layout.height()) / 2.0).round(),
             );
             if self.pressed == Some(i) && self.pointer.and_then(|at| self.item_at(at)) == Some(i) {
-                scene.rounded(tile, TILE_RADIUS, PRESSED);
+                scene.rounded(icon, ICON_RADIUS, PRESSED);
             }
             if !item.windows.is_empty() {
                 let dot = Rect {
                     x: tile.x + (tile.w - DOT) / 2.0,
-                    y: tile.y + tile.h + (PADDING as f32 - DOT) / 2.0,
+                    y: h - DOT_ABOVE - DOT / 2.0,
                     w: DOT,
                     h: DOT,
                 };

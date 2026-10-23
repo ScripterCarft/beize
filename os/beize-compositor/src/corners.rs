@@ -10,6 +10,7 @@
 //! maximized window has neither, its edges are the screen's.
 
 use beize_compositor::render::{VkFrame, VkRenderer};
+use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
 use smithay::backend::renderer::{Renderer, RendererSuper};
@@ -18,8 +19,16 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::Sta
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transform};
 use std::cell::RefCell;
 
-/// The corners' radius: macOS' windows.
-pub const RADIUS: i32 = 10;
+/// The corners' radius: macOS 27's windows, with the continuous corner of
+/// `beize_vulkan`'s shader. Inferred: measured in Apple's press image of
+/// macOS 27 at the scale of its window buttons, taken as macOS 26's 14 pt
+/// (CLAUDE.md §11).
+pub const RADIUS: i32 = 16;
+
+/// The squares the corners' curves lie in, along each edge.
+fn corner() -> i32 {
+    (RADIUS as f32 * CORNER_EXTENT).ceil() as i32
+}
 
 /// The shadow of the active window and of the others: how far it falls
 /// down, its blur and its darkness.
@@ -91,7 +100,7 @@ pub fn rounded(window: &Window, frame: Rectangle<i32, Logical>) -> bool {
     // Its surfaces reach past its geometry: a frame and shadow of its own.
     let geometry = window.geometry();
     let own_frame = !geometry.contains_rect(window.bbox());
-    !maximized && !own_frame && frame.size.w > 2 * RADIUS && frame.size.h > 2 * RADIUS
+    !maximized && !own_frame && frame.size.w > 2 * corner() && frame.size.h > 2 * corner()
 }
 
 /// An element of a window, drawn inside its rounded frame (`frame`,
@@ -150,7 +159,7 @@ impl<E: Element> Element for Rounded<E> {
             return opaque;
         };
         let origin = self.inner.geometry(scale).loc;
-        let r = RADIUS;
+        let r = corner();
         let corners = [
             (f.loc.x, f.loc.y),
             (f.loc.x + f.size.w - r, f.loc.y),
