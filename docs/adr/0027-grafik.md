@@ -146,7 +146,14 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   (Direct Scanout, Pacing).
 - **Modus:** die Auflösung des bevorzugten Modus (die des Panels) mit der höchsten Bildrate,
   die der Monitor dafür anbietet, ohne Zeilensprung; wie KWin. Der bevorzugte Modus ist bei
-  schnellen Monitoren oft 60 Hz, das AW2723DF nennt 240 Hz nur im DisplayID-Block.
+  schnellen Monitoren oft 60 Hz, das AW2723DF nennt 240 Hz nur im DisplayID-Block. Die
+  Konsole (fbdev) nimmt den bevorzugten Modus; weicht er ab, stellt der Compositor beim Start
+  um, und der Monitor ist schwarz, bis er einrastet (0.5.101: ~2 s; dass die Bildrate der
+  Konsole abweicht, ist erschlossen, der nächste Hardware-Test liest sie aus). Ebenso ~2 s
+  beim Start, wo nouveau den Firmware-Framebuffer vor dem GSP-Start entfernt (1,74 s gemessen).
+  Nur eine Umstellung, direkt auf den Modus des Desktops: wie Fedoras flicker-free boot
+  (Konsole übernimmt erst bei Ausgabe, `FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER`) mit der
+  grafischen Anmeldung.
 - **Ausgabe mit lavapipe** (VM, Rechner ohne Vulkan-Treiber): lavapipe exportiert dmabufs nur
   über `/dev/udmabuf` und bietet ohne Export auch keine Modifier an, kann aber importieren. Der
   Compositor legt die Bilder deshalb als Dumb-Buffer beim KMS-Treiber an. Meldet der Treiber
@@ -186,45 +193,34 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   verpasst: Kernel und Treiber). Bilder in Folge ergeben eine Zeile `pacing: …` im Journal
   (Ende der Folge oder alle 30 s): Zahl, späte je Ursache, Änderung bis Bild, „ready“ (Commit
   und GPU fertig) vor dem Beginn des vblank, CPU- und GPU-Zeit je Bild (Median, 99 %, Max)
-  und Auslastung des Bildbudgets. Im Leerlauf läuft kein Zeitgeber. In der VM sagen die Zeiten wenig,
-  virtio-gpu hat keinen vblank.
-  **Gemessen** (0.5.97, RTX 3070 Ti, NVK, 2560x1440 @ 240 Hz, Testclient 20 s): Zeichnen
-  (CPU) Median 0,02 ms, GPU 0,06 ms, 2 % des Budgets von 4,17 ms; Bildabstand beim Client
-  4,17 ms. Aber 4781 von 4788 Bildern einen vblank zu spät (Änderung bis Bild 8,65 ms): Der
-  Compositor zeichnete am vblank, direkt nach „frame done“ – der Commit des Clients fand
-  einen wartenden Bildwechsel vor und blieb danach für immer einen vblank zurück.
-- **Zeitplan** (22.10., neu 23.10., `schedule.rs`): Gezeichnet wird so spät vor dem vblank,
-  wie es sicher reicht, nicht am vblank. Alle Änderungen bis zur Frist (Client, Zeiger) kommen
-  in ein Bild zum nächsten vblank. **Modell von KWin** (`RenderLoop`, `DrmCommitThread`),
-  jeder Teil gemessen oder aus dem Modus: Vorlauf = längste Zeit vom *geplanten* Beginn bis
-  „ready“ (Commit und Fence der GPU) der letzten 120 Bilder, mindestens 2 ms (KWin: darunter
-  sind Zeiten bei wechselnden Energiezuständen unberechenbar) + Dauer des vblank aus dem
-  Modus (Leerzeilen × Zeilenzeit, wie Mutter und KWin; 0,46 ms beim AW2723DF) + 1 ms für den
-  Kernel (KWin) + Gelerntes: war ein Bild später „ready“ als 1 ms vor dem Beginn des vblank,
-  wächst der Zuschlag um den Fehlbetrag, sonst schrumpft er um ein Zehntel des Spielraums,
-  höchstens 3 ms oder ein halbes Bild (KWin). Nach 100 Bildern Pause zeichnet er sofort (die
-  GPU hat heruntergetaktet; KWin). Höchstens ein Bild Vorlauf; eine Änderung nach der Frist
-  wird sofort gezeichnet und schafft den vblank vielleicht noch. **Warum neu:** 0.5.98 (Vorlauf
-  = CPU + GPU-Rechenzeit + 1 ms, gegen das *Ende* des vblank) verpasste auf nouveau fast
-  jedes Bild: der Commit kam im Median 1,07 ms vor dem Zeitstempel, also nur 0,6 ms vor dem
-  Beginn des vblank; die Wartezeit bis zum Fence und der Weckverzug fehlten im Modell. Die
-  Lage der vblanks kommt aus
-  den Flip-Ereignissen; ist sie älter als 1 s (Leerlauf; Takt des Monitors weicht vom
-  Nennwert ab), fragt der Compositor KMS nach dem letzten vblank (`drmWaitVBlank` relativ
-  0); antwortet KMS nicht (virtio-gpu), rechnet er mit der alten Lage weiter, ohne jede Lage
-  (erstes Bild, nach einem VT-Wechsel) zeichnet er sofort. Ziel auf der 3070 Ti: 0 späte
-  Bilder, Änderung bis Bild höchstens ein Bild. Der Hardware-Test zeigt je Teil, ob er hält:
-  „ready“ vor dem Beginn des vblank (Spielraum) und die späten Bilder nach Ursache.
-  **Gemessen** (0.5.98): Testclient 2565 von 4800 Bildern (jedes einen vblank zu spät,
-  Abstand 7,79 ms), 2329 von 2569 späten Bildern, Änderung bis Bild 9,43 ms. (0.5.99) Wieder
-  240 Hz, aber 4221 von 4797 Bildern einen vblank zu spät („drawing“, „ready“ 0,57 ms nach
-  Beginn des vblank): Der Zuschlag wurde gegen den vblank gelernt, zu dem eine *Änderung*
-  fällig war. Eine Änderung hinter einem wartenden Bild zählte so als Verspätung des
-  Compositors, der Zuschlag schob die Frist direkt hinter den vblank, vor den Commit der
-  Clients nach „frame done“ – deren nächste Änderung kam wieder zu spät. **Seitdem** lernt er
-  wie KWins Commit-Thread nur aus Bildern, die für einen vblank *geplant* waren, gegen diesen;
-  ein nach der Frist sofort gezeichnetes Bild lehrt nichts (Test im Code). Die Zeile `pacing:`
-  zeigt den Vorlauf („lead“) mit.
+  und Auslastung des Bildbudgets, dazu der Vorlauf („lead“). Die ersten 10 späten Bilder
+  einer Folge bekommen je eine Zeile `late frame (…)` mit ihren Zeiten, damit der
+  Hardware-Test die Ursache je Bild zeigt. Im Leerlauf läuft kein Zeitgeber. In der VM sagen
+  die Zeiten wenig, virtio-gpu hat keinen vblank.
+- **Zeitplan** (`schedule.rs`): Gezeichnet wird so spät vor dem vblank, wie es sicher
+  reicht, nicht am vblank; alle Änderungen bis zur Frist (Client, Zeiger) kommen in ein Bild.
+  **Modell von KWin** (`RenderLoop`, `DrmCommitThread`), jeder Teil gemessen oder aus dem
+  Modus: Vorlauf = längste Zeit vom *geplanten* Beginn bis „ready“ (Commit und Fence der GPU)
+  der letzten 120 Bilder, mindestens 2 ms (darunter sind Zeiten bei wechselnden
+  Energiezuständen unberechenbar) + Dauer des vblank (Leerzeilen × Zeilenzeit, wie Mutter;
+  0,46 ms beim AW2723DF) + 1 ms für den Kernel + Gelerntes (Fehlbetrag später Bilder, je
+  Bild ein Zehntel des Spielraums zurück, höchstens 3 ms oder ein halbes Bild). Gelernt wird
+  nur aus Bildern, die für einen vblank geplant waren, gegen diesen. Nach 100 Bildern Pause,
+  ohne bekannte Lage der vblanks (erstes Bild, nach einem VT-Wechsel) oder nach der Frist
+  zeichnet er sofort. Die Lage kommt aus den Flip-Ereignissen; ist sie älter als 1 s, fragt
+  er KMS (`drmWaitVBlank` relativ 0). Der gemeldete vblank (Ereignis am Beginn, Stempel am
+  Ende) ist nie der nächste.
+  **Warum so, gemessen auf der 3070 Ti (NVK, 2560x1440 @ 240 Hz, Testclient 20 s):** Am vblank
+  zu zeichnen (0.5.97) hielt jedes Bild einen vblank zurück (Änderung bis Bild 8,65 ms). Drei
+  Abweichungen von KWins Modell fielen je einmal durch: Vorlauf gegen das Ende des vblank ohne
+  Wartezeit bis zum Fence (0.5.98), Lernen aus sofort gezeichneten Bildern (0.5.99, eine
+  Schleife), der gemeldete vblank als nächster (0.5.100). **0.5.101:** 4 von 4797 Bildern spät
+  (1 GPU, 3 Anzeige), Compositor 3 % ausgelastet. Offen: Bei 240 Hz bleiben dem Vorlauf über
+  KWins Mindestwerte (3,46 ms) nur 0,71 ms; braucht ein Bild der letzten 120 länger als 2,7 ms
+  (GPU nach einer kurzen Pause heruntergetaktet), ist der Vorlauf ein ganzes Bild und alles
+  wird sofort gezeichnet – so in den kurzen Folgen beim Tippen (bis 3 von 20 spät, „ready“ nur
+  0,5 ms vor dem vblank). Die Zeilen `late frame` des nächsten Hardware-Tests belegen es oder
+  nicht, erst dann wird geändert. Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
 
@@ -324,20 +320,6 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Geprüft mit `beize-ui-test` (Test-Medium) in der VM auf lavapipe: alle Farben bytegenau,
   halbes Weiß über `#1e1e1e` = 189 (linear gemischt; in sRGB wären es 143), Kanten
   pixelgenau.
-- **Text** (22.10.): Parley setzt (Bruchteile von Pixeln), Grundlinien auf ganzen Pixeln,
-  Glyphen auf Viertelpixeln. Skrifa 0.44 (Parleys Version) mit leichtem Hinting
-  (`SmoothMode::Light`, Auto-Hinter für Schriften ohne eigenes, Vorschübe unverändert), zeno
-  rastert (`offset` und `render_offset` zusammen, sonst kommt das Viertelpixel nicht an;
-  `placement.top` ist die Unterkante: gemessen). Atlas 1024² R8 mit Ablagen, voll beginnt
-  er neu; der Renderer füllt die Glyph-Quads beim Zeichnen (Flag `MASK` im gemeinsamen
-  Shader). Gemischt wird in linearem Licht, mit **Skias Kontrast** für Text (23.10.;
-  `SkMaskGamma.cpp`, dessen Vorgaben: lineares Mischen in sRGB, `SK_GAMMA_CONTRAST` 0,5):
-  Deckung c' = c + (1 − c) · k · c mit k = 0,5 · linear(1 − Helligkeit der Textfarbe), also
-  voll für Schwarz, gar nicht für Weiß. Linear gemischt wirkt Teildeckung heller, als sie
-  ist: dunkler Text auf Hell wird dünn, heller auf Dunkel nicht (vom Besitzer auf dem
-  Monitor gesehen, 0.5.98). Verworfen: FreeTypes „stem darkening“ (verdickt jede Farbe, der
-  Unterschied bliebe; Skrifa hat es nicht), DirectWrites Korrektur (für Mischen in
-  Gamma-Raum gebaut).
 - **Test Beize UI** (22.10., Smoke-Szenario `Desktop`): `beize-ui-test` zeigt eine Probe
   (Text in Inter und JetBrains Mono auf Dunkel und Hell, Farben, halbes Weiß); der
   Bildschirm muss genau der Referenz `os/beize-ui/tests/sample.png` gleichen, die dasselbe
@@ -352,9 +334,18 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Graustufen, keine Subpixel-Farbsäume (macOS seit 10.14). Hinting leicht (nur senkrecht,
   wie FreeType „light“): Inter behält seine Form, Grundlinien und Strichstärken sitzen auf dem
   Pixelraster; waagerecht Positionen in Viertelpixeln wie Chrome, für gleichmäßige Abstände.
-  Mischen gammakorrekt. Verworfen: FreeType (C, Chrome ersetzt es gerade), swash als Ganzes
-  (eigener Schriftleser neben Skrifa), vello_cpu/glifo (0.3, Glyphen-Cache noch experimentell;
-  Kandidat für Vektor-Icons mit der Shell).
+  Verworfen: FreeType (C, Chrome ersetzt es gerade), swash als Ganzes (eigener Schriftleser
+  neben Skrifa), vello_cpu/glifo (0.3, Glyphen-Cache noch experimentell; Kandidat für
+  Vektor-Icons mit der Shell).
+  Umgesetzt (22.10.): Parleys Version von Skrifa (0.44) mit `SmoothMode::Light` (Auto-Hinter
+  für Schriften ohne eigenes, Vorschübe unverändert); zeno braucht `offset` und
+  `render_offset` zusammen, sonst kommt das Viertelpixel nicht an. Atlas 1024² R8, voll
+  beginnt er neu. Gemischt wird in linearem Licht, mit **Skias Kontrast** für Text
+  (`SkMaskGamma.cpp`, `SK_GAMMA_CONTRAST` 0,5): Deckung c' = c + (1 − c) · k · c mit
+  k = 0,5 · linear(1 − Helligkeit der Textfarbe). Ohne ihn wirkte dunkler Text auf Hell dünner
+  als heller auf Dunkel (Besitzer, 0.5.98; 0.5.99 „normal und gut so“). Verworfen: FreeTypes
+  „stem darkening“ (verdickt jede Farbe, der Unterschied bliebe), DirectWrites Korrektur (für
+  Mischen im Gamma-Raum gebaut).
 - **Layout:** **Taffy** (Flexbox/Grid; Zed nutzt dieselbe Version 0.15). Im Terminal kaum
   gebraucht, aber die Grundlage jedes Widgets ab Schritt 4.
 - **Schriften:** Inter 4.1 und JetBrains Mono 2.304, beide variabel, OFL, unter
@@ -434,36 +425,19 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
 ## Reihenfolge
 
 1. **Mesa** in `images/desktop/`: NVK und lavapipe, dazu libdrm, Wayland, Vulkan-Loader.
-   Kernel: nouveau, GSP-Firmware. Messung nach Abschnitt 4. Umgesetzt 2026-10-17:
-   - mesa-clc (übersetzt NVKs OpenCL-C beim Bau) läuft auf der Baumaschine mit LLVM 22 aus
-     dem Buildroot; im Image ist kein LLVM. NVK baut in 50 s. Rust in Meson-Projekten
-     über die Cross-Datei von `bz`; Mesas Crates prüft `bz` gegen Mesas Wraps
-     (`latest = { pinned-by = … }`).
-   - Firmware: `bz` liefert genau, was Module anfordern (ADR 0015), Links wie in
-     linux-firmware' WHENCE, unkomprimiert (EROFS komprimiert). GSP 535.113.01 fordert
-     nouveau nur als Rückfall an und lädt es neben 570.144 nie: `[files] omit` in
+   Kernel: nouveau, GSP-Firmware. ✓ 17.10. Was davon bleibt:
+   - GSP 535.113.01 lädt nouveau neben 570.144 nie: `[files] omit` in
      `recipes/linux-firmware.toml` lässt es weg (59 MiB).
    - NVKs Compiler ist Rust, also ohne CET (ADR 0014): Jeder Prozess, der NVK lädt, läuft
-     ohne Shadow Stack, bis Rust CET stabil erzeugt. Fedora hat denselben Stand.
-   - Mesa ist das erste C++ im Image: libstdc++ und der Demangler von elfutils (ADR 0023).
-   - **lavapipe** mit LLVM 23.1.3 als JIT: nur das x86-Backend, ein `libLLVM.so` wie bei
-     Fedora, aber nur mit den Komponenten, die Mesa verlangt (77 statt 94 MB), kein clang,
-     keine Werkzeuge. `/usr` wächst um 34 MiB auf 152 MiB. Bau lokal 10 min, auf dem
-     CI-Runner (4 Kerne) geschätzt 30 min, nur bei neuem LLVM, neuem Buildroot und im wöchentlichen Lauf von null. Zwei Stolpersteine:
-     LLVMs C++ braucht bis 1,5 GiB je Compiler, das Rezept begrenzt die Zahl nach dem
-     Speicherlimit (24 auf 16 GiB liefen in den Speicherdruck, 45 min je Datei); CMake
-     übergibt `CFLAGS` nicht an den Assembler, ohne `CMAKE_ASM_FLAGS` fehlte BLAKE3s
-     Assembler das CET-Kennzeichen und damit libLLVM. Mesa findet LLVM über seinen
-     dokumentierten „binary wrap“ statt `llvm-config`, das auf der Baumaschine nicht läuft.
-     Geprüft: Compute-Shader über den JIT mit den Bibliotheken des Images („llvmpipe (LLVM
-     23.1.3, 256 bits)“, 65 536 von 65 536 Ergebnissen richtig); in der VM prüft es der
-     Smoke-Test des Compositors (Schritt 2).
-2. **Compositor-Gerüst** nach Abschnitt 6: libseat und libinput (mit libevdev, mtdev) im
-   Desktop; Probe dmabuf → KMS in der VM; `os/beize-compositor` mit Vulkan-Renderer für
-   Smithays `Renderer` (shm- und dmabuf-Texturen, Damage), xdg-shell, ein Fenster, Cursor,
-   Tastatur nach localeds Layout; `beize-session`; Smoke-Szenario mit Screenshot-Vergleich.
-   Danach Hardware-Test beim Besitzer: NVK mit 144 Hz, Maus, Tastatur, Bildabstand.
-3. **Beize UI:** Text, Layout, erstes eigenes Fenster; das Terminal als erste App.
+     ohne Shadow Stack, bis Rust CET stabil erzeugt (Fedora ebenso). Mesa ist das erste C++
+     im Image (libstdc++, ADR 0023).
+   - **lavapipe** mit LLVM 23.1.3 als JIT: nur x86, ein `libLLVM.so` nur mit den Komponenten,
+     die Mesa verlangt (77 MB), kein clang; `/usr` +34 MiB. Bau ~30 min auf dem Runner, nur
+     bei neuem LLVM oder Buildroot. LLVMs C++ braucht bis 1,5 GiB je Compiler (das Rezept
+     begrenzt die Jobs nach dem Speicher); CMake braucht `CMAKE_ASM_FLAGS` für das
+     CET-Kennzeichen.
+2. **Compositor-Gerüst** nach Abschnitt 6–8. ✓ 22.10. (Hardware-Test 0.5.97).
+3. **Beize UI** und das Terminal nach Abschnitt 9. ✓ 23.10. (Hardware-Test 0.5.101).
 4. **Shell:** Taskleiste (Dock- oder Windows-Stil vorher entscheiden), Glas, Icons.
 
 ## Konsequenzen

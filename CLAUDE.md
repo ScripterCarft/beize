@@ -10,7 +10,7 @@ frei wie Windows, technisch so offen wie Linux.** Kernel, Treiber und
 Basisbibliotheken kommen aus Upstream (selbst gebaut), alles darüber –
 Compositor, Shell, Einstellungen, Dienste – wird eigener Code (Rust).
 **Lies vor größeren Entscheidungen `docs/VISION.md`.** Meilensteine: M1 Bootet in
-QEMU ✓ · M2 Echte Hardware ✓ · **M3 Compositor (als Nächstes)** · M4 Alltagstauglich ·
+QEMU ✓ · M2 Echte Hardware ✓ · **M3 Compositor (läuft)** · M4 Alltagstauglich ·
 M5 Feinschliff. Stand im Detail: `README.md`.
 
 ## 2. Zusammenarbeit mit dem Besitzer
@@ -24,6 +24,11 @@ M5 Feinschliff. Stand im Detail: `README.md`.
   empfehlen und erklären. Doku schlank halten (ersetzen statt anhängen).
 - Bei Problemen nicht stur am gewählten Weg festhalten: einen Schritt zurück, Alternativen breit
   abwägen („gehen wir das falsch an?“) und mit Empfehlung vorlegen (Beispiel: homed → eigener Kontodienst).
+- Bei Fehlern zuerst fragen, welche eigene Entscheidung uns auf einen ungetesteten Pfad
+  gebracht hat. Nichts abschalten „weil unnötig“, keine fremden Patches; Upstream-Fehler mit
+  Bericht und Patch von Claude, gesendet vom Besitzer, ohne Umgehung bis dahin. Behauptungen
+  belegen (Belegtes von Erschlossenem trennen, sonst messen). Neue Architektur: ADR vorab
+  abstimmen.
 - Commits und Pushes auf `main` sind freigegeben. Commit-Nachrichten englisch,
   aussagekräftiger Body, Abschluss `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
   Ein neuer Signaturschlüssel kommt in einen **eigenen** Commit.
@@ -76,7 +81,7 @@ Neubinden, echte Hardware).
 | Pfad | Inhalt |
 | --- | --- |
 | `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; Fenster über Vulkan-WSI, sRGB; Text mit Parley, Skrifa, zeno und Glyphen-Atlas; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `input`/`keyboard`/`cursor`; Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr), `beize-systemd` (sd-login, sd-bus zum Benutzermanager; für beize-session und den Compositor, der damit Apps startet), `beize-terminal` (Terminal auf Beize UI, Unit `app-beize\x2dterminal@.service`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
-| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity`) |
+| `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity` `desktop`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
 | `images/` | je Variante ein Ordner (ADR 0025, `bz`: `variant.rs`): `base/`, `desktop/` (erweitert `base`, fügt nur hinzu) mit `variant.toml` Name und Pakete für `/usr` · `system.preset`/`user.preset` aktivierte System-/Benutzer-Units · `running-units.txt` was im Smoke-Test laufen muss (ADR 0013) · `security.toml` gemessene Härtung der Dienste; eine Datei ohne Ergänzung fehlt beim Desktop. Gemeinsam: `initrd.toml` Funktionen und Module der initrd (ADR 0016, Auswahl in `bz`: `select/`) |
@@ -95,7 +100,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 #   --variant base|desktop (Vorgabe desktop, ADR 0025) gilt für alle Befehle; je Variante
 #   build/out/<variante>/ und build/work/variant-<variante>/ (usr-Baum, VMs); Kernel, initrd geteilt
 ./bz smoke --quick   # Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
-./bz smoke           # DER Abnahmetest (~2 min, Szenarien parallel), vor jedem Commit grün
+./bz smoke           # DER Abnahmetest (~2,5 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
 #   '@screendump build/x.png' (was der Bildschirm zeigt) · '@keys a shift+z ctrl+alt+f2'
@@ -133,7 +138,17 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - Was `bz smoke` prüft, steht in `tools/bz/src/vm/smoke/` (Modul-Doku in `mod.rs`) und
   `vm/checks.rs`. Ein gescheitertes Szenario lässt seine Maschine liegen
   (`bz debug --machine smoke-db` usw.).
-- Start in der VM: 3,8 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~105 s. Der zweite Start
+- **Desktop von Hand in der VM** (`bz debug`; tty1–6 haben ein getty): `chvt 7`, dann
+  `systemd-run --unit=login1 -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
+  -p StandardInput=tty -p StandardOutput=journal -p StandardError=journal
+  /usr/bin/beize-session` (die Anmeldung; danach läuft ein Terminal). Zustand:
+  `systemctl --user -M smoke@ status beize-compositor`, Log `journalctl -b _UID=1000`.
+  Programme als Benutzer-Unit: `systemd-run -M smoke@ --user /run/t/beize-testclient --frames
+  600` (Test-Medium nach `/run/t`, die frische Disk hat kein `/mnt`), ebenso `beize-ui-test
+  --seconds 30` oder `/usr/lib/beize/beize-terminal`. `@screendump` nur unter `build/`
+  (QEMUs Sandbox). Tote Tasten: `localectl set-keymap --no-convert de-latin1 && localectl
+  set-x11-keymap --no-convert de pc105 "" terminate:ctrl_alt_bksp`, dann `@keys grave_accent e`.
+- Start in der VM: 3,8 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~137 s. Der zweite Start
   hat ein Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei
   Änderung neu messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): Job `buildroot` legt das Buildroot-Image in GHCR an, wenn
@@ -154,7 +169,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Entwurf: Smithay, nur Vulkan, Beize UI, NVIDIA nach Messung, Inter). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -267,6 +282,18 @@ in die Endfassung einarbeiten, keine Nachträge.
 - Rust `Command::output()` setzt stdin auf null: Programme, die am Terminal fragen sollen
   (systemd-ask-password), brauchen `.stdin(Stdio::inherit())`, sonst warten sie auf
   einen Passwort-Agenten.
+- `curl` ohne `--fail` speichert eine 404-Seite still: Prüfsummen nur von `--fail`-Downloads.
+- `bz debug --machine <name>` startet die Disk der liegengelassenen Maschine, nicht den neuen Bau.
+- Während eines Baus nie den Zweig wechseln (`bz` liest z. B. `kernel/measure/`); einen langen
+  Bau mit einem Hintergrund-Job abwarten, der sich meldet.
+- systemd/sd-bus: Eine an sd-event gehängte Verbindung schließt, wenn die Schleife endet;
+  nach `StartUnit` ist ein Target noch „inactive“ mit wartendem Auftrag (auf `JobRemoved`
+  warten); `ProtectHome=yes` sperrt auch `/run/user`; `systemd-analyze --user` braucht
+  `XDG_RUNTIME_DIR` (`bz` misst mit leerer Umgebung, sonst CI ≠ lokal).
+- Ein per `kill` geschicktes SIGSEGV verpufft in Rust-Programmen (Handler für Stack-Überlauf):
+  Abstürze mit SIGABRT nachstellen.
+- Vulkan: Die `Instance` muss das Gerät überleben, sonst stürzt Mesa beim ersten Shader ab.
+- Eingaben mit echter Haltezeit nachstellen (QMP `input-send-event`), nicht mit `@keys` (20 ms).
 
 ## 10. Offene Punkte
 
@@ -274,254 +301,87 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23, Schritt 3 Beize UI: (h) Aufräumen als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 3 fertig, (h) Aufräumen läuft)
 
-**M2 ist abgeschlossen** (Beize 0.4 auf der Hardware des Besitzers geprüft; Messwerte und Leerlauf:
-`docs/hardware.md`). Installiert ist 0.5 (Desktop-Strom), am 17.10. vom Besitzer geprüft:
-Update von 0.4, `/etc`-Links, „(Basis)“ – alles in Ordnung. Neu installieren: `keys/secureboot/README.md`, Update vom
-Stick: `docs/hardware.md`. Wiederherstellung: nach F8 Leertaste halten, „(Recovery)“, Recovery-Key,
-`s`. Phase 7 (Konsolidierung, Review #7) steht in Commits, ADR 0021–0024 und geschlossenen Issues.
+**Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
+ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
+Update vom Stick und Hardware-Test: `docs/hardware.md`. Wiederherstellung: nach F8
+Leertaste halten, „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC;
+Ergebnisse holt Claude per PowerShell (`Copy-Item D:\beize-test\results-…
+\\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\`; in WSL ist D: nicht eingehängt).
 
-**M3 – Compositor. Grundsatz (vom Besitzer am 16.10. entschieden): modular.** Beize besteht aus
-einer **Basis** (alles, was M2 ist: Kernel, systemd, Netz, Zeit, Updates, Konten, TPM/LUKS,
-Wiederherstellung – ein vollständiges System ohne Oberfläche) und dem **Desktop** darüber
-(Grafik, Compositor, Shell, Schriften, Ton). Ziel: jederzeit eine Variante ohne Oberfläche
-bauen können, später „Beize Server“. Vorbild: Windows Server Core (dasselbe System ohne
-Shell), Fedora-Editionen aus denselben Paketen. Kein Fork, sondern Varianten eines Baus.
-Keine Paketverwaltung für Nutzer (VISION: Apps als Bundles, Modell vor M4) – die Varianten
-entstehen beim Bauen.
+**M3 ist modular** (Besitzer, 16.10.; ADR 0025): Basis (alles aus M2, ohne Oberfläche) und
+Desktop darüber, Varianten eines Baus wie Windows Server Core oder Fedoras Editionen.
+„(Basis)“ startet bis M4 mit dem Recovery-Key (eigener TPM-Schlüssel: ADR 0026, #38).
 
-**ADR 0025 (Varianten) ist umgesetzt** (17.10., alle Teile gepusht):
-- Varianten in `bz` (`variant.rs`, `--variant`, Vorgabe `desktop`). Der Baum von `base` ist
-  bitgleich zu vorher bis auf os-release.
-- Update-Strom je Variante (`beize-<v>_…`). Der Updater nimmt nur seine Variante, das prüft
-  der Smoke-Test. Der Übergang von 0.4 (`legacy/` im Release 0.5) ist erledigt und entfernt.
-- „(Basis)“ als UKI-Profil 2, vorerst mit dem Recovery-Key (Smoke-Szenario
-  `WithoutAdditions`). Ein eigener TPM-Schlüssel dafür (ADR 0026) ist angenommen, kommt aber
-  erst mit M4 (#38).
-- Werkzeuge (Besitzer: „nur Consumer, wie macOS“): findmnt und flock aus util-linux (jetzt
-  ohne `--disable-all-programs`; `[files] build` nennt jedes weggelassene Programm mit
-  Grund), `file` neu (eigene Sandbox mit seccomp). patch und strings bleiben draußen.
-  `/etc/profile` und `/etc/ld.so.conf` sind Links nach `/usr` (ADR 0007).
+**Grafik nach ADR 0027, Schritte 1–3 fertig:** NVK und lavapipe (§4), Compositor auf Smithay
+mit eigener Bildschleife und eigenem Renderer (§6–8), Beize UI und Terminal (§9). Auf der
+3070 Ti: 2560x1440 @ 240 Hz, NVK direkt in den Bildschirmpuffer, 4 von 4797 Bildern spät.
+Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Titelleiste (dem Besitzer so gesagt).
 
-**Smoke-Test, gemessen 17.10.:** Release für beide Update-Szenarien einmal gebaut;
-Installation läuft allein (ihre Startmessung). Zwei VMs auf 4 CPUs brachten nichts (579
-statt 585 s, ein Timeout): Starts rechnen. Firmware-Zeit je Start gemessen (17.10.,
-#39): Der größte Posten ist die TPM-Emulation (QEMU/swtpm, ~1 s fest, bis 1 s zufällig),
-nicht Beize; Ursache dort noch offen, später, nach Absprache mit dem Besitzer.
+**Upstream, wartet auf den Besitzer** (Entwürfe in `~/upstream`, `main` bleibt ohne fremde
+Patches, der Messzweig wendet `kernel/measure/*.patch` an):
+- nouveau EDID (240 Hz): am 21.10. gesendet (b4-Tag `sent/20261021-nouveau-edid-segment-…`);
+  Antworten leitet der Besitzer weiter.
+- nouveau GSP-Interrupts (`IRQDEST`): Patch `~/upstream/nouveau-gsp-irqdest`, senden mit
+  `~/upstream/send-nouveau-irq.sh`.
+- Smithay: drei Berichte in `~/upstream/smithay/ISSUES.md`.
+- ntpd-rs #2539 (32 Warnungen je Start, offline endlos): Kommentar
+  `~/upstream/ntpd-rs-2539-comment.md` bietet den Backoff-Patch an und fragt nach der Basis
+  (upstream baut den Daemon gerade um). Keine Umgehung in Beize (ADR 0011).
 
-**`OS_VERSION` ist 0.6 (17.10.).** Auf dem PC des Besitzers läuft der Messbau 0.5.97 (Tag
-`measure/desktop-0.5.97`, EDID-Fix und Compositor-Test); der Updater nimmt nur Neueres, 0.6
-von `main` ersetzt ihn. „(Basis)“ zeigt `VARIANT_ID=desktop` – richtig, dasselbe `/usr` mit anderem
-systemd-Ziel (ADR 0025, erklärt in `keys/secureboot/README.md`). lavapipe ist in der CI grün,
-auch im vollen Lauf (18.10.) und im wöchentlichen Bau von null (19.10., 1 h 38 min).
+**JETZT: (h) Aufräumen, vor Schritt 4** (Besitzer, 23.10.). Erledigt: Push; Befunde des
+Hardware-Tests belegt (NTS oben; schwarze Lücken und Zeitplan in ADR 0027 §6); je spätem Bild
+eine Zeile `late frame` (`pacing.rs`); `docs/hardware.md`, ADR 0027 und dieser Abschnitt
+gestrafft; Messbauten 0.5.98–0.5.100 und `~/scratch` gelöscht. Offen:
+1. Tests schneller: Smoke-Laufzeit je Szenario und Wartezeiten messen und kürzen, CI-Stufen
+   prüfen.
+2. Kleine Fehler suchen und direkt beheben (keine Issues für sofort Behebbares).
+3. Am Ende `~/hw-test` löschen; Release 0.5.101 und die Messtags bleiben, solange 0.5.101
+   beim Besitzer läuft.
 
-**Nächste Aufgaben, in dieser Reihenfolge:**
-1. **M3-Grafik nach ADR 0027 (angenommen 17.10.).** Compositor = Shell auf Smithay, nur
-   Vulkan mit eigenem Renderer, Toolkit „Beize UI“, Inter + JetBrains Mono.
-   **Schritt 1 ist fertig:** NVK (Mesa 26.2.5), Vulkan-Loader, Wayland, libdrm, nouveau mit
-   GSP 570.144 (535 weggelassen per `[files] omit`, `/usr` 118 MiB), `nouveau.atomic=1`
-   (`system/usr/lib/modprobe.d/beize-nouveau.conf`). Messung auf der 3070 Ti bestanden
-   (Werte im ADR): 1440p @ 143,9 Hz, 1 verpasstes Bild in 30 s, GPU-Last 2,5 ms von 6,9 ms.
-   Kein NVIDIA-Treiber. Lehre: Fehler der ersten Versuche war fehlendes atomic KMS, nicht
-   DRM-Master – Mesas `VK_KHR_display` braucht `CRTC_ID`, das nur atomare Clients sehen.
-   Die Probe (Tag) wählt Modus, rendert Compositor-Last per Compute, misst Pacing und
-   GPU-Zeit; ihr Renderer und der KMS-Weg sind die Vorlage für Schritt 2.
+**Schwarze Lücken (Besitzer, 23.10.)**, belegt aus dem Journal von 0.5.101:
+- Start: 1,74 s ohne Bild, weil nouveau den Firmware-Framebuffer vor dem GSP-Start entfernt
+  (`nouveau_drm_probe`: „no way to put it back“); kein Beize-Entscheid.
+- Wechsel zur Sitzung: der Compositor setzt den Modus (erstes Bild 0,13 s danach), der Rest
+  ist das Einrasten des Monitors. Erschlossen, nicht gemessen: die Konsole läuft im
+  bevorzugten Modus (fbdev), der Compositor mit 240 Hz. Lösung nach Fedoras flicker-free boot
+  (`FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER`, die grafische Anmeldung setzt den ersten Modus),
+  sinnvoll erst mit grafischer Anmeldung.
 
-   **lavapipe ist fertig (17.10., verkleinert 21.10.):** LLVM 23.1.3 (`recipes/llvm.toml`,
-   nur x86, ein `libLLVM.so` nur mit den Komponenten, die Mesa verlangt: 77 statt 94 MB),
-   Mesa baut NVK + lavapipe, `/usr` 152 MiB. Compute-Shader mit den Bibliotheken des Images
-   geprüft (alle Ergebnisse richtig); in der VM leistet das der Compositor-Smoke-Test. Nutzen
-   (Tests ohne GPU, Rückfall wie WARP) und Kosten (+34 MiB, ~30 min CI im Lauf von null)
-   sind dem Besitzer genannt, er will es behalten.
+**Nächster Hardware-Test** (nicht öfter als nötig, Besitzer): die Zeilen `late frame` (Zeitplan
+in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf der Konsole (Modus
+der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
+Messzweig dafür erweitern.
 
-   **240 Hz: Kernel-Fehler gefunden, behoben, upstream gesendet (21.10.).** Der Monitor
-   (Dell AW2723DF, DisplayPort) kann 1440p @ 240 Hz; der Modus steht nur im DisplayID-Block
-   (EDID-Block 2). nouveau mit GSP (`r535_dp_aux_xfer`) machte aus dem Address-only-Start jeder
-   I²C-Nachricht einen STOP, der E-DDC-Segment-Zeiger ging verloren, Block 2 kam als Kopie von
-   Block 0. Seit 9e9944449023 (2023), auch in drm-misc-next. Erster Versuch (MOT durchreichen,
-   0.5.93): **kein Bild** – NVIDIAs eigene DP-Bibliothek schickt GSP nie Address-only mit MOT.
-   Fix: diesen Start überspringen (wie NVIDIAs Ablauf). Getestet als 0.5.94 (Tag
-   `measure/nouveau-edid-0.5.94`, läuft beim Besitzer, mit DRM-Debug): EDID byte-gleich mit
-   Windows, 2560x1440 @ 240 in der Modusliste, Bild da. Patch: `~/upstream/nouveau-edid`
-   (Zweig `nouveau-edid-segment` auf drm-misc-next, b4 vorbereitet, Trockenlauf ok, mit
-   `Cc: stable`); **am 21.10. gesendet** (b4-Tag `sent/20261021-nouveau-edid-segment-…-v1`,
-   Ben Skeggs mit `@nvidia.com`; Antworten leitet der Besitzer weiter). `main` bleibt ohne
-   Patch, bis er upstream bzw. im stabilen Kernel ist. Messzweig: `bz` wendet dort
-   `kernel/measure/*.patch` an (außerhalb des Repos per `GIT_CEILING_DIRECTORIES`, sonst
-   überspringt `git apply` still). Ob 240 Hz auch *läuft* (Modeset, Pacing), zeigt der
-   Hardware-Test des Compositors.
-   ADR 0027 §6 (Gerüst) hat der Besitzer am 21.10. angenommen, mit der Bedingung „effizient
-   auch auf schwachen PCs“ (Punkt „Schwache Rechner“ dort).
+**Danach: Schritt 4 (Shell).** Vorher entscheiden: wer die Titelleiste zeichnet (Empfehlung:
+Beize UI wie AppKit, die Shell führt aus), Tastenkürzel-Modell (Maßstab macOS: Super als Cmd,
+Super+C/V überall; bis dahin Strg+Shift+C/V), Dock oder Windows-Stil. Der Besitzer wünscht
+einen „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten, runde Ecken,
+Animation; „der Compositor soll sich langweilen“) als feste Testszene durch den echten
+Compositor, gemessen mit `pacing:` – erst mit Schritt 4, Effekte nicht vorziehen. Schrift:
+sauber, nicht pixelig (Inter). Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`,
+erst die Ursache im Quelltext (Mesa, nouveau, Smithay) suchen, dann ändern.
 
-   **Dann: Compositor-Gerüst** (ADR 0027 Schritt 2, Entscheidungen dort in §6–8).
-   Reihenfolge: (1) ✓ Eckpunkte in ADR 0027 §6. (2) ✓ (21.10.) Pakete im Desktop: seatd
-   (nur libseat, logind), libinput 1.32 mit libevdev und mtdev; ohne Lua-Plugins und vorerst
-   ohne libwacom (Gründe im Rezept; libwacom braucht libgudev, kommt mit Tablett-Einstellungen).
-   (3) ✓ (21.10.) Probe: Ausgabeweg mit lavapipe steht in ADR 0027 §6 (Dumb-Buffer, nach
-   `DUMB_PREFER_SHADOW` direkt oder mit Kopie); Test-VMs haben jetzt virtio-gpu. Der Direktweg
-   Vulkan → dmabuf → KMS ist nur auf Hardware prüfbar (QEMU-Blobs brauchen Host-udmabuf).
-   (4) ✓ (21.10.) `os/beize-compositor` in drei Teilen, Entscheidungen in ADR 0027 §6–8:
-   **4a** Sitzung (libseat), GPU oder lavapipe, Framebuffer-Export, Bildschleife; **4b**
-   Vulkan-Renderer (`render/`, `beize-render-test`); **4c** Protokolle, xdg-shell (jedes
-   Fenster bildschirmfüllend), Tastatur nach `/etc/vconsole.conf` mit Live-Wechsel, Zeiger
-   auf der Cursor-Ebene oder ins Bild gezeichnet, „frame done“ im vblank-Takt,
-   `beize-testclient`. In der VM gezeichneter Zeiger, weil virtio-gpu die Cursor-Ebene nur
-   mit Hotspot zeigt (Smithay kann das nicht; Bericht 3 in `~/upstream/smithay/ISSUES.md`,
-   dort auch die Warnung „Unable to become drm master“; sendet der Besitzer). Lehren: Die
-   Vulkan-`Instance` muss das Gerät überleben (`Shared::_instance`), sonst stürzt Mesa beim
-   ersten Shader ab. Smithays `render_elements!` nur in der generischen Form (`VkFrame` hat
-   zwei Lebensdauern). `deny.toml`: cgmath (RUSTSEC-2026-0196) bis zum nächsten
-   Smithay-Release ausgenommen.
-   Offen: `host_image_copy`, VRR und Zeitgeber, Direct Scanout, Popup-Grabs, Cursor-Thema
-   (mit der Shell); dmabufs mit Modifiern, IN_FENCE_FD und die Cursor-Ebene prüft erst der
-   Hardware-Test.
-   (5) ✓ (22.10.) `beize-session` (`os/beize-session`, `/usr/bin`, eigenes Rezept) mit
-   `beize-session.target`; `beize-compositor.service` (Benutzer-Unit, `Type=notify`, Socket
-   fest `wayland-0`) kommt mit dem Compositor-Paket. Ablauf in ADR 0027 §6. Die
-   Härtungsprüfung kennt jetzt Benutzer-Units (`[user-exposure]` in `security.toml`, gemessen
-   per Dateipfad mit `--user`, denn systemd lehnt `--user` mit `--root` ab); Compositor 1,2.
-   In der VM geprüft: Start, Client über die Umgebung des Managers, zweite Anmeldung
-   abgelehnt, Absturz gemeldet (Exit 1), Abmeldung stoppt alles, Umgebung jeweils zurück.
-   Lehren: sd-bus schließt eine an sd-event gehängte Verbindung, wenn die Schleife endet
-   (daher `sd_event_run` mit eigenem Ende); nach `StartUnit` ist ein Target noch „inactive“
-   mit wartendem Auftrag (daher `JobRemoved`); `ProtectHome=yes` sperrt auch `/run/user`;
-   ein per `kill` geschicktes SIGSEGV verpufft in Rust-Programmen (Handler für Stack-Überlauf),
-   Absturz mit SIGABRT nachstellen; `systemd-analyze --user` braucht `XDG_RUNTIME_DIR` (lokal
-   kam es aus der WSL-Sitzung, die CI hat keins: CI rot), `bz` misst deshalb mit leerer
-   Umgebung.
-   **Test von Hand** (`bz debug`, tty1–6 startet logind ein getty): `chvt 7`, dann
-   `systemd-run --unit=login1 -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
-   -p StandardInput=tty -p StandardOutput=journal -p StandardError=journal
-   /usr/bin/beize-session` (das ist die Anmeldung); Zustand mit `systemctl --user -M smoke@
-   status beize-compositor`, Log mit `journalctl -b _UID=1000`. Client als Benutzer-Unit:
-   `systemd-run -M smoke@ --user /run/t/beize-testclient --frames 600` (Test-Medium nach
-   `/run/t`, die frische Disk hat kein `/mnt`), Eingaben mit `@keys`/`@mouse`.
-   (6) ✓ (22.10.) Smoke-Szenario `Desktop` (`smoke/desktop.rs`, volle Stufe, ~22 s; was es
-   prüft: ADR 0027 §6 „Test“). Tippen auf tty1 mit `console::german_presses` (Y/Z
-   vertauscht, `-` auf `slash`), Screenshot als PPM. Gegenprobe: eine falsche Farbe der
-   Referenz → rot, 256 122 Pixel (ein Quadrant + Zeiger), Differenzbild in
-   `build/work/logs/boot/`. Dazu (22.10.) Moduswahl wie KWin: Auflösung des bevorzugten
-   Modus mit der höchsten Bildrate (ADR 0027 §6 „Modus“), sonst bliebe das AW2723DF unter
-   240 Hz.
-   (7) ✓ (22.10.) Hardware-Test 0.5.97 (Tag `measure/desktop-0.5.97`, Werte in ADR 0027 §6 und
-   `docs/hardware.md`): 240 Hz, NVK direkt, 2 % Last, Eingabe und VT-Wechsel gut; aber jedes
-   Bild einen vblank zu spät (8,65 ms). Behoben mit dem **Zeitplan** (`schedule.rs`, ADR 0027
-   §6 „Zeitplan“: zeichnen zur Frist vor dem vblank). **Auf Hardware noch ungeprüft** – der
-   Besitzer prüft ihn erst zusammen mit Beize UI (nicht öfter testen). Dann muss `pacing:`
-   „0 late“ und Änderung bis Bild ≤ 4,17 ms zeigen. Der Testablauf (Stick, `hw-test.sh` aus dem
-   Tag) wird dafür auf das Terminal umgeschrieben. Ergebnisordner: Der Besitzer lässt den
-   Stick **BEIZE** am PC stecken, Claude holt `beize-test\results-*` selbst (PowerShell
-   `Copy-Item D:\beize-test\results-… \\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\`; in WSL
-   ist D: nicht eingehängt).
-   **JETZT: Schritt 3 (Beize UI), Reihenfolge bleibt (Besitzer, 22.10.).** Plan in ADR 0027
-   §9 (Entwurf; Schriften als Release-Dateien, Terminal beim Start + Strg+Alt+T, vorerst
-   Strg+Shift+C/V vom Besitzer entschieden; Kopieren endgültig „wie macOS“ mit dem
-   Tastenkürzel-Modell vor Schritt 4). Reihenfolge: (a) ✓ (22.10., 6465417) Rezepte `inter`
-   (nur aufrecht: die Kursive gibt es nur im Zip, `bz` kann kein Zip), `jetbrains-mono`,
-   `libx11-compose` (Compose-Tabellen der UTF-8-Locales aus libX11 mit upstreams cpp-Regeln);
-   Einzeldateien vom Release-Tag, byte-gleich mit dem Release-Zip geprüft. Lehre: `curl`
-   ohne `--fail` speichert eine 404-Seite still – Prüfsummen nur von `--fail`-Downloads.
-   (b) ✓ (22.10.) `os/beize-vulkan` (ADR 0027 §9): Gerät (`device::create` mit Erweiterungen
-   des Aufrufers, `unsafe`: der Aufrufer hält die Instanz), Pipelines, Shader und `Quad`,
-   `image::Sampled` (Platz im Array, verzögert freigegeben). Nur `ash` (dieselbe 0.38 wie
-   Smithay). Der Compositor nimmt dessen Fehlertyp. Geometrie bleibt im Compositor (rechnet in
-   Smithays Typen). Geprüft: Smoke grün (Desktop-Bild gleich), `beize-render-test` 13/13.
-   (c) ✓ (22.10.) `os/beize-ui`: Fenster und Text (ADR 0027 §9 „Fenster“, „Text“, „Test Beize
-   UI“; dabei Host-Puffer, Barrieren und `Pipelines::record` nach `beize-vulkan`). Geprüft im
-   Smoke-Szenario `Desktop` gegen `os/beize-ui/tests/sample.png`. Offen dort: Strichstärke
-   hell auf dunkel gegen dunkel auf hell, beim Hardware-Test ansehen. Von Hand: wie unten, dann
-   `systemd-run -M smoke@ --user /run/t/beize-ui-test --seconds 30`; `@screendump` nur unter
-   `build/` (QEMUs Sandbox); Offscreen-Bild aus der VM per `zstd | base64` über die Konsole.
-   (d) Eingabe in Beize UI ✓ (22.10., ADR 0027 §9 „Tastatur“); `beize-ui-test` druckt jede
-   Eingabe ins Journal. Tote Tasten von Hand: `localectl set-keymap --no-convert de-latin1 &&
-   localectl set-x11-keymap --no-convert de pc105 "" terminate:ctrl_alt_bksp`, dann
-   `@keys grave_accent e`. Terminal ✓ (22.10., ADR 0027 §9 „Terminal“), in der VM geprüft
-   (Farben, Rahmen, Akzente, Scrollback, Auswahl, Kopieren/Einfügen); von Hand wie unten, dann
-   `systemd-run -M smoke@ --user --unit=term /usr/lib/beize/beize-terminal`, Testskript als
-   root per `base64 -d > /home/smoke/t.sh`. (e) ✓ (22.10., ADR 0027 §9 „Start“): Terminal beim
-   Start und mit Strg+Alt+T als Instanz von `app-beize\x2dterminal@.service`, gestartet vom
-   Compositor über `os/beize-systemd`; Smoke prüft beides und das Ende beim Abmelden. Nach
-   `beize-session` von Hand läuft also schon ein Terminal (Fenster darunter verdeckt: das
-   neueste liegt oben). Lehre: `bz debug --machine <name>` startet die Disk der liegengelassenen
-   Maschine, nicht den neuen Bau. (f) ✓ (22.10., ADR 0027 §9 „Test Terminal“): `bz` tippt
-   `/run/t/beize-terminal-sample` ins neue Terminal und vergleicht den ganzen Bildschirm mit
-   `os/beize-terminal/tests/sample.png` (Foto eines Laufs, nur von Hand ersetzen). Alle
-   Bildvergleiche erlauben Abweichungen nur noch im 24×24-Quadrat oben links (Zeiger bei
-   (0, 0)): „höchstens 576 Pixel irgendwo“ ließ ein falsches Zeichen durch (Gegenprobe ü → u,
-   12 Pixel). Die Bildtakt-Prüfung nimmt die `pacing:`-Zeile nach dem Start des Clients (das
-   Terminal hat vorher eine eigene). (g) ✓ (23.10.) Hardware-Test, Messbau 0.5.101 (Tag
-   `measure/desktop-0.5.101`, Werte in `docs/hardware.md`): Terminal, Text, Eingabe gut; Zeitplan
-   4 von 4797 Bildern spät (0.5.100: 4674 – der gerade gemeldete vblank galt als der nächste,
-   `schedule.rs`). Restpunkte für (h): nach einer Pause sofort gezeichnete Bilder (0,5 ms vor dem
-   vblank fertig) verpassen ihn öfter; die Vorlaufzeit hat 2,7 ms Luft (KWins Mindestwerte, später
-   abwägen). nouveau: der GSP-Interrupt-Handler liest `IRQDEST` nicht (NVIDIA: STAT & MASK & DEST),
-   nimmt der Firmware Bit 18 weg (Meldung `gsp: intr 00040000`, gemessen `irqdest 01000040`);
-   Patch `~/upstream/nouveau-gsp-irqdest`, Zweig `nouveau-gsp-irqdest` (b4, auf
-   drm-misc-next), senden: `~/upstream/send-nouveau-irq.sh` (Besitzer). Lehren: Eingaben mit
-   echter Haltezeit nachstellen (QMP `input-send-event`), nicht `@keys` (20 ms); während eines
-   Baus nie den Zweig wechseln (bz liest `kernel/measure/`); einen Bau mit Hintergrund-Job
-   abwarten, der meldet, nicht nachfragen vergessen.
-   **Offen:** `main` hat lokale Commits (Zeitplan, Doku), nicht gepusht: CI-Lauf 39917572884
-   (glibc-Änderung, Neubau von gcc, LLVM auf 4 vCPU) lief noch. Erst grün → `git push`.
-   **Schwarzer Bildschirm (Besitzer, 23.10.):** je ~2 s schwarz beim Start (bis zur Konsole) und
-   beim Wechsel Konsole → `beize-session`. Vermutung, ungeprüft: jeweils ein Moduswechsel, den
-   der Monitor neu einrastet (GOP/simpledrm → nouveau; Konsole 1440p@60 → Desktop @240 Hz).
-   macOS zeigt keine Lücke; Vorbild unter Linux: Fedoras „flicker-free boot“ (Modus der Firmware
-   behalten). Im Schritt (h) mit den Zeitstempeln im Journal (DRM-Modeset, Compositor
-   `Setting new mode`) belegen und eine saubere Lösung vorschlagen, nicht raten.
-   **(h) DANACH, vor Schritt 4 (Besitzer, 23.10.): Aufräumen.** Ein eigener Schritt in einem
-   neuen Chat, bevor die Shell kommt: alle `.md` schlank (CLAUDE.md §11 ist zur Chronik
-   geworden: nur Stand und Nächstes, Erledigtes in ADRs/Commits; ADR 0027 straffen, Messwerte
-   knapp), `docs/hardware.md` auf eine gültige Anleitung kürzen; Tests wieder schnell machen
-   (Smoke-Laufzeit, CI-Stufen, Wartezeiten in Szenarien messen und kürzen); kleine Fehler
-   suchen und direkt beheben (keine Issues anlegen, wenn es sich sofort beheben lässt);
-   Messbauten und `~/hw-test` danach löschen.
-   Terminal-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Knöpfe (dem Besitzer so
-   gesagt); wer die Titelleiste zeichnet (Empfehlung: Beize UI wie AppKit, die Shell führt
-   aus), wird vor Schritt 4 entschieden. Schrift: Besitzer will saubere, nicht pixelige
-   Schrift (Inter).
-   Er wünscht sich
-   einen realistischen, „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten,
-   runde Ecken, Animation; „der Compositor soll sich langweilen“), aber erst mit Schritt 4
-   (Shell), wenn es Effekte und Fensterverwaltung wirklich gibt: dann als feste Testszene
-   durch den echten Compositor, gemessen mit `pacing:`. Effekte und schwebende Fenster nicht
-   vorziehen.
-   Geht etwas schief (dunkler Bildschirm, Absturz): Logs mit `hw-test.sh logs`/`-1`, erst
-   nach der Ursache suchen (Quelltext von Mesa/nouveau/Smithay), dann ändern.
-
-**M3-Plan (vom Besitzer am 17.10. bestätigt):** `m3-plan` sind #14 BTF (Basis), #17
-Hardware (NVIDIA, Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34
-zram/oomd und #35 nftables (beide Basis). #36 fwupd kommt mit M4. Regel des Besitzers:
-nichts, was ohne Nutzen Leistung kostet.
+**M3-Plan** (Besitzer, 17.10.): `m3-plan` sind #14 BTF (Basis), #17 Hardware (NVIDIA,
+Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34 zram/oomd und #35
+nftables (beide Basis). #36 fwupd kommt mit M4.
 
 **Offen, kein Hindernis für M3**
 - #5 bitgleiche Bauten: CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).
-  Lokal bitgleich über Pfad, Zeit, 4 CPUs und root. Übrig: Umgebung der CI (bz dort ohne bwraps
-  `--clearenv`) oder Host. Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise
-  vergleichen. Vergleichsbau unter `~/scratch/`: `git worktree add --detach …`, Quellen aus
-  `build/cache` kopieren, `./bz build && ci/digest.sh`.
-- #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 auf der
-  Hardware prüfen, #10 beobachten (seit 14 Läufen nicht), #12/#13 Upstream (sendet der Besitzer).
+  Nächster Schritt: die Datei als CI-Artefakt, abschnittsweise vergleichen. Vergleichsbau unter
+  `~/scratch/`: `git worktree add --detach …`, Quellen aus `build/cache`, `./bz build &&
+  ci/digest.sh`.
+- #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 prüfen, #10
+  beobachten, #12/#13 Upstream (sendet der Besitzer); #39 Firmware-Zeit der VM (TPM-Emulation).
 - ShellCheck in die CI (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
-- **Platz in WSL** (21.10., 36 GB belegt): `~/beize` 12 GB (fast alles `build/` und `target/`,
-  neu erzeugbar), `~/upstream` 11 GB (Kernel-Klon 7 GB), `~/.cache/JetBrains` 8 GB (IDE des
-  Besitzers), Toolchains 2,4 GB. Wächst wieder: `target/` (cargo räumt nie auf, bei Bedarf
-  `cargo clean`), Releases in `build/out/<v>/release/` (Messbauten nach dem Schritt löschen).
-  Am 21.10. weg: 0,9 GB Git-Müll (Cruft-Pack vom 15.10., `.git` jetzt 2 MB), Messbauten
-  0.5.90–0.5.93, 4,5 GB `target/`.
-- **vhdx verkleinern** (die Datei schrumpft nie von selbst; 21.10.: 64 GB für 36 GB Inhalt):
-  `wsl --manage … --set-sparse true` geht nicht (17.10.: „Sparse VHD
-  … wegen möglicher Datenbeschädigung deaktiviert“, `Wsl/Service/E_INVALIDARG`).
-  `--allow-unsafe` nicht verwenden. Stattdessen von Hand: in WSL `sudo fstrim -av`, dann
-  `wsl --shutdown`, dann `diskpart` als Administrator mit `select vdisk
+- **Platz in WSL:** wächst durch `target/` (bei Bedarf `cargo clean`) und Releases in
+  `build/out/<v>/release/` (Messbauten nach dem Schritt löschen). **vhdx verkleinern** (schrumpft
+  nie von selbst; Sparse-VHD lehnt WSL ab, `--allow-unsafe` nicht verwenden): in WSL `sudo
+  fstrim -av`, `wsl --shutdown`, dann `diskpart` als Administrator: `select vdisk
   file="C:\Users\Joe\AppData\Local\wsl\{4cae8202-1c42-41f8-840d-f8b846346de8}\ext4.vhdx"`,
-  `attach vdisk readonly`, `compact vdisk`, `detach vdisk`. Das muss wiederholt werden, wenn
-  der Platz wieder wächst. Der `gh`-Token darf keine Workflows starten.
+  `attach vdisk readonly`, `compact vdisk`, `detach vdisk`.
 
-**WSL-Home:** `~/beize`, `~/hw-logs` (Journal und Leerlauf des 0.4-Tests), `~/upstream`
-(Kernel-Bäume und Entwürfe für #12/#13 – behalten), `~/scratch` (leer halten).
-
-**Arbeitsweise (vom Besitzer freigegeben):** ADR vorab abstimmen, nichts abschalten „weil
-unnötig“, keine fremden Patches. Bei Fehlern zuerst fragen, welche eigene Entscheidung uns auf
-einen ungetesteten Pfad gebracht hat. Wegwerf-Arbeit nach `~/scratch/` und am Ende des Schritts löschen.
+**WSL-Home:** `~/beize`, `~/hw-logs` (Journale und Ergebnisse der Hardware-Tests),
+`~/upstream` (Kernel-Bäume und Entwürfe – behalten), `~/scratch` (leer halten; Wegwerf-Arbeit,
+am Ende des Schritts löschen).

@@ -40,65 +40,37 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
-## Desktop testen (M3, Schritt 3 g: Messbau 0.5.101)
+## Desktop testen (Messbau)
 
-Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz (EDID-Fix), den
-**Zeitplan** des Compositors, das **Terminal** und die Schrift von Beize UI auf deinem Monitor.
-Messbau = Zweig `measure/desktop`: `main` + EDID-Patch, Version 0.5.100; ersetzt 0.5.99, 0.6
-ersetzt ihn. Gebaut und geprüft (Smoke, Skript in der VM) ist alles, du signierst nur.
-
-**Ergebnis 0.5.97 (22.10., `~/hw-logs/results-20261022-192956`, Tag `measure/desktop-0.5.97`):**
-NVK direkt in den Bildschirmpuffer, DP-1 2560x1440 @ 240 Hz, 4786 von 4800 Bildern im
-Abstand von 4,17 ms, Tasten, Klick, VT-Wechsel gut; Compositor je Bild 0,02 ms CPU, 0,06 ms
-GPU, 2 % ausgelastet. Aber jedes Bild einen vblank zu spät (Änderung bis Bild Median 8,65 ms
-statt höchstens 4,17): Der Compositor zeichnete am vblank. Behoben mit dem Zeitplan (ADR 0027
-§6 „Zeitplan“), den 0.5.98 prüft.
-
-**Ergebnis 0.5.98 (23.10., `~/hw-logs/results-20261023-001947`):** Terminal startet, Strg+Alt+T,
-Markieren und Kopieren gut. Der Zeitplan fiel durch: 2565 von 4800 Bildern, jedes einen vblank
-zu spät (7,79 ms Abstand), Änderung bis Bild 9,43 ms. Ursache: Vorlauf gegen das Ende des
-vblank gerechnet, ohne Wartezeit bis zum Fence (ADR 0027 §6 „Zeitplan“, jetzt nach KWin).
-Dunkler Text wirkte dünner als heller (jetzt Skias Kontrast), `^` + `e` setzte alle Befehle in
-die Zeile (fehlende Locale C.UTF-8, ADR 0017), Mesas Shader-Cache war in der Sandbox aus.
-
-**Ergebnis 0.5.99 (23.10., `~/hw-logs/results-20261023-093422`):** Text, tote Taste, Mausrad,
-Kopieren gut; dunkler Text jetzt leicht kräftiger (Besitzer: „normal und gut so“). Testclient
-wieder mit 240 Hz (4790 von 4800 Bildern, 4,17 ms), aber 4221 von 4797 Bildern einen vblank zu
-spät (8,65 ms): Der Zeitplan lernte seinen Zuschlag auch aus Änderungen, die hinter einem
-wartenden Bild gezeichnet wurden – eine Schleife (ADR 0027 §6 „Zeitplan“, jetzt wie KWin nur
-aus geplanten Bildern). Der rote run0-Balken ohne Ausgabe ist systemds Absicht
-(`ptyfwd.c` färbt beim Start die aktuelle Zeile), der Cursor blinkt bewusst nicht (wie die
-Vorgabe von macOS' Terminal).
-
-**Ergebnis 0.5.100 (`results-20261023-101755`):** wieder 4674 von 4798 Bildern spät, alle
-„drawing“: Der vblank kommt an seinem Beginn, gestempelt mit seinem Ende; der Zeitplan hielt den
-gerade gemeldeten für den nächsten und zeichnete sofort, vor dem Commit des Clients.
-**Ergebnis 0.5.101 (`results-20261023-110929`, Tag `measure/desktop-0.5.101`):** 4 von 4797
-spät (1 GPU, 3 Anzeige, keines durchs Zeichnen). Änderung bis Bild 6,72 ms, weil die Maus die
-ganze Zeit bewegt wurde (erste Änderung je Bild: Vorlauf + im Mittel ein halber Takt). Dazu
-nouveaus GSP-Interrupts: `irqmask 01049042 irqdest 01000040` – Bit 18 (die Meldung
-`gsp: intr 00040000` von 0.5.99) gehört dem GSP; Patch `~/upstream/nouveau-gsp-irqdest`.
+Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz, den **Zeitplan**
+des Compositors, das **Terminal** und die Schrift von Beize UI auf dem Monitor. Messbau =
+Zweig `measure/desktop`: `main` + `kernel/measure/*.patch` (nouveau-Patches, die upstream
+noch fehlen) + `measure/hw-test.sh`, Version `0.5.<n>` (`OS_VERSION` auf dem Zweig); 0.6
+von `main` ersetzt ihn. Claude baut und prüft ihn (Smoke, Skript in der VM) und taggt ihn
+als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 §6, Logs in
+`~/hw-logs/results-*`. Zuletzt 0.5.101 (23.10.): Terminal, Text und Eingabe gut, 4 von 4797
+Bildern spät.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
 1. `cd ~/beize && git switch measure/desktop && ./bz build && ./bz release`
-   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.100/` (6 Dateien).
+   Erwartet: kaum Bauzeit, dann `build/out/desktop/release/0.5.<n>/` (6 Dateien).
 2. `git switch main` (zurück; WSL bleibt auf `main`).
-3. Mir sagen „Release fertig“: Ich kopiere es als `D:\beize-0.5.100` auf den Stick **BEIZE**.
-   `D:\beize-test` (Skript und Testprogramme von 0.5.100) liegt schon dort.
+3. Claude sagen „Release fertig“: Claude kopiert es als `D:\beize-0.5.<n>` und das Skript
+   samt Testprogrammen als `D:\beize-test` auf den Stick **BEIZE**.
 
 **B. Update installieren (Beize, tty1, als du angemeldet)**
 
 4. ```sh
    run0 mkdir -p /run/stick
    run0 mount -o ro /dev/disk/by-label/BEIZE /run/stick
-   run0 beize-update install /run/stick/beize-0.5.100
+   run0 beize-update install /run/stick/beize-0.5.<n>
    run0 umount /run/stick
    systemctl reboot
    ```
-   Erwartet: „Beize 0.5.100 is installed. It starts with the next restart.“, dann Neustart
+   Erwartet: „Beize 0.5.<n> is installed. It starts with the next restart.“, dann Neustart
    (F8 → Samsung) ohne Recovery-Key. **Kein Bild beim Start:** neu starten, Leertaste
-   halten, 0.5.99 wählen, mir Bescheid geben.
+   halten, die vorige Version wählen, Claude Bescheid geben.
 
 **C. Desktop und Terminal (alles im Terminal, kein Wechsel nach tty2 mehr)**
 
@@ -126,9 +98,8 @@ nouveaus GSP-Interrupts: `irqmask 01049042 irqdest 01000040` – Bit 18 (die Mel
       Schattierungen und Halbblöcke. Linien der Kästen ohne Lücken? Schrift scharf, nicht
       pixelig?
    2. **Beize UI**, 30 Sekunden ein Fenster mit Text in Inter und JetBrains Mono, hell auf
-      dunkel und dunkel auf hell. Bitte genau ansehen: Wirken heller und dunkler Text jetzt
-      gleich kräftig? (Bei 0.5.98 war der helle etwas kräftiger.) Danach kommt das Terminal
-      von selbst zurück.
+      dunkel und dunkel auf hell. Wirken heller und dunkler Text gleich kräftig? Danach
+      kommt das Terminal von selbst zurück.
    3. **Bildtakt**, 20 Sekunden das Testfenster: oben rot und grün, unten blau und weiß, durch
       den oberen Rand läuft ein dunkler Balken. Gleichmäßig, ohne Ruckler oder Risse? Dabei
       a, s, d tippen, die Maus über das Fenster bewegen, einmal links klicken.
@@ -139,10 +110,10 @@ nouveaus GSP-Interrupts: `irqmask 01049042 irqdest 01000040` – Bit 18 (die Mel
      `screen DP-…: 2560x1440 at 240 Hz`, `rendering with … straight into the screen buffer`
    - `frames: 4800 of 4800, 4.17 ms apart on average`
    - unter „Bildtakt des Testfensters“: **`pacing: … 0 late (drawing 0, GPU 0, display 0)`**
-     und **`change to screen median` höchstens 4.17 ms** (0.5.97: 8,65; 0.5.98: 9,43; 0.5.99: 8,65) – das
-     ist der Prüfwert für den Zeitplan; `ready median … before the vblank begins, least …`
-     über 0 (der Spielraum); `busy` nur wenige Prozent. Sind doch Bilder spät, sagt die
-     Klammer, welcher Teil des Modells nicht hält.
+     und **`change to screen median` höchstens ein Bild** (4,17 ms) – der Prüfwert für den
+     Zeitplan; `ready median … before the vblank begins, least …` über 0 (der Spielraum);
+     `busy` nur wenige Prozent. Sind doch Bilder spät, sagt die Klammer, welcher Teil des
+     Modells nicht hält, und je spätem Bild eine Zeile `late frame (…)` seine Zeiten.
    - `Tasten im Fenster: 7` (das Loslassen der Enter-Taste, die das Fenster startete, gehört
      ihm, wie Wayland es will), `Klicks: 2`
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
@@ -153,15 +124,15 @@ nouveaus GSP-Interrupts: `irqmask 01049042 irqdest 01000040` – Bit 18 (die Mel
      dann **Strg+Shift+V**: der Text erscheint am Prompt (mit Strg+U wieder löschen).
    - **Mausrad:** `seq 300` eingeben, dann das Rad nach oben drehen: die Zahlen laufen
      zurück bis 1; nach unten wieder bis 300.
-   - **Tote Taste:** `^` und dann `e` ergibt ê am Prompt, `^` und dann Shift+`o` ergibt Ô
-     (bei 0.5.98 kamen hier alle Befehle in die Zeile). Mit Strg+U wieder löschen.
+   - **Tote Taste:** `^` und dann `e` ergibt ê am Prompt, `^` und dann Shift+`o` ergibt Ô.
+     Mit Strg+U wieder löschen.
 9. Ging etwas schief, statt 6–8: Strg+Alt+F2, auf tty2 anmelden, Stick wie in 6 einhängen,
    dann `bash /run/stick/beize-test/hw-test.sh logs` (derselbe Start) oder
    `bash /run/stick/beize-test/hw-test.sh -1` (nach Reset: die Logs des Starts davor).
 10. Ende: `run0 umount /run/stick`, `systemctl reboot` (beendet auch den Desktop). Den Stick
-    stecken lassen und mir sagen: „Hardware-Test fertig“, dazu was du gesehen hast
+    stecken lassen und Claude sagen: „Hardware-Test fertig“, dazu was du gesehen hast
     (Terminal-Probe richtig? Heller und dunkler Text gleich kräftig? Testfenster flüssig?
-    Strg+Alt+T, Kopieren, Mausrad, ê?). Die Ergebnisse hole ich selbst vom Stick.
+    Strg+Alt+T, Kopieren, Mausrad, ê?). Die Ergebnisse holt Claude selbst vom Stick.
 
 ## Startzeit messen
 
