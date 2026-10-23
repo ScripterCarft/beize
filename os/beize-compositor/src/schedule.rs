@@ -24,6 +24,13 @@
 //!   so their next change came late too – every frame a vblank behind.
 //! - After an idle stretch (100 refreshes, KWin) the GPU clocks down: the
 //!   next frame is drawn at once.
+//! - The next vblank is one after the last known: KMS reports a vblank
+//!   (and clients hear "frame done") where it begins, stamped where it
+//!   ends, so until then the reported one lies ahead and is not the next
+//!   (KWin counts from its last presentation). Taking it for the next
+//!   (0.5.100) drew at its event, its deadline long past, at once – before
+//!   the clients that heard "frame done" there committed: every frame a
+//!   vblank behind.
 //!
 //! A change drawn after its vblank's deadline is drawn at once and may
 //! still make it. Until 0.5.98 the lead was the drawing and GPU time alone
@@ -171,7 +178,8 @@ impl Schedule {
         }
     }
 
-    /// The first vblank after `t`; without a phase, a refresh after it.
+    /// The first vblank after `t` and after the last known (which has
+    /// begun); without a phase, a refresh after `t`.
     fn after(&self, t: Duration) -> Duration {
         let Some(phase) = self.phase else {
             return t + self.refresh;
@@ -180,7 +188,7 @@ impl Schedule {
             phase.as_nanos() as i128,
             self.refresh.as_nanos().max(1) as i128,
         );
-        let t = t.as_nanos() as i128;
+        let t = t.max(phase).as_nanos() as i128;
         let next = p + ((t - p).div_euclid(r) + 1) * r;
         Duration::from_nanos(u64::try_from(next.max(0)).unwrap_or(u64::MAX))
     }
@@ -269,6 +277,25 @@ mod tests {
         assert_eq!((plan.at, plan.aim), (at(105_000), None));
         // Long after the known vblank, on its phase.
         assert_eq!(s.draw_at(at(503_000)).at, at(504_500));
+    }
+
+    #[test]
+    fn the_vblank_just_reported_is_not_the_next() {
+        // 0.5.100: the vblank ending at 108 ms is reported at 107.5, where
+        // it begins; a client that heard "frame done" there commits at
+        // 107.7. Its frame is for the vblank after, at that one's deadline,
+        // not at once for the one already begun.
+        let mut s = schedule();
+        s.vblank(at(108_000));
+        assert_eq!(
+            s.draw_at(at(107_700)),
+            Plan {
+                at: at(112_500),
+                aim: Some(at(116_000)),
+                lead: at(3500)
+            }
+        );
+        assert_eq!(s.target(at(107_700)), at(116_000));
     }
 
     #[test]
