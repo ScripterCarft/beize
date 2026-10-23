@@ -301,7 +301,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 3 fertig, (h) Aufräumen läuft)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 3 und Aufräumen fertig, Schritt 4 Shell als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -330,15 +330,12 @@ Patches, der Messzweig wendet `kernel/measure/*.patch` an):
   `~/upstream/ntpd-rs-2539-comment.md` bietet den Backoff-Patch an und fragt nach der Basis
   (upstream baut den Daemon gerade um). Keine Umgehung in Beize (ADR 0011).
 
-**JETZT: (h) Aufräumen, vor Schritt 4** (Besitzer, 23.10.). Erledigt: Push; Befunde des
-Hardware-Tests belegt (NTS oben; schwarze Lücken und Zeitplan in ADR 0027 §6); je spätem Bild
-eine Zeile `late frame` (`pacing.rs`); `docs/hardware.md`, ADR 0027 und dieser Abschnitt
-gestrafft; Messbauten 0.5.98–0.5.100 und `~/scratch` gelöscht. Offen:
-1. Tests schneller: Smoke-Laufzeit je Szenario und Wartezeiten messen und kürzen, CI-Stufen
-   prüfen.
-2. Kleine Fehler suchen und direkt beheben (keine Issues für sofort Behebbares).
-3. Am Ende `~/hw-test` löschen; Release 0.5.101 und die Messtags bleiben, solange 0.5.101
-   beim Besitzer läuft.
+**(h) Aufräumen ist fertig (23.10.):** Befunde des Hardware-Tests belegt (NTS oben; schwarze
+Lücken und Zeitplan in ADR 0027 §6), je spätem Bild eine Zeile `late frame`, Doku gestrafft,
+Journal von 0.5.101 durchgesehen (alles in Issues: #22, #11, #35; growfs-Fehler kommt bei
+jedem Start, `link-volume-key=` braucht eine Sicherheitsabwägung), Messbauten 0.5.98–0.5.100,
+`~/hw-test` und `~/scratch` gelöscht. Release 0.5.101 und die Messtags bleiben, solange 0.5.101
+beim Besitzer läuft. Tests schneller machen kommt erst nach der Shell (Besitzer).
 
 **Schwarze Lücken (Besitzer, 23.10.)**, belegt aus dem Journal von 0.5.101:
 - Start: 1,74 s ohne Bild, weil nouveau den Firmware-Framebuffer vor dem GSP-Start entfernt
@@ -354,7 +351,7 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**Danach: Schritt 4 (Shell).** Vorher entscheiden: wer die Titelleiste zeichnet (Empfehlung:
+**JETZT: Schritt 4 (Shell), zuerst ein ADR-Entwurf mit dem Besitzer.** Vorher entscheiden: wer die Titelleiste zeichnet (Empfehlung:
 Beize UI wie AppKit, die Shell führt aus), Tastenkürzel-Modell (Maßstab macOS: Super als Cmd,
 Super+C/V überall; bis dahin Strg+Shift+C/V), Dock oder Windows-Stil. Der Besitzer wünscht
 einen „spektakulären“ Lasttest (Verlauf, schwebende Fenster, Blur, Schatten, runde Ecken,
