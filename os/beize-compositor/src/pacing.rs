@@ -21,6 +21,9 @@
 //! median 3.71 ms, …; ready median 1.21 ms before the vblank begins, …;
 //! busy 4 % of the 4.17 ms per frame`
 //!
+//! The first late frames of a run get a line each with their times, so a
+//! hardware test shows who held up each one (a summary only says how many).
+//!
 //! It costs a few numbers per frame, kept until the summary.
 //!
 //! The vblank times must be real: a display engine's (nouveau, i915,
@@ -40,11 +43,15 @@ const PIECE: Duration = Duration::from_secs(30);
 /// Runs from this long on are summed up at info level, shorter ones (a key,
 /// a click) at debug level.
 const NOTABLE: Duration = Duration::from_secs(1);
+/// Late frames logged one by one with their times, per run: enough to see
+/// who held them up, without a line per frame when every frame is late.
+const LOGGED_LATE: u32 = 10;
 
 /// When a frame's change arrived, the vblank it is due at (where it ends),
 /// when its drawing was planned to begin and began, and when it was
 /// committed; on CLOCK_MONOTONIC, as KMS's vblank times. And the schedule's
-/// lead it was planned with, if it was planned.
+/// lead it was planned with, if it was planned, and whether that plan was
+/// for a vblank (or drew it at once).
 #[derive(Clone, Copy, Debug)]
 pub struct Times {
     pub requested: Duration,
@@ -53,6 +60,7 @@ pub struct Times {
     pub began: Duration,
     pub committed: Duration,
     pub lead: Option<Duration>,
+    pub aimed: bool,
 }
 
 /// The frames of one run.
@@ -66,6 +74,8 @@ struct Run {
     late_drawing: u32,
     late_gpu: u32,
     late_display: u32,
+    /// Late frames logged one by one so far.
+    logged: u32,
     /// Change to screen, drawing (CPU) and GPU time, and how long before
     /// its vblank began the frame was ready (negative: after), in
     /// milliseconds.
@@ -121,12 +131,20 @@ impl Pacing {
         let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
         // Half a refresh of tolerance: vblank times jitter by microseconds.
         if vblank > due + self.refresh / 2 {
-            if times.committed > begins {
+            let who = if times.committed > begins {
                 self.run.late_drawing += 1;
+                "drawing"
             } else if ready > begins {
                 self.run.late_gpu += 1;
+                "GPU"
             } else {
                 self.run.late_display += 1;
+                "display"
+            };
+            if self.run.logged < LOGGED_LATE {
+                self.run.logged += 1;
+                let shown = vblank.saturating_sub(self.blank);
+                info!("{}", late(who, &times, begins, ready, shown));
             }
         }
         let run = &mut self.run;
@@ -217,6 +235,27 @@ impl Pacing {
     }
 }
 
+/// A late frame's times, in milliseconds from where its vblank begins
+/// (negative: before); `shown` is where the vblank that showed it began.
+fn late(who: &str, times: &Times, begins: Duration, ready: Duration, shown: Duration) -> String {
+    let at = |t: Duration| ms(t) - ms(begins);
+    let plan = match (times.lead, times.aimed) {
+        (Some(lead), true) => format!("planned with a lead of {:.2} ms", ms(lead)),
+        (Some(lead), false) => format!("drawn at once (lead {:.2} ms)", ms(lead)),
+        (None, _) => "drawn without a plan".to_string(),
+    };
+    format!(
+        "late frame ({who}), ms from its vblank's begin: change {:.2}, planned {:.2}, began \
+         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {plan}",
+        at(times.requested),
+        at(times.planned),
+        at(times.began),
+        at(times.committed),
+        at(ready),
+        at(shown),
+    )
+}
+
 fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
@@ -267,6 +306,7 @@ mod tests {
             began: requested,
             committed: requested + at(cpu),
             lead: Some(at(3000)),
+            aimed: true,
         };
         p.shown(times, at((n + shown) * vblank), Some(0.1), None);
     }
@@ -308,9 +348,47 @@ mod tests {
             began: at(6 * vblank - 3000),
             committed: at(6 * vblank - 2800),
             lead: None,
+            aimed: false,
         };
         p.shown(times, at(7 * vblank), None, Some(at(6 * vblank - 100)));
         assert_eq!(p.run.late_gpu, 1);
+    }
+
+    #[test]
+    fn a_late_frame_is_logged_with_its_times() {
+        // Asked for 3 ms before vblank 2 ends, committed 0.2 ms later, shown
+        // a vblank late: everything from the begin of vblank 2 (0.461 ms of
+        // blank before its end).
+        let vblank = REFRESH.as_micros() as u64;
+        let times = Times {
+            requested: at(2 * vblank - 3000),
+            due: at(2 * vblank),
+            planned: at(2 * vblank - 3000),
+            began: at(2 * vblank - 3000),
+            committed: at(2 * vblank - 2800),
+            lead: Some(at(3000)),
+            aimed: true,
+        };
+        let begins = times.due - BLANK;
+        let line = late(
+            "display",
+            &times,
+            begins,
+            times.committed,
+            at(3 * vblank) - BLANK,
+        );
+        assert_eq!(
+            line,
+            "late frame (display), ms from its vblank's begin: change -2.54, planned -2.54, \
+             began -2.54, committed -2.34, ready -2.34, shown 4.17; planned with a lead of \
+             3.00 ms"
+        );
+        // Only the first few of a run are logged one by one.
+        let mut p = Pacing::new(REFRESH, BLANK);
+        for n in 1..=20 {
+            frame(&mut p, 2 * n, 3000, 200, 1);
+        }
+        assert_eq!((p.run.late_display, p.run.logged), (20, LOGGED_LATE));
     }
 
     #[test]

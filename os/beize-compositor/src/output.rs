@@ -802,6 +802,7 @@ where
                 began,
                 committed,
                 lead: plan.map(|p| p.lead),
+                aimed: plan.is_some_and(|p| p.aim.is_some()),
             };
             self.pending = Some(Pending {
                 slot,
