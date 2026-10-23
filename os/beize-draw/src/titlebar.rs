@@ -1,5 +1,6 @@
-//! The title bar Beize UI draws on top of every window (ADR 0028 §2, as
-//! AppKit draws it): the title centred, as on macOS and GNOME; the buttons
+//! The title bar on top of every window (ADR 0028 §2): Beize UI draws it
+//! on its own, as AppKit does, the compositor on other apps' windows that
+//! ask it for their frame (xdg-decoration). The title centred, as on macOS and GNOME; the buttons
 //! on the right, as on Windows 11 – 46 × 32 each, the close button red
 //! under the pointer – with Phosphor's symbols (§8). Dragged, the bar moves
 //! the window; a double click maximizes it and back.
@@ -73,14 +74,14 @@ const CLOSE_PRESSED: Color = Color::rgb(0xc84031);
 const CLOSE_INK: Color = Color::rgb(0xffffff);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Button {
+pub enum Button {
     Maximize,
     Close,
 }
 
 /// What a press on the bar asks for.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Press {
+pub enum Press {
     /// Held on a button; what it does comes with the release over it.
     Button,
     /// Move the window with the pointer.
@@ -90,7 +91,7 @@ pub(crate) enum Press {
 }
 
 #[derive(Default)]
-pub(crate) struct TitleBar {
+pub struct TitleBar {
     pub title: String,
     pub appearance: Appearance,
     pub active: bool,
@@ -110,7 +111,7 @@ impl TitleBar {
 
     /// The buttons and where they lie in a window `width` wide, right to
     /// left.
-    fn buttons(width: f32) -> [(Button, Rect); 2] {
+    pub fn buttons(width: f32) -> [(Button, Rect); 2] {
         let at = |n: f32| Rect {
             x: width - n * BUTTON_WIDTH,
             y: 0.0,

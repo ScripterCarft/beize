@@ -12,14 +12,14 @@ use beize_vulkan::barrier::{
 };
 use beize_vulkan::buffer::HostBuffer;
 use beize_vulkan::device::Garbage;
-use beize_vulkan::error::{Context, Result, error};
+use beize_vulkan::error::{Context, Result};
 use beize_vulkan::image::{Sampled, own_image};
-use beize_vulkan::pipeline::{Attachment, Quad};
+use beize_vulkan::pipeline::{Attachment, MASK, Quad};
 use tracing::{debug, warn};
 
-use crate::draw::Scene;
-use crate::glyphs::{ATLAS_SIZE, Full, Glyphs};
 use crate::gpu::Gpu;
+use beize_draw::Scene;
+use beize_draw::glyphs::{ATLAS_SIZE, Glyphs};
 
 const IN_FLIGHT: usize = 2;
 /// 8 bits of coverage per texel.
@@ -149,7 +149,10 @@ impl Renderer {
     ) -> Result<u64> {
         let i = self.current;
         self.next()?;
-        let quads = self.place_glyphs(scene)?;
+        let slot = if scene.has_glyphs() { self.atlas()? } else { 0 };
+        let quads = scene
+            .quads(&mut self.glyphs, slot)
+            .context("the scene's glyphs do not fit into the atlas")?;
         let uploads = self.stage_glyphs(i)?;
         let address = self.upload_quads(i, &quads)?;
         let shared = self.gpu.shared.clone();
@@ -238,12 +241,12 @@ impl Renderer {
         let draws = unsafe {
             self.gpu
                 .pipelines
-                .record(d, commands, pipelines, &attachment, address, &scene.blend)
+                .record(d, commands, pipelines, &attachment, address, scene.blend())
         };
         debug!(
-            "{} quads ({} glyphs, {} new) in {draws} draws",
+            "{} quads ({} glyphs and symbols, {} new) in {draws} draws",
             quads.len(),
-            scene.glyphs.len(),
+            quads.iter().filter(|q| q.flags & MASK != 0).count(),
             uploads.len()
         );
         match target.after {
@@ -334,63 +337,6 @@ impl Renderer {
         self.in_flight[i].submission = submission;
         self.current = (i + 1) % IN_FLIGHT;
         Ok(submission)
-    }
-
-    /// The scene's quads with its glyphs filled in, rasterized where new.
-    /// A full atlas starts over once.
-    fn place_glyphs(&mut self, scene: &Scene) -> Result<Vec<Quad>> {
-        let mut quads = scene.quads.clone();
-        if scene.glyphs.is_empty() && scene.symbols.is_empty() {
-            return Ok(quads);
-        }
-        let slot = self.atlas()?;
-        for attempt in 0..2 {
-            match self.fill_glyphs(scene, &mut quads, slot) {
-                Ok(()) => return Ok(quads),
-                Err(Full) if attempt == 0 => {
-                    debug!("the glyph atlas is full: starting over");
-                    self.glyphs.clear();
-                }
-                Err(Full) => break,
-            }
-        }
-        Err(error("the scene's glyphs do not fit into the atlas"))
-    }
-
-    fn fill_glyphs(
-        &mut self,
-        scene: &Scene,
-        quads: &mut [Quad],
-        slot: u32,
-    ) -> std::result::Result<(), Full> {
-        let texel = 1.0 / ATLAS_SIZE as f32;
-        for glyph in &scene.glyphs {
-            let (font, face) = &scene.runs[glyph.run];
-            let (placed, whole) = self.glyphs.get(font, face, glyph.id, glyph.x)?;
-            let quad = &mut quads[glyph.quad];
-            let (w, h) = (placed.w as f32, placed.h as f32);
-            quad.pos = [(whole + placed.left) as f32, glyph.y + placed.top as f32];
-            // Without ink: nothing covered.
-            quad.size = [w, h];
-            quad.uv = [placed.x as f32, placed.y as f32];
-            quad.uv_x = [w, 0.0];
-            quad.uv_y = [0.0, h];
-            quad.texel = [texel, texel];
-            quad.texture = slot;
-        }
-        for symbol in &scene.symbols {
-            let placed = self.glyphs.symbol(&symbol.name, symbol.size)?;
-            let quad = &mut quads[symbol.quad];
-            let (w, h) = (placed.w as f32, placed.h as f32);
-            quad.pos = [symbol.x, symbol.y];
-            quad.size = [w, h];
-            quad.uv = [placed.x as f32, placed.y as f32];
-            quad.uv_x = [w, 0.0];
-            quad.uv_y = [0.0, h];
-            quad.texel = [texel, texel];
-            quad.texture = slot;
-        }
-        Ok(())
     }
 
     /// The atlas' place in the texture array, made on first use.

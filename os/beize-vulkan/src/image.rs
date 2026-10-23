@@ -71,6 +71,16 @@ impl Sampled {
     pub fn used(&self, submission: u64) {
         self.last_used.fetch_max(submission, Ordering::Relaxed);
     }
+
+    /// The device it belongs to.
+    pub fn shared(&self) -> &Arc<Shared> {
+        &self.shared
+    }
+
+    /// The last submission that used it.
+    pub fn last_used(&self) -> u64 {
+        self.last_used.load(Ordering::Relaxed)
+    }
 }
 
 impl Drop for Sampled {
@@ -130,8 +140,22 @@ pub fn own_image(
     size: (u32, u32),
     usage: vk::ImageUsageFlags,
 ) -> Result<(vk::Image, vk::DeviceMemory)> {
+    own_image_with(shared, format, size, usage, vk::ImageCreateFlags::empty())
+}
+
+/// `own_image` with `flags`: MUTABLE_FORMAT for views in another format of
+/// its class, as an sRGB view to draw into an image read as UNORM.
+pub fn own_image_with(
+    shared: &Shared,
+    format: vk::Format,
+    size: (u32, u32),
+    usage: vk::ImageUsageFlags,
+    flags: vk::ImageCreateFlags,
+) -> Result<(vk::Image, vk::DeviceMemory)> {
     let d = &shared.device;
-    let info = image_info(format, size, usage).tiling(vk::ImageTiling::OPTIMAL);
+    let info = image_info(format, size, usage)
+        .tiling(vk::ImageTiling::OPTIMAL)
+        .flags(flags);
     // SAFETY: the create info lives until the call returns; on failure the
     // image is destroyed again.
     unsafe {

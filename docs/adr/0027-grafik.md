@@ -304,7 +304,8 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
 Ziel: das erste eigene Fenster mit scharfem Text, das Terminal als erste App. Fenster bleiben
 bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
 
-- **Aufbau:** `os/beize-ui` (Bibliothek: Fenster, Eingabe, Text, Zeichnen) und
+- **Aufbau:** `os/beize-ui` (Bibliothek: Fenster, Eingabe; Text, Szenen und Titelleiste seit
+  23.10. in `os/beize-draw`, das der Compositor für die Rahmen fremder Apps mitnutzt) und
   `os/beize-terminal` (App). Wayland über `wayland-client` mit libwayland (im Image für Mesa),
   gezeichnet mit Vulkan über `VK_KHR_wayland_surface`: Mesas WSI liefert dmabufs, Bildtakt
   (FIFO) und auf lavapipe shm. Vorbild: GTK 4 und Zed zeichnen ebenso über WSI. Die

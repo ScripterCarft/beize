@@ -6,8 +6,10 @@
 //!   the Vulkan renderer (`render`, §7); it draws only what changed, just
 //!   before the vblank (`schedule`), and measures itself (`pacing`).
 //! - `state`: the Wayland protocols and when the screen is drawn;
-//!   `shell`: windows (xdg-shell); `layers`: the panels of Beize's shell
-//!   (wlr-layer-shell), which only the shell may draw (`trust`).
+//!   `shell`: windows (xdg-shell), `windows` their places, `decorations`
+//!   the frames of other apps' windows (xdg-decoration); `layers`: the
+//!   panels of Beize's shell (wlr-layer-shell), which only the shell may
+//!   draw (`trust`).
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
 //!   pointer on the cursor plane.
 //! - `apps`: apps in the user's service manager (the terminal).
@@ -17,6 +19,7 @@
 
 mod apps;
 mod cursor;
+mod decorations;
 mod gpu;
 mod input;
 mod keyboard;

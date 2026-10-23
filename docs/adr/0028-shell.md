@@ -77,7 +77,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   jedes Fensters als sein Rand, an dem der Compositor die Größe ändert, wie der WindowServer
   bei macOS. Apps mit eigenem Rand (GTK) behalten ihn, denn ihr Schatten liegt über dem
   Streifen. Eigene Zeigerbilder für die Ränder kommen mit den Symbolen (d).
-- **Titelleiste von Beize UI** (xdg-decoration: Beize UI meldet `client_side`). Damit sind
+- **Titelleiste von Beize UI** (Beize UI nutzt xdg-decoration nicht und zeichnet damit nach
+  dem Protokoll selbst). Damit sind
   Werkzeugleisten in der Titelleiste möglich, wie bei Finder und Safari. Verschieben und
   Größe ändern gehen über `xdg_toplevel.move/resize` an den Compositor, er führt aus (Snap,
   Ränder). Die Leiste ist 32 px hoch, der Titel mittig (Inter 13 px halbfett, grau bei
@@ -85,10 +86,17 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Die App zeichnet und hört nur ihren Inhalt darunter, wie AppKits Content View. Ein
   Doppelklick maximiert (400 ms, GNOMEs Vorgabe). Ein maximiertes Fenster löst sich erst
   nach 4 px Ziehen (Windows' `SM_CXDRAG`), damit ein Klick es nicht verschiebt.
-- **Fremde Apps**, die über xdg-decoration `server_side` wollen (Qt, Chromium/Brave,
-  Electron), bekommen vom Compositor denselben Rahmen. Dafür kommt der Textteil von Beize UI
-  (Parley, Skrifa, Glyphen-Atlas) in ein gemeinsames Crate, wie `beize-vulkan`. GTK mit
-  libadwaita zeichnet immer selbst. Das lässt sich nicht ändern und ist bei GNOME genauso.
+- **Fremde Apps**, die über xdg-decoration `server_side` wollen oder die Wahl dem Compositor
+  lassen (Qt, Chromium/Brave, Electron; KWin entscheidet ebenso), bekommen vom Compositor
+  dieselbe Titelleiste. Text, Symbole, Szene und Titelleiste liegen dafür in `os/beize-draw`,
+  das Beize UI und der Compositor teilen, wie `beize-vulkan`. Der Compositor zeichnet die
+  Leiste wie Beize UI durch eine sRGB-Ansicht in ein eigenes Bild (Mischen in linearem Licht,
+  ADR 0027 §9) und zeigt es 1:1, sonst sähe die Kantenglättung des Titels anders aus als in
+  Beize UI. Neu gezeichnet wird sie nur, wenn sie sich ändert (Titel, Breite, aktiv,
+  maximiert, Zeiger auf einem Knopf), wie KWin seine Rahmen als Texturen hält. Die Leiste liegt
+  über dem Inhalt. Platziert, maximiert und unter der Menüleiste gehalten wird der ganze
+  Rahmen. GTK mit libadwaita zeichnet immer selbst. Das lässt sich nicht ändern und ist bei
+  GNOME genauso.
 - **Für alle Fenster** zeichnet der Compositor runde Ecken (Maske im Shader), den Schatten
   (je Fenstergröße einmal gerechnet, im Cache) und die Animationen beim Öffnen,
   Schließen und Minimieren. Ein minimiertes Fenster fliegt in sein Dock-Symbol, und von dort
@@ -215,8 +223,8 @@ prüft sie nur die Funktion, nicht die Zeit.
 a) `beize-shell` als Dienst, der Compositor erkennt sie, wlr-layer-shell nur für sie; eine
    Menüleiste mit Uhr, die Fenster darunter. ✓ 23.10.
 b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI mit Phosphor
-   (✓ 23.10.); xdg-decoration mit Rahmen für fremde Apps (dafür das gemeinsame Text-Crate aus
-   Beize UI); runde Ecken und Schatten.
+   (✓ 23.10.); xdg-decoration mit Rahmen für fremde Apps, `beize-draw` (✓ 23.10.); runde Ecken
+   und Schatten.
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste.
 d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein

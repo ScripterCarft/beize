@@ -16,6 +16,7 @@ use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 use tracing::warn;
 
 use crate::apps;
+use crate::decorations::Hit;
 use crate::state::State;
 
 pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
@@ -106,6 +107,7 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
         to.y.clamp(area.loc.y, area.loc.y + area.size.h - 1.0),
     ));
     state.pointer = to;
+    state.bar_hover(to);
     let under = state.surface_under(to);
     if let Some(pointer) = state.seat.get_pointer() {
         pointer.motion(
@@ -128,12 +130,14 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     let pressed = event.state() == ButtonState::Pressed;
     let grabbed = state.seat.get_pointer().is_some_and(|p| p.is_grabbed());
     if pressed && !grabbed {
-        let window = state
-            .space
-            .element_under(state.pointer)
-            .map(|(window, _)| window.clone());
-        if window.is_some() {
-            state.focus(window);
+        let under = state.window_under(state.pointer);
+        if let Some((window, hit)) = under {
+            state.focus(Some(window.clone()));
+            if hit == Hit::Bar {
+                // The compositor's title bar (`decorations`): a drag goes
+                // to its grab, like the edge's.
+                state.bar_press(&window, event.button_code(), serial);
+            }
         } else if state.surface_under(state.pointer).is_none() {
             // Beside a window, on its edge: the compositor resizes it; the
             // press goes to that drag (`windows`).
@@ -151,6 +155,9 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
             },
         );
         pointer.frame(state);
+    }
+    if !pressed {
+        state.bar_release(event.button_code());
     }
 }
 

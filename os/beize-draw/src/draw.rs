@@ -3,13 +3,14 @@
 //! gamma-correct): colours are given in sRGB, as designers name them, and
 //! turned linear and premultiplied here.
 //!
-//! A scene is data only: text adds its glyph runs, and the renderer turns
-//! each glyph into a quad when it draws (`glyphs`, the atlas).
+//! A scene is data only: text adds its glyph runs, and `quads` turns each
+//! glyph into a quad when it is drawn (`glyphs`, the atlas).
 
 use beize_vulkan::pipeline::{EXACT, MASK, Quad, SOLID};
 use parley::{FontData, Layout, PositionedLayoutItem, Run};
+use tracing::debug;
 
-use crate::glyphs::Face;
+use crate::glyphs::{ATLAS_SIZE, Face, Full, Glyphs};
 use crate::text::Cells;
 
 /// The face a run of Parley's is set in.
@@ -81,20 +82,20 @@ pub struct Rect {
 /// The quads of one frame, back to front.
 #[derive(Default)]
 pub struct Scene {
-    pub(crate) quads: Vec<Quad>,
+    quads: Vec<Quad>,
     /// Per quad: drawn with blending.
-    pub(crate) blend: Vec<bool>,
+    blend: Vec<bool>,
     /// The fonts of the glyph runs.
-    pub(crate) runs: Vec<(FontData, Face)>,
-    /// Glyphs whose quads the renderer fills in.
-    pub(crate) glyphs: Vec<Glyph>,
+    runs: Vec<(FontData, Face)>,
+    /// Glyphs whose quads `quads` fills in.
+    glyphs: Vec<Glyph>,
     /// Symbols, likewise.
-    pub(crate) symbols: Vec<Symbol>,
+    symbols: Vec<Symbol>,
 }
 
 /// A symbol (ADR 0028 §8) in a square of `size` pixels, its top left at
 /// `x`, `y` (whole pixels).
-pub(crate) struct Symbol {
+struct Symbol {
     pub quad: usize,
     pub name: String,
     pub size: u32,
@@ -104,7 +105,7 @@ pub(crate) struct Symbol {
 
 /// A glyph of a run, at its pen position: `x` in pixels with fraction,
 /// `y` the baseline on a whole pixel.
-pub(crate) struct Glyph {
+struct Glyph {
     pub quad: usize,
     pub run: usize,
     pub id: u32,
@@ -201,7 +202,7 @@ impl Scene {
 
     /// `other`'s quads after (above) this scene's, moved down by `dy`, a
     /// whole number of pixels: baselines stay on whole pixels.
-    pub(crate) fn append(&mut self, other: &Scene, dy: f32) {
+    pub fn append(&mut self, other: &Scene, dy: f32) {
         let (quads, runs) = (self.quads.len(), self.runs.len());
         self.quads.extend(other.quads.iter().map(|q| Quad {
             pos: [q.pos[0], q.pos[1] + dy],
@@ -227,6 +228,69 @@ impl Scene {
 
     pub fn len(&self) -> usize {
         self.quads.len()
+    }
+
+    /// Per quad: drawn with blending.
+    pub fn blend(&self) -> &[bool] {
+        &self.blend
+    }
+
+    /// Glyphs and symbols to place: the scene needs the atlas.
+    pub fn has_glyphs(&self) -> bool {
+        !self.glyphs.is_empty() || !self.symbols.is_empty()
+    }
+
+    /// The scene's quads with its glyphs and symbols placed in `glyphs`'
+    /// atlas – rasterized where new – which is `slot` in the texture array.
+    /// A full atlas starts over once; None if the scene's glyphs do not fit
+    /// even then.
+    pub fn quads(&self, glyphs: &mut Glyphs, slot: u32) -> Option<Vec<Quad>> {
+        let mut quads = self.quads.clone();
+        if !self.has_glyphs() {
+            return Some(quads);
+        }
+        for attempt in 0..2 {
+            match self.place(glyphs, &mut quads, slot) {
+                Ok(()) => return Some(quads),
+                Err(Full) if attempt == 0 => {
+                    debug!("the glyph atlas is full: starting over");
+                    glyphs.clear();
+                }
+                Err(Full) => break,
+            }
+        }
+        None
+    }
+
+    fn place(&self, glyphs: &mut Glyphs, quads: &mut [Quad], slot: u32) -> Result<(), Full> {
+        let texel = 1.0 / ATLAS_SIZE as f32;
+        for glyph in &self.glyphs {
+            let (font, face) = &self.runs[glyph.run];
+            let (placed, whole) = glyphs.get(font, face, glyph.id, glyph.x)?;
+            let quad = &mut quads[glyph.quad];
+            let (w, h) = (placed.w as f32, placed.h as f32);
+            quad.pos = [(whole + placed.left) as f32, glyph.y + placed.top as f32];
+            // Without ink: nothing covered.
+            quad.size = [w, h];
+            quad.uv = [placed.x as f32, placed.y as f32];
+            quad.uv_x = [w, 0.0];
+            quad.uv_y = [0.0, h];
+            quad.texel = [texel, texel];
+            quad.texture = slot;
+        }
+        for symbol in &self.symbols {
+            let placed = glyphs.symbol(&symbol.name, symbol.size)?;
+            let quad = &mut quads[symbol.quad];
+            let (w, h) = (placed.w as f32, placed.h as f32);
+            quad.pos = [symbol.x, symbol.y];
+            quad.size = [w, h];
+            quad.uv = [placed.x as f32, placed.y as f32];
+            quad.uv_x = [w, 0.0];
+            quad.uv_y = [0.0, h];
+            quad.texel = [texel, texel];
+            quad.texture = slot;
+        }
+        Ok(())
     }
 
     pub fn is_empty(&self) -> bool {

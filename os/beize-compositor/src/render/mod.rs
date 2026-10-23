@@ -29,13 +29,13 @@ use smithay::backend::renderer::{
 use smithay::backend::vulkan::PhysicalDevice;
 use smithay::reexports::ash::vk;
 use smithay::reexports::wayland_server::protocol::wl_buffer;
-use smithay::utils::{Buffer, Physical, Rectangle, Size, Transform};
+use smithay::utils::{Buffer, Physical, Point, Rectangle, Size, Transform};
 use smithay::wayland::compositor::SurfaceData;
 use tracing::{debug, info, warn};
 
 use crate::error::{Context, Error, Result, error};
 use beize_vulkan::buffer::HostBuffer;
-use beize_vulkan::pipeline::Pipelines;
+use beize_vulkan::pipeline::{Pipelines, Quad};
 use device::{Caps, Ext, Garbage, Shared};
 pub use frame::VkFrame;
 pub use sync::signalled_at;
@@ -68,6 +68,20 @@ struct Upload {
     regions: Vec<vk::BufferImageCopy>,
 }
 
+/// A picture the compositor draws for itself (`draw_picture`), recorded
+/// with the next submission ahead of its frame.
+struct Pass {
+    texture: VkTexture,
+    quads: Vec<Quad>,
+    blend: Vec<bool>,
+}
+
+/// A picture's format: read as UNORM, drawn through an sRGB view.
+const PICTURE: vk::Format = vk::Format::R8G8B8A8_UNORM;
+const PICTURE_DRAWN: vk::Format = vk::Format::R8G8B8A8_SRGB;
+/// Where each list of quads starts in a frame's buffer, at least.
+const QUADS_ALIGN: usize = 256;
+
 pub struct VkRenderer {
     shared: Arc<Shared>,
     queue: vk::Queue,
@@ -80,6 +94,7 @@ pub struct VkRenderer {
     current: usize,
     submitted: u64,
     uploads: Vec<Upload>,
+    passes: Vec<Pass>,
     dmabufs: HashMap<WeakDmabuf, VkTexture>,
     dmabuf_formats: smithay::backend::allocator::format::FormatSet,
     context: ContextId<VkTexture>,
@@ -127,6 +142,7 @@ impl VkRenderer {
             current: 0,
             submitted: 0,
             uploads: Vec::new(),
+            passes: Vec::new(),
             dmabufs: HashMap::new(),
             dmabuf_formats: Default::default(),
             context: ContextId::new(),
@@ -170,6 +186,95 @@ impl VkRenderer {
         } else {
             None
         }
+    }
+
+    /// An empty 8-bit texture of `size` × `size` for coverage: the glyph
+    /// atlas of the compositor's title bars (beize-draw), as Beize UI keeps
+    /// its own.
+    pub fn coverage_texture(&mut self, size: u32) -> Result<VkTexture> {
+        let empty = vec![0; size as usize * size as usize];
+        let side = size as i32;
+        self.memory_texture(&empty, size as usize, Fourcc::R8, (side, side).into())
+    }
+
+    /// Writes `coverage`, the texels of `rect` tightly packed, into the
+    /// coverage texture `texture`, with the next submission.
+    pub fn write_coverage(
+        &mut self,
+        texture: &VkTexture,
+        rect: Rectangle<i32, Buffer>,
+        coverage: &[u8],
+    ) -> Result<()> {
+        if !Rectangle::from_size(texture.0.size).contains_rect(rect) {
+            return Err(error("coverage outside its texture"));
+        }
+        let copy = self.stage_rect(texture, coverage, rect.size.w as usize, (0, 0).into(), rect)?;
+        self.queue_copies(texture, vec![copy]);
+        Ok(())
+    }
+
+    /// A picture of `size` drawn from beize-draw's quads (`blend` per quad),
+    /// as Beize UI draws its windows: through an sRGB view, so it blends in
+    /// linear light (ADR 0027 §9), and read as it is, as the compositor
+    /// reads a Beize UI window's buffer – the same pixels. Into `into` if
+    /// it is a picture of that size, else into a new one. Drawn with the
+    /// next submission, ahead of its frame.
+    pub fn draw_picture(
+        &mut self,
+        size: Size<i32, Buffer>,
+        quads: Vec<Quad>,
+        blend: Vec<bool>,
+        into: Option<VkTexture>,
+    ) -> Result<VkTexture> {
+        let texture = match into {
+            Some(t) if t.0.size == size && t.0.attachment.is_some() => t,
+            _ => self.picture_texture(size)?,
+        };
+        self.passes
+            .retain(|p| !Arc::ptr_eq(&p.texture.0, &texture.0));
+        self.passes.push(Pass {
+            texture: texture.clone(),
+            quads,
+            blend,
+        });
+        Ok(texture)
+    }
+
+    fn picture_texture(&mut self, size: Size<i32, Buffer>) -> Result<VkTexture> {
+        if size.w <= 0 || size.h <= 0 {
+            return Err(error("an empty picture"));
+        }
+        let (image, memory) = beize_vulkan::image::own_image_with(
+            &self.shared,
+            PICTURE,
+            (size.w as u32, size.h as u32),
+            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageCreateFlags::MUTABLE_FORMAT,
+        )?;
+        let d = &self.shared.device;
+        let attachment = match beize_vulkan::image::view(d, image, PICTURE_DRAWN, true) {
+            Ok(view) => view,
+            Err(e) => {
+                // SAFETY: never used.
+                unsafe {
+                    d.destroy_image(image, None);
+                    d.free_memory(memory, None);
+                }
+                return Err(e);
+            }
+        };
+        let texture = texture::wrap(
+            &self.shared,
+            image,
+            memory,
+            Fourcc::Abgr8888,
+            size,
+            None,
+            Some(attachment),
+        )?;
+        self.pipelines
+            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
+        Ok(texture)
     }
 
     fn in_flight_new(&self) -> Result<InFlight> {
@@ -364,54 +469,66 @@ impl VkRenderer {
         stride: usize,
         regions: &[Rectangle<i32, Buffer>],
     ) -> Result<()> {
-        let size = texture.0.size;
-        let bounds = Rectangle::from_size(size);
+        let bounds = Rectangle::from_size(texture.0.size);
         let mut copies = Vec::new();
         for region in regions {
             let Some(r) = region.intersection(bounds) else {
                 continue;
             };
-            let row = r.size.w as usize * 4;
-            let last = (r.loc.y + r.size.h - 1) as usize * stride + r.loc.x as usize * 4 + row;
-            if last > data.len() {
-                return Err(error("the buffer is smaller than its size says"));
-            }
-            let (offset, pointer) = self.stage((row * r.size.h as usize) as u64)?;
-            for y in 0..r.size.h as usize {
-                let from = (r.loc.y as usize + y) * stride + r.loc.x as usize * 4;
-                // SAFETY: the source row lies within `data` (checked above),
-                // the target row within the staged range.
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        data.as_ptr().add(from),
-                        pointer.add(y * row),
-                        row,
-                    )
-                };
-            }
-            copies.push(
-                vk::BufferImageCopy::default()
-                    .buffer_offset(offset)
-                    .image_subresource(vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: 0,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })
-                    .image_offset(vk::Offset3D {
-                        x: r.loc.x,
-                        y: r.loc.y,
-                        z: 0,
-                    })
-                    .image_extent(vk::Extent3D {
-                        width: r.size.w as u32,
-                        height: r.size.h as u32,
-                        depth: 1,
-                    }),
-            );
+            copies.push(self.stage_rect(texture, data, stride, r.loc, r)?);
         }
+        self.queue_copies(texture, copies);
+        Ok(())
+    }
+
+    /// Stages the texels of `data` (`stride` bytes a row) from `from` on,
+    /// for `to` in `texture`, which they fill.
+    fn stage_rect(
+        &mut self,
+        texture: &VkTexture,
+        data: &[u8],
+        stride: usize,
+        from: Point<i32, Buffer>,
+        to: Rectangle<i32, Buffer>,
+    ) -> Result<vk::BufferImageCopy> {
+        let texel = texture::texel_bytes(texture.0.fourcc);
+        let row = to.size.w as usize * texel;
+        let last = (from.y + to.size.h - 1) as usize * stride + from.x as usize * texel + row;
+        if from.x < 0 || from.y < 0 || last > data.len() {
+            return Err(error("the buffer is smaller than its size says"));
+        }
+        let (offset, pointer) = self.stage((row * to.size.h as usize) as u64)?;
+        for y in 0..to.size.h as usize {
+            let start = (from.y as usize + y) * stride + from.x as usize * texel;
+            // SAFETY: the source row lies within `data` (checked above), the
+            // target row within the staged range.
+            unsafe {
+                std::ptr::copy_nonoverlapping(data.as_ptr().add(start), pointer.add(y * row), row)
+            };
+        }
+        Ok(vk::BufferImageCopy::default()
+            .buffer_offset(offset)
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_offset(vk::Offset3D {
+                x: to.loc.x,
+                y: to.loc.y,
+                z: 0,
+            })
+            .image_extent(vk::Extent3D {
+                width: to.size.w as u32,
+                height: to.size.h as u32,
+                depth: 1,
+            }))
+    }
+
+    fn queue_copies(&mut self, texture: &VkTexture, copies: Vec<vk::BufferImageCopy>) {
         if copies.is_empty() {
-            return Ok(());
+            return;
         }
         match self
             .uploads
@@ -424,7 +541,6 @@ impl VkRenderer {
                 regions: copies,
             }),
         }
-        Ok(())
     }
 
     /// A texture of the renderer's own, filled with `data`.
@@ -448,7 +564,7 @@ impl VkRenderer {
                 | vk::ImageUsageFlags::TRANSFER_DST
                 | vk::ImageUsageFlags::TRANSFER_SRC,
         )?;
-        let texture = texture::wrap(&self.shared, image, memory, fourcc, size, None)?;
+        let texture = texture::wrap(&self.shared, image, memory, fourcc, size, None, None)?;
         self.pipelines
             .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
         self.upload(&texture, data, stride, &[Rectangle::from_size(size)])?;
@@ -608,7 +724,8 @@ impl ImportMem for VkRenderer {
         if texture.0.dmabuf.is_some() {
             return Err(error("a dmabuf is not written to"));
         }
-        self.upload(texture, data, texture.0.size.w as usize * 4, &[region])
+        let stride = texture.0.size.w as usize * texture::texel_bytes(texture.0.fourcc);
+        self.upload(texture, data, stride, &[region])
     }
 
     fn mem_formats(&self) -> Box<dyn Iterator<Item = Fourcc>> {
@@ -705,6 +822,7 @@ impl ImportDma for VkRenderer {
             fourcc,
             size,
             Some(dmabuf.weak()),
+            None,
         )?;
         self.pipelines
             .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
@@ -874,9 +992,28 @@ impl VkRenderer {
             frame::record_uploads(&d, commands, staging.buffer, &uploads, submission);
         }
         drop(uploads);
+        let passes = std::mem::take(&mut self.passes);
+        let mut lists: Vec<&[Quad]> = passes.iter().map(|p| p.quads.as_slice()).collect();
+        if let Some(frame) = &frame {
+            lists.push(&frame.quads);
+        }
+        let addresses = self.write_quads(i, &lists)?;
+        if !passes.is_empty() {
+            let pipelines = self.pipelines.get(&d, PICTURE_DRAWN)?;
+            frame::record_passes(
+                &d,
+                commands,
+                &self.pipelines,
+                pipelines,
+                &passes,
+                &addresses,
+                submission,
+            );
+        }
         let mut waits = Vec::new();
         if let Some(frame) = frame {
-            let (pipelines, quads) = self.frame_buffers(i, frame)?;
+            let pipelines = self.pipelines.get(&d, frame.target.format)?;
+            let quads = addresses.last().copied().unwrap_or_default();
             frame::record_frame(
                 &d,
                 commands,
@@ -935,15 +1072,22 @@ impl VkRenderer {
 
     /// The pipelines for the frame's target and its quads, copied into the
     /// frame's buffer.
-    fn frame_buffers(
-        &mut self,
-        i: usize,
-        frame: &frame::Recorded<'_>,
-    ) -> Result<([vk::Pipeline; 2], u64)> {
-        let pipelines = self
-            .pipelines
-            .get(&self.shared.device, frame.target.format)?;
-        let bytes = std::mem::size_of_val(frame.quads.as_slice()) as u64;
+    /// `lists` one after another in frame `i`'s quad buffer, grown if need
+    /// be; each list's device address.
+    fn write_quads(&mut self, i: usize, lists: &[&[Quad]]) -> Result<Vec<u64>> {
+        let starts: Vec<usize> = lists
+            .iter()
+            .scan(0, |end: &mut usize, list| {
+                let start = end.next_multiple_of(QUADS_ALIGN);
+                *end = start + std::mem::size_of_val(*list);
+                Some(start)
+            })
+            .collect();
+        let bytes = lists
+            .last()
+            .zip(starts.last())
+            .map_or(0, |(list, start)| start + std::mem::size_of_val(*list))
+            as u64;
         let size = self.in_flight[i].quads.as_ref().map_or(0, |b| b.size);
         if bytes > size {
             let new = self.host_buffer_full(
@@ -962,17 +1106,21 @@ impl VkRenderer {
                 );
             }
         }
-        let quads = self.in_flight[i].quads.as_ref().context("quads")?;
-        // SAFETY: the buffer holds `bytes` (grown above); no submission
-        // reads it (`current`).
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                frame.quads.as_ptr() as *const u8,
-                quads.pointer,
-                bytes as usize,
-            )
+        let Some(quads) = self.in_flight[i].quads.as_ref() else {
+            return Ok(vec![0; lists.len()]);
         };
-        Ok((pipelines, quads.address))
+        for (list, &start) in lists.iter().zip(&starts) {
+            // SAFETY: the buffer holds `bytes`, past every list's end (grown
+            // above); no submission reads it (`current`).
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    list.as_ptr() as *const u8,
+                    quads.pointer.add(start),
+                    std::mem::size_of_val(*list),
+                )
+            };
+        }
+        Ok(starts.iter().map(|&s| quads.address + s as u64).collect())
     }
 
     /// Ends a frame: submits it and hands out its end.

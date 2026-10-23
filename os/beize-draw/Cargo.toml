@@ -1,0 +1,27 @@
+[package]
+name = "beize-draw"
+description = "What Beize UI and the compositor draw alike: scenes of quads, text and symbols in the glyph atlas, the title bar (ADR 0028 §2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+# The quad the shaders read, and the errors.
+beize-vulkan = { path = "../beize-vulkan" }
+tracing = "0.1"
+# Text (ADR 0027 §9): Parley lays it out (Fontique, re-exported, holds the
+# fonts; without its system feature, which is fontconfig on Linux),
+# Skrifa – Parley's own version – gives the hinted outlines, zeno
+# rasterizes them.
+parley = { version = "0.12", default-features = false, features = ["std"] }
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
+zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
+# Symbols (ADR 0028 §8): Phosphor's SVGs, rasterized by resvg once per
+# size into the glyph atlas. Vector shapes only: no text, fonts or bitmaps
+# inside an SVG.
+resvg = { version = "0.48", default-features = false }
+
+[lints]
+workspace = true

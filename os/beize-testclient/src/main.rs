@@ -8,7 +8,9 @@
 //! layout (the `xkb_symbols` of its keymap), keys, pointer and buttons.
 //! A press in its top `TITLE` rows moves the window, as on a title bar;
 //! the M key maximizes it and back (the compositor's side of both, ADR
-//! 0028 §2).
+//! 0028 §2). `--server-side` asks the compositor for its frame instead, as
+//! Qt does (xdg-decoration), and prints the mode it is given; its top rows
+//! are then pattern only.
 //!
 //! `--frames N` draws N frames, each on the last one's "frame done", with
 //! a bar moving through the top, and prints the time between frames: the
@@ -42,6 +44,10 @@ use wayland_client::protocol::{
     wl_surface::WlSurface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop};
+use wayland_protocols::xdg::decoration::zv1::client::{
+    zxdg_decoration_manager_v1::ZxdgDecorationManagerV1,
+    zxdg_toplevel_decoration_v1::{self, ZxdgToplevelDecorationV1},
+};
 use wayland_protocols::xdg::shell::client::{
     xdg_surface::{self, XdgSurface},
     xdg_toplevel::{self, XdgToplevel},
@@ -78,12 +84,14 @@ fn main() -> ExitCode {
 struct Options {
     frames: u32,
     seconds: u64,
+    server_side: bool,
 }
 
 fn options() -> Result<Options> {
     let mut options = Options {
         frames: 0,
         seconds: 10,
+        server_side: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -95,6 +103,7 @@ fn options() -> Result<Options> {
         match arg.as_str() {
             "--frames" => options.frames = u32::try_from(value()?).map_err(|e| e.to_string())?,
             "--seconds" => options.seconds = value()?,
+            "--server-side" => options.server_side = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -120,6 +129,8 @@ struct App {
     seat: WlSeat,
     /// As the last configure said.
     maximized: bool,
+    /// The compositor draws the window's frame (`--server-side`).
+    framed: bool,
     /// Where the pointer is on the window, down.
     pointer_y: f64,
     /// The size the compositor asked for; 0 means "choose".
@@ -165,6 +176,18 @@ fn run() -> Result<()> {
     let toplevel = xdg_surface.get_toplevel(&qh, ());
     toplevel.set_title("beize-testclient".into());
     toplevel.set_app_id("beize-testclient".into());
+    // Kept until the end: dropping it would not end it, but its frame
+    // ends with it in the protocol.
+    let _decoration = if options.server_side {
+        let manager: ZxdgDecorationManagerV1 = globals
+            .bind(&qh, 1..=1, ())
+            .map_err(missing("zxdg_decoration_manager_v1"))?;
+        let decoration = manager.get_toplevel_decoration(&toplevel, &qh, ());
+        decoration.set_mode(zxdg_toplevel_decoration_v1::Mode::ServerSide);
+        Some(decoration)
+    } else {
+        None
+    };
     surface.commit();
 
     let mut app = App {
@@ -174,6 +197,7 @@ fn run() -> Result<()> {
         toplevel,
         seat,
         maximized: false,
+        framed: false,
         pointer_y: 0.0,
         size: (0, 0),
         full: true,
@@ -606,7 +630,7 @@ impl Dispatch<WlPointer, ()> for App {
                     "button {button:#x} {}",
                     if pressed { "pressed" } else { "released" }
                 );
-                if pressed && button == BTN_LEFT && app.pointer_y < TITLE {
+                if pressed && button == BTN_LEFT && app.pointer_y < TITLE && !app.framed {
                     app.toplevel._move(&app.seat, serial);
                 }
             }
@@ -615,6 +639,33 @@ impl Dispatch<WlPointer, ()> for App {
     }
 }
 
+impl Dispatch<ZxdgToplevelDecorationV1, ()> for App {
+    fn event(
+        app: &mut App,
+        _: &ZxdgToplevelDecorationV1,
+        event: zxdg_toplevel_decoration_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+        if let zxdg_toplevel_decoration_v1::Event::Configure {
+            mode: WEnum::Value(mode),
+        } = event
+        {
+            app.framed = mode == zxdg_toplevel_decoration_v1::Mode::ServerSide;
+            println!(
+                "decoration {}",
+                if app.framed {
+                    "server_side"
+                } else {
+                    "client_side"
+                }
+            );
+        }
+    }
+}
+
+delegate_noop!(App: ignore ZxdgDecorationManagerV1);
 delegate_noop!(App: ignore WlCompositor);
 delegate_noop!(App: ignore WlShm);
 delegate_noop!(App: ignore WlShmPool);

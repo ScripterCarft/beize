@@ -18,7 +18,7 @@ version = "0.1.0"
 stage = "target"
 # libgcc_s for Rust's unwinding.
 deps = ["gcc", "glibc", "gcc-runtime", "wayland", "vulkan-loader", "libxkbcommon"]
-repo = ["os/beize-vulkan", "os/beize-ui", "os/beize-shell", "os/beize-terminal", "Cargo.toml", "Cargo.lock"]
+repo = ["os/beize-vulkan", "os/beize-draw", "os/beize-ui", "os/beize-shell", "os/beize-terminal", "Cargo.toml", "Cargo.lock"]
 
 [build]
 script = '''

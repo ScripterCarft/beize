@@ -1,7 +1,8 @@
 //! The compositor's state and the Wayland protocols it serves: surfaces
 //! (wl_compositor, wl_shm, linux-dmabuf), the seat, the screen as
 //! wl_output, copy and paste (wl_data_device), windows (xdg-shell,
-//! `shell`) and the shell's panels (wlr-layer-shell, `layers`).
+//! `shell`) with their frames (xdg-decoration, `decorations`) and the
+//! shell's panels (wlr-layer-shell, `layers`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
 //! screen for a redraw at the deadline of the next vblank (`schedule`),
@@ -54,14 +55,16 @@ use smithay::wayland::selection::data_device::{
 };
 use smithay::wayland::shell::wlr_layer::{Layer, WlrLayerShellState};
 use smithay::wayland::shell::xdg::XdgShellState;
+use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{
     delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat,
-    delegate_shm, delegate_xdg_shell,
+    delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
 use crate::cursor::Cursor;
+use crate::decorations::{Decorations, Hit};
 use crate::gpu::{self, Screen};
 use crate::keyboard::Layout;
 use crate::output::{Frame, Info};
@@ -74,17 +77,20 @@ use beize_compositor::render::VkRenderer;
 mod scene {
     use smithay::backend::renderer::ImportAll;
     use smithay::backend::renderer::ImportMem;
+    use smithay::backend::renderer::RendererSuper;
     use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
     use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+    use smithay::backend::renderer::element::texture::TextureRenderElement;
     use smithay::render_elements;
 
     render_elements! {
         /// What a frame draws, front to back: the pointer where no cursor
         /// plane shows it, then the surfaces – panels above the windows,
-        /// windows, panels below them.
+        /// windows each with its title bar, panels below them.
         pub Element<R> where R: ImportAll + ImportMem;
         Cursor=MemoryRenderBufferRenderElement<R>,
         Surface=WaylandSurfaceRenderElement<R>,
+        Bar=TextureRenderElement<<R as RendererSuper>::TextureId>,
     }
 }
 type Element = scene::Element<VkRenderer>;
@@ -110,6 +116,7 @@ pub struct State {
     shm: ShmState,
     dmabuf: DmabufState,
     pub xdg_shell: XdgShellState,
+    _xdg_decoration: XdgDecorationState,
     pub layer_shell: WlrLayerShellState,
     _outputs: OutputManagerState,
     seat_state: SeatState<State>,
@@ -124,6 +131,8 @@ pub struct State {
     /// New windows until their first content places them (`windows`).
     pub unmapped: Vec<Window>,
     pub popups: PopupManager,
+    /// What the title bars of other apps' windows share (`decorations`).
+    decorations: Decorations,
     /// The screen: None until the session is first active, as only then
     /// does logind hand out the GPU (a session started on a background VT
     /// waits).
@@ -186,6 +195,7 @@ impl State {
             shm: ShmState::new::<State>(&display, Vec::new()),
             dmabuf: DmabufState::new(),
             xdg_shell: XdgShellState::new::<State>(&display),
+            _xdg_decoration: XdgDecorationState::new::<State>(&display),
             // Other clients do not even see the global.
             layer_shell: WlrLayerShellState::new_with_filter::<State, _>(&display, |client| {
                 client.get_data::<ClientState>().is_some_and(|c| c.shell)
@@ -199,6 +209,7 @@ impl State {
             space: Space::default(),
             unmapped: Vec::new(),
             popups: PopupManager::default(),
+            decorations: Decorations::default(),
             screen: None,
             output: None,
             pointer: Point::default(),
@@ -408,10 +419,29 @@ impl State {
         }
         let (upper, lower) = panels(screen.renderer(), output);
         elements.extend(upper.into_iter().map(Element::Surface));
-        let windows: Vec<WaylandSurfaceRenderElement<_>> =
-            self.space
-                .render_elements_for_region(screen.renderer(), &area, 1.0, 1.0);
-        elements.extend(windows.into_iter().map(Element::Surface));
+        // Each window with its bar above it, front to back.
+        let windows: Vec<_> = self
+            .space
+            .elements()
+            .rev()
+            .filter_map(|w| Some((w.clone(), self.space.element_geometry(w)?)))
+            .filter(|(_, geometry)| geometry.overlaps(area))
+            .collect();
+        let mut bars = self.decorations.elements(screen.renderer(), &windows);
+        for (window, geometry) in &windows {
+            let origin = (geometry.loc - window.geometry().loc).to_physical(1);
+            let surfaces = AsRenderElements::<VkRenderer>::render_elements(
+                window,
+                screen.renderer(),
+                origin,
+                Scale::from(1.0),
+                1.0,
+            );
+            elements.extend(surfaces.into_iter().map(Element::Surface));
+            if let Some(i) = bars.iter().position(|(w, _)| w == window) {
+                elements.push(Element::Bar(bars.swap_remove(i).1));
+            }
+        }
         elements.extend(lower.into_iter().map(Element::Surface));
         let cursor = self
             .cursor
@@ -519,12 +549,15 @@ impl State {
     }
 
     /// The topmost window under `at`, its surface there and that surface's
-    /// position.
+    /// position; none on its title bar, which is the compositor's.
     fn window_surface_under(
         &self,
         at: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        let (window, location) = self.space.element_under(at)?;
+        let (window, Hit::Content) = self.window_under(at)? else {
+            return None;
+        };
+        let location = self.space.element_location(&window)? - window.geometry().loc;
         window
             .surface_under(
                 at - location.to_f64(),
@@ -681,6 +714,7 @@ delegate_seat!(State);
 delegate_data_device!(State);
 delegate_output!(State);
 delegate_xdg_shell!(State);
+delegate_xdg_decoration!(State);
 
 /// The panels' surfaces to draw: those above the windows and those below,
 /// each front to back.

@@ -43,12 +43,12 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 use crate::clipboard::Clipboard;
-use crate::draw::Scene;
 use crate::gpu::Gpu;
 use crate::input::{Button, Input, Keyboard, Modifiers, Pointer, PointerState};
 use crate::renderer::{After, Renderer, Target};
-use crate::text::Text;
-use crate::titlebar::{self, Appearance, Press, TitleBar};
+use beize_draw::Scene;
+use beize_draw::Text;
+use beize_draw::titlebar::{self, Appearance, Press, TitleBar};
 
 /// sRGB: the GPU blends in linear light and stores sRGB (`draw`).
 const FORMAT: vk::Format = vk::Format::B8G8R8A8_SRGB;

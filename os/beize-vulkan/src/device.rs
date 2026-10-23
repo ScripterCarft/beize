@@ -32,6 +32,8 @@ pub enum Garbage {
         memory: vk::DeviceMemory,
     },
     Semaphore(vk::Semaphore),
+    /// A second view of an image, destroyed before the image.
+    View(vk::ImageView),
     /// A place in the texture array, free for the next texture.
     Slot(u32),
 }
@@ -135,6 +137,7 @@ impl Shared {
                     d.free_memory(memory, None);
                 }
                 Garbage::Semaphore(semaphore) => d.destroy_semaphore(semaphore, None),
+                Garbage::View(view) => d.destroy_image_view(view, None),
                 Garbage::Slot(slot) => {
                     if let Ok(mut slots) = self.slots.lock() {
                         slots.free.push(slot);

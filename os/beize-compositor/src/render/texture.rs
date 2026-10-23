@@ -17,7 +17,7 @@ use smithay::utils::{Buffer, Size};
 
 use beize_vulkan::image::{Sampled, image_info};
 
-use super::device::{Ext, Shared};
+use super::device::{Ext, Garbage, Shared};
 use crate::error::{Context, Result, error};
 
 /// Vulkan's format for a DRM format, and whether it has alpha: the
@@ -29,8 +29,15 @@ pub fn vk_format(fourcc: Fourcc) -> Option<(vk::Format, bool)> {
         Fourcc::Xrgb8888 => Some((vk::Format::B8G8R8A8_UNORM, false)),
         Fourcc::Abgr8888 => Some((vk::Format::R8G8B8A8_UNORM, true)),
         Fourcc::Xbgr8888 => Some((vk::Format::R8G8B8A8_UNORM, false)),
+        // Coverage: the glyph atlas (`VkRenderer::coverage_texture`).
+        Fourcc::R8 => Some((vk::Format::R8_UNORM, true)),
         _ => None,
     }
+}
+
+/// Bytes a texel of `fourcc` takes.
+pub fn texel_bytes(fourcc: Fourcc) -> usize {
+    if fourcc == Fourcc::R8 { 1 } else { 4 }
 }
 
 /// The formats memory and dmabufs are taken in.
@@ -54,6 +61,20 @@ pub(super) struct Inner {
     pub dmabuf: Option<WeakDmabuf>,
     /// Holds content (an own image after its first upload).
     pub filled: AtomicBool,
+    /// A picture's sRGB view, which the compositor draws into
+    /// (`VkRenderer::draw_picture`).
+    pub attachment: Option<vk::ImageView>,
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        if let Some(view) = self.attachment {
+            // Before the image, which `gpu` defers after this.
+            self.gpu
+                .shared()
+                .defer(self.gpu.last_used(), Garbage::View(view));
+        }
+    }
 }
 
 impl VkTexture {
@@ -63,6 +84,11 @@ impl VkTexture {
 
     pub fn has_alpha(&self) -> bool {
         self.0.has_alpha
+    }
+
+    /// Its place in the texture array, for quads of its own (beize-draw).
+    pub fn slot(&self) -> u32 {
+        self.0.gpu.slot
     }
 }
 
@@ -221,8 +247,16 @@ pub(super) fn wrap(
     fourcc: Fourcc,
     size: Size<i32, Buffer>,
     dmabuf: Option<WeakDmabuf>,
+    attachment: Option<vk::ImageView>,
 ) -> Result<VkTexture> {
+    let destroy_attachment = || {
+        if let Some(view) = attachment {
+            // SAFETY: never used.
+            unsafe { shared.device.destroy_image_view(view, None) };
+        }
+    };
     let Some((format, has_alpha)) = vk_format(fourcc) else {
+        destroy_attachment();
         // SAFETY: never used.
         unsafe {
             shared.device.destroy_image(image, None);
@@ -230,7 +264,13 @@ pub(super) fn wrap(
         }
         return Err(error(format!("format {fourcc} is not taken")));
     };
-    let gpu = Sampled::new(shared, image, memory, format, has_alpha)?;
+    let gpu = match Sampled::new(shared, image, memory, format, has_alpha) {
+        Ok(gpu) => gpu,
+        Err(e) => {
+            destroy_attachment();
+            return Err(e);
+        }
+    };
     let filled = dmabuf.is_some();
     Ok(VkTexture(Arc::new(Inner {
         gpu,
@@ -239,5 +279,6 @@ pub(super) fn wrap(
         has_alpha,
         dmabuf,
         filled: AtomicBool::new(filled),
+        attachment,
     })))
 }

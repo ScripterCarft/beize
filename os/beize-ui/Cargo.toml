@@ -9,6 +9,8 @@ license.workspace = true
 
 [dependencies]
 beize-vulkan = { path = "../beize-vulkan" }
+# Text, symbols, scenes and the title bar, shared with the compositor.
+beize-draw = { path = "../beize-draw" }
 # ash loads libvulkan.so.1 at run time (loaded), as Smithay does for the
 # compositor; debug names Vulkan's values in errors.
 ash = { version = "0.38", default-features = false, features = ["debug", "loaded", "std"] }
@@ -24,21 +26,10 @@ rustix = { version = "1.1", default-features = false, features = ["event", "fs",
 tracing = "0.1"
 # An app's log to the journal (`log`), as the compositor writes its own.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
-# Text (ADR 0027 §9): Parley lays it out (Fontique, re-exported, holds the
-# fonts; without its system feature, which is fontconfig on Linux),
-# Skrifa – Parley's own version – gives the hinted outlines, zeno
-# rasterizes them.
-parley = { version = "0.12", default-features = false, features = ["std"] }
-skrifa = { version = "0.44", default-features = false, features = ["std"] }
-zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
 # Keys (ADR 0027 §9): libxkbcommon with the compositor's keymap and
 # Compose; the same crate and version as Smithay's. Linked, not loaded: the
 # desktop has it for the compositor, the buildroot to link that.
 xkbcommon = { version = "0.8", default-features = false, features = ["wayland"] }
-# Symbols (ADR 0028 §8): Phosphor's SVGs, rasterized by resvg once per
-# size into the glyph atlas. Vector shapes only: no text, fonts or bitmaps
-# inside an SVG.
-resvg = { version = "0.48", default-features = false }
 
 [lints]
 workspace = true

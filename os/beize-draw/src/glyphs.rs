@@ -78,6 +78,8 @@ pub struct Glyphs {
     atlas: Atlas,
     /// Rasterized since the last `take_uploads`: their place and coverage.
     uploads: Vec<(Placed, Vec<u8>)>,
+    /// How often the atlas started over.
+    generation: u64,
 }
 
 /// The atlas is full: everything in it goes, and the frame starts over.
@@ -98,6 +100,7 @@ impl Glyphs {
             hinting: HashMap::new(),
             atlas: Atlas::new(ATLAS_SIZE),
             uploads: Vec::new(),
+            generation: 0,
         }
     }
 
@@ -176,6 +179,13 @@ impl Glyphs {
         self.symbols.clear();
         self.uploads.clear();
         self.atlas = Atlas::new(ATLAS_SIZE);
+        self.generation += 1;
+    }
+
+    /// Changes each time the atlas starts over: what was placed before is
+    /// gone from it.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// The glyphs the GPU's atlas has yet to receive.

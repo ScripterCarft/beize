@@ -8,9 +8,9 @@ use beize_vulkan::device::Garbage;
 use beize_vulkan::error::Result;
 use beize_vulkan::image::{self, own_image};
 
-use crate::draw::Scene;
 use crate::gpu::Gpu;
 use crate::renderer::{After, Renderer, Target};
+use beize_draw::Scene;
 
 const FORMAT: vk::Format = vk::Format::B8G8R8A8_SRGB;
 

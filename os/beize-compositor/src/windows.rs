@@ -15,6 +15,11 @@
 //! Maximized, a window fills the window area; it comes back to where it
 //! was. A new place goes with the commit that has the new size, never ahead
 //! of it, so no frame shows a window's old content in its new place.
+//!
+//! A window with the compositor's title bar (`decorations`) is placed by
+//! its frame, the bar and its content: the frame is centred, stays below
+//! the menu bar and fills the area maximized; the content keeps its place
+//! in the space below the bar.
 
 use std::cell::RefCell;
 
@@ -36,6 +41,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceData};
 use tracing::info;
 
+use crate::decorations::{bar_height, frame};
 use crate::state::State;
 
 /// How far a new window moves from one in its place: the height of Beize
@@ -125,6 +131,19 @@ pub fn constrain(
         at.x.clamp(area.loc.x + keep - size.w, (right - keep).max(area.loc.x)),
         at.y.clamp(area.loc.y, (bottom - KEEP_VISIBLE).max(area.loc.y)),
     ))
+}
+
+/// `constrain` for the content of `window` (`size` at `at`): by its frame,
+/// so a title bar above it stays below the menu bar too.
+fn constrain_content(
+    area: Rectangle<i32, Logical>,
+    window: &Window,
+    size: Size<i32, Logical>,
+    at: Point<i32, Logical>,
+) -> Point<i32, Logical> {
+    let bar = bar_height(window);
+    let lifted = Point::from((at.x, at.y - bar));
+    constrain(area, (size.w, size.h + bar).into(), lifted) + Point::from((0, bar))
 }
 
 /// The size a drag from `initial` by `delta` on `edges` asks for, within
@@ -225,9 +244,11 @@ impl State {
             let taken: Vec<_> = self
                 .space
                 .elements()
-                .filter_map(|w| self.space.element_location(w))
+                .filter_map(|w| Some(frame(w, self.space.element_geometry(w)?).loc))
                 .collect();
-            let at = initial_place(area, size, &taken);
+            let bar = bar_height(&window);
+            let at =
+                initial_place(area, (size.w, size.h + bar).into(), &taken) + Point::from((0, bar));
             let app = with_states(toplevel.wl_surface(), |states| {
                 states
                     .data_map
@@ -255,9 +276,10 @@ impl State {
             .contains(XdgState::Maximized);
         let resizing = toplevel.current_state().states.contains(XdgState::Resizing);
         let size = window.geometry().size;
+        let bar = bar_height(window);
         let to = with_place(window, |place| {
             if maximized {
-                return Some(self.window_area().loc);
+                return Some(self.window_area().loc + Point::from((0, bar)));
             }
             if let Some(at) = place.unmaximized_at.take() {
                 return Some(at);
@@ -305,9 +327,10 @@ impl State {
                 place.unmaximized_at = None;
             });
         }
+        let bar = bar_height(&window);
         toplevel.with_pending_state(|state| {
             state.states.set(XdgState::Maximized);
-            state.size = Some(area.size);
+            state.size = Some((area.size.w, area.size.h - bar).into());
         });
         if toplevel.is_initial_configure_sent() {
             toplevel.send_pending_configure();
@@ -347,11 +370,13 @@ impl State {
             let Some(toplevel) = window.toplevel() else {
                 continue;
             };
-            toplevel.with_pending_state(|state| state.bounds = Some(area.size));
+            let bar = bar_height(&window);
+            let content = Size::from((area.size.w, area.size.h - bar));
+            toplevel.with_pending_state(|state| state.bounds = Some(content));
             if toplevel.with_pending_state(|state| state.states.contains(XdgState::Maximized)) {
-                toplevel.with_pending_state(|state| state.size = Some(area.size));
+                toplevel.with_pending_state(|state| state.size = Some(content));
             } else if let Some(geometry) = self.space.element_geometry(&window) {
-                let at = constrain(area, geometry.size, geometry.loc);
+                let at = constrain_content(area, &window, geometry.size, geometry.loc);
                 if at != geometry.loc {
                     self.space.map_element(window.clone(), at, false);
                 }
@@ -399,13 +424,35 @@ impl State {
         self.begin_resize(window, start, edges, serial);
     }
 
+    /// A press on the compositor's title bar of `window` (`decorations`):
+    /// it moves with the pointer, as an app's own bar moves it.
+    pub fn move_from_bar(&mut self, window: Window, start: GrabStartData<State>, serial: Serial) {
+        let Some(toplevel) = window.toplevel() else {
+            return;
+        };
+        let Some(geometry) = self.space.element_geometry(&window) else {
+            return;
+        };
+        let maximized = toplevel
+            .current_state()
+            .states
+            .contains(XdgState::Maximized);
+        let grab = MoveGrab {
+            start,
+            window,
+            initial: geometry,
+            maximized,
+        };
+        self.set_grab(grab, serial);
+    }
+
     /// A press on a window's edge strip (`edge_at`): the compositor's own
     /// resize, for windows without a frame of their own.
     pub fn resize_from_edge(&mut self, button: u32, serial: Serial) -> bool {
         let at = self.pointer;
         let hit = self.space.elements().rev().find_map(|window| {
             let geometry = self.space.element_geometry(window)?;
-            edge_at(geometry, at).map(|edges| (window.clone(), edges))
+            edge_at(frame(window, geometry), at).map(|edges| (window.clone(), edges))
         });
         let Some((window, edges)) = hit else {
             return false;
@@ -519,8 +566,9 @@ impl MoveGrab {
             self.leave_maximized(state);
         }
         let at = self.initial.loc.to_f64() + delta;
-        let at = constrain(
+        let at = constrain_content(
             state.window_area(),
+            &self.window,
             self.initial.size,
             (at.x.round() as i32, at.y.round() as i32).into(),
         );
@@ -579,11 +627,11 @@ impl ResizeGrab {
             min,
             max,
         );
-        // The top edge stops at the menu bar.
+        // The top edge (or the bar above it) stops at the menu bar.
         if has(self.edges, ResizeEdge::Top) {
             let area = state.window_area();
             let bottom = self.initial.loc.y + self.initial.size.h;
-            size.h = size.h.min(bottom - area.loc.y);
+            size.h = size.h.min(bottom - area.loc.y - bar_height(&self.window));
         }
         toplevel.with_pending_state(|state| state.size = Some(size));
         toplevel.send_pending_configure();

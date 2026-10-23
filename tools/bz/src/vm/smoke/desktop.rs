@@ -13,7 +13,10 @@
 //! below its title bar exactly as it draws it offscreen, the reference in
 //! the repository. Killed, the shell comes back and the window stays. The
 //! title bar moves the window, maximizes it with a double click and back,
-//! and closes it.
+//! and closes it. A client that asks the compositor for its frame
+//! (xdg-decoration) gets the same title bar, its buttons the same to the
+//! pixel, above its pattern, centred with it; the bar moves, maximizes and
+//! closes its window as Beize UI's does.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //!
@@ -104,6 +107,12 @@ const RESIZE_BY: (i32, i32) = (60, 40);
 /// `titlebar`), and how far the test drags a window by it.
 const TITLE_BAR: usize = 32;
 const UI_MOVE_BY: (i32, i32) = (-100, 40);
+/// The bar's buttons at its right end, 46 px each (os/beize-draw,
+/// `titlebar`): maximize and close.
+const BUTTONS: usize = 2 * 46;
+/// How far the test drags the framed client's window by the compositor's
+/// bar.
+const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);
 
 /// How long a screen may take to become what its reference shows.
 const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -441,6 +450,11 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         UI_SAMPLE,
         "beize-ui-restored",
     )?;
+    // Its buttons, as the screen shows them now (the window active, the
+    // pointer away): the compositor's frame has to show the same.
+    let restored = machine.logs.join("beize-ui-restored-screen.ppm");
+    let ui_buttons = Image::read_ppm(&fs::read(&restored)?)?
+        .crop((moved.0 + w - BUTTONS, moved.1), (BUTTONS, TITLE_BAR))?;
     // The close button, the bar's last 46 pixels.
     let close = (
         i32::try_from(moved.0 + w - 23)?,
@@ -461,6 +475,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: Beize UI's title bar moved the window by exactly the drag, a double click \
          maximized it and back, its close button closed it"
     );
+
+    framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
 
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
@@ -506,6 +522,103 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     shell.stop()?;
     machine.remove()
+}
+
+/// A client that asks for the compositor's frame (xdg-decoration, ADR
+/// 0028 §2): it is given it, the frame is centred below the menu bar with
+/// the bar above the client's pattern, its buttons the same as Beize UI's
+/// to the pixel; the bar moves the window by exactly the drag, a double
+/// click maximizes it below the bar and back, its close button ends the
+/// client.
+fn framed(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    ui_buttons: &Image,
+) -> Result<()> {
+    const UNIT: &str = "beize-testclient-framed";
+    let (_, lines) = shell.capture(&format!(
+        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --server-side --seconds 60 \
+         && for i in $(seq 50); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         && break; sleep 0.2; done; journalctl --user -u {UNIT} -o cat"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "decoration server_side"),
+        "the client that asked for the compositor's frame was not given it: {lines:?}"
+    );
+    // The test client's third window: the first moved, the second drew
+    // frames.
+    let (at, size) = placed(shell, "beize-testclient", 3)?;
+    let frame_height = size.1 + TITLE_BAR;
+    let centred = (
+        (screen.0 - size.0) / 2,
+        MENU_BAR + (screen.1 - MENU_BAR - frame_height) / 2 + TITLE_BAR,
+    );
+    ensure!(
+        at == centred,
+        "the framed client's content is at {},{}, not below its bar in a frame centred below \
+         the menu bar, at {},{}",
+        at.0,
+        at.1,
+        centred.0,
+        centred.1
+    );
+    wait_for_pattern(shell, machine, at, size, "framed")?;
+    let buttons =
+        |(x, y): (usize, usize)| ((x + size.0 - BUTTONS, y - TITLE_BAR), (BUTTONS, TITLE_BAR));
+    wait_for_image(
+        machine,
+        buttons(at),
+        Some(ui_buttons),
+        "Beize UI's buttons",
+        "framed-buttons",
+    )?;
+    say!(
+        "  ok: a client that asked for the compositor's frame got it, centred below the menu bar, \
+         its pattern exactly below the bar, the buttons the same as Beize UI's to the pixel"
+    );
+
+    let on_bar = |(x, y): (usize, usize)| -> Result<(i32, i32)> {
+        Ok((i32::try_from(x + 40)?, i32::try_from(y - TITLE_BAR / 2)?))
+    };
+    let grip = on_bar(at)?;
+    let to = (grip.0 + FRAMED_MOVE_BY.0, grip.1 + FRAMED_MOVE_BY.1);
+    drag(qmp, screen, grip, to, true)?;
+    park(qmp, screen)?;
+    let moved = (
+        usize::try_from(i32::try_from(at.0)? + FRAMED_MOVE_BY.0)?,
+        usize::try_from(i32::try_from(at.1)? + FRAMED_MOVE_BY.1)?,
+    );
+    wait_for_pattern(shell, machine, moved, size, "framed-moved")?;
+    click(qmp, screen, on_bar(moved)?, 2)?;
+    park(qmp, screen)?;
+    let full = (screen.0, screen.1 - MENU_BAR - TITLE_BAR);
+    wait_for_configure(shell, UNIT, full)?;
+    let below_bar = (0, MENU_BAR + TITLE_BAR);
+    wait_for_pattern(shell, machine, below_bar, full, "framed-maximized")?;
+    click(qmp, screen, on_bar(below_bar)?, 2)?;
+    park(qmp, screen)?;
+    wait_for_pattern(shell, machine, moved, size, "framed-restored")?;
+    let close = (
+        i32::try_from(moved.0 + size.0 - 23)?,
+        i32::try_from(moved.1 - TITLE_BAR / 2)?,
+    );
+    click(qmp, screen, close, 1)?;
+    park(qmp, screen)?;
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 50); do systemctl --user -q is-active {UNIT} || break; sleep 0.2; done; \
+         systemctl --user is-active {UNIT}; journalctl --user -u {UNIT} -o cat | tail -n 1"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "inactive") && lines.iter().any(|l| l == "done"),
+        "the close button of the compositor's frame did not end the client: {lines:?}"
+    );
+    say!(
+        "  ok: the compositor's bar moved the window by exactly the drag, a double click \
+         maximized it below the bar and back, its close button closed it"
+    );
+    Ok(())
 }
 
 /// The terminals in the owner's service manager, units of the template
@@ -693,7 +806,7 @@ fn wait_for_pattern(
 fn wait_for_screen(
     paths: &Paths,
     machine: &Machine,
-    (at, size): Window,
+    window: Window,
     reference: &str,
     name: &str,
 ) -> Result<()> {
@@ -702,6 +815,19 @@ fn wait_for_screen(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e).with_context(|| format!("reading {reference}")),
     };
+    wait_for_image(machine, window, wanted.as_ref(), reference, name)
+}
+
+/// Waits until `window` on the screen shows exactly `wanted` (named `what`
+/// in errors); if it does not, the last window is `<name>-screen.png` in
+/// the logs.
+fn wait_for_image(
+    machine: &Machine,
+    (at, size): Window,
+    wanted: Option<&Image>,
+    what: &str,
+    name: &str,
+) -> Result<()> {
     let file = machine.logs.join(format!("{name}-screen.ppm"));
     let difference = machine.logs.join(format!("{name}-difference.ppm"));
     let deadline = Instant::now() + SCREEN_TIMEOUT;
@@ -709,16 +835,16 @@ fn wait_for_screen(
         thread::sleep(Duration::from_millis(500));
         screendump(&machine.qmp(), &file)?;
         let screen = Image::read_ppm(&fs::read(&file)?)?.crop(at, size)?;
-        let compared = match &wanted {
-            None => Err(anyhow!("there is no {reference} yet")),
+        let compared = match wanted {
+            None => Err(anyhow!("there is no {what} yet")),
             Some(r) if (r.width, r.height) != (screen.width, screen.height) => Err(anyhow!(
-                "the window is {}x{}, {reference} {}x{}",
+                "the window is {}x{}, {what} {}x{}",
                 screen.width,
                 screen.height,
                 r.width,
                 r.height
             )),
-            Some(r) => compare(&screen, |x, y| r.pixel(x, y), reference, &difference),
+            Some(r) => compare(&screen, |x, y| r.pixel(x, y), what, &difference),
         };
         match compared {
             Ok(()) => return Ok(()),

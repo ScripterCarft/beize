@@ -10,6 +10,8 @@ license.workspace = true
 [dependencies]
 # The device, pipelines and images it shares with Beize UI (ADR 0027 §9).
 beize-vulkan = { path = "../beize-vulkan" }
+# The title bar of other apps' windows, as Beize UI draws it (ADR 0028 §2).
+beize-draw = { path = "../beize-draw" }
 # Starts apps in the user's service manager (ADR 0027 §9), as beize-session
 # starts the desktop.
 beize-systemd = { path = "../beize-systemd" }

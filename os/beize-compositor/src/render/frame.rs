@@ -22,7 +22,7 @@ use super::geometry::{self, Mapping, Quad, Space};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
-use super::{Upload, VkRenderer};
+use super::{Pass, Upload, VkRenderer};
 use crate::error::{Error, Result};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
@@ -262,6 +262,65 @@ pub(super) fn record_uploads(
         u.texture.0.filled.store(true, Ordering::Relaxed);
         u.texture.used(submission);
     }
+    barriers(d, commands, &after);
+}
+
+/// The compositor's own pictures (`VkRenderer::draw_picture`), each drawn
+/// whole through its sRGB view, then ready for the frame to sample.
+pub(super) fn record_passes(
+    d: &ash::Device,
+    commands: vk::CommandBuffer,
+    layouts: &Pipelines,
+    pipelines: [vk::Pipeline; 2],
+    passes: &[Pass],
+    addresses: &[u64],
+    submission: u64,
+) {
+    // Drawn whole: what it held goes, once earlier frames have read it.
+    let before: Vec<_> = passes
+        .iter()
+        .map(|p| {
+            barrier(
+                p.texture.0.gpu.image,
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                SHADER_READ,
+                COLOR_WRITE,
+                SAME,
+            )
+        })
+        .collect();
+    barriers(d, commands, &before);
+    for (pass, &address) in passes.iter().zip(addresses) {
+        let Some(view) = pass.texture.0.attachment else {
+            continue;
+        };
+        let size = pass.texture.0.size;
+        let attachment = Attachment {
+            view,
+            size: (size.w as u32, size.h as u32),
+            load: false,
+        };
+        // SAFETY: the picture is in COLOR_ATTACHMENT_OPTIMAL (above), the
+        // pipelines are its view's format's; the quads live in this frame's
+        // buffer until the submission completes.
+        unsafe { layouts.record(d, commands, pipelines, &attachment, address, &pass.blend) };
+        pass.texture.0.filled.store(true, Ordering::Relaxed);
+        pass.texture.used(submission);
+    }
+    let after: Vec<_> = passes
+        .iter()
+        .map(|p| {
+            barrier(
+                p.texture.0.gpu.image,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                COLOR_WRITE,
+                SHADER_READ,
+                SAME,
+            )
+        })
+        .collect();
     barriers(d, commands, &after);
 }
 
