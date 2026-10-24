@@ -417,6 +417,8 @@ Verlauf nur in der Leiste (15 %, auf null auslaufend; `scrim`, geschätzt), Schr
 Schatten (Besitzer), dunkel nur auf sehr hellem Hintergrund (`backdrop::tone`: Leiste samt
 Verlauf zurückgelesen, Kontrast 2:1); Grundglas nur noch auf Anfrage. Kein
 Glas in Titelleisten (Besitzer). Smoke verlangt: keine Stufe an der Unterkante der Leiste.
+Vorgemerkt für die Einstellungen: Schalter „Transparente Menüleiste“, aus = Grundglas wie in
+c93184b (ADR 0028 §3; Besitzer will beides).
 **Als Nächstes:** d4 echtes Vollbild (ADR 0028 §2, Besitzer: wie macOS, fremde Apps müssen es
 wirklich bekommen; Menüleiste am oberen Rand deckend; vorher Fragen stellen, wenn offen), dann
 der Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des

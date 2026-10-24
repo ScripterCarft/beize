@@ -148,8 +148,15 @@ an seinem Mac beobachtet; Apple nennt keine Regel): Ein schwacher dunkler Verlau
 der Leiste – schwarz 15 % am Bildschirmrand, bis zu ihrer Unterkante auf null auslaufend, also
 ohne Kante; „du siehst ihn kaum, aber er ist da“ (Besitzer; Werte geschätzt) –, und weiß bleibt
 die Schrift bis zu einem Kontrast von 2:1 (mittlere relative Luminanz der Leiste samt Verlauf
-≤ 0,475; bewusst unter WCAGs 3:1, wie macOS); nur auf sehr hellem Hintergrund wird sie dunkel. Kein Schatten an der Schrift (Besitzer). Ein Schalter
-„Menüleistenhintergrund“ wie bei macOS kann mit den Einstellungen kommen.
+≤ 0,475; bewusst unter WCAGs 3:1, wie macOS); nur auf sehr hellem Hintergrund wird sie dunkel. Kein Schatten an der Schrift (Besitzer).
+
+**Einstellung „Transparente Menüleiste“** (Besitzer, 24.10.: beide gefallen ihm; kommt mit den
+Einstellungen, Vorgabe an): aus heißt die Leiste auf Grundglas, genau wie am 24.10. gebaut
+(Commit c93184b: Grundglas über die ganze Leiste ohne Lichtkante, Schrift nach dem
+Erscheinungsbild, dunkel auf hellem Glas); an heißt ohne Hintergrund wie oben. Modular: die
+Shell bestellt Glas für die Leiste (`beize_glass_v1`) oder nicht; hat die Leiste Glas, lässt
+der Compositor den Verlauf weg und die Schrift folgt dem Erscheinungsbild statt dem gemessenen
+Ton. Die Smoke-Prüfung deckt dann beide Fälle ab.
 
 - **Links:** das Beize-Menü (Über diesen Rechner, Einstellungen, Ruhezustand, Neustart,
   Ausschalten, Sperren, Abmelden; wie das Apple-Menü), dann der Name der aktiven App, fett.
