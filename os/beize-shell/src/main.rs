@@ -188,7 +188,7 @@ fn run() -> Result<(), String> {
 }
 
 /// The bar's glass: all of it, square, without a rim – it runs along the
-/// screen's edge.
+/// screen's edge –, base glass: no window lies behind it.
 fn bar_glass((w, h): (u32, u32)) -> Glass {
     Glass {
         rect: Rect {
@@ -199,6 +199,7 @@ fn bar_glass((w, h): (u32, u32)) -> Glass {
         },
         radius: 0.0,
         rim: false,
+        live: false,
     }
 }
 

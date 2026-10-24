@@ -13,9 +13,10 @@
 //! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), its corners the
 //! continuous ones of `beize_vulkan`'s shader. Beize's apps show their
 //! symbols (`AppIcon`), others their icons (hicolor, `apps`), an app
-//! without one a tile with its initial. It lies on base glass with a rim
-//! of light, which the compositor draws (`glass`, ADR 0028 §6); the dock
-//! draws only its content.
+//! without one a tile with its initial. It lies on live glass with a rim
+//! of light, which the compositor draws (`glass`, ADR 0028 §6): a window
+//! behind it shows through, blurred, as on macOS. The dock draws only its
+//! content.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -238,7 +239,8 @@ impl Dock {
         Some(Action::Activate(shown.iter().map(|w| w.id).collect()))
     }
 
-    /// Its glass in `(w, h)`: all of it, with round corners and a rim.
+    /// Its glass in `(w, h)`: all of it, live, with round corners and a
+    /// rim.
     pub fn glass((w, h): (u32, u32)) -> Glass {
         Glass {
             rect: Rect {
@@ -249,6 +251,7 @@ impl Dock {
             },
             radius: RADIUS,
             rim: true,
+            live: true,
         }
     }
 

@@ -183,8 +183,8 @@ funktioniert.
 
 Die drei Stufen der VISION, umgesetzt im Renderer des Compositors. Das Material zeichnet
 der Compositor, nicht die App, wie macOS' WindowServer und Windows' DWM: Die Shell sagt über
-`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, gilt mit
-ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
+`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, Grund- oder
+lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
 
 - **Grundglas** (Menüleiste, Titelleisten): Der Hintergrund wird einmal pro Wechsel
   (Bildschirmgröße, Erscheinungsbild) weichgezeichnet – Dual Kawase wie bei KWin, vier
@@ -196,10 +196,14 @@ ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
   darunter wird nichts gezeichnet. Hintergrund und Blur haben einen eigenen Shader
   (`backdrop.frag`), damit der Shader jedes Bildes klein bleibt.
 - **Lebendiges Glas** (Dock – Besitzer, 24.10.: Fenster dahinter scheinen verschwommen durch
-  wie bei macOS –, Kontrollzentrum, Menüs, später Suche): was im selben Bild wirklich dahinter
-  liegt, mit Dual Kawase auf ¼–⅛ Auflösung, dann wie beim Grundglas angehoben und getönt; nur
-  neu gerechnet, wenn sich dahinter etwas ändert. Ist das Budget knapp, sinkt die Auflösung,
-  statt dass ein Bild verloren geht.
+  wie bei macOS –, Kontrollzentrum, Menüs, später Suche): was dahinter liegt – Fenster, ihre
+  Schatten, der Hintergrund –, im selben Durchgang wie das Bild. Der Compositor zeichnet dafür die
+  Elemente hinter dem Glas (das Glas und 64 px darum, für den Rand des Blurs) in ein eigenes
+  kleines Bild mit eigener Schadensverfolgung, nie aus dem Bildschirmpuffer, in dem das Glas
+  selbst schon liegt. Nur wenn sich dort etwas geändert hat, läuft derselbe Blur wie beim
+  Grundglas, mit Anhebung und Tönung, so sehen beide über dem Hintergrund allein gleich aus.
+  Sonst kostet es ein Bild nichts als das Lesen. Ist das Budget knapp, sinkt die Auflösung,
+  statt dass ein Bild verloren geht (mit dem Lasttest messen).
 - **Fläche:** getönt mit feinem Korn, ohne Blur.
 - **Lichtkante:** ein Ring von etwa 1,5 px innen am Rand. Ihre Helligkeit folgt der Richtung
   zum Licht (oben links), schwächer auf der Gegenseite, dazwischen fast keine – wie Apples
@@ -296,9 +300,9 @@ b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI m
    macOS, runde Ecken und Schatten (✓ 23.10.).
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste. ✓ 23.10.
-d) Symbole (✓ 24.10.), Hintergrund und Grundglas für Menüleiste und Dock (✓ 24.10.),
-   lebendiges Glas für das Dock, Glas der Titelleisten, der Start aus einem Guss; danach der
-   Lasttest und ein Hardware-Test.
+d) Symbole (✓ 24.10.), Hintergrund und Grundglas für die Menüleiste, lebendiges Glas für das
+   Dock (✓ 24.10.), Glas der Titelleisten, der Start aus einem Guss; danach der Lasttest und ein
+   Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
    Neustart, Ausschalten über logind).
 f) App-Menüs (`beize-menu-v1`), Alt+Tab, Snap.

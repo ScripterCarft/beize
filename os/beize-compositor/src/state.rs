@@ -69,7 +69,7 @@ use smithay::{
 };
 use tracing::{error, info, warn};
 
-use crate::backdrop::{Appearance, Backdrop};
+use crate::backdrop::{Appearance, Backdrop, LiveGlass};
 use crate::corners::{Rounded, Shadow};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
@@ -163,6 +163,8 @@ pub struct State {
     backdrop: Option<Backdrop>,
     backdrop_for: Option<(Size<i32, Physical>, Appearance)>,
     backdrops: u64,
+    /// What lies behind live glass, per panel that has it.
+    live_glass: Vec<LiveGlass>,
     /// The screen: None until the session is first active, as only then
     /// does logind hand out the GPU (a session started on a background VT
     /// waits).
@@ -250,6 +252,7 @@ impl State {
             backdrop: None,
             backdrop_for: None,
             backdrops: 0,
+            live_glass: Vec::new(),
             screen: None,
             output: None,
             pointer: Point::default(),
@@ -531,6 +534,42 @@ impl State {
         elements.extend(lower);
         if let Some(backdrop) = &self.backdrop {
             elements.push(Element::Wallpaper(backdrop.wallpaper()));
+        }
+        // Live glass shows what lies behind it: back to front, so glass in
+        // front sees glass behind it as it is now.
+        self.live_glass.retain(LiveGlass::alive);
+        let screen_size = area.size.to_physical(1);
+        for i in (0..elements.len()).rev() {
+            let (front, behind) = elements.split_at_mut(i + 1);
+            let Element::Glass(glass) = &mut front[i] else {
+                continue;
+            };
+            let Some(surface) = glass.live().cloned() else {
+                continue;
+            };
+            let live = match self.live_glass.iter().position(|l| l.is_for(&surface)) {
+                Some(j) => &mut self.live_glass[j],
+                None => match LiveGlass::new(screen.renderer(), &surface) {
+                    Ok(live) => {
+                        self.live_glass.push(live);
+                        let last = self.live_glass.len() - 1;
+                        &mut self.live_glass[last]
+                    }
+                    Err(e) => {
+                        warn!("live glass: {e}");
+                        continue;
+                    }
+                },
+            };
+            if let Err(e) = live.update(
+                screen.renderer(),
+                behind,
+                glass,
+                screen_size,
+                self.appearance,
+            ) {
+                warn!("live glass: {e}");
+            }
         }
         let cursor = self
             .cursor

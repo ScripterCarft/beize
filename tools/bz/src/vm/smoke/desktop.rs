@@ -18,7 +18,8 @@
 //! pixel, above its pattern, centred with it; the bar moves, maximizes and
 //! closes its window as Beize UI's does. Windows have round corners
 //! (compared without them), maximized ones do not. The dock (ADR 0028 §4)
-//! floats along the bottom with round corners, the pinned terminal first and
+//! floats along the bottom with round corners on live glass, which shows a
+//! window dragged behind it, the pinned terminal first and
 //! every running app with it, the client with the icon its desktop file
 //! names in the owner's hicolor theme; a click starts the terminal once
 //! none runs.
@@ -88,6 +89,9 @@ const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
 /// `GLASS_STEP` in the mean of a row (light glass, tinted towards white).
 const GLASS_SMOOTH: u8 = 6;
 const GLASS_STEP: f64 = 8.0;
+/// Live glass shows a window behind it: the test client's blue and white,
+/// blurred, move a channel of the dock's glass by more than this.
+const GLASS_SHOWS: u8 = 12;
 /// The test client's icon (`CLIENT_ICON`): one colour, so the dock shows
 /// it in the middle of its tile as it is.
 const CLIENT_ICON_COLOR: [u8; 3] = [0xff, 0x80, 0x00];
@@ -450,6 +454,34 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: maximized the window filled the screen between the menu bar and the dock, and \
          came back to its place and size"
     );
+
+    // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
+    // shows through, blurred – base glass would stay as it was. Then back.
+    let glass_at = (
+        screen.0 / 2,
+        screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE + 1,
+    );
+    let file = machine.logs.join("dock-glass-screen.ppm");
+    screendump(&machine.qmp(), &file)?;
+    let before = Image::read_ppm(&fs::read(&file)?)?.pixel(glass_at.0, glass_at.1);
+    let grip = point(
+        moved,
+        (
+            i32::try_from(grown.0 / 2)?,
+            i32::try_from(CLIENT_TITLE / 2)?,
+        ),
+    )?;
+    let behind = (
+        i32::try_from(screen.0 / 2)? - i32::try_from(grown.0 / 2)? - i32::try_from(moved.0)?,
+        i32::try_from(screen.1)? - i32::try_from(grown.1)? - i32::try_from(moved.1)?,
+    );
+    drag(&qmp, screen, grip, by(grip, behind), true)?;
+    park(&qmp, screen)?;
+    wait_for_live_glass(&machine, glass_at, before)?;
+    drag(&qmp, screen, by(grip, behind), grip, true)?;
+    park(&qmp, screen)?;
+    wait_for_pattern(&shell, &machine, moved, grown, "back from the dock")?;
+    say!("  ok: the dock's glass showed the window dragged behind it, blurred");
 
     // Frames in a row: a second client draws 120, each on "frame done";
     // once they stop, the compositor sums up how they met their vblanks.
@@ -1234,6 +1266,39 @@ fn wait_for_gone(machine: &Machine, (at, size): Window, shown: &Image, name: &st
 /// An RGB image.
 /// Waits until the dock shows the test client's icon in the middle of its
 /// tile at `at`; if it does not, the last screen is in the logs.
+/// Waits until the dock's glass at `at` shows something else than
+/// `before`, by more than `GLASS_SHOWS` in a channel: a window behind it.
+/// The screen then is in the logs as `live-glass-screen.png`.
+fn wait_for_live_glass(machine: &Machine, at: (usize, usize), before: [u8; 3]) -> Result<()> {
+    let file = machine.logs.join("live-glass-screen.ppm");
+    let png = machine.logs.join("live-glass-screen.png");
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        screendump(&machine.qmp(), &file)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        let shown = screen.pixel(at.0, at.1);
+        if shown
+            .iter()
+            .zip(before)
+            .any(|(&a, b)| a.abs_diff(b) > GLASS_SHOWS)
+        {
+            screen.write_png(&png)?;
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            screen.write_png(&png)?;
+            bail!(
+                "the dock's glass shows {shown:?} at {},{} with a window behind it, as \
+                 {before:?} without: it is not live; the screen is {}",
+                at.0,
+                at.1,
+                png.display()
+            );
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
 fn wait_for_dock_icon(machine: &Machine, at: (i32, i32)) -> Result<()> {
     let file = machine.logs.join("dock-icon-screen.ppm");
     let (x, y) = (usize::try_from(at.0)?, usize::try_from(at.1)?);

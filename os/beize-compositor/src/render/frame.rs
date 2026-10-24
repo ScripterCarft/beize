@@ -14,7 +14,7 @@ use std::sync::atomic::Ordering;
 use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::{Color32F, ContextId, Frame, Texture};
 use smithay::reexports::ash::{self, vk};
-use smithay::utils::{Buffer, Physical, Rectangle, Size, Transform};
+use smithay::utils::{Buffer, Physical, Rectangle, Transform};
 use tracing::{debug, warn};
 
 use super::device::Ext;
@@ -186,11 +186,11 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         }
     }
 
-    /// Base glass (ADR 0028 §6) in the rounded rectangle `shape` (the
-    /// output's space) with corners of `radius`: `glass` – the backdrop's
-    /// blurred copy over the whole `screen`, smaller – read where it lies,
-    /// with `grain` and a `rim` of light (premultiplied; alpha 0: none). In
-    /// `dst`, cut to its `damage`; opaque but at the corners.
+    /// Glass (ADR 0028 §6) in the rounded rectangle `shape` (the output's
+    /// space) with corners of `radius`: `glass` – a blurred copy of what
+    /// lies in `covers`, smaller – read where it lies, with `grain` and a
+    /// `rim` of light (premultiplied; alpha 0: none). In `dst`, cut to its
+    /// `damage`; opaque but at the corners.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_glass(
         &mut self,
@@ -199,21 +199,22 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         shape: Rectangle<i32, Physical>,
         radius: f32,
         glass: &VkTexture,
-        screen: Size<i32, Physical>,
+        covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
     ) {
         let size = glass.0.size;
-        if screen.w <= 0 || screen.h <= 0 {
+        if covers.size.w <= 0 || covers.size.h <= 0 {
             return;
         }
         let (sx, sy) = (
-            f64::from(size.w) / f64::from(screen.w),
-            f64::from(size.h) / f64::from(screen.h),
+            f64::from(size.w) / f64::from(covers.size.w),
+            f64::from(size.h) / f64::from(covers.size.h),
         );
+        let (x, y) = (dst.loc.x - covers.loc.x, dst.loc.y - covers.loc.y);
         let mapping = Mapping {
             src: Rectangle::new(
-                (f64::from(dst.loc.x) * sx, f64::from(dst.loc.y) * sy).into(),
+                (f64::from(x) * sx, f64::from(y) * sy).into(),
                 (f64::from(dst.size.w) * sx, f64::from(dst.size.h) * sy).into(),
             ),
             dst,
@@ -368,10 +369,13 @@ impl Drop for VkFrame<'_, '_> {
     }
 }
 
-/// The layout a filled target keeps between frames.
+/// The layout a filled target keeps between frames: a sampled one is
+/// read by later frames.
 pub(super) fn target_layout(target: &Target) -> vk::ImageLayout {
     if target.dmabuf.is_some() {
         vk::ImageLayout::GENERAL
+    } else if target.texture.is_some() {
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
     } else {
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
     }
@@ -512,11 +516,18 @@ pub(super) fn record_frame(
     } else {
         vk::ImageLayout::UNDEFINED
     };
+    let sampled = target.texture.is_some();
     let mut before = vec![barrier(
         target.image,
         old,
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        if shared_target { NONE } else { COLOR_WRITE },
+        if shared_target {
+            NONE
+        } else if sampled {
+            SHADER_READ
+        } else {
+            COLOR_WRITE
+        },
         COLOR_WRITE,
         if shared_target && target.filled {
             (foreign, own)
@@ -611,6 +622,16 @@ pub(super) fn record_frame(
             COLOR_WRITE,
             NONE,
             (own, foreign),
+        ));
+    } else if sampled {
+        // Read by what comes after: a blur, a later frame.
+        after.push(barrier(
+            target.image,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            COLOR_WRITE,
+            SHADER_READ,
+            SAME,
         ));
     }
     barriers(d, commands, &after);

@@ -8,6 +8,10 @@
 
 macro_rules! protocol {
     ($path:literal) => {
+        // The scanner reads the XML while compiling but does not tell
+        // Cargo: read here too, a changed protocol rebuilds the crate.
+        const _: &str = include_str!(concat!("../", $path));
+
         #[cfg(feature = "client")]
         pub mod client {
             #![allow(dead_code, non_camel_case_types, unused_unsafe, unused_variables)]

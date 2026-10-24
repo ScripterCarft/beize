@@ -5,14 +5,18 @@
 //! the background blurred, its colours lifted and tinted for the
 //! appearance (Microsoft's Mica works so). A frame adds to the glass only
 //! grain and a rim of light, per pixel (`GLASS`), where the shell asked for
-//! it (`glass`).
+//! it (`glass`). Live glass shows what lies behind it, windows too
+//! (`LiveGlass`).
 
-use beize_compositor::error::Result;
-use beize_compositor::render::{Material, VkRenderer, VkTexture};
-use smithay::backend::renderer::RendererSuper;
+use beize_compositor::error::{Context, Result, error};
+use beize_compositor::render::{Material, Target, VkRenderer, VkTexture};
+use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
+use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement};
 use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
+use smithay::backend::renderer::{Bind, RendererSuper};
+use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
 use smithay::wayland::compositor::with_states;
@@ -140,25 +144,26 @@ impl Backdrop {
         )
     }
 
-    /// The glass below `surface`, a panel at `at`, if it asked for one.
+    /// The glass below `surface`, a panel at `at`, if it asked for one:
+    /// base glass; live glass gets what lies behind it from `LiveGlass`.
     pub fn glass(&self, surface: &WlSurface, at: Point<i32, Logical>) -> Option<Glass> {
-        let (shape, drawn) = with_states(surface, |states| {
-            let shape = states.cached_state.get::<GlassState>().current().shape;
+        let (state, drawn) = with_states(surface, |states| {
+            let state = *states.cached_state.get::<GlassState>().current();
             states
                 .data_map
                 .insert_if_missing_threadsafe(|| Mutex::new(Drawn::default()));
             let drawn = states.data_map.get::<Mutex<Drawn>>().and_then(|drawn| {
                 let mut drawn = drawn.lock().ok()?;
-                let key = shape.map(|s| (s, at, self.generation));
+                let key = state.shape.map(|s| (s, at, self.generation));
                 if drawn.last != key {
                     drawn.last = key;
                     drawn.commit.increment();
                 }
                 Some((drawn.id.clone(), drawn.commit))
             });
-            (shape, drawn)
+            (state, drawn)
         });
-        let shape = shape?;
+        let shape = state.shape?;
         let (id, commit) = drawn?;
         let mut rect = shape.rect;
         rect.loc += at;
@@ -173,7 +178,8 @@ impl Backdrop {
                 [0.0; 4]
             },
             texture: self.glass.clone(),
-            screen: self.size,
+            covers: Rectangle::from_size(self.size),
+            live: state.live.then(|| surface.clone()),
         })
     }
 }
@@ -195,16 +201,26 @@ impl Default for Drawn {
     }
 }
 
-/// The glass below a panel: drawn again when its shape, its place or the
-/// backdrop changes.
+/// The glass below a panel: drawn again when its shape, its place or what
+/// it shows changes.
 pub struct Glass {
     id: Id,
     commit: CommitCounter,
     shape: Rectangle<i32, Physical>,
     radius: f32,
     rim: [f32; 4],
+    /// A blurred copy of what lies in `covers` (the screen's coordinates).
     texture: VkTexture,
-    screen: Size<i32, Physical>,
+    covers: Rectangle<i32, Physical>,
+    /// Live glass: the surface it lies below (`LiveGlass`).
+    live: Option<WlSurface>,
+}
+
+impl Glass {
+    /// The surface of live glass, which shows what lies behind it.
+    pub fn live(&self) -> Option<&WlSurface> {
+        self.live.as_ref()
+    }
 }
 
 impl Element for Glass {
@@ -249,6 +265,9 @@ impl<R: Effects> RenderElement<R> for Glass {
         damage: &[Rectangle<i32, Physical>],
         _opaque_regions: &[Rectangle<i32, Physical>],
     ) -> std::result::Result<(), <R as RendererSuper>::Error> {
+        // Where it is drawn: elsewhere when relocated (behind live glass).
+        let mut covers = self.covers;
+        covers.loc += dst.loc - self.shape.loc;
         R::draw_glass(
             frame,
             dst,
@@ -256,10 +275,120 @@ impl<R: Effects> RenderElement<R> for Glass {
             dst,
             self.radius,
             &self.texture,
-            self.screen,
+            covers,
             GRAIN,
             self.rim,
         );
         Ok(())
     }
 }
+
+/// Around live glass, what lies behind it is drawn this much further, so
+/// the blur at its edge takes in what is beside it.
+const LIVE_MARGIN: i32 = 64;
+
+/// Live glass (ADR 0028 §6): what lies behind a panel – windows, their
+/// shadows, the background – drawn into an image of its own with a damage
+/// tracker of its own, never read back from the screen (which holds the
+/// glass itself), and blurred only when something there changed. Lifted
+/// and tinted as base glass is, so the two look the same over the
+/// background alone.
+pub struct LiveGlass {
+    surface: WlSurface,
+    /// Where it draws, on the screen: the glass and `LIVE_MARGIN` around.
+    region: Rectangle<i32, Physical>,
+    target: Target,
+    damage: OutputDamageTracker,
+    drawn: bool,
+    glass: Option<(VkTexture, Appearance)>,
+    id: Id,
+    commit: CommitCounter,
+}
+
+impl LiveGlass {
+    /// Live glass below `surface`.
+    pub fn new(renderer: &mut VkRenderer, surface: &WlSurface) -> Result<LiveGlass> {
+        let size = (1, 1);
+        Ok(LiveGlass {
+            surface: surface.clone(),
+            region: Rectangle::from_size(size.into()),
+            target: renderer.sampled_target(size.into())?,
+            damage: OutputDamageTracker::new(size, 1.0, Transform::Normal),
+            drawn: false,
+            glass: None,
+            id: Id::new(),
+            commit: CommitCounter::default(),
+        })
+    }
+
+    pub fn is_for(&self, surface: &WlSurface) -> bool {
+        &self.surface == surface
+    }
+
+    pub fn alive(&self) -> bool {
+        self.surface.is_alive()
+    }
+
+    /// Draws what lies `behind` (front to back) the panel's glass `glass`
+    /// on a `screen`, blurs it if it changed, and gives `glass` the result.
+    pub fn update<E: RenderElement<VkRenderer>>(
+        &mut self,
+        renderer: &mut VkRenderer,
+        behind: &[E],
+        glass: &mut Glass,
+        screen: Size<i32, Physical>,
+        appearance: Appearance,
+    ) -> Result<()> {
+        let s = glass.shape;
+        let around = Rectangle::new(
+            (s.loc.x - LIVE_MARGIN, s.loc.y - LIVE_MARGIN).into(),
+            (s.size.w + 2 * LIVE_MARGIN, s.size.h + 2 * LIVE_MARGIN).into(),
+        );
+        let region = around
+            .intersection(Rectangle::from_size(screen))
+            .context("live glass off the screen")?;
+        if region.size != self.region.size {
+            let size = (region.size.w, region.size.h);
+            self.target = renderer.sampled_target(size.into())?;
+            self.damage = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+            self.drawn = false;
+        }
+        self.region = region;
+        let origin = Point::from((-region.loc.x, -region.loc.y));
+        let relocated: Vec<_> = behind
+            .iter()
+            .map(|e| RelocateRenderElement::from_element(e, origin, Relocate::Relative))
+            .collect();
+        let age = usize::from(self.drawn);
+        let changed = {
+            let mut framebuffer = renderer.bind(&mut self.target)?;
+            self.damage
+                .render_output(renderer, &mut framebuffer, age, &relocated, CLEAR)
+                .map_err(|e| error(format!("drawing behind live glass: {e:?}")))?
+                .damage
+                .is_some()
+        };
+        self.drawn = true;
+        let stale = self.glass.as_ref().is_none_or(|(_, a)| *a != appearance);
+        if changed || stale {
+            let behind = self
+                .target
+                .texture()
+                .context("live glass without a texture")?;
+            let blurred = renderer.draw_glass(behind, appearance.material())?;
+            self.glass = Some((blurred, appearance));
+            self.commit.increment();
+        }
+        if let Some((texture, _)) = &self.glass {
+            glass.texture = texture.clone();
+            glass.covers = region;
+            glass.id = self.id.clone();
+            glass.commit = self.commit;
+        }
+        Ok(())
+    }
+}
+
+/// What nothing covers behind live glass (never on the screen: the
+/// background covers all).
+const CLEAR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];

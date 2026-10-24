@@ -1237,6 +1237,13 @@ impl VkRenderer {
         let target = &mut *frame.target;
         target.filled = true;
         target.last_used = submission;
+        if let Some(texture) = &target.texture {
+            texture
+                .0
+                .filled
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            texture.used(submission);
+        }
         if let Some(readback) = &target.readback {
             // lavapipe's copy: the CPU copies, so it waits.
             self.shared.wait(submission)?;

@@ -10,7 +10,7 @@
 //! the compositor draws it, as macOS' WindowServer draws a material.
 
 use beize_draw::Appearance;
-use beize_protocols::shell::client::beize_glass_v1::BeizeGlassV1;
+use beize_protocols::shell::client::beize_glass_v1::{self, BeizeGlassV1};
 use beize_protocols::shell::client::beize_shell_v1::{self, BeizeShellV1};
 use beize_protocols::shell::client::beize_window_v1::{self, BeizeWindowV1};
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -20,13 +20,15 @@ use crate::Rect;
 use crate::app::{State, WindowId};
 
 /// Glass below part of a window (`App::set_glass`): a rectangle in its
-/// coordinates with round corners, and whether a rim of light runs along
-/// its edge.
+/// coordinates with round corners, whether a rim of light runs along its
+/// edge, and whether it is live – showing what lies behind it, windows
+/// too – rather than base glass (the background, blurred once).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glass {
     pub rect: Rect,
     pub radius: f32,
     pub rim: bool,
+    pub live: bool,
 }
 
 /// A window of the desktop: the how-manieth it is in the list, so ids
@@ -107,6 +109,11 @@ impl Desktop {
             f64::from(glass.radius),
             u32::from(glass.rim),
         );
+        proxy.set_material(if glass.live {
+            beize_glass_v1::Material::Live
+        } else {
+            beize_glass_v1::Material::Base
+        });
     }
 
     /// The windows, in the order they opened.

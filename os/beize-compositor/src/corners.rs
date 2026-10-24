@@ -16,7 +16,7 @@ use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions}
 use smithay::backend::renderer::{Renderer, RendererSuper};
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
-use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
+use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transform};
 use std::cell::RefCell;
 
 /// The corners' radius: macOS 27's windows, with the continuous corner of
@@ -76,7 +76,7 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         shape: Rectangle<i32, Physical>,
         radius: f32,
         glass: &VkTexture,
-        screen: Size<i32, Physical>,
+        covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
     );
@@ -110,11 +110,11 @@ impl Effects for VkRenderer {
         shape: Rectangle<i32, Physical>,
         radius: f32,
         glass: &VkTexture,
-        screen: Size<i32, Physical>,
+        covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
     ) {
-        frame.draw_glass(dst, damage, shape, radius, glass, screen, grain, rim);
+        frame.draw_glass(dst, damage, shape, radius, glass, covers, grain, rim);
     }
 }
 
@@ -217,9 +217,11 @@ impl<R: Effects, E: RenderElement<R>> RenderElement<R> for Rounded<E> {
         damage: &[Rectangle<i32, Physical>],
         opaque_regions: &[Rectangle<i32, Physical>],
     ) -> Result<(), <R as RendererSuper>::Error> {
-        let Some(rect) = self.frame else {
+        let Some(mut rect) = self.frame else {
             return self.inner.draw(frame, src, dst, damage, opaque_regions);
         };
+        // Where it is drawn: elsewhere when relocated (behind live glass).
+        rect.loc += dst.loc - self.inner.geometry(Scale::from(1.0)).loc;
         R::set_rounding(frame, Some((rect, RADIUS as f32)));
         let drawn = self.inner.draw(frame, src, dst, damage, opaque_regions);
         R::set_rounding(frame, None);

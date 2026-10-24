@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1, d2, d3a fertig, d3b lebendiges Glas fürs Dock als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1, d2, d3a, d3b fertig, d3c Glas der Titelleisten als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -352,7 +352,7 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2 und d3a 24.10.:**
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2, d3a, d3b 24.10.:**
 (a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
 (`windows.rs`, Randstreifen 5 px, Grabs), Titelleiste wie macOS aus `beize-draw` (`titlebar::Look`,
 Windows wählbar), Rahmen für fremde Apps (`decorations.rs`, getestet nur mit dem Testprogramm;
@@ -403,10 +403,15 @@ nur Inhalt. Hell/Dunkel bis zu den Einstellungen per `BEIZE_APPEARANCE=dark` in
 VM-Disk von `bz debug` behält sie bis zum nächsten Image). Behoben dabei: Unter jedem Fenster fehlte
 10 px Schatten (verdeckt wurde vom verschobenen Schattenrechteck statt vom Fenster). Smoke prüft
 Leiste und Dock jetzt als weiches Glas mit Stufe an der Kante. Python-Modelle des Motivs: Wegwerf-Arbeit.
-**Als Nächstes:** d3b lebendiges Glas fürs Dock (Besitzer: Fenster dahinter verschwommen wie
-macOS; im Bild: was dahinter liegt, ¼ Auflösung, nur bei Änderung dahinter), d3c Glas der
-Titelleisten (Beize UI zeichnet sie selbst: braucht ein Protokoll für alle Apps, vorher mit dem
-Besitzer klären); d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
+**d3b fertig 24.10.:** lebendiges Glas fürs Dock (`backdrop::LiveGlass`, `set_material` in
+`beize_glass_v1`): die Elemente hinter dem Glas (+64 px) per `RelocateRenderElement` in ein
+eigenes Bild (`VkRenderer::sampled_target`) mit eigenem `OutputDamageTracker`, Blur nur bei
+Schaden; eigene Übermittlung an die GPU nur dann. `Rounded` und `Glass` zeichnen jetzt auch
+verschoben richtig. Smoke zieht den Test-Client hinter das Dock und verlangt, dass das Glas sich
+ändert (Gegenprobe mit Grundglas: rot). Protokoll-XML ist jetzt Cargo-Abhängigkeit (`include_str!`,
+vorher baute eine geänderte XML nicht neu).
+**Als Nächstes:** d3c Glas der Titelleisten (Beize UI zeichnet sie selbst: braucht ein Protokoll
+für alle Apps, vorher mit dem Besitzer klären); d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
 Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
