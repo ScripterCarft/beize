@@ -61,6 +61,8 @@ pub(crate) struct Desktop {
     /// The list or the appearance changed since the app last heard.
     pub(crate) changed: bool,
     pub(crate) appearance: Appearance,
+    /// How light it is behind the menu bar, once the compositor said.
+    pub(crate) menu_bar_backdrop: Option<Appearance>,
     /// The glass asked for below the app's windows.
     glasses: Vec<(WindowId, BeizeGlassV1)>,
 }
@@ -73,6 +75,7 @@ impl Desktop {
             next: 0,
             changed: false,
             appearance: Appearance::Light,
+            menu_bar_backdrop: None,
             glasses: Vec::new(),
         }
     }
@@ -149,6 +152,17 @@ impl Dispatch<BeizeShellV1, ()> for State {
                 };
                 if appearance != desktop.appearance {
                     desktop.appearance = appearance;
+                    desktop.changed = true;
+                }
+                return;
+            }
+            beize_shell_v1::Event::MenuBarBackdrop { tone } => {
+                let tone = match tone {
+                    WEnum::Value(beize_shell_v1::Tone::Dark) => Appearance::Dark,
+                    _ => Appearance::Light,
+                };
+                if desktop.menu_bar_backdrop != Some(tone) {
+                    desktop.menu_bar_backdrop = Some(tone);
                     desktop.changed = true;
                 }
                 return;

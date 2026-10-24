@@ -2,8 +2,9 @@
 //! and types `beize-session`; the compositor runs as the owner in its
 //! sandbox, logind knows the session as a Wayland one. The shell (ADR 0028)
 //! runs in its own sandbox, the compositor knows it, and its menu bar lies
-//! along the top with the time, on glass that ends at its edge. A terminal opens with the desktop and
-//! another with Ctrl+Alt+T. A command typed into it shows the terminal's
+//! along the top with the time, without a background of its own. A
+//! terminal opens with the desktop and another with Ctrl+Alt+T. A command
+//! typed into it shows the terminal's
 //! sample as the reference in the repository has it. Windows float (ADR
 //! 0028 §2): a client's window opens in its own size, centred below the
 //! menu bar, shows exactly its pattern and is offered no panels; dragged by
@@ -82,13 +83,15 @@ const DOCK_TILE: usize = 48;
 const DOCK_GAP: usize = 4;
 const DOCK_PADDING: usize = 10;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
-/// Menu bar and dock lie on base glass (ADR 0028 §6), whose colour is the
-/// background's, blurred: no colour to compare with, but soft – no pixel
-/// further than this from its neighbour in a channel (the blur's slope and
-/// the grain) – and set off from the background at its edge, by at least
-/// `GLASS_STEP` in the mean of a row (light glass, tinted towards white).
+/// The menu bar has no background (ADR 0028 §3), the dock lies on glass
+/// (§6): what shows there is the background, the scrim over it, blurred
+/// glass – no colour to compare with, but soft: no pixel further than this
+/// from its neighbour in a channel (a gradient's slope, grain, dithering).
 const GLASS_SMOOTH: u8 = 6;
-const GLASS_STEP: f64 = 8.0;
+/// Without a background, the mean of a row changes by less than this
+/// across the bar's lower edge (the scrim's slope; glass there stepped by
+/// some 20).
+const BAR_EDGE: f64 = 4.0;
 /// Live glass shows a window behind it: the test client's blue and white,
 /// blurred, move a channel of the dock's glass by more than this.
 const GLASS_SHOWS: u8 = 12;
@@ -106,11 +109,13 @@ const CLIENT_ICON: &str = "d=~/.local/share; mkdir -p $d/applications \
      > $d/icons/hicolor/scalable/apps/beize-test-icon.svg";
 
 /// Where the time is: the right end of the bar, this wide. "00:00" in
-/// Inter at 13 px is some 35 px; the rest of the bar is glass alone.
+/// Inter at 13 px is some 35 px; the rest of the bar is the background.
 const CLOCK_WIDTH: usize = 80;
-/// The time's least ink, in dark pixels: well below the narrowest time,
+/// The time's least ink, in pixels far from the background beside it
+/// (`INK_FROM`), white or dark: well below the narrowest time,
 /// "11:11", and well above none.
 const CLOCK_INK: usize = 20;
+const INK_FROM: u8 = 0x40;
 
 /// The compositor's warning that Smithay could not become DRM master
 /// itself: it already is, through the device logind handed over (reported
@@ -1096,11 +1101,12 @@ fn row_mean(screen: &Image, y: usize, xs: std::ops::Range<usize>) -> f64 {
     sum as f64 / (3.0 * n)
 }
 
-/// Whether `screen` has the menu bar: soft glass across the top but the
-/// pointer, the app's name and the time, the time's ink at the right end,
-/// and a step to what is below exactly at its lower edge. Which time it
-/// shows depends on the minute, which name the shell's journal says; Beize
-/// UI's text itself is checked exactly with the windows.
+/// Whether `screen` has the menu bar: the soft background across the top
+/// but the pointer, the app's name and the time, the time's ink at the
+/// right end, and no background of its own – no step at its lower edge.
+/// Which time it shows depends on the minute, which name the shell's
+/// journal says; Beize UI's text itself is checked exactly with the
+/// windows.
 fn menu_bar(screen: &Image) -> Result<()> {
     ensure!(
         screen.width > CLOCK_WIDTH + APP_NAME_WIDTH && screen.height > MENU_BAR,
@@ -1115,7 +1121,13 @@ fn menu_bar(screen: &Image) -> Result<()> {
         for x in APP_NAME_WIDTH..screen.width {
             let shown = screen.pixel(x, y);
             if x >= clock {
-                ink += usize::from(shown.iter().all(|&c| c < 0x80));
+                let beside = screen.pixel(clock - 1, y);
+                ink += usize::from(
+                    shown
+                        .iter()
+                        .zip(beside)
+                        .any(|(&a, b)| a.abs_diff(b) > INK_FROM),
+                );
             } else if !soft(shown, screen.pixel(x - 1, y)) {
                 other += 1;
             }
@@ -1123,20 +1135,18 @@ fn menu_bar(screen: &Image) -> Result<()> {
     }
     ensure!(
         other == 0,
-        "{other} pixels of the menu bar's strip are not soft glass"
+        "{other} pixels of the menu bar's strip are not the soft background"
     );
     ensure!(
         ink >= CLOCK_INK,
-        "the menu bar shows no time: {ink} dark pixels at its right end"
+        "the menu bar shows no time: {ink} pixels of ink at its right end"
     );
-    // Its lower edge: a step to what is below, none a row above.
+    // No background: what lies behind runs on across its lower edge.
     let row = |y| row_mean(screen, y, APP_NAME_WIDTH..clock);
     let edge = (row(MENU_BAR - 1) - row(MENU_BAR)).abs();
-    let inside = (row(MENU_BAR - 2) - row(MENU_BAR - 1)).abs();
     ensure!(
-        edge >= GLASS_STEP && inside < GLASS_STEP / 2.0,
-        "the menu bar does not end {MENU_BAR} pixels down: a step of {edge:.1} there, \
-         {inside:.1} a row above"
+        edge < BAR_EDGE,
+        "the menu bar has a background: the screen steps by {edge:.1} at its lower edge"
     );
     Ok(())
 }
@@ -1572,8 +1582,8 @@ mod tests {
         [0xb0 + (x / 40 % 4) as u8, 0xc8, 0xf0]
     }
 
-    /// A screen of `width`×40 with the menu bar, ink for a time at its
-    /// right end, the background below it and a pointer.
+    /// A screen of `width`×40 with the menu bar – no background of its
+    /// own, ink for a time at its right end – and a pointer.
     fn desktop(width: usize) -> Image {
         let mut screen = Image {
             width,
@@ -1584,11 +1594,6 @@ mod tests {
             let at = (y * width + x) * 3;
             screen.pixels[at..at + 3].copy_from_slice(&c);
         };
-        for y in 0..MENU_BAR {
-            for x in 0..width {
-                set(x, y, glass(x));
-            }
-        }
         for y in 8..16 {
             for x in width - 40..width - 36 {
                 set(x, y, [0x1d; 3]);
@@ -1665,29 +1670,23 @@ mod tests {
         assert_eq!(window.pixel(0, 0), BACKGROUND);
         assert_eq!(window.pixel(13, 0), BACKGROUND);
         assert!(desktop(200).crop((151, MENU_BAR), (50, 1)).is_err());
-        // A stray pixel on the bar, no time, a bar too high, no bar at all.
+        // A stray pixel on the bar, no time, a background of its own.
         let mut stray = desktop(400);
         stray.pixels[(5 * 400 + 300) * 3] = 0;
         assert!(menu_bar(&stray).is_err());
-        let mut no_time = desktop(400);
-        for x in 360..400 {
-            for y in 0..MENU_BAR {
-                let at = (y * 400 + x) * 3;
-                no_time.pixels[at..at + 3].copy_from_slice(&glass(x));
-            }
-        }
-        assert!(menu_bar(&no_time).is_err());
-        let mut high = desktop(400);
-        for x in 0..400 {
-            let at = (MENU_BAR * 400 + x) * 3;
-            high.pixels[at..at + 3].copy_from_slice(&glass(x));
-        }
-        assert!(menu_bar(&high).is_err());
         let none = Image {
             pixels: BACKGROUND.repeat(400 * 40),
             ..desktop(400)
         };
         assert!(menu_bar(&none).is_err());
+        let mut with_background = desktop(400);
+        for x in 0..360 {
+            for y in 0..MENU_BAR {
+                let at = (y * 400 + x) * 3;
+                with_background.pixels[at..at + 3].copy_from_slice(&glass(x));
+            }
+        }
+        assert!(menu_bar(&with_background).is_err());
     }
 
     #[test]

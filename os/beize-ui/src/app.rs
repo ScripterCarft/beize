@@ -394,6 +394,16 @@ impl App {
             .map_or(Appearance::Light, |d| d.appearance)
     }
 
+    /// How light it is behind the menu bar (`watch_desktop`): light wants
+    /// dark ink. The appearance's until the compositor has measured it.
+    pub fn menu_bar_backdrop(&self) -> Appearance {
+        self.state
+            .desktop
+            .as_ref()
+            .and_then(|d| d.menu_bar_backdrop)
+            .unwrap_or_else(|| self.appearance())
+    }
+
     /// Glass below part of the panel `id` (or none), drawn by the
     /// compositor (ADR 0028 §6): what the scene leaves transparent there
     /// shows it. Only the shell (`watch_desktop`); applies with the panel's

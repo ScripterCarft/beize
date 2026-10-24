@@ -111,8 +111,19 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   beim Öffnen, Schließen und Minimieren dazu. Ein minimiertes Fenster fliegt in sein Dock-Symbol, und von dort
   kommt es zurück.
 - **Snap:** Ziehen an einen Bildschirmrand oder Super+Pfeiltaste gibt die halbe Fläche bzw.
-  maximiert (Windows). Ein Doppelklick auf die Titelleiste maximiert. Snap-Layouts wie bei
-  Windows 11 kommen später.
+  maximiert (Windows). Ein Fenster stoppt an der Menüleiste; zieht man es mit dem Zeiger bis an
+  den oberen Rand, füllt es die Fläche zwischen Menüleiste und Dock, wie seit macOS 15
+  („Fenster an die Menüleiste ziehen, um den Bildschirm zu füllen“; Besitzer, 24.10.). Ein
+  Doppelklick auf die Titelleiste maximiert. Snap-Layouts wie bei Windows 11 kommen später.
+- **Echtes Vollbild** (Besitzer, 24.10., wie macOS; als eigener Schritt nach der Menüleiste):
+  Fremde Apps fordern es an (F11 im Browser, Videos, Spiele; `xdg_toplevel.set_fullscreen`)
+  und müssen es wirklich bekommen: das ganze Bild, über Menüleiste und Dock hinweg, die dann
+  verschwinden. Am oberen Rand erscheint die Menüleiste unter dem Zeiger, dann deckend, weil kein
+  Schreibtisch dahinter liegt (macOS seit Big Sur). Eigene Spaces kommen später.
+- **Kein Glas in Titelleisten** (Besitzer, 24.10.): Titelleisten sind von App zu App zu
+  verschieden. Wichtig ist, dass jedes Programm die drei Knöpfe hat, wo es geht (Beize UI, der
+  Rahmen des Compositors; libadwaita zeichnet eigene). Werkzeugleisten mit Knöpfen wie
+  „Zurück“ kommen mit den eigenen Apps.
 - **Fensterknöpfe** (`os/beize-draw`, `titlebar`), ein Code für Beize UI und den Rahmen des
   Compositors. Das Aussehen ist ein `Look`, heute fest `Mac`, später eine Einstellung:
   - **Mac (Vorgabe):** Die Leiste ist 28 px hoch. Links liegen drei Kreise (12 px, alle 20 px),
@@ -128,7 +139,17 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 
 ### 3. Menüleiste (oben)
 
-Durchgehend, so hoch wie macOS' Leiste (24 px bei Faktor 1), aus Grundglas (siehe 6).
+Durchgehend, so hoch wie macOS' Leiste (24 px bei Faktor 1), **ohne Hintergrund** wie seit
+macOS 26 (Besitzer, 24.10.): nur ihr Inhalt über dem Hintergrund. Unter ihr liegt nie ein
+Fenster (sie hält ihren Streifen frei), also nur Beizes Hintergrund: Der Compositor misst ihn
+dort einmal je Wechsel und sagt der Shell, ob es hell oder dunkel ist
+(`beize_shell_v1.menu_bar_backdrop`). Wie bei macOS ist die Schrift fast immer weiß (Besitzer,
+an seinem Mac beobachtet; Apple nennt keine Regel): Ein schwacher dunkler Verlauf nur innerhalb
+der Leiste – schwarz 15 % am Bildschirmrand, bis zu ihrer Unterkante auf null auslaufend, also
+ohne Kante; „du siehst ihn kaum, aber er ist da“ (Besitzer; Werte geschätzt) –, und weiß bleibt
+die Schrift bis zu einem Kontrast von 2:1 (mittlere relative Luminanz der Leiste samt Verlauf
+≤ 0,475; bewusst unter WCAGs 3:1, wie macOS); nur auf sehr hellem Hintergrund wird sie dunkel. Kein Schatten an der Schrift (Besitzer). Ein Schalter
+„Menüleistenhintergrund“ wie bei macOS kann mit den Einstellungen kommen.
 
 - **Links:** das Beize-Menü (Über diesen Rechner, Einstellungen, Ruhezustand, Neustart,
   Ausschalten, Sperren, Abmelden; wie das Apple-Menü), dann der Name der aktiven App, fett.
@@ -186,7 +207,8 @@ der Compositor, nicht die App, wie macOS' WindowServer und Windows' DWM: Die She
 `beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, Grund- oder
 lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
 
-- **Grundglas** (Menüleiste, Titelleisten): Der Hintergrund wird einmal pro Wechsel
+- **Grundglas** (heute keine Fläche; gerechnet erst, wenn eine Fläche es will): Der
+  Hintergrund wird einmal pro Wechsel
   (Bildschirmgröße, Erscheinungsbild) weichgezeichnet – Dual Kawase wie bei KWin, vier
   Halbierungen und zwei Verdopplungen zurück, das Glas hat ¼ der Größe –, seine Sättigung
   ×1,8 angehoben und getönt: Hell `#F6F6F6` zu 30 %, Dunkel `#1E1E20` zu 45 % (Anhalt:
@@ -300,8 +322,8 @@ b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI m
    macOS, runde Ecken und Schatten (✓ 23.10.).
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste. ✓ 23.10.
-d) Symbole (✓ 24.10.), Hintergrund und Grundglas für die Menüleiste, lebendiges Glas für das
-   Dock (✓ 24.10.), Glas der Titelleisten, der Start aus einem Guss; danach der Lasttest und ein
+d) Symbole, Hintergrund, lebendiges Glas für das Dock, die Menüleiste ohne Hintergrund
+   (✓ 24.10.), echtes Vollbild, der Start aus einem Guss; danach der Lasttest und ein
    Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
    Neustart, Ausschalten über logind).

@@ -24,7 +24,7 @@ use smithay::reexports::wayland_server::{
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
-use crate::backdrop::Appearance;
+use crate::backdrop::{Appearance, Tone};
 use crate::state::{ClientState, State};
 
 /// The shell's bound instances of the global.
@@ -33,6 +33,8 @@ pub struct ShellWindows {
     instances: Vec<BeizeShellV1>,
     /// The number the next listed window gets.
     next: u64,
+    /// How light the background is behind the menu bar, once measured.
+    tone: Option<Tone>,
 }
 
 impl ShellWindows {
@@ -40,6 +42,24 @@ impl ShellWindows {
         display.create_global::<State, BeizeShellV1, _>(1, ());
         ShellWindows::default()
     }
+
+    /// The background behind the menu bar is `tone` now: the shell hears
+    /// if that is news.
+    pub fn set_tone(&mut self, tone: Tone) {
+        if self.tone != Some(tone) {
+            self.tone = Some(tone);
+            for instance in &self.instances {
+                send_tone(instance, tone);
+            }
+        }
+    }
+}
+
+fn send_tone(instance: &BeizeShellV1, tone: Tone) {
+    instance.menu_bar_backdrop(match tone {
+        Tone::Light => beize_shell_v1::Tone::Light,
+        Tone::Dark => beize_shell_v1::Tone::Dark,
+    });
 }
 
 /// What a listed window told the shell's instances.
@@ -205,6 +225,9 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
             Appearance::Light => beize_shell_v1::Appearance::Light,
             Appearance::Dark => beize_shell_v1::Appearance::Dark,
         });
+        if let Some(tone) = state.shell_windows.tone {
+            send_tone(&instance, tone);
+        }
         for window in state.listed_windows() {
             let Some(number) = with_listed(&window, |l| l.number) else {
                 continue;

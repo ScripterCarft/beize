@@ -450,7 +450,10 @@ impl State {
             self.backdrop_for = Some(want);
             self.backdrops += 1;
             self.backdrop = match Backdrop::new(screen.renderer(), want.0, want.1, self.backdrops) {
-                Ok(backdrop) => Some(backdrop),
+                Ok(backdrop) => {
+                    self.shell_windows.set_tone(backdrop.tone());
+                    Some(backdrop)
+                }
                 Err(e) => {
                     warn!("drawing the background: {e}; a plain colour instead");
                     None
@@ -478,7 +481,7 @@ impl State {
                 Err(e) => warn!("drawing the pointer: {e}"),
             }
         }
-        let (upper, lower) = panels(screen.renderer(), output, self.backdrop.as_ref());
+        let (upper, lower) = panels(screen.renderer(), output, self.backdrop.as_mut());
         elements.extend(upper);
         // Each window with its bar above it, front to back.
         let windows: Vec<_> = self
@@ -533,6 +536,7 @@ impl State {
         }
         elements.extend(lower);
         if let Some(backdrop) = &self.backdrop {
+            elements.push(Element::Wallpaper(backdrop.scrim()));
             elements.push(Element::Wallpaper(backdrop.wallpaper()));
         }
         // Live glass shows what lies behind it: back to front, so glass in
@@ -921,7 +925,7 @@ impl TabletSeatHandler for State {}
 fn panels(
     renderer: &mut VkRenderer,
     output: &WlOutput,
-    backdrop: Option<&Backdrop>,
+    mut backdrop: Option<&mut Backdrop>,
 ) -> (Vec<Element>, Vec<Element>) {
     let map = layer_map_for_output(output);
     let (mut upper, mut lower) = (Vec::new(), Vec::new());
@@ -938,7 +942,9 @@ fn panels(
                 Scale::from(1.0),
                 1.0,
             );
-        let glass = backdrop.and_then(|b| b.glass(panel.wl_surface(), place.loc));
+        let glass = backdrop
+            .as_deref_mut()
+            .and_then(|b| b.glass(renderer, panel.wl_surface(), place.loc));
         let list = match panel.layer() {
             Layer::Overlay | Layer::Top => &mut upper,
             Layer::Bottom | Layer::Background => &mut lower,

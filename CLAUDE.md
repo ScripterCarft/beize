@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1, d2, d3a, d3b fertig, d3c Glas der Titelleisten als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d3 fertig, d4 echtes Vollbild als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -349,7 +349,9 @@ beim Besitzer läuft. Tests schneller machen kommt erst nach der Shell (Besitzer
 
 **Nächster Hardware-Test** (nicht öfter als nötig, Besitzer): die Zeilen `late frame` (Zeitplan
 in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf der Konsole (Modus
-der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
+der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. Dazu (Besitzer, 24.10.): die
+weiße Schrift der Menüleiste im hellen Modus – wirkt sie unscharf oder zu dick? Erst auf der
+Hardware beurteilen, dann ggf. ändern; Glas und Hintergrund dort zum ersten Mal in echt. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
 **JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2, d3a, d3b 24.10.:**
@@ -410,8 +412,14 @@ Schaden; eigene Übermittlung an die GPU nur dann. `Rounded` und `Glass` zeichne
 verschoben richtig. Smoke zieht den Test-Client hinter das Dock und verlangt, dass das Glas sich
 ändert (Gegenprobe mit Grundglas: rot). Protokoll-XML ist jetzt Cargo-Abhängigkeit (`include_str!`,
 vorher baute eine geänderte XML nicht neu).
-**Als Nächstes:** d3c Glas der Titelleisten (Beize UI zeichnet sie selbst: braucht ein Protokoll
-für alle Apps, vorher mit dem Besitzer klären); d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
+**d3c fertig 24.10.:** Menüleiste ohne Hintergrund wie macOS 26 (Besitzer, nach Recherche): schwacher
+Verlauf nur in der Leiste (15 %, auf null auslaufend; `scrim`, geschätzt), Schrift weiß ohne
+Schatten (Besitzer), dunkel nur auf sehr hellem Hintergrund (`backdrop::tone`: Leiste samt
+Verlauf zurückgelesen, Kontrast 2:1); Grundglas nur noch auf Anfrage. Kein
+Glas in Titelleisten (Besitzer). Smoke verlangt: keine Stufe an der Unterkante der Leiste.
+**Als Nächstes:** d4 echtes Vollbild (ADR 0028 §2, Besitzer: wie macOS, fremde Apps müssen es
+wirklich bekommen; Menüleiste am oberen Rand deckend; vorher Fragen stellen, wenn offen), dann
+der Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
 Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien

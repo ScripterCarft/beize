@@ -42,6 +42,20 @@
       <arg name="appearance" type="uint" enum="appearance"/>
     </event>
 
+    <enum name="tone">
+      <entry name="light" value="0" summary="light: dark ink reads best"/>
+      <entry name="dark" value="1" summary="dark: light ink reads best"/>
+    </enum>
+
+    <event name="menu_bar_backdrop">
+      <description summary="how light it is behind the menu bar">
+        The menu bar has no background (ADR 0028 §3): what lies behind it is
+        the background, which the compositor measures there – once known,
+        and again when the background changes. The bar's ink follows it.
+      </description>
+      <arg name="tone" type="uint" enum="tone"/>
+    </event>
+
     <request name="get_glass">
       <description summary="glass below a surface">
         Base glass below part of a panel's surface: the background, blurred

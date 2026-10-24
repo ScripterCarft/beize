@@ -1,21 +1,28 @@
-//! Beize's background and the base glass below the shell's panels (ADR
-//! 0028 §6). Both are drawn once per change – the screen's size or the
+//! Beize's background and the glass below the shell's panels (ADR 0028
+//! §6). Both are drawn once per change – the screen's size or the
 //! appearance – by the backdrop's shader (`beize_vulkan`, `backdrop.frag`),
-//! then only read: the background is computed, no image file; the glass is
-//! the background blurred, its colours lifted and tinted for the
-//! appearance (Microsoft's Mica works so). A frame adds to the glass only
-//! grain and a rim of light, per pixel (`GLASS`), where the shell asked for
-//! it (`glass`). Live glass shows what lies behind it, windows too
-//! (`LiveGlass`).
+//! then only read: the background is computed, no image file; base glass
+//! is the background blurred, its colours lifted and tinted for the
+//! appearance (Microsoft's Mica works so), made when a panel first asks
+//! for it. A frame adds to the glass only grain and a rim of light, per
+//! pixel (`GLASS`), where the shell asked for it (`glass`). Live glass
+//! shows what lies behind it, windows too (`LiveGlass`).
+//!
+//! The menu bar has no background, as macOS' since 26: a faint darkening
+//! scrim within it, from its top edge to nothing at its bottom – barely
+//! seen, but there, as Apple lays a subtle gradient over the wallpaper –
+//! helps its white ink; only where the top is very light is the ink dark
+//! (`Tone`, measured once per background with the scrim).
 
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Material, Target, VkRenderer, VkTexture};
+use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement};
 use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
-use smithay::backend::renderer::{Bind, RendererSuper};
+use smithay::backend::renderer::{Bind, ExportMem, ImportMem, RendererSuper};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
@@ -89,6 +96,36 @@ impl Appearance {
 /// to break banding in the soft gradient and give the glass a surface.
 const GRAIN: f32 = 1.5 / 255.0;
 
+/// How light the background behind the menu bar is: light wants dark ink,
+/// dark wants light ink. The shell hears it over beize-shell-v1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Light,
+    Dark,
+}
+
+/// The strip measured for the menu bar's tone: the bar (24 px) and a
+/// little below, where its letters' shadows fall.
+const BAR_STRIP: i32 = 24;
+/// White ink down to a contrast of 2:1: 1.05 / (L + 0.05) >= 2, so a
+/// relative luminance L of at most 0.475 behind it. macOS keeps its bar
+/// white on all but very light backgrounds (the owner's Mac; Apple names
+/// no rule), below WCAG's 3:1 for controls – dark ink only where it is
+/// really light.
+const WHITE_UP_TO: f64 = 1.05 / 2.0 - 0.05;
+/// The scrim: black, only within the bar, from `SCRIM_TOP` at the screen's
+/// edge eased out (smoothstep) to nothing at the bar's bottom – no edge
+/// below it. Barely seen (the owner: "du siehst ihn kaum, aber er ist
+/// da"); Apple publishes no values: estimated, judged on screenshots.
+const SCRIM_HEIGHT: i32 = 24;
+const SCRIM_TOP: f32 = 0.15;
+
+/// The scrim's opacity in row `y`.
+fn scrim_alpha(y: i32) -> f32 {
+    let t = ((y as f32 + 0.5) / SCRIM_HEIGHT as f32).min(1.0);
+    SCRIM_TOP * (1.0 - t * t * (3.0 - 2.0 * t))
+}
+
 fn decoded(encoded: f32) -> f32 {
     if encoded <= 0.04045 {
         encoded / 12.92
@@ -97,19 +134,26 @@ fn decoded(encoded: f32) -> f32 {
     }
 }
 
-/// The background and its glass for one screen size and appearance.
+/// The background, its scrim and base glass for one screen size and
+/// appearance.
 pub struct Backdrop {
     size: Size<i32, Physical>,
     appearance: Appearance,
     wallpaper: TextureBuffer<VkTexture>,
-    glass: VkTexture,
+    /// The same, as the glass reads it.
+    picture: VkTexture,
+    tone: Tone,
+    scrim: TextureBuffer<VkTexture>,
+    /// Base glass, made when a panel first asks for it.
+    glass: Option<VkTexture>,
     /// Counts the backdrops drawn: a glass element knows a new one by it.
     generation: u64,
 }
 
 impl Backdrop {
-    /// Draws the background and its glass with the next frame;
-    /// `generation` numbers it.
+    /// Draws the background with the next frame and measures it behind the
+    /// menu bar (waiting for the GPU, once per background); `generation`
+    /// numbers it.
     pub fn new(
         renderer: &mut VkRenderer,
         size: Size<i32, Physical>,
@@ -118,18 +162,28 @@ impl Backdrop {
     ) -> Result<Backdrop> {
         let buffer: Size<i32, Buffer> = (size.w, size.h).into();
         let wallpaper = renderer.draw_wallpaper(buffer, appearance.index())?;
-        let glass = renderer.draw_glass(&wallpaper, appearance.material())?;
+        let tone = tone(renderer, &wallpaper)?;
+        let scrim = scrim(renderer)?;
         // Opaque: nothing below it is drawn.
         let opaque = Some(vec![Rectangle::from_size(buffer)]);
+        let picture = wallpaper.clone();
         let wallpaper =
             TextureBuffer::from_texture(renderer, wallpaper, 1, Transform::Normal, opaque);
         Ok(Backdrop {
             size,
             appearance,
             wallpaper,
-            glass,
+            picture,
+            tone,
+            scrim,
+            glass: None,
             generation,
         })
+    }
+
+    /// How light the background is behind the menu bar.
+    pub fn tone(&self) -> Tone {
+        self.tone
     }
 
     /// The background, behind everything.
@@ -144,9 +198,29 @@ impl Backdrop {
         )
     }
 
+    /// The scrim along the top of the background, below the menu bar.
+    pub fn scrim(&self) -> TextureRenderElement<VkTexture> {
+        TextureRenderElement::from_texture_buffer(
+            Point::from((0.0, 0.0)),
+            &self.scrim,
+            None,
+            // Its one column, stretched: without a source Smithay would read
+            // a texture as wide as the screen.
+            Some(Rectangle::from_size((1.0, f64::from(SCRIM_HEIGHT)).into())),
+            Some((self.size.w, SCRIM_HEIGHT).into()),
+            Kind::Unspecified,
+        )
+    }
+
     /// The glass below `surface`, a panel at `at`, if it asked for one:
-    /// base glass; live glass gets what lies behind it from `LiveGlass`.
-    pub fn glass(&self, surface: &WlSurface, at: Point<i32, Logical>) -> Option<Glass> {
+    /// base glass (made now if no panel asked before); live glass gets what
+    /// lies behind it from `LiveGlass`.
+    pub fn glass(
+        &mut self,
+        renderer: &mut VkRenderer,
+        surface: &WlSurface,
+        at: Point<i32, Logical>,
+    ) -> Option<Glass> {
         let (state, drawn) = with_states(surface, |states| {
             let state = *states.cached_state.get::<GlassState>().current();
             states
@@ -167,6 +241,25 @@ impl Backdrop {
         let (id, commit) = drawn?;
         let mut rect = shape.rect;
         rect.loc += at;
+        // Live glass reads the background until `LiveGlass` gives it what
+        // lies behind it, in the same frame.
+        let texture = if state.live {
+            self.picture.clone()
+        } else {
+            match &self.glass {
+                Some(glass) => glass.clone(),
+                None => {
+                    let made = renderer.draw_glass(&self.picture, self.appearance.material());
+                    match made {
+                        Ok(glass) => self.glass.insert(glass).clone(),
+                        Err(e) => {
+                            tracing::warn!("base glass: {e}");
+                            return None;
+                        }
+                    }
+                }
+            }
+        };
         Some(Glass {
             id,
             commit,
@@ -177,11 +270,57 @@ impl Backdrop {
             } else {
                 [0.0; 4]
             },
-            texture: self.glass.clone(),
+            texture,
             covers: Rectangle::from_size(self.size),
             live: state.live.then(|| surface.clone()),
         })
     }
+}
+
+/// How light `wallpaper` is behind the menu bar, the scrim over it as a
+/// frame blends it (on the colours as encoded): its strip read back
+/// (waiting for the GPU), the mean relative luminance against white ink's
+/// least contrast.
+fn tone(renderer: &mut VkRenderer, wallpaper: &VkTexture) -> Result<Tone> {
+    let size = smithay::backend::renderer::Texture::size(wallpaper);
+    let strip = Rectangle::from_size((size.w, BAR_STRIP.min(size.h)).into());
+    let mapping = renderer.copy_texture(wallpaper, strip, Fourcc::Abgr8888)?;
+    let pixels = renderer.map_texture(&mapping)?;
+    let width = size.w.max(1) as usize;
+    let mut sum = 0.0;
+    let mut n = 0.0;
+    for (i, p) in pixels.as_chunks::<4>().0.iter().enumerate() {
+        let keep = 1.0 - scrim_alpha((i / width) as i32);
+        let linear = |c: u8| f64::from(decoded(f32::from(c) / 255.0 * keep));
+        sum += 0.2126 * linear(p[0]) + 0.7152 * linear(p[1]) + 0.0722 * linear(p[2]);
+        n += 1.0;
+    }
+    let luminance = sum / f64::max(n, 1.0);
+    let tone = if luminance > WHITE_UP_TO {
+        Tone::Light
+    } else {
+        Tone::Dark
+    };
+    tracing::info!("background behind the menu bar: luminance {luminance:.3}, {tone:?}");
+    Ok(tone)
+}
+
+/// The scrim: one column, stretched across the screen; black,
+/// premultiplied.
+fn scrim(renderer: &mut VkRenderer) -> Result<TextureBuffer<VkTexture>> {
+    let mut data = Vec::with_capacity(SCRIM_HEIGHT as usize * 4);
+    for y in 0..SCRIM_HEIGHT {
+        data.extend_from_slice(&[0, 0, 0, (scrim_alpha(y) * 255.0).round() as u8]);
+    }
+    let texture =
+        renderer.import_memory(&data, Fourcc::Abgr8888, (1, SCRIM_HEIGHT).into(), false)?;
+    Ok(TextureBuffer::from_texture(
+        renderer,
+        texture,
+        1,
+        Transform::Normal,
+        None,
+    ))
 }
 
 /// What a surface's glass was last drawn for, in its data.

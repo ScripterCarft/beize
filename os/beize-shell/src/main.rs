@@ -7,10 +7,12 @@
 //! ends with the session.
 //!
 //! The bar for now: 24 px like macOS' menu bar, the active app's name on
-//! the left in bold, the time on the right. Bar and dock lie on base glass,
-//! which the compositor draws below them (ADR 0028 §6): they draw only
-//! their content, in ink for the appearance it tells. The Beize menu and
-//! the status come with the next parts (ADR 0028, Reihenfolge).
+//! the left in bold, the time on the right. As macOS' since 26 it has no
+//! background: white ink on the scrim the compositor lays behind it, dark
+//! only where the background stays very light, as the compositor measures
+//! it (ADR 0028 §3). The dock lies on live glass, which the compositor draws
+//! below it (§6). The Beize menu and the status come with the next parts
+//! (ADR 0028, Reihenfolge).
 
 mod apps;
 mod clock;
@@ -20,16 +22,14 @@ use std::collections::HashMap;
 use std::process::ExitCode;
 
 use beize_ui::input::{Button, Pointer};
-use beize_ui::{
-    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text,
-};
+use beize_ui::{App, Appearance, Color, Edge, Family, Input, Panel, Rect, Scene, Style, Text};
 use tracing::info;
 
 use dock::{Action, Dock};
 
 /// The menu bar's height at scale 1, as macOS'.
 const HEIGHT: u32 = 24;
-/// The bar's text on light glass and on dark.
+/// The bar's text on a light background and on a dark one.
 const INK_LIGHT: Color = Color::rgb(0x1d1d1d);
 const INK_DARK: Color = Color::rgb(0xffffff);
 /// Space at the bar's ends.
@@ -86,6 +86,7 @@ fn run() -> Result<(), String> {
     let mut dock_width = dock.width();
     let mut active_name: Option<String> = None;
     let mut appearance = app.appearance();
+    let mut backdrop = app.menu_bar_backdrop();
     loop {
         let mut dispatched = app
             .dispatch(None, &[minutes.fd()])
@@ -110,6 +111,11 @@ fn run() -> Result<(), String> {
             info!("appearance {appearance:?}");
             redraw_bar = true;
             redraw_dock = true;
+        }
+        if app.menu_bar_backdrop() != backdrop {
+            backdrop = app.menu_bar_backdrop();
+            info!("menu bar on a {backdrop:?} background");
+            redraw_bar = true;
         }
         if dispatched.desktop {
             let windows = app.desktop_windows();
@@ -167,13 +173,12 @@ fn run() -> Result<(), String> {
         bar_shown |= bar_events.configured;
         if bar_shown && redraw_bar {
             let size = app.size(bar);
-            app.set_glass(bar, Some(bar_glass(size)));
             let scene = menu_bar(
                 app.text(),
                 size,
                 active_name.as_deref(),
                 clock::now(),
-                appearance,
+                backdrop,
             );
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
         }
@@ -187,30 +192,15 @@ fn run() -> Result<(), String> {
     }
 }
 
-/// The bar's glass: all of it, square, without a rim – it runs along the
-/// screen's edge –, base glass: no window lies behind it.
-fn bar_glass((w, h): (u32, u32)) -> Glass {
-    Glass {
-        rect: Rect {
-            x: 0.0,
-            y: 0.0,
-            w: w as f32,
-            h: h as f32,
-        },
-        radius: 0.0,
-        rim: false,
-        live: false,
-    }
-}
-
-/// The bar's content in `size`: the active app's name on the left, the
-/// time on the right, both centred in the height; the rest transparent.
+/// The bar in `size`, on a `backdrop` light or dark: the active app's name
+/// on the left, the time on the right, both centred in the height; the
+/// rest transparent.
 fn menu_bar(
     text: &mut Text,
     (w, h): (u32, u32),
     app: Option<&str>,
     time: Option<clock::Time>,
-    appearance: Appearance,
+    backdrop: Appearance,
 ) -> Scene {
     let (w, h) = (w as f32, h as f32);
     let mut scene = Scene::new();
@@ -220,27 +210,28 @@ fn menu_bar(
         w,
         h,
     });
-    let ink = match appearance {
+    let ink = match backdrop {
         Appearance::Light => INK_LIGHT,
         Appearance::Dark => INK_DARK,
     };
-    let style = |weight| Style {
+    let style = |weight, color| Style {
         family: Family::Sans,
         size: 13.0,
         weight,
-        color: ink,
+        color,
+    };
+    let mut put = |scene: &mut Scene, s: &str, weight: f32, x: Option<f32>| {
+        let layout = text.layout(s, &style(weight, ink), None);
+        let x = x.unwrap_or(w - MARGIN - layout.width()).round();
+        let y = ((h - layout.height()) / 2.0).round();
+        scene.text(&layout, x, y);
     };
     if let Some(app) = app {
         // Bold, as macOS names the active app.
-        let layout = text.layout(app, &style(700.0), None);
-        let y = ((h - layout.height()) / 2.0).round();
-        scene.text(&layout, MARGIN, y);
+        put(&mut scene, app, 700.0, Some(MARGIN));
     }
     if let Some(time) = time {
-        let layout = text.layout(&time.to_string(), &style(500.0), None);
-        let x = (w - MARGIN - layout.width()).round();
-        let y = ((h - layout.height()) / 2.0).round();
-        scene.text(&layout, x, y);
+        put(&mut scene, &time.to_string(), 500.0, None);
     }
     scene
 }

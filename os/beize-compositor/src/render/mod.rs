@@ -336,7 +336,9 @@ impl VkRenderer {
             &self.shared,
             PICTURE,
             (size.w as u32, size.h as u32),
-            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::COLOR_ATTACHMENT
+                | vk::ImageUsageFlags::TRANSFER_SRC,
             vk::ImageCreateFlags::MUTABLE_FORMAT,
         )?;
         let d = &self.shared.device;
