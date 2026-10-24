@@ -123,8 +123,12 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Vollbild für jedes Fenster. Eigene Spaces kommen später; bis dahin tritt ein Vollbild zurück,
   wenn eine andere App nach vorn kommt: Es bleibt Vollbild hinter ihr, Menüleiste und Dock sind
   wieder da (wie bei Windows); nach vorn geholt ist es sofort wieder Vollbild (Besitzer, 24.10.).
-  Deckend heißt Grundglas unter der Leiste, wo ein Vollbild darunter liegt, vorn oder
-  zurückgetreten; die Schrift folgt dann dem Erscheinungsbild. Die Leisten behalten ihre Streifen,
+  Liegt ein Vollbild unter der Menüleiste, vorn oder zurückgetreten, liegt sie auf Glas; die
+  Schrift folgt dann dem Erscheinungsbild. Heute Grundglas; entschieden (Besitzer, 24.10.):
+  lebendiges Glas wie das Dock, das sich dem Vollbild darunter anpasst – einheitlich mit dem
+  Dock statt macOS' deckender Leiste. Eingeblendet verdecken Leiste und Dock das Vollbild, sie
+  verschieben es nicht (wie macOS): Die App behält ihre Größe, kein Neuzeichnen und kein Springen
+  bei Video und Spiel. Die Leisten behalten ihre Streifen,
   die übrigen Fenster rücken nicht. Im Vollbild hat ein Fenster keinen Rahmen und keine
   Titelleiste (auch Beize UI nicht, wie AppKit); dass sie mit der Menüleiste erscheint wie bei
   macOS, kommt später. Noch nicht gebaut: Direct Scanout des Vollbild-Puffers (wie KWin, Mutter).
