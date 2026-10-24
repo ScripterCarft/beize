@@ -73,6 +73,14 @@ where
             _ => 7,
         };
         write!(writer, "<{priority}>")?;
+        // From info on only the message: inside one of Smithay's spans the
+        // same line would else begin with its name (`drm_atomic: pacing:
+        // …` at a page flip, `pacing: …` at idle), and the journal is read
+        // by its lines. Debug and trace keep the spans, to follow a step.
+        if priority <= 6 {
+            context.format_fields(writer.by_ref(), event)?;
+            return writeln!(writer);
+        }
         self.0.format_event(context, writer, event)
     }
 }
