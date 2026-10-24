@@ -41,6 +41,8 @@ pub struct Quad {
     pub radius: f32,
     /// A `SHADOW`'s blur, the Gaussian's standard deviation in pixels.
     pub sigma: f32,
+    /// A `GRADIENT`'s premultiplied colour at the bottom of `clip`.
+    pub bottom: [f32; 4],
 }
 
 /// A solid colour, no texture.
@@ -54,6 +56,10 @@ pub const MASK: u32 = 4;
 /// The shadow of the rounded rectangle `clip` in `color`, blurred by
 /// `sigma` (ADR 0028 §2): computed per pixel, no texture.
 pub const SHADOW: u32 = 8;
+/// A `SOLID` that runs from `color` at the top of `clip` to `bottom` at
+/// its bottom (ADR 0028 §8, the apps' symbols), interpolated as CSS does
+/// by default: premultiplied, in sRGB as encoded.
+pub const GRADIENT: u32 = 16;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.
@@ -449,6 +455,12 @@ mod tests {
     fn the_shader_draws_the_same_corner() {
         let shader = include_str!("../shaders/quad.frag");
         assert!(shader.contains(&format!("const float EXTENT = {CORNER_EXTENT};")));
+    }
+
+    #[test]
+    fn a_quad_is_as_large_as_the_shaders_read_it() {
+        // shaders/quad.glsl, scalar layout: 28 floats and words.
+        assert_eq!(std::mem::size_of::<Quad>(), 28 * 4);
     }
 
     #[test]

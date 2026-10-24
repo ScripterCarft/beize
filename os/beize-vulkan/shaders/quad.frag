@@ -17,6 +17,8 @@ layout(location = 4) flat in uint flags;
 layout(location = 5) flat in vec4 clip;
 // The radius and a shadow's sigma.
 layout(location = 6) flat in vec2 rounding;
+// A gradient's colour at the bottom.
+layout(location = 7) flat in vec4 bottom;
 layout(location = 0) out vec4 result;
 
 // Skia's contrast for text (SkMaskGamma.cpp, its defaults: blending in
@@ -140,6 +142,25 @@ float shadow(vec2 p, vec4 box, float radius, float sigma) {
     return value;
 }
 
+// A premultiplied linear colour as CSS interpolates it by default:
+// premultiplied, in sRGB as encoded (CSS Color 4, "Interpolating with
+// Alpha"), and back.
+vec4 to_encoded(vec4 c) {
+    vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
+    return vec4(vec3(encoded(rgb.r), encoded(rgb.g), encoded(rgb.b)) * c.a, c.a);
+}
+
+vec4 from_encoded(vec4 c) {
+    vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
+    return vec4(vec3(decoded(rgb.r), decoded(rgb.g), decoded(rgb.b)) * c.a, c.a);
+}
+
+// From `color` at the top of `clip` to `bottom` at its bottom.
+vec4 gradient(float y) {
+    float t = clamp((y - clip.y) / max(clip.w, 1.0), 0.0, 1.0);
+    return from_encoded(mix(to_encoded(color), to_encoded(bottom), t));
+}
+
 void main() {
     if ((flags & SHADOW) != 0u) {
         result = color * shadow(gl_FragCoord.xy, clip, rounding.x, rounding.y);
@@ -148,7 +169,7 @@ void main() {
     // Round corners (rounding.x > 0): only what lies inside the window.
     float shown = rounding.x > 0.0 ? inside(gl_FragCoord.xy, clip, rounding.x) : 1.0;
     if ((flags & SOLID) != 0u) {
-        result = color * shown;
+        result = ((flags & GRADIENT) != 0u ? gradient(gl_FragCoord.y) : color) * shown;
         return;
     }
     // nonuniformEXT: neighbouring quads may show different textures.

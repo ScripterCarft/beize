@@ -15,7 +15,9 @@ mod renderer;
 mod window;
 
 pub use app::{App, Dispatched, Edge, Events, Panel, WindowId};
-pub use beize_draw::{Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, text};
+pub use beize_draw::{
+    AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, text,
+};
 pub use desktop::{DesktopWindow, DesktopWindowId};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;

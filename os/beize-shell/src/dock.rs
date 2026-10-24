@@ -11,13 +11,16 @@
 //!
 //! Its measures are macOS 26's, measured in Apple's press image of it (a
 //! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), its corners the
-//! continuous ones of `beize_vulkan`'s shader. For now light and opaque, an
-//! app an icon with its initial: glass and the apps' symbols come with (d)
-//! (ADR 0028, Reihenfolge).
+//! continuous ones of `beize_vulkan`'s shader. Beize's apps show their
+//! symbols (`AppIcon`), others for now a tile with their initial, until
+//! their own come from hicolor. Light and opaque until the glass (ADR
+//! 0028, Reihenfolge d).
 
 use std::collections::HashMap;
 
-use beize_ui::{Color, DesktopWindow, DesktopWindowId, Family, Rect, Scene, Style, Text};
+use beize_ui::{
+    AppIcon, Color, DesktopWindow, DesktopWindowId, Family, Rect, Scene, Style, Text, icon,
+};
 
 /// Pinned when the desktop starts (ADR 0028 §4); more apps come as Beize
 /// has them.
@@ -40,11 +43,10 @@ pub const MARGIN: u32 = 5;
 /// of macOS 27 (macOS 26 rounded it more), kept in proportion as the dock
 /// grows with its tiles.
 const RADIUS: f32 = HEIGHT as f32 * 20.4 / 76.3;
-/// The icon on its tile, as Apple's icon grid: 824 of 1024, its corners
-/// those of the mask of Apple's App Icon Template, a radius of 0.2449 of
-/// the side.
+/// The icon on its tile, as Apple's icon grid: 824 of 1024, with the
+/// corners of Beize's app symbols.
 const ICON: f32 = TILE as f32 * 824.0 / 1024.0;
-const ICON_RADIUS: f32 = ICON * 0.2449;
+const ICON_RADIUS: f32 = ICON * icon::RADIUS;
 /// The dot below a running app: measured 4.0 pt, its middle 3.7 pt above
 /// the dock's bottom.
 const DOT: f32 = 4.0;
@@ -255,14 +257,18 @@ impl Dock {
                 w: ICON,
                 h: ICON,
             };
-            scene.rounded(icon, ICON_RADIUS, TILE_COLOR);
-            let initial: String = item.name.chars().take(1).collect();
-            let layout = text.layout(&initial.to_uppercase(), &style, None);
-            scene.text(
-                &layout,
-                (tile.x + (tile.w - layout.width()) / 2.0).round(),
-                (tile.y + (tile.h - layout.height()) / 2.0).round(),
-            );
+            if let Some(symbol) = AppIcon::of(&item.app_id) {
+                symbol.draw(&mut scene, icon);
+            } else {
+                scene.rounded(icon, ICON_RADIUS, TILE_COLOR);
+                let initial: String = item.name.chars().take(1).collect();
+                let layout = text.layout(&initial.to_uppercase(), &style, None);
+                scene.text(
+                    &layout,
+                    (tile.x + (tile.w - layout.width()) / 2.0).round(),
+                    (tile.y + (tile.h - layout.height()) / 2.0).round(),
+                );
+            }
             if self.pressed == Some(i) && self.pointer.and_then(|at| self.item_at(at)) == Some(i) {
                 scene.rounded(icon, ICON_RADIUS, PRESSED);
             }

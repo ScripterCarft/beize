@@ -12,6 +12,7 @@ layout(location = 3) flat out uint texture;
 layout(location = 4) flat out uint flags;
 layout(location = 5) flat out vec4 clip;
 layout(location = 6) flat out vec2 rounding;
+layout(location = 7) flat out vec4 bottom;
 
 void main() {
     Quad q = push.quads.quads[gl_InstanceIndex];
@@ -24,4 +25,5 @@ void main() {
     flags = q.flags;
     clip = q.clip;
     rounding = vec2(q.radius, q.sigma);
+    bottom = q.bottom;
 }

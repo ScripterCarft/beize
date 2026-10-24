@@ -160,8 +160,9 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 - **Ecken wie Apples:** stetig gekrümmt (die Kurve der Maske aus Apples App-Icon-Vorlage) für
   Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
   die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen.
-- **Bis (d)** ist das Dock hell und deckend wie die Menüleiste, jede App eine Kachel mit
-  ihrem Anfangsbuchstaben; Glas und App-Symbole kommen mit (d).
+- **Bis (d)** ist das Dock hell und deckend wie die Menüleiste; Glas kommt mit (d). Beizes Apps
+  zeigen ihr Symbol (siehe 8), andere bis zu ihrem hicolor-Symbol eine Kachel mit ihrem
+  Anfangsbuchstaben.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 
 ### 5. Kontrollzentrum
@@ -233,8 +234,11 @@ App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG).
   wo Phosphors Strich genau 1 px ist. Am 23.10. erneut gegen Lucide und Tabler abgewogen:
   Phosphor bleibt, weil nur es jede Stärke eigens zeichnet und gefüllte und zweifarbige
   Varianten für alle Symbole hat, wie SF Symbols.
-- **App-Symbole von Beize** (Terminal, später Dateien, Einstellungen): eigene SVGs, wenige,
-  in einer gemeinsamen Form mit Verlauf. Fertige „macOS-Look“-Sets (z. B. WhiteSur) kopieren
+- **App-Symbole von Beize** (Terminal, später Dateien, Einstellungen): eine gemeinsame Form,
+  wie macOS' Symbole sie teilen – das Quadrat des Icon-Rasters mit den stetigen Ecken (siehe 4),
+  vom Shader mit einem Verlauf in den Farben der App gefüllt –, darauf ein Phosphor-Symbol als
+  Motiv in Weiß (`beize-draw`, `icon`; Terminal: `terminal` fett auf Graphit, vom Besitzer am
+  24.10. abgenommen). Keine Bilddatei je App. Fertige „macOS-Look“-Sets (z. B. WhiteSur) kopieren
   Apples Optik; das schließt die VISION aus (Konzepte, nicht Optik).
 
 ### 9. Lasttest „der Compositor soll sich langweilen“

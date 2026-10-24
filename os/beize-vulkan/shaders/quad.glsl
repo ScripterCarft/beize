@@ -17,12 +17,14 @@ struct Quad {
     vec4 clip;
     float radius;
     float sigma;
+    vec4 bottom;
 };
 
 const uint SOLID = 1u;
 const uint EXACT = 2u;
 const uint MASK = 4u;
 const uint SHADOW = 8u;
+const uint GRADIENT = 16u;
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Quads {
     Quad quads[];

@@ -6,7 +6,7 @@
 //! A scene is data only: text adds its glyph runs, and `quads` turns each
 //! glyph into a quad when it is drawn (`glyphs`, the atlas).
 
-use beize_vulkan::pipeline::{EXACT, MASK, Quad, SOLID};
+use beize_vulkan::pipeline::{EXACT, GRADIENT, MASK, Quad, SOLID};
 use parley::{FontData, Layout, PositionedLayoutItem, Run};
 use tracing::debug;
 
@@ -153,6 +153,22 @@ impl Scene {
             size: [rect.w, rect.h],
             color: color.linear(),
             flags: SOLID,
+            clip: [rect.x, rect.y, rect.w, rect.h],
+            radius,
+            ..Quad::default()
+        });
+        self.blend.push(true);
+    }
+
+    /// `rect` with corners of `radius`, from `top` at its top to `bottom`
+    /// at its bottom; always blended, as `rounded`.
+    pub fn gradient(&mut self, rect: Rect, radius: f32, top: Color, bottom: Color) {
+        self.quads.push(Quad {
+            pos: [rect.x, rect.y],
+            size: [rect.w, rect.h],
+            color: top.linear(),
+            bottom: bottom.linear(),
+            flags: SOLID | GRADIENT,
             clip: [rect.x, rect.y, rect.w, rect.h],
             radius,
             ..Quad::default()

@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-23: M3 Schritt 4 Shell, (a)–(c) und d1 fertig, d2 Symbole als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1, d2a fertig, d2b hicolor als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -352,7 +352,7 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10.:**
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2a 24.10.:**
 (a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
 (`windows.rs`, Randstreifen 5 px, Grabs), Titelleiste wie macOS aus `beize-draw` (`titlebar::Look`,
 Windows wählbar), Rahmen für fremde Apps (`decorations.rs`, getestet nur mit dem Testprogramm;
@@ -381,10 +381,11 @@ Abstand 23, aber der Besitzer hat 14 auf dem Schirm als zu groß verworfen: sie 
 (AppKit-Standard, wie online belegt); nicht wieder anfassen. Nur die linke obere Dock-Ecke war
 sauber messbar. Farben von Dock und Punkt kommen
 mit d3. Apples Bilder liegen nicht im Repo (Lizenz); Messskripte waren Wegwerf-Arbeit.
-**Als Nächstes:** d2 Symbole (Phosphor in der Leiste, eigene App-Symbole in
-einer Squircle-Form mit Verlauf und Phosphor-Motiv statt der Buchstaben-Kacheln: Terminal, später
-Sift = Dateimanager des Besitzers und Papierkorb; hicolor für fremde Apps; Zeigerbilder für die
-Ränder); d3 Grundglas und Hintergrund; d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9,
+**d2a fertig 24.10.:** Verläufe im Shader (`GRADIENT`, wie CSS gemischt), App-Symbole von Beize
+(`beize-draw` `icon`: Form + Verlauf + Phosphor-Motiv; Terminal abgenommen, Farben und Motiv 70 %
+eigene Wahl). **Als Nächstes:** d2b hicolor-Symbole fremder Apps (Beize UI braucht dafür farbige
+Bilder), d2c Zeigerbilder für die Ränder; Phosphor in der Menüleiste kommt mit ihren Einträgen in
+(e); Sift = Dateimanager des Besitzers und Papierkorb bekommen ihr Symbol mit sich; d3 Grundglas und Hintergrund; d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9,
 Wunsch des Besitzers) und ein Hardware-Test. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
