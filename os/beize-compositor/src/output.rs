@@ -117,7 +117,23 @@ pub fn surface(drm: &mut DrmDevice) -> Result<(DrmSurface, Info)> {
             connector.interface().as_str(),
             connector.interface_id()
         );
-        info!("screen {name}: {w}x{h} at {} Hz", mode.vrefresh());
+        // The mode the screen had when taken, the console's: a different
+        // one makes the monitor lock on anew (the black gap on the way to
+        // the session, CLAUDE.md §11).
+        let had = connector
+            .current_encoder()
+            .and_then(|e| fd.get_encoder(e).ok())
+            .and_then(|e| e.crtc())
+            .and_then(|c| fd.get_crtc(c).ok())
+            .and_then(|c| c.mode())
+            .map_or("none".to_string(), |m| {
+                let (w, h) = m.size();
+                format!("{w}x{h} at {} Hz", m.vrefresh())
+            });
+        info!(
+            "screen {name}: {w}x{h} at {} Hz, it had {had}",
+            mode.vrefresh()
+        );
         let size_mm = connector.size().unwrap_or_default();
         let info = Info {
             name,
