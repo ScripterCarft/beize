@@ -13,8 +13,10 @@
 //! seen, but there, as Apple lays a subtle gradient over the wallpaper –
 //! helps its white ink; only where the top is very light is the ink dark
 //! (`Tone`, measured once per background with the scrim). Over a
-//! fullscreen window it lies on base glass instead (`plate`), its ink for
-//! the appearance: no desktop is behind it there (macOS since Big Sur).
+//! fullscreen window it lies on live glass instead (`plate`), its ink for
+//! the appearance: no desktop is behind it there, and the glass takes on
+//! the window's colours, as the dock's does (the owner, 24.10.; macOS
+//! shows the bar opaque there).
 
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Material, Target, VkRenderer, VkTexture};
@@ -148,8 +150,9 @@ pub struct Backdrop {
     scrim: TextureBuffer<VkTexture>,
     /// Base glass, made when a panel first asks for it.
     glass: Option<VkTexture>,
-    /// The glass below the menu bar over a fullscreen window (`plate`):
-    /// drawn again when its place changes.
+    /// The glass below the menu bar over a fullscreen window (`plate`)
+    /// until `LiveGlass` first gives it what lies behind: drawn again when
+    /// its place changes.
     plate: (Id, CommitCounter, Option<Rectangle<i32, Logical>>),
     /// Counts the backdrops drawn: a glass element knows a new one by it.
     generation: u64,
@@ -201,33 +204,29 @@ impl Backdrop {
         }
     }
 
-    /// Base glass over `rect`, square and without a rim: below the menu bar
-    /// where a fullscreen window lies behind it.
-    pub fn plate(
-        &mut self,
-        renderer: &mut VkRenderer,
-        rect: Rectangle<i32, Logical>,
-    ) -> Option<Glass> {
-        let texture = self.base(renderer)?;
+    /// Live glass over `rect`, square and without a rim: below the menu bar
+    /// where a fullscreen window lies behind it. It reads the background
+    /// until `LiveGlass` gives it what lies behind it, in the same frame.
+    pub fn plate(&mut self, rect: Rectangle<i32, Logical>) -> Glass {
         let (id, commit, last) = &mut self.plate;
         if *last != Some(rect) {
             *last = Some(rect);
             commit.increment();
         }
-        Some(Glass {
+        Glass {
             id: id.clone(),
             commit: *commit,
             shape: rect.to_physical(1),
             radius: 0.0,
             rim: [0.0; 4],
-            texture,
+            texture: self.picture.clone(),
             covers: Rectangle::from_size(self.size),
-            live: None,
-        })
+            live: Some(Behind::Plate),
+        }
     }
 
-    /// The menu bar's ink: on base glass (`plate`) as the appearance has it,
-    /// else as measured on the background.
+    /// The menu bar's ink: on glass over a fullscreen window (`plate`) as
+    /// the appearance has it, else as measured on the background.
     pub fn bar_tone(&self, on_plate: bool) -> Tone {
         match (on_plate, self.appearance) {
             (false, _) => self.tone,
@@ -310,9 +309,17 @@ impl Backdrop {
             },
             texture,
             covers: Rectangle::from_size(self.size),
-            live: state.live.then(|| surface.clone()),
+            live: state.live.then(|| Behind::Panel(surface.clone())),
         })
     }
+}
+
+/// What live glass lies below: a panel that asked for it, or the menu bar
+/// over a fullscreen window (`plate`).
+#[derive(Clone, PartialEq)]
+pub enum Behind {
+    Panel(WlSurface),
+    Plate,
 }
 
 /// How light `wallpaper` is behind the menu bar, the scrim over it as a
@@ -389,13 +396,13 @@ pub struct Glass {
     /// A blurred copy of what lies in `covers` (the screen's coordinates).
     texture: VkTexture,
     covers: Rectangle<i32, Physical>,
-    /// Live glass: the surface it lies below (`LiveGlass`).
-    live: Option<WlSurface>,
+    /// Live glass: what it lies below (`LiveGlass`).
+    live: Option<Behind>,
 }
 
 impl Glass {
-    /// The surface of live glass, which shows what lies behind it.
-    pub fn live(&self) -> Option<&WlSurface> {
+    /// What live glass lies below; it shows what lies behind it.
+    pub fn live(&self) -> Option<&Behind> {
         self.live.as_ref()
     }
 }
@@ -464,14 +471,15 @@ impl<R: Effects> RenderElement<R> for Glass {
 /// the blur at its edge takes in what is beside it.
 const LIVE_MARGIN: i32 = 64;
 
-/// Live glass (ADR 0028 §6): what lies behind a panel – windows, their
+/// Live glass (ADR 0028 §6): what lies behind a panel or the menu bar over
+/// a fullscreen window – windows, their
 /// shadows, the background – drawn into an image of its own with a damage
 /// tracker of its own, never read back from the screen (which holds the
 /// glass itself), and blurred only when something there changed. Lifted
 /// and tinted as base glass is, so the two look the same over the
 /// background alone.
 pub struct LiveGlass {
-    surface: WlSurface,
+    behind: Behind,
     /// Where it draws, on the screen: the glass and `LIVE_MARGIN` around.
     region: Rectangle<i32, Physical>,
     target: Target,
@@ -483,11 +491,11 @@ pub struct LiveGlass {
 }
 
 impl LiveGlass {
-    /// Live glass below `surface`.
-    pub fn new(renderer: &mut VkRenderer, surface: &WlSurface) -> Result<LiveGlass> {
+    /// Live glass below `behind`.
+    pub fn new(renderer: &mut VkRenderer, behind: Behind) -> Result<LiveGlass> {
         let size = (1, 1);
         Ok(LiveGlass {
-            surface: surface.clone(),
+            behind,
             region: Rectangle::from_size(size.into()),
             target: renderer.sampled_target(size.into())?,
             damage: OutputDamageTracker::new(size, 1.0, Transform::Normal),
@@ -498,12 +506,17 @@ impl LiveGlass {
         })
     }
 
-    pub fn is_for(&self, surface: &WlSurface) -> bool {
-        &self.surface == surface
+    pub fn is_for(&self, behind: &Behind) -> bool {
+        &self.behind == behind
     }
 
-    pub fn alive(&self) -> bool {
-        self.surface.is_alive()
+    /// Whether it is still wanted: its panel alive, the menu bar's while a
+    /// fullscreen window lies below it (`plated`).
+    pub fn wanted(&self, plated: bool) -> bool {
+        match &self.behind {
+            Behind::Panel(surface) => surface.is_alive(),
+            Behind::Plate => plated,
+        }
     }
 
     /// Draws what lies `behind` (front to back) the panel's glass `glass`

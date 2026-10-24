@@ -93,7 +93,8 @@ const GLASS_SMOOTH: u8 = 6;
 /// some 20).
 const BAR_EDGE: f64 = 4.0;
 /// Live glass shows a window behind it: the test client's blue and white,
-/// blurred, move a channel of the dock's glass by more than this.
+/// blurred, move a channel of the dock's glass by more than this; over the
+/// fullscreen window, its red or green leads the other channels by as much.
 const GLASS_SHOWS: u8 = 12;
 /// The test client's icon (`CLIENT_ICON`): one colour, so the dock shows
 /// it in the middle of its tile as it is.
@@ -462,8 +463,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
 
     // Super+F (ADR 0028 §2): the window fills the whole screen, menu bar and
     // dock hidden. The pointer in the middle; at the top edge it shows the
-    // menu bar on glass (its ink dark, as on light glass), at the bottom
-    // the dock. Super+F again, and the window is back in its place.
+    // menu bar on live glass (its ink dark, as on light glass), which takes
+    // on the window's red and green above – base glass would show the
+    // background –, at the bottom the dock. Super+F again, and the window
+    // is back in its place.
     let middle = (screen.0 / 2, screen.1 / 2);
     let to = |(x, y): (usize, usize)| -> Result<(i32, i32)> {
         Ok((i32::try_from(x)?, i32::try_from(y)?))
@@ -488,11 +491,24 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         )
     })?;
     let bar_at = (middle.0 + 100, MENU_BAR / 2);
+    // Below the bar's text, a quarter in from either side: the blur there
+    // takes in one quadrant only.
+    let red_at = (screen.0 / 4, MENU_BAR - 3);
+    let green_at = (screen.0 * 3 / 4, MENU_BAR - 3);
     drag(&qmp, screen, to(middle)?, to((middle.0, 0))?, false)?;
     wait_until_screen(&machine, "fullscreen-menu-bar", |shown| {
         ensure!(
             !same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
             "the menu bar did not come at the top edge over the fullscreen window"
+        );
+        let (red, green) = (
+            shown.pixel(red_at.0, red_at.1),
+            shown.pixel(green_at.0, green_at.1),
+        );
+        ensure!(
+            leads(red, 0) && leads(green, 1),
+            "the menu bar's glass does not show the fullscreen window: {red:?} over its red, \
+             {green:?} over its green"
         );
         Ok(())
     })?;
@@ -532,8 +548,9 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     park(&qmp, screen)?;
     wait_for_pattern(&shell, &machine, moved, grown, "back from fullscreen")?;
     say!(
-        "  ok: Super+F gave the window the whole screen; the menu bar came on glass at the top \
-         edge, the dock at the bottom; again, and it was back in its place"
+        "  ok: Super+F gave the window the whole screen; the menu bar came at the top edge on \
+         live glass showing the window's colours, the dock at the bottom; again, and it was \
+         back in its place"
     );
 
     // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
@@ -1195,6 +1212,14 @@ fn same(a: [u8; 3], b: [u8; 3]) -> bool {
     a.iter()
         .zip(b)
         .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
+}
+
+/// Whether `channel` of a pixel on live glass leads the other two by what
+/// a window behind it shows (`GLASS_SHOWS`).
+fn leads(pixel: [u8; 3], channel: usize) -> bool {
+    (0..3)
+        .filter(|&c| c != channel)
+        .all(|c| pixel[channel] >= pixel[c].saturating_add(GLASS_SHOWS))
 }
 
 /// Whether two pixels are as close as neighbours on soft glass.

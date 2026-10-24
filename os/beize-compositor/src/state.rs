@@ -449,7 +449,7 @@ impl State {
         let hide_upper = self.fullscreen_in_front();
         let revealed = self.revealed;
         // Over a fullscreen window, in front or behind, the menu bar lies on
-        // glass (`backdrop`).
+        // live glass (`backdrop`), in place of any glass it asked for.
         let plate = self
             .space
             .elements()
@@ -502,12 +502,19 @@ impl State {
             }
         }
         let shown = |place| !hide_upper || revealed == Some(side(area, place));
-        let (upper, lower) = panels(screen.renderer(), output, self.backdrop.as_mut(), shown);
+        let (upper, lower) = panels(
+            screen.renderer(),
+            output,
+            self.backdrop.as_mut(),
+            shown,
+            plate,
+        );
         elements.extend(upper);
+        let mut plated = false;
         if let Some(backdrop) = &mut self.backdrop {
-            let glass = plate.and_then(|band| backdrop.plate(screen.renderer(), band));
-            self.shell_windows
-                .set_tone(backdrop.bar_tone(glass.is_some()));
+            let glass = plate.map(|band| backdrop.plate(band));
+            plated = glass.is_some();
+            self.shell_windows.set_tone(backdrop.bar_tone(plated));
             elements.extend(glass.map(Element::Glass));
         }
         // Each window with its bar above it, front to back.
@@ -568,19 +575,19 @@ impl State {
         }
         // Live glass shows what lies behind it: back to front, so glass in
         // front sees glass behind it as it is now.
-        self.live_glass.retain(LiveGlass::alive);
+        self.live_glass.retain(|l| l.wanted(plated));
         let screen_size = area.size.to_physical(1);
         for i in (0..elements.len()).rev() {
             let (front, behind) = elements.split_at_mut(i + 1);
             let Element::Glass(glass) = &mut front[i] else {
                 continue;
             };
-            let Some(surface) = glass.live().cloned() else {
+            let Some(below) = glass.live().cloned() else {
                 continue;
             };
-            let live = match self.live_glass.iter().position(|l| l.is_for(&surface)) {
+            let live = match self.live_glass.iter().position(|l| l.is_for(&below)) {
                 Some(j) => &mut self.live_glass[j],
-                None => match LiveGlass::new(screen.renderer(), &surface) {
+                None => match LiveGlass::new(screen.renderer(), below) {
                     Ok(live) => {
                         self.live_glass.push(live);
                         let last = self.live_glass.len() - 1;
@@ -963,6 +970,7 @@ fn panels(
     output: &WlOutput,
     mut backdrop: Option<&mut Backdrop>,
     shown: impl Fn(Rectangle<i32, Logical>) -> bool,
+    plate: Option<Rectangle<i32, Logical>>,
 ) -> (Vec<Element>, Vec<Element>) {
     let map = layer_map_for_output(output);
     let (mut upper, mut lower) = (Vec::new(), Vec::new());
@@ -982,8 +990,11 @@ fn panels(
                 Scale::from(1.0),
                 1.0,
             );
+        // The menu bar's own glass gives way to the plate over a fullscreen
+        // window.
         let glass = backdrop
             .as_deref_mut()
+            .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)))
             .and_then(|b| b.glass(renderer, panel.wl_surface(), place.loc));
         let list = match panel.layer() {
             Layer::Overlay | Layer::Top => &mut upper,

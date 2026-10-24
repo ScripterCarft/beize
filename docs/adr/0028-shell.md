@@ -123,10 +123,10 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Vollbild für jedes Fenster. Eigene Spaces kommen später; bis dahin tritt ein Vollbild zurück,
   wenn eine andere App nach vorn kommt: Es bleibt Vollbild hinter ihr, Menüleiste und Dock sind
   wieder da (wie bei Windows); nach vorn geholt ist es sofort wieder Vollbild (Besitzer, 24.10.).
-  Liegt ein Vollbild unter der Menüleiste, vorn oder zurückgetreten, liegt sie auf Glas; die
-  Schrift folgt dann dem Erscheinungsbild. Heute Grundglas; entschieden (Besitzer, 24.10.):
-  lebendiges Glas wie das Dock, das sich dem Vollbild darunter anpasst – einheitlich mit dem
-  Dock statt macOS' deckender Leiste. Eingeblendet verdecken Leiste und Dock das Vollbild, sie
+  Liegt ein Vollbild unter der Menüleiste, vorn oder zurückgetreten, liegt sie auf lebendigem
+  Glas wie das Dock, das sich dem Vollbild darunter anpasst (Besitzer, 24.10.: einheitlich mit
+  dem Dock statt macOS' deckender Leiste), auch statt des Grundglases der Einstellung unten; die
+  Schrift folgt dann dem Erscheinungsbild, ohne Messung. Eingeblendet verdecken Leiste und Dock das Vollbild, sie
   verschieben es nicht (wie macOS): Die App behält ihre Größe, kein Neuzeichnen und kein Springen
   bei Video und Spiel. Die Leisten behalten ihre Streifen,
   die übrigen Fenster rücken nicht. Im Vollbild hat ein Fenster keinen Rahmen und keine
@@ -240,7 +240,7 @@ lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   darunter wird nichts gezeichnet. Hintergrund und Blur haben einen eigenen Shader
   (`backdrop.frag`), damit der Shader jedes Bildes klein bleibt.
 - **Lebendiges Glas** (Dock – Besitzer, 24.10.: Fenster dahinter scheinen verschwommen durch
-  wie bei macOS –, Kontrollzentrum, Menüs, später Suche): was dahinter liegt – Fenster, ihre
+  wie bei macOS –, Menüleiste über Vollbild, Kontrollzentrum, Menüs, später Suche): was dahinter liegt – Fenster, ihre
   Schatten, der Hintergrund –, im selben Durchgang wie das Bild. Der Compositor zeichnet dafür die
   Elemente hinter dem Glas (das Glas und 64 px darum, für den Rand des Blurs) in ein eigenes
   kleines Bild mit eigener Schadensverfolgung, nie aus dem Bildschirmpuffer, in dem das Glas
@@ -345,7 +345,8 @@ b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI m
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste. ✓ 23.10.
 d) Symbole, Hintergrund, lebendiges Glas für das Dock, die Menüleiste ohne Hintergrund
-   (✓ 24.10.), echtes Vollbild (✓ 24.10.), der Start aus einem Guss; danach der Lasttest und ein
+   (✓ 24.10.), echtes Vollbild mit lebendigem Glas unter der Leiste (✓ 24.10.), der Start aus
+   einem Guss; danach der Lasttest und ein
    Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
    Neustart, Ausschalten über logind).

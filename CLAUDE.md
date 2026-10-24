@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4 fertig, d4b lebendiges Glas der Menüleiste über Vollbild als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4b fertig, Start aus einem Guss als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -427,22 +427,22 @@ Zoom, Alt+Grün = Vollbild (Beize UI und Rahmen des Compositors); Super+F für j
 Schatten, zurück an den alten Platz oder ins Maximiert. `layers.rs` (`reveal`): vorderstes Fenster
 Vollbild → Leisten oben versteckt (Streifen bleiben, kein Fenster rückt), Zeiger in der Randzeile
 holt die Leisten dieser Kante, bis er ihren Streifen verlässt; eine andere App vorn → Vollbild tritt
-zurück, bleibt Vollbild. Liegt ein Vollbild unter der Menüleiste, legt der Compositor Grundglas
-darunter (`Backdrop::plate`, Schrift nach Erscheinungsbild). Beize UI zeigt im Vollbild keine
+zurück, bleibt Vollbild. Beize UI zeigt im Vollbild keine
 Titelleiste. Smoke prüft Super+F, Leiste oben, Dock unten, zurück. Dabei behoben: `drag` im Smoke
 traf Pixel 799 als 798,999 (rundet jetzt auf). Offen: Zurücktreten nur von Hand geprüft (Bild in
 der VM; `@mouse` von `bz debug` bewegt sich nach dem ersten Mal nicht zuverlässig); Direct Scanout
 (Vollbild-Puffer direkt auf die Ebene, wie KWin/Mutter) fehlt noch, gehört in den Lasttest bzw.
 die Effizienzarbeit; Titelleiste von Beize UI erscheint im Vollbild nicht mit der Menüleiste
 (macOS tut das), Verlassen per Super+F.
-**Als Nächstes: d4b Menüleiste über Vollbild als lebendiges Glas** (Besitzer, 24.10.: „soll sich an
-das darunter anpassen“; bewusst anders als macOS, das sie dort deckend zeigt, dafür einheitlich mit
-dem Dock): statt `Backdrop::plate` (Grundglas aus dem Hintergrund) lebendiges Glas wie beim Dock
-(`LiveGlass`, Blur nur bei Schaden; Video darunter = Blur je Bild über 24 px Höhe, im Lasttest
-messen), Tönung nach Erscheinungsbild, Schrift weiter nach Erscheinungsbild (`bar_tone`), keine
-Live-Messung per Zurücklesen. Gilt vorn (eingeblendet) und zurückgetreten. Smoke: Leiste über dem
-Vollbild ändert sich mit dem Inhalt darunter (wie die Glasprobe des Docks). Bilder dem Besitzer
-zeigen (hell und dunkel). Danach der Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
+**d4b fertig 24.10.: Menüleiste über Vollbild auf lebendigem Glas** (Besitzer: „soll sich an das
+darunter anpassen“; anders als macOS, einheitlich mit dem Dock): `Backdrop::plate` ist lebendiges
+Glas (`backdrop::Behind::Plate`, `LiveGlass` wie beim Dock, Blur nur bei Schaden; Video darunter =
+Blur je Bild über Leiste + 64 px, im Lasttest messen), vorn und zurückgetreten, auch statt des
+Grundglases von `BEIZE_MENU_BAR=glass`; Schrift nach Erscheinungsbild (`bar_tone`), ohne Messung.
+Smoke: über dem roten/grünen Testmuster führt links Rot, rechts Grün (Gegenprobe mit Hintergrund:
+rot). Bilder hell und dunkel dem Besitzer gezeigt; offen sein Urteil (dunkel wirkt die Leiste
+satter als das Fenster: Sättigung 1,8 des Materials).
+**Als Nächstes: der Start aus einem Guss**; danach der Lasttest (ADR 0028 §9, Wunsch des
 Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
