@@ -21,6 +21,12 @@
 //! and active.
 //! The window below takes over the keyboard.
 //!
+//! Fullscreen (ADR 0028 §2), a window fills the whole screen, over the
+//! panels' strips, without a frame; it comes back to where it was, or to
+//! maximized if it was so before. In front it hides the panels
+//! (`State::panel_shown`); another window raised over it lets it step back,
+//! still fullscreen, until it is raised again.
+//!
 //! A window with the compositor's title bar (`decorations`) is placed by
 //! its frame, the bar and its content: the frame is centred, stays below
 //! the menu bar and fills the area maximized; the content keeps its place
@@ -69,7 +75,10 @@ const SMALLEST: (i32, i32) = (64, 32);
 struct Place {
     /// Where it was before it was maximized.
     restore: Option<Rectangle<i32, Logical>>,
-    /// Where it goes once it commits its size without being maximized.
+    /// Where it was before it went fullscreen.
+    before_fullscreen: Option<Rectangle<i32, Logical>>,
+    /// Where it goes once it commits its size without being maximized or
+    /// fullscreen.
     unmaximized_at: Option<Point<i32, Logical>>,
     /// Being resized: which edges move, and the window before.
     resize: Option<Resize>,
@@ -151,6 +160,22 @@ fn constrain_content(
     let bar = bar_height(window);
     let lifted = Point::from((at.x, at.y - bar));
     constrain(area, (size.w, size.h + bar).into(), lifted) + Point::from((0, bar))
+}
+
+/// Whether `window` is fullscreen, as its last commit acknowledged.
+pub fn fullscreen(window: &Window) -> bool {
+    window
+        .toplevel()
+        .is_some_and(|t| t.current_state().states.contains(XdgState::Fullscreen))
+}
+
+/// Whether `window` is maximized or fullscreen: it fills its place and does
+/// not move or resize by dragging.
+fn fills(window: &Window) -> bool {
+    window.toplevel().is_some_and(|t| {
+        let states = t.current_state().states;
+        states.contains(XdgState::Maximized) || states.contains(XdgState::Fullscreen)
+    })
 }
 
 /// The window's app, for the log.
@@ -267,8 +292,12 @@ impl State {
                 .filter_map(|w| Some(frame(w, self.space.element_geometry(w)?).loc))
                 .collect();
             let bar = bar_height(&window);
-            let at =
-                initial_place(area, (size.w, size.h + bar).into(), &taken) + Point::from((0, bar));
+            // A game or player may ask for fullscreen before its first frame.
+            let at = if fullscreen(&window) {
+                self.screen_area().loc
+            } else {
+                initial_place(area, (size.w, size.h + bar).into(), &taken) + Point::from((0, bar))
+            };
             info!(
                 "window {} {}x{} at {},{}",
                 app_id(&window),
@@ -293,6 +322,9 @@ impl State {
         let size = window.geometry().size;
         let bar = bar_height(window);
         let to = with_place(window, |place| {
+            if fullscreen(window) {
+                return Some(self.screen_area().loc);
+            }
             if maximized {
                 return Some(self.window_area().loc + Point::from((0, bar)));
             }
@@ -352,9 +384,13 @@ impl State {
             self.minimized.remove(i);
             let at = with_place(&window, |place| place.minimized_at.take());
             let area = self.window_area();
-            let at = at.map_or(area.loc, |at| {
-                constrain_content(area, &window, window.geometry().size, at)
-            });
+            let at = if fullscreen(&window) {
+                self.screen_area().loc
+            } else {
+                at.map_or(area.loc, |at| {
+                    constrain_content(area, &window, window.geometry().size, at)
+                })
+            };
             self.space.map_element(window.clone(), at, false);
             info!("brought back {}", app_id(&window));
         }
@@ -367,6 +403,8 @@ impl State {
             return;
         };
         let area = self.window_area();
+        let fullscreen =
+            toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen));
         if !toplevel
             .current_state()
             .states
@@ -374,18 +412,97 @@ impl State {
         {
             let geometry = self.space.element_geometry(&window);
             with_place(&window, |place| {
-                place.restore = geometry;
+                // Fullscreen: the place from before that.
+                place.restore = if fullscreen {
+                    place.before_fullscreen
+                } else {
+                    geometry
+                };
                 place.unmaximized_at = None;
             });
         }
         let bar = bar_height(&window);
         toplevel.with_pending_state(|state| {
             state.states.set(XdgState::Maximized);
-            state.size = Some((area.size.w, area.size.h - bar).into());
+            // Fullscreen keeps the screen; maximized shows when it ends.
+            if !fullscreen {
+                state.size = Some((area.size.w, area.size.h - bar).into());
+            }
         });
         if toplevel.is_initial_configure_sent() {
             toplevel.send_pending_configure();
         }
+    }
+
+    /// Fullscreen, or back (Super+F, Alt on the green button).
+    pub fn toggle_fullscreen(&mut self, toplevel: &ToplevelSurface) {
+        if toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen)) {
+            self.unfullscreen(toplevel);
+        } else {
+            self.fullscreen(toplevel);
+        }
+    }
+
+    /// The whole screen for the window, over the panels' strips; it comes
+    /// to the front.
+    pub fn fullscreen(&mut self, toplevel: &ToplevelSurface) {
+        let Some(window) = self.window_for(toplevel.wl_surface()) else {
+            return;
+        };
+        if toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen)) {
+            return;
+        }
+        let geometry = self.space.element_geometry(&window);
+        with_place(&window, |place| {
+            place.before_fullscreen = geometry;
+            place.unmaximized_at = None;
+        });
+        let screen = self.screen_area();
+        toplevel.with_pending_state(|state| {
+            state.states.set(XdgState::Fullscreen);
+            state.size = Some(screen.size);
+        });
+        if toplevel.is_initial_configure_sent() {
+            toplevel.send_pending_configure();
+        }
+        info!("fullscreen {}", app_id(&window));
+        if self.space.element_location(&window).is_some() {
+            self.focus(Some(window));
+        }
+    }
+
+    /// Back to where the window was before, or maximized if it was so.
+    pub fn unfullscreen(&mut self, toplevel: &ToplevelSurface) {
+        let Some(window) = self.window_for(toplevel.wl_surface()) else {
+            return;
+        };
+        if !toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen)) {
+            return;
+        }
+        let area = self.window_area();
+        let bar = bar_height(&window);
+        let maximized =
+            toplevel.with_pending_state(|state| state.states.contains(XdgState::Maximized));
+        let before = with_place(&window, |place| {
+            let before = place.before_fullscreen.take();
+            if !maximized {
+                place.unmaximized_at = before.map(|r| r.loc);
+            }
+            before
+        });
+        toplevel.with_pending_state(|state| {
+            state.states.unset(XdgState::Fullscreen);
+            state.size = if maximized {
+                Some((area.size.w, area.size.h - bar).into())
+            } else {
+                // Without a size from before, the app chooses.
+                before.map(|r| r.size)
+            };
+        });
+        if toplevel.is_initial_configure_sent() {
+            toplevel.send_pending_configure();
+        }
+        info!("left fullscreen {}", app_id(&window));
     }
 
     /// Back to where the window was before it was maximized, or `at` – the
@@ -395,6 +512,19 @@ impl State {
             return;
         };
         if !toplevel.with_pending_state(|state| state.states.contains(XdgState::Maximized)) {
+            return;
+        }
+        if toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen)) {
+            // It leaves fullscreen to its place from before, not maximized.
+            with_place(&window, |place| {
+                if let Some(restore) = place.restore.take() {
+                    place.before_fullscreen = Some(restore);
+                }
+            });
+            toplevel.with_pending_state(|state| state.states.unset(XdgState::Maximized));
+            if toplevel.is_initial_configure_sent() {
+                toplevel.send_pending_configure();
+            }
             return;
         }
         let restore = with_place(&window, |place| {
@@ -424,7 +554,15 @@ impl State {
             let bar = bar_height(&window);
             let content = Size::from((area.size.w, area.size.h - bar));
             toplevel.with_pending_state(|state| state.bounds = Some(content));
-            if toplevel.with_pending_state(|state| state.states.contains(XdgState::Maximized)) {
+            let (maximized, fullscreen) = toplevel.with_pending_state(|state| {
+                (
+                    state.states.contains(XdgState::Maximized),
+                    state.states.contains(XdgState::Fullscreen),
+                )
+            });
+            if fullscreen {
+                // The panels' strips do not concern it.
+            } else if maximized {
                 toplevel.with_pending_state(|state| state.size = Some(content));
             } else if let Some(geometry) = self.space.element_geometry(&window) {
                 let at = constrain_content(area, &window, geometry.size, geometry.loc);
@@ -449,7 +587,9 @@ impl State {
             let content = Size::from((area.size.w, area.size.h - bar_height(window)));
             toplevel.with_pending_state(|state| {
                 state.bounds = Some(content);
-                if state.states.contains(XdgState::Maximized) {
+                if state.states.contains(XdgState::Maximized)
+                    && !state.states.contains(XdgState::Fullscreen)
+                {
                     state.size = Some(content);
                 }
             });
@@ -469,6 +609,10 @@ impl State {
         let Some(geometry) = self.space.element_geometry(&window) else {
             return;
         };
+        // Fullscreen stays where it is.
+        if fullscreen(&window) {
+            return;
+        }
         let maximized = toplevel
             .current_state()
             .states
@@ -533,8 +677,8 @@ impl State {
     /// The window whose edge strip lies under `at`, and which edges. Front
     /// to back, as macOS decides: the strip of a window in front wins over
     /// the windows behind it, a window's content or bar in front over the
-    /// strip, a panel over all. None for a maximized window, which does
-    /// not resize.
+    /// strip, a panel over all. None for a maximized or fullscreen window,
+    /// which does not resize.
     pub fn edge_under(&self, at: Point<f64, Logical>) -> Option<(Window, ResizeEdge)> {
         if self.panel_under(at) {
             return None;
@@ -547,10 +691,7 @@ impl State {
                 continue;
             };
             if let Some(edges) = edge_at(frame(window, geometry), at) {
-                let maximized = window
-                    .toplevel()
-                    .is_some_and(|t| t.current_state().states.contains(XdgState::Maximized));
-                return (!maximized).then(|| (window.clone(), edges));
+                return (!fills(window)).then(|| (window.clone(), edges));
             }
         }
         None
@@ -566,11 +707,7 @@ impl State {
         let Some(toplevel) = window.toplevel() else {
             return;
         };
-        if toplevel
-            .current_state()
-            .states
-            .contains(XdgState::Maximized)
-        {
+        if fills(&window) {
             return;
         }
         let Some(initial) = self.space.element_geometry(&window) else {

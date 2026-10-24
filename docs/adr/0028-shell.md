@@ -123,6 +123,11 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Vollbild für jedes Fenster. Eigene Spaces kommen später; bis dahin tritt ein Vollbild zurück,
   wenn eine andere App nach vorn kommt: Es bleibt Vollbild hinter ihr, Menüleiste und Dock sind
   wieder da (wie bei Windows); nach vorn geholt ist es sofort wieder Vollbild (Besitzer, 24.10.).
+  Deckend heißt Grundglas unter der Leiste, wo ein Vollbild darunter liegt, vorn oder
+  zurückgetreten; die Schrift folgt dann dem Erscheinungsbild. Die Leisten behalten ihre Streifen,
+  die übrigen Fenster rücken nicht. Im Vollbild hat ein Fenster keinen Rahmen und keine
+  Titelleiste (auch Beize UI nicht, wie AppKit); dass sie mit der Menüleiste erscheint wie bei
+  macOS, kommt später. Noch nicht gebaut: Direct Scanout des Vollbild-Puffers (wie KWin, Mutter).
 - **Kein Glas in Titelleisten** (Besitzer, 24.10.): Titelleisten sind von App zu App zu
   verschieden. Wichtig ist, dass jedes Programm die drei Knöpfe hat, wo es geht (Beize UI, der
   Rahmen des Compositors; libadwaita zeichnet eigene). Werkzeugleisten mit Knöpfen wie
@@ -336,7 +341,7 @@ b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI m
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste. ✓ 23.10.
 d) Symbole, Hintergrund, lebendiges Glas für das Dock, die Menüleiste ohne Hintergrund
-   (✓ 24.10.), echtes Vollbild, der Start aus einem Guss; danach der Lasttest und ein
+   (✓ 24.10.), echtes Vollbild (✓ 24.10.), der Start aus einem Guss; danach der Lasttest und ein
    Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
    Neustart, Ausschalten über logind).

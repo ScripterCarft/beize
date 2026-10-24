@@ -366,7 +366,9 @@ pub(super) fn click(
 
 /// The machine's tablet, through QEMU's control socket. It reports
 /// 0..=0x7fff across the screen, which libinput scales by `screen /
-/// 0x8000`: a pixel lands within 1/50 px.
+/// 0x8000`: rounded up, a pixel lands in it, at most 1/40 px past its
+/// edge (rounded to the nearest, 799 of 800 landed at 798.999 – on the
+/// pixel before).
 struct Tablet {
     qmp: Keyboard,
     screen: (usize, usize),
@@ -388,7 +390,7 @@ impl Tablet {
 
     /// The pointer onto the pixel `(x, y)`.
     fn to(&mut self, (x, y): (i32, i32)) -> Result<()> {
-        let scale = |n: i32, size: usize| (f64::from(n) * 32768.0 / size as f64).round() as i64;
+        let scale = |n: i32, size: usize| (f64::from(n) * 32768.0 / size as f64).ceil() as i64;
         let events = format!(
             r#"{{"type": "abs", "data": {{"axis": "x", "value": {}}}}}, {{"type": "abs", "data": {{"axis": "y", "value": {}}}}}"#,
             scale(x, self.screen.0),

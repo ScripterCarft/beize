@@ -460,6 +460,82 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          came back to its place and size"
     );
 
+    // Super+F (ADR 0028 §2): the window fills the whole screen, menu bar and
+    // dock hidden. The pointer in the middle; at the top edge it shows the
+    // menu bar on glass (its ink dark, as on light glass), at the bottom
+    // the dock. Super+F again, and the window is back in its place.
+    let middle = (screen.0 / 2, screen.1 / 2);
+    let to = |(x, y): (usize, usize)| -> Result<(i32, i32)> {
+        Ok((i32::try_from(x)?, i32::try_from(y)?))
+    };
+    drag(&qmp, screen, to(middle)?, to(middle)?, false)?;
+    keys(&qmp, &["meta_l+f"])?;
+    let difference = machine.logs.join("fullscreen-difference.ppm");
+    wait_until_screen(&machine, "fullscreen", |shown| {
+        // The pointer lies over the window there.
+        let pointer = |x: usize, y: usize| x.abs_diff(middle.0) < 32 && y.abs_diff(middle.1) < 32;
+        compare(
+            shown,
+            |x, y| {
+                if pointer(x, y) {
+                    shown.pixel(x, y)
+                } else {
+                    expected(x, y, screen.0, screen.1)
+                }
+            },
+            "the fullscreen window",
+            &difference,
+        )
+    })?;
+    let bar_at = (middle.0 + 100, MENU_BAR / 2);
+    drag(&qmp, screen, to(middle)?, to((middle.0, 0))?, false)?;
+    wait_until_screen(&machine, "fullscreen-menu-bar", |shown| {
+        ensure!(
+            !same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
+            "the menu bar did not come at the top edge over the fullscreen window"
+        );
+        Ok(())
+    })?;
+    wait_for_shell_line(&shell, |l| l == "menu bar on a Light background")?;
+    let apps = last_dock(&shell)?.len();
+    let tile = dock_tile(screen, apps, 0)?;
+    let tile = (usize::try_from(tile.0)?, usize::try_from(tile.1)?);
+    drag(
+        &qmp,
+        screen,
+        to((middle.0, 0))?,
+        to((middle.0, screen.1 - 1))?,
+        false,
+    )?;
+    wait_until_screen(&machine, "fullscreen-dock", |shown| {
+        ensure!(
+            !same(
+                shown.pixel(tile.0, tile.1),
+                expected(tile.0, tile.1, screen.0, screen.1)
+            ),
+            "the dock did not come at the bottom edge over the fullscreen window"
+        );
+        ensure!(
+            same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
+            "the menu bar stayed over the fullscreen window with the pointer at the bottom"
+        );
+        Ok(())
+    })?;
+    drag(
+        &qmp,
+        screen,
+        to((middle.0, screen.1 - 1))?,
+        to(middle)?,
+        false,
+    )?;
+    keys(&qmp, &["meta_l+f"])?;
+    park(&qmp, screen)?;
+    wait_for_pattern(&shell, &machine, moved, grown, "back from fullscreen")?;
+    say!(
+        "  ok: Super+F gave the window the whole screen; the menu bar came on glass at the top \
+         edge, the dock at the bottom; again, and it was back in its place"
+    );
+
     // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
     // shows through, blurred – base glass would stay as it was. Then back.
     let glass_at = (
@@ -1087,6 +1163,38 @@ fn wait_for_panels(machine: &Machine) -> Result<()> {
             Err(_) => {}
         }
     }
+}
+
+/// Waits until the screen passes `check`; if it does not, the last screen
+/// is `<name>-screen.png` in the logs.
+fn wait_until_screen(
+    machine: &Machine,
+    name: &str,
+    check: impl Fn(&Image) -> Result<()>,
+) -> Result<()> {
+    let file = machine.logs.join(format!("{name}-screen.ppm"));
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        thread::sleep(Duration::from_millis(500));
+        screendump(&machine.qmp(), &file)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        match check(&screen) {
+            Ok(()) => return Ok(()),
+            Err(e) if Instant::now() >= deadline => {
+                let shown = machine.logs.join(format!("{name}-screen.png"));
+                screen.write_png(&shown)?;
+                return Err(e.context(format!("the screen is {}", shown.display())));
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+/// Whether two pixels are the same but rounding.
+fn same(a: [u8; 3], b: [u8; 3]) -> bool {
+    a.iter()
+        .zip(b)
+        .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
 }
 
 /// Whether two pixels are as close as neighbours on soft glass.

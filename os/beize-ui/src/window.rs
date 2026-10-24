@@ -10,7 +10,8 @@
 //! the app draws and hears its content only, below the bar, in its own
 //! coordinates, as with AppKit's content view. The bar redraws itself
 //! (pointer over a button, the window active or not) with the content the
-//! app drew last.
+//! app drew last. In fullscreen the window has no bar, as on macOS: all of
+//! it is content.
 
 use std::time::Instant;
 
@@ -153,19 +154,22 @@ impl Window {
     /// title bar.
     pub(crate) fn size(&self, surface: &Surface) -> (u32, u32) {
         let (w, h) = self.surface_size(surface);
-        (w, h.saturating_sub(self.bar_height()).max(1))
+        (w, h.saturating_sub(self.bar_height(surface)).max(1))
     }
 
     /// The whole surface's size, title bar and content.
     fn surface_size(&self, surface: &Surface) -> (u32, u32) {
         match surface.asked {
             (w, h) if w > 0 && h > 0 => (w as u32, h as u32),
-            _ => (self.preferred.0, self.preferred.1 + self.bar_height()),
+            _ => (
+                self.preferred.0,
+                self.preferred.1 + self.bar_height(surface),
+            ),
         }
     }
 
-    fn bar_height(&self) -> u32 {
-        if self.bar.is_some() {
+    fn bar_height(&self, surface: &Surface) -> u32 {
+        if self.bar.is_some() && !surface.fullscreen {
             titlebar::HEIGHT
         } else {
             0
@@ -175,13 +179,15 @@ impl Window {
     /// The title bar's part of what happened: the window's state, and the
     /// pointer over the bar; the rest of the pointer's events go to the app
     /// in its content's coordinates. Whether the bar is to be shown anew
-    /// over the content drawn last.
+    /// over the content drawn last. With `alt` held, the green button
+    /// switches fullscreen instead of maximizing (ADR 0028 §2).
     pub(crate) fn title_bar(
         &mut self,
         events: &mut Events,
         surface: &Surface,
         seat: Option<&WlSeat>,
         serial: u32,
+        alt: bool,
     ) -> bool {
         let width = self.surface_size(surface).0 as f32;
         let (activated, maximized) = (surface.activated, surface.maximized);
@@ -192,6 +198,11 @@ impl Window {
             bar.active = activated;
             bar.maximized = maximized;
             self.bar_changed = true;
+        }
+        if surface.fullscreen {
+            // No bar: the events are the content's as they are.
+            self.in_content = true;
+            return false;
         }
         let height = f64::from(titlebar::HEIGHT);
         let mut routed = Vec::with_capacity(events.input.len());
@@ -265,6 +276,7 @@ impl Window {
                     };
                     match bar.release() {
                         Some(titlebar::Button::Close) => events.closed = true,
+                        Some(titlebar::Button::Maximize) if alt => toplevel.set_fullscreen(None),
                         Some(titlebar::Button::Maximize) => {
                             toggle_maximized(toplevel, maximized);
                         }
@@ -306,7 +318,7 @@ impl Window {
         compositor: &WlCompositor,
         qh: &QueueHandle<State>,
     ) -> Result<()> {
-        if self.bar.is_none() {
+        if self.bar_height(surface) == 0 {
             return self.show(scene, renderer, surface, compositor, qh);
         }
         let mut content = Scene::new();
@@ -328,6 +340,9 @@ impl Window {
         let (Some(bar), Some(content)) = (&self.bar, &self.content) else {
             return Ok(());
         };
+        if surface.fullscreen {
+            return Ok(());
+        }
         let mut frame = bar.draw(text, width);
         frame.append(content, 0.0);
         self.bar_changed = false;

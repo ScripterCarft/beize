@@ -120,9 +120,11 @@ pub(crate) struct Surface {
     pub(crate) wl: WlSurface,
     /// From the last configure; 0 means "choose".
     pub(crate) asked: (i32, i32),
-    /// The window is the active one, and maximized (the last configure).
+    /// The window is the active one, maximized, fullscreen (the last
+    /// configure).
     pub(crate) activated: bool,
     pub(crate) maximized: bool,
+    pub(crate) fullscreen: bool,
     pub(crate) events: Events,
 }
 
@@ -340,6 +342,7 @@ impl App {
             asked: (0, 0),
             activated: false,
             maximized: false,
+            fullscreen: false,
             events: Events::default(),
         });
         Ok(id)
@@ -605,6 +608,7 @@ impl App {
             .collect();
         // Each window's title bar takes its part.
         let qh = self.queue.handle();
+        let alt = state.keyboard.modifiers().alt;
         for (id, events) in &mut windows {
             let (Some(window), Some(surface)) = (
                 self.windows.iter_mut().find(|w| w.id == *id),
@@ -612,7 +616,7 @@ impl App {
             ) else {
                 continue;
             };
-            if window.title_bar(events, surface, self.seat.as_ref(), state.serial)
+            if window.title_bar(events, surface, self.seat.as_ref(), state.serial, alt)
                 && !events.configured
             {
                 window.present(
@@ -738,6 +742,7 @@ impl Dispatch<XdgToplevel, WindowId> for State {
                 };
                 surface.activated = has(xdg_toplevel::State::Activated);
                 surface.maximized = has(xdg_toplevel::State::Maximized);
+                surface.fullscreen = has(xdg_toplevel::State::Fullscreen);
             }
             xdg_toplevel::Event::Close => surface.events.closed = true,
             _ => {}

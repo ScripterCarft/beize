@@ -11,7 +11,8 @@
 //! drawn again only when it changes – the title, the width, active or
 //! maximized, the pointer on a button – and otherwise shown as it is.
 //! Dragged, it moves the window; a double click maximizes it and back; its
-//! buttons maximize and close, each on release over it, as Beize UI's.
+//! buttons maximize and close, each on release over it, as Beize UI's; with
+//! Alt the green one switches fullscreen. A fullscreen window shows no bar.
 
 use std::cell::RefCell;
 use std::time::Instant;
@@ -74,12 +75,14 @@ fn with_bar<T>(window: &Window, f: impl FnOnce(&mut Bar) -> T) -> T {
     }
 }
 
-/// The window has the compositor's frame: it asked for it, and its last
-/// commit acknowledged it.
+/// The window shows the compositor's frame: it asked for it, and its last
+/// commit acknowledged it; not in fullscreen.
 pub fn decorated(window: &Window) -> bool {
-    window
-        .toplevel()
-        .is_some_and(|t| t.current_state().decoration_mode == Some(Mode::ServerSide))
+    window.toplevel().is_some_and(|t| {
+        let state = t.current_state();
+        state.decoration_mode == Some(Mode::ServerSide)
+            && !state.states.contains(XdgState::Fullscreen)
+    })
 }
 
 /// How much the frame adds above the window's content.
@@ -217,6 +220,10 @@ impl State {
             };
             match released {
                 Some(Button::Close) => toplevel.send_close(),
+                // With Alt (the option key) fullscreen, as Beize UI's.
+                Some(Button::Maximize) if self.keyboard.modifier_state().alt => {
+                    self.toggle_fullscreen(&toplevel);
+                }
                 Some(Button::Maximize) => self.toggle_maximized(&toplevel),
                 Some(Button::Minimize) => self.minimize(&window),
                 None => {}

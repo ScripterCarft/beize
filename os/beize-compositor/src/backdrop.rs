@@ -12,7 +12,9 @@
 //! scrim within it, from its top edge to nothing at its bottom – barely
 //! seen, but there, as Apple lays a subtle gradient over the wallpaper –
 //! helps its white ink; only where the top is very light is the ink dark
-//! (`Tone`, measured once per background with the scrim).
+//! (`Tone`, measured once per background with the scrim). Over a
+//! fullscreen window it lies on base glass instead (`plate`), its ink for
+//! the appearance: no desktop is behind it there (macOS since Big Sur).
 
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Material, Target, VkRenderer, VkTexture};
@@ -146,6 +148,9 @@ pub struct Backdrop {
     scrim: TextureBuffer<VkTexture>,
     /// Base glass, made when a panel first asks for it.
     glass: Option<VkTexture>,
+    /// The glass below the menu bar over a fullscreen window (`plate`):
+    /// drawn again when its place changes.
+    plate: (Id, CommitCounter, Option<Rectangle<i32, Logical>>),
     /// Counts the backdrops drawn: a glass element knows a new one by it.
     generation: u64,
 }
@@ -177,13 +182,58 @@ impl Backdrop {
             tone,
             scrim,
             glass: None,
+            plate: (Id::new(), CommitCounter::default(), None),
             generation,
         })
     }
 
-    /// How light the background is behind the menu bar.
-    pub fn tone(&self) -> Tone {
-        self.tone
+    /// Base glass, made now if nothing asked for it before.
+    fn base(&mut self, renderer: &mut VkRenderer) -> Option<VkTexture> {
+        if let Some(glass) = &self.glass {
+            return Some(glass.clone());
+        }
+        match renderer.draw_glass(&self.picture, self.appearance.material()) {
+            Ok(glass) => Some(self.glass.insert(glass).clone()),
+            Err(e) => {
+                tracing::warn!("base glass: {e}");
+                None
+            }
+        }
+    }
+
+    /// Base glass over `rect`, square and without a rim: below the menu bar
+    /// where a fullscreen window lies behind it.
+    pub fn plate(
+        &mut self,
+        renderer: &mut VkRenderer,
+        rect: Rectangle<i32, Logical>,
+    ) -> Option<Glass> {
+        let texture = self.base(renderer)?;
+        let (id, commit, last) = &mut self.plate;
+        if *last != Some(rect) {
+            *last = Some(rect);
+            commit.increment();
+        }
+        Some(Glass {
+            id: id.clone(),
+            commit: *commit,
+            shape: rect.to_physical(1),
+            radius: 0.0,
+            rim: [0.0; 4],
+            texture,
+            covers: Rectangle::from_size(self.size),
+            live: None,
+        })
+    }
+
+    /// The menu bar's ink: on base glass (`plate`) as the appearance has it,
+    /// else as measured on the background.
+    pub fn bar_tone(&self, on_plate: bool) -> Tone {
+        match (on_plate, self.appearance) {
+            (false, _) => self.tone,
+            (true, Appearance::Light) => Tone::Light,
+            (true, Appearance::Dark) => Tone::Dark,
+        }
     }
 
     /// The background, behind everything.
@@ -246,19 +296,7 @@ impl Backdrop {
         let texture = if state.live {
             self.picture.clone()
         } else {
-            match &self.glass {
-                Some(glass) => glass.clone(),
-                None => {
-                    let made = renderer.draw_glass(&self.picture, self.appearance.material());
-                    match made {
-                        Ok(glass) => self.glass.insert(glass).clone(),
-                        Err(e) => {
-                            tracing::warn!("base glass: {e}");
-                            return None;
-                        }
-                    }
-                }
-            }
+            self.base(renderer)?
         };
         Some(Glass {
             id,

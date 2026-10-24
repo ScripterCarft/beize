@@ -9,7 +9,9 @@
 
 use smithay::desktop::{PopupKind, find_popup_root_surface, get_popup_toplevel_coords};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::reexports::wayland_server::protocol::{wl_seat, wl_surface::WlSurface};
+use smithay::reexports::wayland_server::protocol::{
+    wl_output::WlOutput, wl_seat, wl_surface::WlSurface,
+};
 use smithay::utils::Serial;
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
@@ -70,6 +72,15 @@ impl XdgShellHandler for State {
 
     fn unmaximize_request(&mut self, surface: ToplevelSurface) {
         self.unmaximize(&surface, None);
+    }
+
+    /// One screen: the window gets it, whichever output it named.
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
+        self.fullscreen(&surface);
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        self.unfullscreen(&surface);
     }
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {

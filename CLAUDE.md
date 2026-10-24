@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d3 fertig, d4 echtes Vollbild als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4 fertig, Start aus einem Guss als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -421,13 +421,21 @@ Schalter Menüleiste (24.10., Besitzer will beides): `BEIZE_MENU_BAR=glass` in
 `~/.config/environment.d` = Grundglas 1:1 wie in c93184b, sonst transparent (ADR 0028 §3; in die
 Einstellungen später). In `bz debug` wirkt die Datei erst in einem neuen Start der VM (der
 Benutzerdienst liest die Umgebung nur beim Start).
-**d4-Entscheidungen (Besitzer, 24.10.):** Grün bleibt Zoom, Alt+Klick auf Grün = Vollbild;
-Super+F schaltet Vollbild für jedes Fenster; im Vollbild erscheinen Menüleiste (oben, deckend) und
-Dock (unten) unter dem Zeiger; holt man eine andere App, tritt das Vollbild zurück (bleibt
-Vollbild hinter den anderen, Leisten wieder da), nach vorn geholt ist es sofort wieder Vollbild.
-**Als Nächstes:** d4 echtes Vollbild (ADR 0028 §2, Besitzer: wie macOS, fremde Apps müssen es
-wirklich bekommen; Menüleiste am oberen Rand deckend; vorher Fragen stellen, wenn offen), dann
-der Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
+**d4 fertig 24.10.: echtes Vollbild** (Entscheidungen des Besitzers in ADR 0028 §2): Grün bleibt
+Zoom, Alt+Grün = Vollbild (Beize UI und Rahmen des Compositors); Super+F für jedes Fenster;
+`xdg_toplevel.set_fullscreen` für fremde Apps. `windows.rs`: ganzer Bildschirm, ohne Rahmen/Ecken/
+Schatten, zurück an den alten Platz oder ins Maximiert. `layers.rs` (`reveal`): vorderstes Fenster
+Vollbild → Leisten oben versteckt (Streifen bleiben, kein Fenster rückt), Zeiger in der Randzeile
+holt die Leisten dieser Kante, bis er ihren Streifen verlässt; eine andere App vorn → Vollbild tritt
+zurück, bleibt Vollbild. Liegt ein Vollbild unter der Menüleiste, legt der Compositor Grundglas
+darunter (`Backdrop::plate`, Schrift nach Erscheinungsbild). Beize UI zeigt im Vollbild keine
+Titelleiste. Smoke prüft Super+F, Leiste oben, Dock unten, zurück. Dabei behoben: `drag` im Smoke
+traf Pixel 799 als 798,999 (rundet jetzt auf). Offen: Zurücktreten nur von Hand geprüft (Bild in
+der VM; `@mouse` von `bz debug` bewegt sich nach dem ersten Mal nicht zuverlässig); Direct Scanout
+(Vollbild-Puffer direkt auf die Ebene, wie KWin/Mutter) fehlt noch, gehört in den Lasttest bzw.
+die Effizienzarbeit; Titelleiste von Beize UI erscheint im Vollbild nicht mit der Menüleiste
+(macOS tut das), Verlassen per Super+F.
+**Als Nächstes:** der Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
 Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien

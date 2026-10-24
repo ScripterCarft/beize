@@ -3,7 +3,11 @@
 //! makes a window the active one – not through a panel of the shell above
 //! it. Ctrl+Alt+F1…F12 switch the VT, as on
 //! every Linux desktop – the compositor holds the keyboard, so it asks
-//! logind; Ctrl+Alt+T opens a terminal (`apps`).
+//! logind; Ctrl+Alt+T opens a terminal (`apps`); Super+F switches the
+//! active window's fullscreen (ADR 0028 §2).
+//!
+//! While a fullscreen window is in front, the panels show only with the
+//! pointer at their edge of the screen (`State::reveal`).
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
@@ -43,6 +47,7 @@ pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
 enum Action {
     SwitchVt(u32),
     OpenTerminal,
+    ToggleFullscreen,
 }
 
 fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
@@ -83,21 +88,35 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
             }
         }
         Some(Action::OpenTerminal) => apps::open_terminal(),
+        Some(Action::ToggleFullscreen) => {
+            let active = keyboard
+                .current_focus()
+                .and_then(|surface| state.window_for(&surface));
+            if let Some(toplevel) = active.as_ref().and_then(|w| w.toplevel()) {
+                state.toggle_fullscreen(&toplevel.clone());
+            }
+        }
         None => {}
     }
 }
 
 /// The compositor's keys: Ctrl+Alt+F1…F12 (the layout gives them as VT
-/// keysyms) and Ctrl+Alt+T for a new terminal, as on Ubuntu. The letter
-/// counts as a Latin layout among the loaded ones has it (Smithay), so with
-/// Russian next to US the key stays where it is, as in GNOME.
+/// keysyms), Ctrl+Alt+T for a new terminal, as on Ubuntu, and Super+F for
+/// fullscreen (Super belongs to the shell). The letter counts as a Latin
+/// layout among the loaded ones has it (Smithay), so with Russian next to
+/// US the key stays where it is, as in GNOME.
 fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Option<Action> {
     let first = Keysym::XF86_Switch_VT_1.raw();
     if (first..=Keysym::XF86_Switch_VT_12.raw()).contains(&sym.raw()) {
         return Some(Action::SwitchVt(sym.raw() - first + 1));
     }
     let only_ctrl_alt = modifiers.ctrl && modifiers.alt && !modifiers.shift && !modifiers.logo;
-    (only_ctrl_alt && latin == Some(Keysym::t)).then_some(Action::OpenTerminal)
+    let only_super = modifiers.logo && !modifiers.ctrl && !modifiers.alt && !modifiers.shift;
+    match latin {
+        Some(Keysym::t) if only_ctrl_alt => Some(Action::OpenTerminal),
+        Some(Keysym::f) if only_super => Some(Action::ToggleFullscreen),
+        _ => None,
+    }
 }
 
 /// The pointer over what is under it now, without moving: after a window
@@ -115,6 +134,7 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
         to.y.clamp(area.loc.y, area.loc.y + area.size.h - 1.0),
     ));
     state.pointer = to;
+    state.reveal();
     state.bar_hover(to);
     // A window's edge strip in front: no client has the pointer there.
     let under = if state.edge_under(to).is_some() {
@@ -241,5 +261,15 @@ mod tests {
             assert_eq!(action(&modifiers, Keysym::t, Some(Keysym::t)), None);
         }
         assert_eq!(action(&ctrl_alt, Keysym::u, Some(Keysym::u)), None);
+        let logo = ModifiersState {
+            logo: true,
+            ..ModifiersState::default()
+        };
+        assert_eq!(
+            action(&logo, Keysym::f, Some(Keysym::f)),
+            Some(Action::ToggleFullscreen)
+        );
+        assert_eq!(action(&ctrl_alt, Keysym::f, Some(Keysym::f)), None);
+        assert_eq!(action(&logo, Keysym::t, Some(Keysym::t)), None);
     }
 }

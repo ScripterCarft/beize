@@ -119,12 +119,13 @@ impl Effects for VkRenderer {
 }
 
 /// Whether the compositor rounds `window` and gives it a shadow: not
-/// maximized, and not drawing its own frame. `frame` is its title bar and
-/// content.
+/// maximized or fullscreen, and not drawing its own frame. `frame` is its
+/// title bar and content.
 pub fn rounded(window: &Window, frame: Rectangle<i32, Logical>) -> bool {
-    let maximized = window
-        .toplevel()
-        .is_some_and(|t| t.current_state().states.contains(XdgState::Maximized));
+    let maximized = window.toplevel().is_some_and(|t| {
+        let states = t.current_state().states;
+        states.contains(XdgState::Maximized) || states.contains(XdgState::Fullscreen)
+    });
     // Its surfaces reach past its geometry: a frame and shadow of its own.
     let geometry = window.geometry();
     let own_frame = !geometry.contains_rect(window.bbox());

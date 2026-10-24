@@ -75,6 +75,7 @@ use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
 use crate::gpu::{self, Screen};
 use crate::keyboard::Layout;
+use crate::layers::{Side, side};
 use crate::output::{Frame, Info};
 use beize_compositor::error::{Context, Error, Result, error};
 use beize_compositor::render::VkRenderer;
@@ -172,6 +173,10 @@ pub struct State {
     pub output: Option<WlOutput>,
     /// Where the pointer is, on the screen.
     pub pointer: Point<f64, Logical>,
+    /// The panels shown over a fullscreen window in front, and whether one
+    /// was in front when last looked (`layers`, `reveal`).
+    pub revealed: Option<Side>,
+    pub fullscreen_front: bool,
     cursor: Cursor,
     clock: Clock<Monotonic>,
     /// Something on the screen may have changed.
@@ -256,6 +261,8 @@ impl State {
             screen: None,
             output: None,
             pointer: Point::default(),
+            revealed: None,
+            fullscreen_front: false,
             cursor: Cursor::new(),
             clock: Clock::new(),
             redraw: false,
@@ -434,6 +441,22 @@ impl State {
         if !self.session.is_active() {
             return;
         }
+        // A window came to the front or left it: the panels over fullscreen,
+        // and what the pointer is over then.
+        if self.reveal() {
+            crate::input::refresh_pointer(self);
+        }
+        let hide_upper = self.fullscreen_in_front();
+        let revealed = self.revealed;
+        // Over a fullscreen window, in front or behind, the menu bar lies on
+        // glass (`backdrop`).
+        let plate = self
+            .space
+            .elements()
+            .any(crate::windows::fullscreen)
+            .then(|| self.band(Side::Top))
+            .flatten()
+            .filter(|_| !hide_upper || revealed == Some(Side::Top));
         let (Some(screen), Some(output)) = (&mut self.screen, &self.output) else {
             return;
         };
@@ -450,10 +473,7 @@ impl State {
             self.backdrop_for = Some(want);
             self.backdrops += 1;
             self.backdrop = match Backdrop::new(screen.renderer(), want.0, want.1, self.backdrops) {
-                Ok(backdrop) => {
-                    self.shell_windows.set_tone(backdrop.tone());
-                    Some(backdrop)
-                }
+                Ok(backdrop) => Some(backdrop),
                 Err(e) => {
                     warn!("drawing the background: {e}; a plain colour instead");
                     None
@@ -481,8 +501,15 @@ impl State {
                 Err(e) => warn!("drawing the pointer: {e}"),
             }
         }
-        let (upper, lower) = panels(screen.renderer(), output, self.backdrop.as_mut());
+        let shown = |place| !hide_upper || revealed == Some(side(area, place));
+        let (upper, lower) = panels(screen.renderer(), output, self.backdrop.as_mut(), shown);
         elements.extend(upper);
+        if let Some(backdrop) = &mut self.backdrop {
+            let glass = plate.and_then(|band| backdrop.plate(screen.renderer(), band));
+            self.shell_windows
+                .set_tone(backdrop.bar_tone(glass.is_some()));
+            elements.extend(glass.map(Element::Glass));
+        }
         // Each window with its bar above it, front to back.
         let windows: Vec<_> = self
             .space
@@ -719,19 +746,28 @@ impl State {
         let panels = |layers: &[Layer]| {
             self.output
                 .as_ref()
-                .and_then(|output| crate::layers::surface_under(output, layers, at))
+                .and_then(|output| crate::layers::surface_under(output, layers, at, |_| true))
         };
-        panels(&[Layer::Overlay, Layer::Top])
+        self.panel_surface_under(at)
             .or_else(|| self.window_surface_under(at))
             .or_else(|| panels(&[Layer::Bottom, Layer::Background]))
+    }
+
+    /// The surface of a panel above the windows under `at`, if it shows.
+    fn panel_surface_under(
+        &self,
+        at: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let output = self.output.as_ref()?;
+        crate::layers::surface_under(output, &[Layer::Overlay, Layer::Top], at, |place| {
+            self.panel_shown(place)
+        })
     }
 
     /// Whether a panel above the windows (the menu bar, the dock) is under
     /// `at`: a click there is the shell's, not the window's behind it.
     pub fn panel_under(&self, at: Point<f64, Logical>) -> bool {
-        self.output.as_ref().is_some_and(|output| {
-            crate::layers::surface_under(output, &[Layer::Overlay, Layer::Top], at).is_some()
-        })
+        self.panel_surface_under(at).is_some()
     }
 
     /// The input clock now, in milliseconds as input events carry it.
@@ -920,12 +956,13 @@ delegate_cursor_shape!(State);
 impl TabletSeatHandler for State {}
 
 /// The panels to draw, each with the glass it asked for below it (with a
-/// `backdrop`): those above the windows and those below, each front to
-/// back.
+/// `backdrop`): those above the windows that are `shown` at their place,
+/// and those below, each front to back.
 fn panels(
     renderer: &mut VkRenderer,
     output: &WlOutput,
     mut backdrop: Option<&mut Backdrop>,
+    shown: impl Fn(Rectangle<i32, Logical>) -> bool,
 ) -> (Vec<Element>, Vec<Element>) {
     let map = layer_map_for_output(output);
     let (mut upper, mut lower) = (Vec::new(), Vec::new());
@@ -934,6 +971,9 @@ fn panels(
         let Some(place) = map.layer_geometry(panel) else {
             continue;
         };
+        if matches!(panel.layer(), Layer::Overlay | Layer::Top) && !shown(place) {
+            continue;
+        }
         let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> =
             AsRenderElements::<VkRenderer>::render_elements(
                 panel,
