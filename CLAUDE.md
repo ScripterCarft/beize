@@ -440,10 +440,21 @@ Glas (`backdrop::Behind::Plate`, `LiveGlass` wie beim Dock, Blur nur bei Schaden
 Blur je Bild über Leiste + 64 px, im Lasttest messen), vorn und zurückgetreten, auch statt des
 Grundglases von `BEIZE_MENU_BAR=glass`; Schrift nach Erscheinungsbild (`bar_tone`), ohne Messung.
 Smoke: über dem roten/grünen Testmuster führt links Rot, rechts Grün (Gegenprobe mit Hintergrund:
-rot). Bilder hell und dunkel dem Besitzer gezeigt; offen sein Urteil (dunkel wirkt die Leiste
-satter als das Fenster: Sättigung 1,8 des Materials).
-**Als Nächstes: der Start aus einem Guss**; danach der Lasttest (ADR 0028 §9, Wunsch des
-Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
+rot). Bilder hell und dunkel gezeigt. **Besitzer 24.10.: passt erstmal, Farben vielleicht später
+verbessern.** Auffällig: dunkel wirkt die Leiste satter und dunkler als das Vollbild darunter, hell
+blasser (Material `Appearance::material`: Sättigung 1,8, Tönung hell 30 %, dunkel 45 %, für Dock
+und Leiste gleich). Möglicher Weg, wenn er es angehen will: eigenes Material für die Leiste über
+Vollbild (weniger Sättigung/Tönung), Bilder hell und dunkel vergleichen lassen. Nicht ungefragt
+ändern.
+**Als Nächstes: der Start aus einem Guss** (ADR 0028 §6, „Start aus einem Guss“): Der Compositor
+zeigt das erste Bild erst, wenn die Shell Menüleiste und Dock geliefert hat (höchstens 1 s, dann
+ohne sie), und blendet es vom Schwarz des Modus-Wechsels ein; kein Bild mit halbem Desktop. Stürzt
+die Shell ab, bleibt das letzte Bild ihrer Flächen stehen, bis die neue liefert (heute verschwinden
+sie). Konsole→Desktop flackerfrei erst mit grafischer Anmeldung (nicht Teil davon). Vorgehen: erst
+im Code nachsehen, wann `render` heute das erste Bild zeigt und wie die Shell startet
+(`beize-session`, Unit der Shell, `trust.rs`/`layers.rs`), Plan mit Prüfung im Smoke (z. B. erstes
+Bild schon mit Leiste und Dock; Abbruch nach 1 s ohne Shell) vorlegen, dann bauen. Danach der
+Lasttest (ADR 0028 §9, Wunsch des Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
