@@ -30,6 +30,11 @@
 //! offered to no app. The pointer is the theme's (ADR 0028 §8): the text
 //! cursor the terminal names over its text (cursor-shape-v1), a resize
 //! arrow on a window's edge.
+//! The load test's scene (ADR 0028 §9) runs: many windows of Beize UI,
+//! each drawing every frame, one of them half behind the dock, whose live
+//! glass follows what moves there; every window draws throughout, and the
+//! compositor sums its frames up. The VM checks that it works, not how fast
+//! (lavapipe): the hardware test measures that.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //!
@@ -183,6 +188,17 @@ const CORNER: usize = 24;
 /// bar.
 const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);
 
+/// The load test's scene (os/beize-ui, `beize-load-test`): its windows, how
+/// long it runs, and how many frames each window must have drawn at least
+/// – in the VM about 30 a second, on CI's runner fewer; fewer than two a
+/// second would mean it stalls.
+const LOAD_WINDOWS: usize = 12;
+const LOAD_SECONDS: u64 = 15;
+const LOAD_LEAST_FRAMES: usize = 30;
+/// How far above the dock the test drags the scene's top window by its
+/// bar: the window's content then lies behind the dock.
+const LOAD_ABOVE_DOCK: usize = 150;
+
 /// How long a screen may take to become what its reference shows.
 const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -305,15 +321,18 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          with its shell; the dock shows the terminal running, the menu bar names it"
     );
 
-    // The new terminal has the keyboard: typed into once its shell reads,
-    // the sample's command runs and the screen shows what it printed.
+    // The new terminal has the keyboard: typed into once its window is on
+    // the screen (placed, it is active in the same step) and its shell
+    // reads, the sample's command runs and the screen shows what it
+    // printed. Typed before the window shows, as no one would, the first
+    // keys went to the first terminal on a slow VM.
     let second = both
         .iter()
         .find(|u| **u != first[0])
         .context("no second terminal")?;
+    let terminal = placed(&shell, "beize-terminal", 2)?;
     wait_for_prompt(&shell, second)?;
     keys(&qmp, &german_presses(TERMINAL_SAMPLE_COMMAND)?)?;
-    let terminal = placed(&shell, "beize-terminal", 2)?;
     wait_for_screen(paths, &machine, terminal, TERMINAL_SAMPLE, "terminal")?;
     say!(
         "  ok: the typed command ran in the terminal, its window shows the sample as the \
@@ -820,6 +839,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
 
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
+    load(&shell, &machine, &qmp, screen)?;
 
     // With no terminal left, the dock's first tile starts one.
     let (_, lines) = shell.capture("systemctl --user stop 'app-beize\\x2dterminal@*'")?;
@@ -880,6 +900,93 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     shell.stop()?;
     machine.remove()
+}
+
+/// The load test's scene (ADR 0028 §9): its top window, dragged by its bar
+/// over the dock, lies half behind it, and the dock's live glass changes
+/// with what moves there – base glass, or live glass blurred only once,
+/// would stay. Every window draws throughout, the compositor sums the
+/// frames up (`pacing:`, said for the record: lavapipe's times say nothing
+/// of a GPU's).
+fn load(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    const UNIT: &str = "beize-load-test";
+    let (status, lines) = shell.capture(&format!(
+        "systemd-run --user --unit={UNIT} /run/t/beize-load-test --windows {LOAD_WINDOWS} \
+         --seconds {LOAD_SECONDS}"
+    ))?;
+    ensure!(
+        status == 0,
+        "could not start the load test (exit status {status}): {lines:?}"
+    );
+    let ((x, y), _) = placed(shell, UNIT, LOAD_WINDOWS)?;
+    let grip = (
+        i32::try_from(x + BAR_GRIP_X)?,
+        i32::try_from(y + TITLE_BAR / 2)?,
+    );
+    let to = (
+        i32::try_from(screen.0 / 2)?,
+        i32::try_from(screen.1 - DOCK_ZONE - LOAD_ABOVE_DOCK)?,
+    );
+    drag(qmp, screen, grip, to, true)?;
+    park(qmp, screen)?;
+    // Settled behind the dock, then compared with itself a moment later.
+    thread::sleep(Duration::from_secs(1));
+    let glass_at = (
+        screen.0 / 2,
+        screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE + 1,
+    );
+    let file = machine.logs.join("load-glass-screen.ppm");
+    screendump(qmp, &file)?;
+    let before = Image::read_ppm(&fs::read(&file)?)?.pixel(glass_at.0, glass_at.1);
+    wait_for_live_glass(machine, glass_at, before)?;
+
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq {}); do systemctl --user -q is-active {UNIT} || break; sleep 0.2; \
+         done; systemctl --user is-active {UNIT}; journalctl --user -u {UNIT} -o cat",
+        (LOAD_SECONDS + 15) * 5
+    ))?;
+    let drawn: Vec<usize> = lines
+        .iter()
+        .filter_map(|l| {
+            l.strip_prefix("window ")?
+                .split_once(": ")?
+                .1
+                .split_once(' ')
+        })
+        .filter_map(|(frames, _)| frames.parse().ok())
+        .collect();
+    ensure!(
+        lines.iter().any(|l| l.starts_with("load: "))
+            && drawn.len() == LOAD_WINDOWS
+            && drawn.iter().all(|&f| f >= LOAD_LEAST_FRAMES),
+        "the load test's {LOAD_WINDOWS} windows did not each draw {LOAD_LEAST_FRAMES} frames \
+         in {LOAD_SECONDS} s: {lines:?}"
+    );
+    // The compositor sums a run up a quarter second after its last frame.
+    let (_, lines) = shell.capture(
+        "sleep 1; journalctl --user -b -u beize-compositor.service -o cat \
+         | grep '^pacing: ' | tail -n 1",
+    )?;
+    let pacing = lines
+        .iter()
+        .find(|l| l.starts_with("pacing: "))
+        .context("the compositor summed up no frames")?;
+    // The load's run, not an earlier one: as long as the scene, near enough.
+    let seconds = pacing
+        .split_once(" frames in ")
+        .and_then(|(_, rest)| rest.split_once(" s")?.0.parse::<f64>().ok())
+        .with_context(|| format!("no length in {pacing:?}"))?;
+    ensure!(
+        seconds >= (LOAD_SECONDS - 5) as f64,
+        "the compositor's last run took {seconds} s, not the load test's {LOAD_SECONDS}: \
+         {pacing}"
+    );
+    let least = drawn.iter().min().copied().unwrap_or(0);
+    say!(
+        "  ok: the load test's {LOAD_WINDOWS} windows each drew {least} frames or more in \
+         {LOAD_SECONDS} s, the dock's live glass followed the one behind it; {pacing}"
+    );
+    Ok(())
 }
 
 /// A client that asks for the compositor's frame (xdg-decoration, ADR
