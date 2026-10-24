@@ -119,7 +119,10 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Fremde Apps fordern es an (F11 im Browser, Videos, Spiele; `xdg_toplevel.set_fullscreen`)
   und müssen es wirklich bekommen: das ganze Bild, über Menüleiste und Dock hinweg, die dann
   verschwinden. Am oberen Rand erscheint die Menüleiste unter dem Zeiger, dann deckend, weil kein
-  Schreibtisch dahinter liegt (macOS seit Big Sur). Eigene Spaces kommen später.
+  Schreibtisch dahinter liegt (macOS seit Big Sur), am unteren das Dock. Super+F schaltet
+  Vollbild für jedes Fenster. Eigene Spaces kommen später; bis dahin tritt ein Vollbild zurück,
+  wenn eine andere App nach vorn kommt: Es bleibt Vollbild hinter ihr, Menüleiste und Dock sind
+  wieder da (wie bei Windows); nach vorn geholt ist es sofort wieder Vollbild (Besitzer, 24.10.).
 - **Kein Glas in Titelleisten** (Besitzer, 24.10.): Titelleisten sind von App zu App zu
   verschieden. Wichtig ist, dass jedes Programm die drei Knöpfe hat, wo es geht (Beize UI, der
   Rahmen des Compositors; libadwaita zeichnet eigene). Werkzeugleisten mit Knöpfen wie
@@ -134,8 +137,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   - Die Zeichen sind eigene Formen, für ihre Größe auf das Pixelraster gezeichnet, wie bei
     AppKit und Windows. Aus Phosphor wäre das Quadrat größer als das X.
   - Gelb minimiert: Das Fenster verlässt den Bildschirm, das darunter wird aktiv, und das Dock
-    holt es an seinen Platz zurück. Grün maximiert (Zoom). Vollbild und die Wahltaste
-    (Zoom statt Vollbild) kommen mit echtem Vollbild.
+    holt es an seinen Platz zurück. Grün maximiert (Zoom), mit Alt (der Wahltaste) schaltet es
+    Vollbild (Besitzer, 24.10.: umgekehrt zu macOS).
 
 ### 3. Menüleiste (oben)
 
@@ -154,9 +157,12 @@ die Schrift bis zu einem Kontrast von 2:1 (mittlere relative Luminanz der Leiste
 Einstellungen, Vorgabe an): aus heißt die Leiste auf Grundglas, genau wie am 24.10. gebaut
 (Commit c93184b: Grundglas über die ganze Leiste ohne Lichtkante, Schrift nach dem
 Erscheinungsbild, dunkel auf hellem Glas); an heißt ohne Hintergrund wie oben. Modular: die
-Shell bestellt Glas für die Leiste (`beize_glass_v1`) oder nicht; hat die Leiste Glas, lässt
-der Compositor den Verlauf weg und die Schrift folgt dem Erscheinungsbild statt dem gemessenen
-Ton. Die Smoke-Prüfung deckt dann beide Fälle ab.
+Shell bestellt Glas für die Leiste (`beize_glass_v1`) oder nicht; hat die Leiste Glas, folgt
+die Schrift dem Erscheinungsbild statt dem gemessenen Ton, und der Verlauf darunter wird nie
+gezeichnet (das Glas ist deckend, Smithays Schadensverfolgung überspringt Verdecktes). Bis zu
+den Einstellungen schaltet `BEIZE_MENU_BAR=glass` in `~/.config/environment.d` (gilt ab der
+nächsten Anmeldung); geprüft am Bild in der VM. Die Smoke-Prüfung beider Fälle kommt mit der
+Einstellung, die dann zur Laufzeit umschaltet.
 
 - **Links:** das Beize-Menü (Über diesen Rechner, Einstellungen, Ruhezustand, Neustart,
   Ausschalten, Sperren, Abmelden; wie das Apple-Menü), dann der Name der aktiven App, fett.

@@ -417,8 +417,14 @@ Verlauf nur in der Leiste (15 %, auf null auslaufend; `scrim`, geschätzt), Schr
 Schatten (Besitzer), dunkel nur auf sehr hellem Hintergrund (`backdrop::tone`: Leiste samt
 Verlauf zurückgelesen, Kontrast 2:1); Grundglas nur noch auf Anfrage. Kein
 Glas in Titelleisten (Besitzer). Smoke verlangt: keine Stufe an der Unterkante der Leiste.
-Vorgemerkt für die Einstellungen: Schalter „Transparente Menüleiste“, aus = Grundglas wie in
-c93184b (ADR 0028 §3; Besitzer will beides).
+Schalter Menüleiste (24.10., Besitzer will beides): `BEIZE_MENU_BAR=glass` in
+`~/.config/environment.d` = Grundglas 1:1 wie in c93184b, sonst transparent (ADR 0028 §3; in die
+Einstellungen später). In `bz debug` wirkt die Datei erst in einem neuen Start der VM (der
+Benutzerdienst liest die Umgebung nur beim Start).
+**d4-Entscheidungen (Besitzer, 24.10.):** Grün bleibt Zoom, Alt+Klick auf Grün = Vollbild;
+Super+F schaltet Vollbild für jedes Fenster; im Vollbild erscheinen Menüleiste (oben, deckend) und
+Dock (unten) unter dem Zeiger; holt man eine andere App, tritt das Vollbild zurück (bleibt
+Vollbild hinter den anderen, Leisten wieder da), nach vorn geholt ist es sofort wieder Vollbild.
 **Als Nächstes:** d4 echtes Vollbild (ADR 0028 §2, Besitzer: wie macOS, fremde Apps müssen es
 wirklich bekommen; Menüleiste am oberen Rand deckend; vorher Fragen stellen, wenn offen), dann
 der Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des

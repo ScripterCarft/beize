@@ -10,9 +10,11 @@
 //! the left in bold, the time on the right. As macOS' since 26 it has no
 //! background: white ink on the scrim the compositor lays behind it, dark
 //! only where the background stays very light, as the compositor measures
-//! it (ADR 0028 §3). The dock lies on live glass, which the compositor draws
-//! below it (§6). The Beize menu and the status come with the next parts
-//! (ADR 0028, Reihenfolge).
+//! it (ADR 0028 §3). With the background switched on (`BarLook::Glass`,
+//! macOS' "Show menu bar background") the bar lies on base glass instead,
+//! its ink for the appearance. The dock lies on live glass, which the
+//! compositor draws below it (§6). The Beize menu and the status come with
+//! the next parts (ADR 0028, Reihenfolge).
 
 mod apps;
 mod clock;
@@ -22,7 +24,9 @@ use std::collections::HashMap;
 use std::process::ExitCode;
 
 use beize_ui::input::{Button, Pointer};
-use beize_ui::{App, Appearance, Color, Edge, Family, Input, Panel, Rect, Scene, Style, Text};
+use beize_ui::{
+    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text,
+};
 use tracing::info;
 
 use dock::{Action, Dock};
@@ -34,6 +38,27 @@ const INK_LIGHT: Color = Color::rgb(0x1d1d1d);
 const INK_DARK: Color = Color::rgb(0xffffff);
 /// Space at the bar's ends.
 const MARGIN: f32 = 12.0;
+
+/// What lies behind the menu bar (ADR 0028 §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BarLook {
+    /// No background, as macOS' since 26.
+    Transparent,
+    /// Base glass, as macOS' with "Show menu bar background".
+    Glass,
+}
+
+impl BarLook {
+    /// Transparent, as macOS starts. Until Beize's settings hold the
+    /// choice, `BEIZE_MENU_BAR=glass` in the desktop's environment shows
+    /// the background (like `BEIZE_APPEARANCE`).
+    fn from_environment() -> BarLook {
+        match std::env::var("BEIZE_MENU_BAR").as_deref() {
+            Ok("glass") => BarLook::Glass,
+            _ => BarLook::Transparent,
+        }
+    }
+}
 
 fn main() -> ExitCode {
     beize_ui::log::init("BEIZE_SHELL_LOG");
@@ -87,6 +112,8 @@ fn run() -> Result<(), String> {
     let mut active_name: Option<String> = None;
     let mut appearance = app.appearance();
     let mut backdrop = app.menu_bar_backdrop();
+    let look = BarLook::from_environment();
+    info!("menu bar {look:?}");
     loop {
         let mut dispatched = app
             .dispatch(None, &[minutes.fd()])
@@ -173,12 +200,20 @@ fn run() -> Result<(), String> {
         bar_shown |= bar_events.configured;
         if bar_shown && redraw_bar {
             let size = app.size(bar);
+            // On glass the ink follows the appearance, as the dock's.
+            let behind = match look {
+                BarLook::Transparent => backdrop,
+                BarLook::Glass => {
+                    app.set_glass(bar, Some(bar_glass(size)));
+                    appearance
+                }
+            };
             let scene = menu_bar(
                 app.text(),
                 size,
                 active_name.as_deref(),
                 clock::now(),
-                backdrop,
+                behind,
             );
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
         }
@@ -189,6 +224,22 @@ fn run() -> Result<(), String> {
             let scene = dock.draw(app.text(), size, appearance);
             app.draw(dock_panel, &scene).map_err(|e| e.to_string())?;
         }
+    }
+}
+
+/// The bar's glass (`BarLook::Glass`): all of it, square, without a rim –
+/// it runs along the screen's edge –, base glass: no window lies behind it.
+fn bar_glass((w, h): (u32, u32)) -> Glass {
+    Glass {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            w: w as f32,
+            h: h as f32,
+        },
+        radius: 0.0,
+        rim: false,
+        live: false,
     }
 }
 
