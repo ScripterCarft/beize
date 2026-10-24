@@ -142,7 +142,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 - **Desktop von Hand in der VM** (`bz debug`; tty1–6 haben ein getty): `chvt 7`, dann
   `systemd-run --unit=login1 -p PAMName=login -p User=smoke -p TTYPath=/dev/tty7
   -p StandardInput=tty -p StandardOutput=journal -p StandardError=journal
-  /usr/bin/beize-session` (die Anmeldung; danach läuft ein Terminal). Zustand:
+  /usr/bin/beize-session` (die Anmeldung; Terminal mit `@keys ctrl+alt+t`). Zustand:
   `systemctl --user -M smoke@ status beize-compositor`, Log `journalctl -b _UID=1000`.
   Programme als Benutzer-Unit: `systemd-run -M smoke@ --user /run/t/beize-testclient --frames
   600` (Test-Medium nach `/run/t`, die frische Disk hat kein `/mnt`), ebenso `beize-ui-test
@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4b fertig, Start aus einem Guss als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4b und Start aus einem Guss fertig, Lasttest als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -446,15 +446,22 @@ blasser (Material `Appearance::material`: Sättigung 1,8, Tönung hell 30 %, dun
 und Leiste gleich). Möglicher Weg, wenn er es angehen will: eigenes Material für die Leiste über
 Vollbild (weniger Sättigung/Tönung), Bilder hell und dunkel vergleichen lassen. Nicht ungefragt
 ändern.
-**Als Nächstes: der Start aus einem Guss** (ADR 0028 §6, „Start aus einem Guss“): Der Compositor
-zeigt das erste Bild erst, wenn die Shell Menüleiste und Dock geliefert hat (höchstens 1 s, dann
-ohne sie), und blendet es vom Schwarz des Modus-Wechsels ein; kein Bild mit halbem Desktop. Stürzt
-die Shell ab, bleibt das letzte Bild ihrer Flächen stehen, bis die neue liefert (heute verschwinden
-sie). Konsole→Desktop flackerfrei erst mit grafischer Anmeldung (nicht Teil davon). Vorgehen: erst
-im Code nachsehen, wann `render` heute das erste Bild zeigt und wie die Shell startet
-(`beize-session`, Unit der Shell, `trust.rs`/`layers.rs`), Plan mit Prüfung im Smoke (z. B. erstes
-Bild schon mit Leiste und Dock; Abbruch nach 1 s ohne Shell) vorlegen, dann bauen. Danach der
-Lasttest (ADR 0028 §9, Wunsch des Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
+**Start aus einem Guss fertig 24.10.** (ADR 0028 §6, `opening.rs`): Schwarz sofort beim Übernehmen
+des Bildschirms, Desktop erst nach `beize_shell_v1.ready` (Shell nach dem ersten Bild von Leiste und
+Dock), Einblenden als Feder (SwiftUI `.smooth`); ohne Shell sofort, wenn ihre Verbindung vor `ready`
+endet (calloop-Kanal aus `ClientData::disconnected`; von Hand mit absichtlich kaputter Shell belegt),
+sonst nach 10 s. Abgestürzte Shell: `State::keep_panels` hält die Bildelemente der Leisten aus dem
+letzten Bild fest (Smithay leert die Texturen beim Zerstören der Fläche, und wayland-backend zerstört
+nach aufsteigender ID, die wl_surface zuerst) samt `window_area`, bis eine neue `ready` sagt. Smoke:
+Zeile „desktop shown with the shell“, Kill mit Neustart, Stopp mit Screendump (Leisten bleiben),
+Start ersetzt sie; Gegenproben (kein `ready`; eingefroren, aber nicht gezeichnet) rot. Das Terminal
+startet nicht mehr mit dem Desktop (Besitzer). **Wartezeit (Besitzer, 24.10.): später nach Konzept
+statt fester Zeit, #40** – erst recherchieren (GNOME, KDE, macOS), Ereignisse aus dem Dienstmanager,
+die blockierende Hintergrund-Berechnung (lavapipe ~0,5 s, Shell wird so lange nicht angenommen) aus
+dem kritischen Pfad, auf Hardware messen. In 1 von ~8 Smoke-Läufen hing die VM einmal 2,2 s
+(„libinput: system too slow“, gerahmtes Fenster) – nicht ursächlich geklärt, beobachten.
+**Als Nächstes:** der Lasttest (ADR 0028 §9, Wunsch des Besitzers), dann ein Hardware-Test (dort
+auch den Start messen: Zeile `desktop shown with the shell, … ms`). Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit

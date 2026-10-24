@@ -258,11 +258,20 @@ lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   des Bildes; Vorgabe Hell wie macOS. Das Glas nimmt die Tönung dazu, der Hintergrund seine
   Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Bis es
   Einstellungen gibt, zeigt `BEIZE_APPEARANCE=dark` in `~/.config/environment.d` Dunkel.
-- **Start aus einem Guss:** Der Compositor zeigt das erste Bild erst, wenn die Shell
-  Menüleiste und Dock geliefert hat (höchstens 1 s, dann ohne sie), und blendet es vom
-  Schwarz des Modus-Wechsels ein. Es gibt kein Bild mit halbem Desktop, wie bei macOS
-  erscheint der Schreibtisch ganz. Stürzt die Shell ab, bleibt das letzte Bild ihrer Flächen
-  stehen, bis die neue Shell ihre liefert. Der flackerfreie Übergang von der Konsole (Fedoras
+- **Start aus einem Guss** (gebaut 24.10., `os/beize-compositor/src/opening.rs`): Beim
+  Übernehmen des Bildschirms setzt der Compositor den Modus sofort mit einem schwarzen Bild, so
+  rastet der Monitor ein, während die Shell startet und der Hintergrund dahinter entsteht. Den
+  Desktop zeigt er erst, wenn die Shell `beize_shell_v1.ready` sagt (nach dem ersten Bild von
+  Menüleiste und Dock), und blendet ihn aus dem Schwarz ein: Feder ohne Nachschwingen wie
+  SwiftUIs `.smooth` (0,5 s). Es gibt kein Bild mit halbem Desktop, wie bei macOS erscheint der
+  Schreibtisch ganz, der Zeiger mit ihm. Ohne die Shell nur, wenn ihre Verbindung vor `ready`
+  endet (sofort) oder sie hängt (nach 10 s); die feste Zeit ist eine Übergangslösung, das
+  Konzept dafür ist #40. Gemessen in der VM (lavapipe): warm 0,17 s, mit leerem Shader-Cache
+  0,9–1,2 s, unter Last einmal 2,6 s. Stürzt die Shell ab, bleiben ihre Leisten so stehen, wie
+  das letzte Bild sie zeigte, samt dem Platz, den sie Fenstern nehmen (kein Fenster rückt), bis
+  eine neue Shell `ready` sagt (Neustart in der VM 0,2–0,5 s); eingefroren ändert sich ihr Glas
+  nicht, Klicks gehen an die neue Shell. Der Desktop startet ohne Fenster, wie macOS (das
+  Terminal öffnen Dock und Strg+Alt+T). Der flackerfreie Übergang von der Konsole (Fedoras
   „flicker-free boot“, CLAUDE.md §11) kommt mit der grafischen Anmeldung.
 - **Animationen** sind Federn (gedämpfte Schwingung, unterbrechbar, wie SwiftUI). Sie
   laufen im Compositor im Takt der Bildwiederholung; jede hat einen Ursprung (Fenster aus

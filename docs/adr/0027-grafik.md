@@ -392,8 +392,9 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Scrollen je Zeiger-Frame in Pixeln und Rastungen (`axis_value120`). Geprüft: Tests mit dem
   deutschen Layout (Buildroot), in der VM `^` + `e` = ê, `^` + Shift+`o` = Ô, Wechsel von
   `de(nodeadkeys)` zu `de` per localectl ohne Neustart des Fensters.
-- **Start** (22.10.): Beim Start des Desktops öffnet sich ein Terminal (übergangsweise, bis die
-  Shell ein Dock hat), Strg+Alt+T öffnet jederzeit ein neues (dauerhaft, wie Ubuntu; die Taste
+- **Start** (22.10.): Strg+Alt+T öffnet jederzeit ein neues Terminal (beim Start des Desktops
+  öffnete sich übergangsweise eins, bis die Shell ein Dock hatte; seit 24.10. keins mehr, ADR
+  0028 §6) (dauerhaft, wie Ubuntu; die Taste
   zählt wie auf einem geladenen lateinischen Layout, wie GNOME). Jedes Fenster ist eine Instanz
   von `app-beize\x2dterminal@.service`, benannt nach systemds Desktop-Integration
   (`app-<App-ID>@<Zufall>.service`, Bindestriche maskiert), damit Werkzeuge die App eines
@@ -403,8 +404,8 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   erfasst jetzt auch `app-*`-Units). Der Compositor ruft `StartUnit` in einem kurzen Thread mit
   eigener Verbindung, so wartet die Bildschleife nie auf den Manager. Den sd-bus-Code teilen
   Compositor und beize-session im Crate `os/beize-systemd`. Tasten, die der Compositor nimmt,
-  behält er auch beim Loslassen (wie anvil und niri). Geprüft im Smoke-Szenario `Desktop`: ein
-  Terminal mit Shell nach dem Start, ein zweites nach Strg+Alt+T, keins nach dem Abmelden
+  behält er auch beim Loslassen (wie anvil und niri). Geprüft im Smoke-Szenario `Desktop`: kein
+  Terminal nach dem Start, je eins nach zweimal Strg+Alt+T, keins nach dem Abmelden
   (Gegenprobe: andere Taste → rot).
 - **Test Terminal** (22.10., Smoke-Szenario `Desktop`): In das neue Terminal (nach
   Strg+Alt+T) tippt `bz` `/run/t/beize-terminal-sample`, sobald dessen Shell liest (readline
