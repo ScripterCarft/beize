@@ -344,6 +344,16 @@ durch den echten Compositor. Auf der Hardware wird sie mit `pacing:` gemessen. Z
 spätes Bild bei 240 Hz und eine Shell-Komposition unter 1 ms GPU-Zeit. In der CI (lavapipe)
 prüft sie nur die Funktion, nicht die Zeit.
 
+Gebaut 24.10.: `beize-load-test` (Beize UI, also Puffer wie bei jeder eigenen App: dmabufs auf
+der GPU) öffnet 12 Fenster zu 640×400, die der Compositor kaskadiert; jedes zeichnet jedes Bild
+neu (Verlauf mit wanderndem Farbton, vier durchscheinende runde Blöcke, eine Zeile Text mit der
+Bildnummer). Fenster setzt eine App nicht selbst: Unter das Dock kommt eins, wie bei macOS, nur
+durch Ziehen (Smoke über das Tablet, auf der Hardware der Besitzer). Der Smoke (volle Stufe)
+verlangt: jedes Fenster ≥ 30 Bilder in 15 s, das Glas des Docks ändert sich mit dem Fenster
+dahinter (Gegenprobe ohne Fenster dahinter: rot), eine `pacing:`-Zeile über die Szene. In der
+VM 12 × ~33 Bilder/s, lavapipe weit über dem Budget (erwartet). Federanimationen des
+Compositors gibt es bis (g) nur beim Start; sie kommen in die Szene, sobald es sie gibt.
+
 ## Reihenfolge
 
 a) `beize-shell` als Dienst, der Compositor erkennt sie, wlr-layer-shell nur für sie; eine

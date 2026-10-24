@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4b und Start aus einem Guss fertig, Lasttest als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4b, Start aus einem Guss und Lasttest fertig, Hardware-Test als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -348,8 +348,8 @@ beim Besitzer läuft. Tests schneller machen kommt erst nach der Shell (Besitzer
   sinnvoll erst mit grafischer Anmeldung.
 
 **Nächster Hardware-Test** (nicht öfter als nötig, Besitzer): die Zeilen `late frame` (Zeitplan
-in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf der Konsole (Modus
-der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. Dazu (Besitzer, 24.10.): die
+in kurzen Folgen, ADR 0027 §6), EDID und der Modus der Konsole (Beize hat kein debugfs; der
+Compositor schreibt ihn jetzt selbst: `screen …: … Hz, it had …`, aus dem CRTC beim Übernehmen), Strichstärke hell auf dunkel gegen dunkel auf hell. Dazu (Besitzer, 24.10.): die
 weiße Schrift der Menüleiste im hellen Modus – wirkt sie unscharf oder zu dick? Erst auf der
 Hardware beurteilen, dann ggf. ändern; Glas und Hintergrund dort zum ersten Mal in echt. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
@@ -460,8 +460,13 @@ statt fester Zeit, #40** – erst recherchieren (GNOME, KDE, macOS), Ereignisse 
 die blockierende Hintergrund-Berechnung (lavapipe ~0,5 s, Shell wird so lange nicht angenommen) aus
 dem kritischen Pfad, auf Hardware messen. In 1 von ~8 Smoke-Läufen hing die VM einmal 2,2 s
 („libinput: system too slow“, gerahmtes Fenster) – nicht ursächlich geklärt, beobachten.
-**Als Nächstes:** der Lasttest (ADR 0028 §9, Wunsch des Besitzers), dann ein Hardware-Test (dort
-auch den Start messen: Zeile `desktop shown with the shell, … ms`). Der Besitzer will es „verdammt effizient“, ohne Abstriche am
+**Lasttest fertig 24.10.** (ADR 0028 §9): `beize-load-test` auf dem Test-Medium, 12 Fenster
+zeichnen jedes Bild, eins wird hinters Dock gezogen; Smoke prüft Funktion und Glas (Gegenprobe
+rot). Dabei behoben: der Smoke tippte ins zweite Terminal, bevor dessen Fenster stand (erste Tasten
+gingen ans erste Terminal, VM langsam). **Als Nächstes:** Hardware-Test mit Messbau 0.5.102
+(`hw-test.sh` Teil 4/4 Lasttest; Entwurf der Änderung lag als Python-Skript vor), dort auch den
+Start messen (Zeile `desktop shown with the shell, … ms`) und Abschnitt C in `docs/hardware.md`
+auf den Desktop mit Shell umschreiben (öffnet kein Terminal mehr: Strg+Alt+T). Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
