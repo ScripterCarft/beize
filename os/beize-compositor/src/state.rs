@@ -13,6 +13,8 @@
 //! it one refresh later.
 
 use std::collections::HashSet;
+use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -20,10 +22,12 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::{DrmEvent, DrmNode};
 use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
+use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::{
     WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
-use smithay::backend::renderer::element::{AsRenderElements, Kind};
+use smithay::backend::renderer::element::{AsRenderElements, Id, Kind};
+use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
@@ -33,6 +37,7 @@ use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode as OutputMode, Output as WlOutput, PhysicalProperties, Subpixel};
+use smithay::reexports::calloop::channel::{self, Sender};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
 use smithay::reexports::input::Libinput;
@@ -76,6 +81,7 @@ use crate::decorations::{Decorations, Hit};
 use crate::gpu::{self, Screen};
 use crate::keyboard::Layout;
 use crate::layers::{Side, side};
+use crate::opening::{Opening, SHELL_WAIT, Veil};
 use crate::output::{Frame, Info};
 use beize_compositor::error::{Context, Error, Result, error};
 use beize_compositor::render::VkRenderer;
@@ -88,6 +94,7 @@ mod scene {
     use smithay::backend::renderer::ImportMem;
     use smithay::backend::renderer::RendererSuper;
     use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
+    use smithay::backend::renderer::element::solid::SolidColorRenderElement;
     use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
     use smithay::backend::renderer::element::texture::TextureRenderElement;
     use smithay::render_elements;
@@ -96,12 +103,14 @@ mod scene {
     use crate::corners::{Effects, Rounded, Shadow};
 
     render_elements! {
-        /// What a frame draws, front to back: the pointer where no cursor
-        /// plane shows it, then the surfaces – panels above the windows,
+        /// What a frame draws, front to back: the black the desktop fades
+        /// in from (`opening`), the pointer where no cursor plane shows
+        /// it, then the surfaces – panels above the windows,
         /// each with its glass, windows each with its popups, title bar,
         /// round corners and shadow, panels below them – and the background
         /// behind all.
         pub Element<R> where R: ImportAll + ImportMem + Effects;
+        Veil=SolidColorRenderElement,
         Cursor=MemoryRenderBufferRenderElement<R>,
         Surface=WaylandSurfaceRenderElement<R>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
@@ -166,6 +175,20 @@ pub struct State {
     backdrops: u64,
     /// What lies behind live glass, per panel that has it.
     live_glass: Vec<LiveGlass>,
+    /// The desktop's start (`opening`): when the screen was taken, the
+    /// wait for the shell, the black it fades in from.
+    opening: Opening,
+    screen_at: Option<Duration>,
+    wait_timer: Option<RegistrationToken>,
+    veil_id: Id,
+    veil_commit: CommitCounter,
+    veil_alpha: f32,
+    /// The panels as the last frame drew them, and those of a shell that
+    /// failed, kept until a new one is ready (`keep_panels`).
+    panels_last: Vec<PanelFrame>,
+    kept: Option<Kept>,
+    /// The shell's connections tell their end here (`shell_ended`).
+    shell_ended: Sender<bool>,
     /// The screen: None until the session is first active, as only then
     /// does logind hand out the GPU (a session started on a background VT
     /// waits).
@@ -199,11 +222,21 @@ pub struct ClientState {
     pub compositor: CompositorClientState,
     /// The client is Beize's shell (`trust`): it may draw panels.
     pub shell: bool,
+    /// The shell said its panels are drawn (`beize_shell_v1.ready`).
+    pub ready: AtomicBool,
+    /// Where the shell's end is told, with whether it was ready
+    /// (`State::shell_ended`).
+    ended: Option<Sender<bool>>,
 }
 
 impl ClientData for ClientState {
     fn initialized(&self, _client: ClientId) {}
-    fn disconnected(&self, _client: ClientId, _reason: DisconnectReason) {}
+    fn disconnected(&self, _client: ClientId, _reason: DisconnectReason) {
+        if let Some(ended) = &self.ended {
+            // The event loop is gone only with the compositor.
+            let _ = ended.send(self.ready.load(Ordering::Relaxed));
+        }
+    }
 }
 
 impl State {
@@ -229,6 +262,14 @@ impl State {
             }
         };
         seat.add_pointer();
+        let (shell_ended, ends) = channel::channel();
+        handle
+            .insert_source(ends, |event, _, state| {
+                if let channel::Event::Msg(ready) = event {
+                    state.shell_ended(ready);
+                }
+            })
+            .map_err(|e| error(format!("the shell's end: {}", e.error)))?;
         Ok(State {
             compositor: CompositorState::new::<State>(&display),
             shm: ShmState::new::<State>(&display, Vec::new()),
@@ -258,6 +299,15 @@ impl State {
             backdrop_for: None,
             backdrops: 0,
             live_glass: Vec::new(),
+            opening: Opening::Waiting { shell: false },
+            screen_at: None,
+            wait_timer: None,
+            veil_id: Id::new(),
+            veil_commit: CommitCounter::default(),
+            veil_alpha: 1.0,
+            panels_last: Vec::new(),
+            kept: None,
+            shell_ended,
             screen: None,
             output: None,
             pointer: Point::default(),
@@ -334,7 +384,142 @@ impl State {
         self.screen = Some(screen);
         self.offer_output(&info);
         self.offer_dmabuf(node);
+        // The desktop shows once the shell is ready, at most SHELL_WAIT
+        // from now (`opening`). Black at once sets the mode: the monitor
+        // locks on to it while the shell starts and the next frames draw
+        // the background behind the black.
+        let now: Duration = self.clock.now().into();
+        self.screen_at = Some(now);
+        if self.opening == (Opening::Waiting { shell: true }) {
+            self.show_desktop(now, true);
+        } else {
+            let token = self
+                .handle
+                .insert_source(Timer::from_duration(SHELL_WAIT), |_, _, state| {
+                    state.wait_timer = None;
+                    if matches!(state.opening, Opening::Waiting { .. }) {
+                        warn!(
+                            "desktop shown without the shell: none was ready within {SHELL_WAIT:?}"
+                        );
+                        let now = state.clock.now().into();
+                        state.show_desktop(now, false);
+                    }
+                    TimeoutAction::Drop
+                })
+                .map_err(|e| error(format!("waiting for the shell: {}", e.error)))?;
+            self.wait_timer = Some(token);
+        }
+        let black = veil_over(&self.veil_id, self.veil_commit, self.screen_area(), 1.0);
+        if let Some(screen) = &mut self.screen {
+            screen.render(&[black], None, now, now)?;
+        }
         Ok(())
+    }
+
+    /// The shell's panels are drawn (`beize_shell_v1.ready`): the desktop
+    /// shows, or a new shell's panels replace those kept of the old.
+    pub fn shell_ready(&mut self) {
+        let now: Duration = self.clock.now().into();
+        if let Some(kept) = self.kept.take() {
+            self.handle.remove(kept.timer);
+            info!(
+                "a new shell is ready {} ms after the old one failed: its panels replace the kept ones",
+                now.saturating_sub(kept.since).as_millis()
+            );
+            self.arrange_windows();
+            self.changed();
+        }
+        if matches!(self.opening, Opening::Waiting { .. }) {
+            if self.screen_at.is_some() {
+                self.show_desktop(now, true);
+            } else {
+                self.opening = Opening::Waiting { shell: true };
+            }
+        }
+    }
+
+    /// The desktop fades in from black, with the shell's panels or – it
+    /// failed or was not ready in time – without them.
+    fn show_desktop(&mut self, now: Duration, with_shell: bool) {
+        if let Some(timer) = self.wait_timer.take() {
+            self.handle.remove(timer);
+        }
+        if with_shell {
+            let after = now.saturating_sub(self.screen_at.unwrap_or(now));
+            info!(
+                "desktop shown with the shell, {} ms after the screen",
+                after.as_millis()
+            );
+        }
+        self.opening = Opening::Fading { since: now };
+        self.changed();
+    }
+
+    /// The shell's connection ended, after it was `ready` or before. A
+    /// shell that ends before it is ready failed to start: the desktop
+    /// shows without it, and the panels kept of the shell before go – a
+    /// new one is not coming to replace them. Waiting out SHELL_WAIT is
+    /// left to a shell that hangs.
+    fn shell_ended(&mut self, ready: bool) {
+        if ready {
+            return;
+        }
+        if let Some(kept) = self.kept.take() {
+            self.handle.remove(kept.timer);
+            warn!("a new shell ended before it was ready: the kept panels go");
+            self.arrange_windows();
+            self.changed();
+        }
+        if matches!(self.opening, Opening::Waiting { .. }) && self.screen_at.is_some() {
+            warn!("desktop shown without the shell: it ended before it was ready");
+            let now = self.clock.now().into();
+            self.show_desktop(now, false);
+        }
+    }
+
+    /// The shell failed (its connection is gone): its panels stay as the
+    /// last frame drew them, with the room they took from the windows,
+    /// until a new shell is ready – at most SHELL_WAIT –, as macOS keeps
+    /// the desktop while its Dock starts again. Kept, they no longer
+    /// change: their glass stays as it was.
+    pub fn keep_panels(&mut self) {
+        if self.kept.is_some() || self.panels_last.is_empty() {
+            return;
+        }
+        let area = self.window_area();
+        let mut panels = std::mem::take(&mut self.panels_last);
+        for element in panels.iter_mut().flat_map(|p| p.elements.iter_mut()) {
+            if let Element::Glass(glass) = element {
+                glass.freeze();
+            }
+        }
+        let timer = self
+            .handle
+            .insert_source(Timer::from_duration(SHELL_WAIT), |_, _, state| {
+                if state.kept.take().is_some() {
+                    warn!("no new shell was ready within {SHELL_WAIT:?}: its panels go");
+                    state.arrange_windows();
+                    state.changed();
+                }
+                TimeoutAction::Drop
+            });
+        let timer = match timer {
+            Ok(timer) => timer,
+            Err(e) => {
+                warn!("kept panels: {}", e.error);
+                return;
+            }
+        };
+        info!(
+            "the shell failed: its {} panels stay until a new one is ready",
+            panels.len()
+        );
+        self.kept = Some(Kept {
+            panels,
+            area,
+            since: self.clock.now().into(),
+            timer,
+        });
     }
 
     fn offer_output(&mut self, info: &Info) {
@@ -390,6 +575,10 @@ impl State {
 
     /// What the panels leave of the screen for windows.
     pub fn window_area(&self) -> Rectangle<i32, Logical> {
+        // A failed shell's panels keep their room (`keep_panels`).
+        if let Some(kept) = &self.kept {
+            return kept.area;
+        }
         let screen = self.screen_area();
         let Some(output) = &self.output else {
             return screen;
@@ -485,7 +674,20 @@ impl State {
             .cursor
             .image(began)
             .is_some_and(|i| screen.cursor_fits(i));
+        // In front of all, the black the desktop fades in from.
+        let veil = self.opening.veil(began);
         let mut elements: Vec<Element> = Vec::new();
+        if veil != Veil::None {
+            let alpha = match veil {
+                Veil::Fading(alpha) => alpha,
+                Veil::Black | Veil::None => 1.0,
+            };
+            if alpha != self.veil_alpha {
+                self.veil_alpha = alpha;
+                self.veil_commit.increment();
+            }
+            elements.push(veil_over(&self.veil_id, self.veil_commit, area, alpha));
+        }
         if !on_plane && let Some((buffer, hotspot)) = self.cursor.drawn(began) {
             let location = (at - Point::from(hotspot)).to_f64();
             match MemoryRenderBufferRenderElement::from_buffer(
@@ -501,15 +703,19 @@ impl State {
                 Err(e) => warn!("drawing the pointer: {e}"),
             }
         }
-        let shown = |place| !hide_upper || revealed == Some(side(area, place));
-        let (upper, lower) = panels(
-            screen.renderer(),
-            output,
-            self.backdrop.as_mut(),
-            shown,
-            plate,
-        );
-        elements.extend(upper);
+        // The panels as the shell drew them, or those kept of a shell that
+        // failed; lent to this frame and taken back after it.
+        if self.kept.is_none() {
+            self.panels_last = panels(screen.renderer(), output, self.backdrop.as_mut(), plate);
+        }
+        let source = match &mut self.kept {
+            Some(kept) => &mut kept.panels,
+            None => &mut self.panels_last,
+        };
+        let shown = |panel: &PanelFrame| {
+            !panel.upper || !hide_upper || revealed == Some(side(area, panel.place))
+        };
+        let upper = lend(source, true, shown, &mut elements);
         let mut plated = false;
         if let Some(backdrop) = &mut self.backdrop {
             let glass = plate.map(|band| backdrop.plate(band));
@@ -568,7 +774,7 @@ impl State {
                 elements.push(Element::Shadow(Shadow::new(window, frame)));
             }
         }
-        elements.extend(lower);
+        let lower = lend(source, false, shown, &mut elements);
         if let Some(backdrop) = &self.backdrop {
             elements.push(Element::Wallpaper(backdrop.scrim()));
             elements.push(Element::Wallpaper(backdrop.wallpaper()));
@@ -609,12 +815,21 @@ impl State {
                 warn!("live glass: {e}");
             }
         }
+        // The pointer shows with the desktop.
         let cursor = self
             .cursor
             .image(began)
-            .filter(|_| on_plane)
+            .filter(|_| on_plane && veil == Veil::None)
             .map(|image| (image, at));
-        let frame = screen.render(&elements, cursor, requested, began);
+        // Until the desktop shows, the black alone: it sets the mode.
+        let drawn = if veil == Veil::Black {
+            &elements[..1]
+        } else {
+            &elements[..]
+        };
+        let frame = screen.render(drawn, cursor, requested, began);
+        take_back(source, &mut elements, lower);
+        take_back(source, &mut elements, upper);
         if !matches!(frame, Ok(Frame::Deferred)) {
             self.changed_at = None;
         }
@@ -625,6 +840,10 @@ impl State {
             Err(e) => self.fail(e),
         }
         self.animate_cursor(began);
+        // The fade draws each frame until it ends.
+        if matches!(self.opening, Opening::Fading { .. }) {
+            self.changed();
+        }
     }
 
     /// An animated pointer (`cursor`): draws again when its next frame is
@@ -962,26 +1181,50 @@ delegate_cursor_shape!(State);
 /// yet, so nothing is needed of it.
 impl TabletSeatHandler for State {}
 
-/// The panels to draw, each with the glass it asked for below it (with a
-/// `backdrop`): those above the windows that are `shown` at their place,
-/// and those below, each front to back.
+/// The black over all of `area` the desktop fades in from (`opening`), of
+/// opacity `alpha`.
+fn veil_over(id: &Id, commit: CommitCounter, area: Rectangle<i32, Logical>, alpha: f32) -> Element {
+    Element::Veil(SolidColorRenderElement::new(
+        id.clone(),
+        Rectangle::from_size(area.size.to_physical(1)),
+        commit,
+        [0.0, 0.0, 0.0, alpha],
+        Kind::Unspecified,
+    ))
+}
+
+/// A panel as a frame draws it: its place, whether it lies above the
+/// windows, its surfaces front to back and the glass below them.
+struct PanelFrame {
+    place: Rectangle<i32, Logical>,
+    upper: bool,
+    elements: Vec<Element>,
+}
+
+/// The panels of a shell that failed, as the last frame drew them, and the
+/// room they left for windows (`State::keep_panels`).
+struct Kept {
+    panels: Vec<PanelFrame>,
+    area: Rectangle<i32, Logical>,
+    since: Duration,
+    timer: RegistrationToken,
+}
+
+/// The panels, front to back, each with the glass it asked for below it
+/// (with a `backdrop`; the menu bar's gives way to the `plate`).
 fn panels(
     renderer: &mut VkRenderer,
     output: &WlOutput,
     mut backdrop: Option<&mut Backdrop>,
-    shown: impl Fn(Rectangle<i32, Logical>) -> bool,
     plate: Option<Rectangle<i32, Logical>>,
-) -> (Vec<Element>, Vec<Element>) {
+) -> Vec<PanelFrame> {
     let map = layer_map_for_output(output);
-    let (mut upper, mut lower) = (Vec::new(), Vec::new());
+    let mut drawn = Vec::new();
     // The map lists them back to front.
     for panel in map.layers().rev() {
         let Some(place) = map.layer_geometry(panel) else {
             continue;
         };
-        if matches!(panel.layer(), Layer::Overlay | Layer::Top) && !shown(place) {
-            continue;
-        }
         let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> =
             AsRenderElements::<VkRenderer>::render_elements(
                 panel,
@@ -996,14 +1239,44 @@ fn panels(
             .as_deref_mut()
             .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)))
             .and_then(|b| b.glass(renderer, panel.wl_surface(), place.loc));
-        let list = match panel.layer() {
-            Layer::Overlay | Layer::Top => &mut upper,
-            Layer::Bottom | Layer::Background => &mut lower,
-        };
-        list.extend(surfaces.into_iter().map(Element::Surface));
-        list.extend(glass.map(Element::Glass));
+        let mut elements: Vec<Element> = surfaces.into_iter().map(Element::Surface).collect();
+        elements.extend(glass.map(Element::Glass));
+        drawn.push(PanelFrame {
+            place,
+            upper: matches!(panel.layer(), Layer::Overlay | Layer::Top),
+            elements,
+        });
     }
-    (upper, lower)
+    drawn
+}
+
+/// Moves the elements of the panels above the windows (`upper`) or below
+/// them that are `shown` to the end of `list`; where each went, for
+/// `take_back`.
+fn lend(
+    panels: &mut [PanelFrame],
+    upper: bool,
+    shown: impl Fn(&PanelFrame) -> bool,
+    list: &mut Vec<Element>,
+) -> Vec<(usize, Range<usize>)> {
+    let mut lent = Vec::new();
+    for (i, panel) in panels.iter_mut().enumerate() {
+        if panel.upper != upper || !shown(panel) {
+            continue;
+        }
+        let start = list.len();
+        list.append(&mut panel.elements);
+        lent.push((i, start..list.len()));
+    }
+    lent
+}
+
+/// Gives the panels back what `lend` moved to `list`, the last lent first
+/// (so the places of the others stay); what lies after is left.
+fn take_back(panels: &mut [PanelFrame], list: &mut Vec<Element>, lent: Vec<(usize, Range<usize>)>) {
+    for (i, range) in lent.into_iter().rev() {
+        panels[i].elements = list.drain(range).collect();
+    }
 }
 
 /// Inserts a client that connected to the socket, knowing whether it is
@@ -1018,6 +1291,7 @@ pub fn insert_client(state: &mut State, stream: std::os::unix::net::UnixStream) 
     }
     let data = ClientState {
         shell,
+        ended: shell.then(|| state.shell_ended.clone()),
         ..ClientState::default()
     };
     if let Err(e) = state.display.insert_client(stream, Arc::new(data)) {

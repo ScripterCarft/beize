@@ -9,8 +9,8 @@
 //! so a change sends only what changed – after anything that may change it
 //! (`refresh`): focus, minimizing, a new title or app id.
 //!
-//! The shell also hears the appearance and asks for glass below its panels
-//! (`glass`, `backdrop`).
+//! The shell also hears the appearance, asks for glass below its panels
+//! (`glass`, `backdrop`) and says when they are drawn (`opening`).
 
 use std::cell::RefCell;
 
@@ -249,18 +249,28 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
 }
 
 impl Dispatch<BeizeShellV1, ()> for State {
-    /// Glass below a surface (`glass`); `destroy` ends in `destroyed`.
+    /// Glass below a surface (`glass`), the shell ready (`opening`);
+    /// `destroy` ends in `destroyed`.
     fn request(
-        _: &mut State,
-        _: &Client,
+        state: &mut State,
+        client: &Client,
         _: &BeizeShellV1,
         request: beize_shell_v1::Request,
         _: &(),
         _: &DisplayHandle,
         data_init: &mut DataInit<'_, State>,
     ) {
-        if let beize_shell_v1::Request::GetGlass { id, surface } = request {
-            data_init.init(id, surface);
+        match request {
+            beize_shell_v1::Request::GetGlass { id, surface } => {
+                data_init.init(id, surface);
+            }
+            beize_shell_v1::Request::Ready => {
+                if let Some(data) = client.get_data::<ClientState>() {
+                    data.ready.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                state.shell_ready();
+            }
+            _ => {}
         }
     }
 

@@ -108,6 +108,8 @@ fn run() -> Result<(), String> {
     // Each panel is drawn once the compositor has configured it, and the
     // dock again only in the size it asked for last.
     let (mut bar_shown, mut dock_shown) = (false, false);
+    // Once both are drawn, the compositor shows the desktop (ADR 0028 §6).
+    let (mut bar_drawn, mut dock_drawn, mut ready) = (false, false, false);
     let mut dock_width = dock.width();
     let mut active_name: Option<String> = None;
     let mut appearance = app.appearance();
@@ -216,6 +218,7 @@ fn run() -> Result<(), String> {
                 behind,
             );
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
+            bar_drawn = true;
         }
         dock_shown |= dock_events.configured;
         if dock_shown && (redraw_dock || dock_events.configured) {
@@ -223,6 +226,12 @@ fn run() -> Result<(), String> {
             app.set_glass(dock_panel, Some(Dock::glass(size)));
             let scene = dock.draw(app.text(), size, appearance);
             app.draw(dock_panel, &scene).map_err(|e| e.to_string())?;
+            dock_drawn = true;
+        }
+        if bar_drawn && dock_drawn && !ready {
+            app.desktop_ready();
+            ready = true;
+            info!("ready: menu bar and dock drawn");
         }
     }
 }

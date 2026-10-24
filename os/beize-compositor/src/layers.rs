@@ -8,10 +8,14 @@
 //! and their strips stay where they are (no window moves); the pointer at
 //! the screen's top or bottom edge shows the panels along it until it
 //! leaves their strip, as macOS shows its menu bar and dock (`reveal`).
+//!
+//! When the shell fails, its panels stay as last drawn until a new shell
+//! is ready (`State::keep_panels`).
 
 use smithay::delegate_layer_shell;
 use smithay::desktop::{LayerSurface, WindowSurfaceType, layer_map_for_output};
 use smithay::output::Output;
+use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface};
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::compositor::with_states;
@@ -51,6 +55,11 @@ impl WlrLayerShellHandler for State {
         let Some(output) = self.output.clone() else {
             return;
         };
+        // The shell failed: its connection is gone before its objects
+        // (wayland-backend), its panels stay until a new one is ready.
+        if self.display.get_client(surface.wl_surface().id()).is_err() {
+            self.keep_panels();
+        }
         {
             let mut map = layer_map_for_output(&output);
             let gone = map

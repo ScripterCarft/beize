@@ -67,6 +67,16 @@
       <arg name="surface" type="object" interface="wl_surface"/>
     </request>
 
+    <request name="ready">
+      <description summary="the panels are drawn">
+        Sent once, after the shell committed the first content of each
+        panel it shows from the start. The desktop appears in one piece
+        (ADR 0028 §6): the compositor shows it only now, or without the
+        shell if it ends before or hangs. A shell started after one
+        failed replaces with it the panels the compositor kept of the old.
+      </description>
+    </request>
+
     <request name="destroy" type="destructor">
       <description summary="no more news of windows">
         The windows announced so far stay valid until destroyed.

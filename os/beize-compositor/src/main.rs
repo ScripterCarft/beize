@@ -13,6 +13,7 @@
 //!   draw (`trust`).
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
 //!   pointer on the cursor plane.
+//! - `opening`: the desktop appears in one piece, once the shell is ready.
 //! - `apps`: apps in the user's service manager (the terminal).
 //!
 //! Clients connect on `$XDG_RUNTIME_DIR/wayland-0`. It runs as
@@ -28,6 +29,7 @@ mod gpu;
 mod input;
 mod keyboard;
 mod layers;
+mod opening;
 mod output;
 mod pacing;
 mod schedule;
@@ -173,9 +175,6 @@ fn run() -> Result<()> {
             std::io::Error::from_raw_os_error(-r)
         );
     }
-    // Until the shell has a dock, the desktop starts with a terminal
-    // (ADR 0027 §9); its unit waits for graphical-session.target.
-    apps::open_terminal();
     event_loop
         .run(None, &mut state, |state| {
             // Changes are drawn at their vblank's deadline (`State::changed`);

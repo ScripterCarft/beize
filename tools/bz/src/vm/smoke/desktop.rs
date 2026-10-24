@@ -2,8 +2,9 @@
 //! and types `beize-session`; the compositor runs as the owner in its
 //! sandbox, logind knows the session as a Wayland one. The shell (ADR 0028)
 //! runs in its own sandbox, the compositor knows it, and its menu bar lies
-//! along the top with the time, without a background of its own. A
-//! terminal opens with the desktop and another with Ctrl+Alt+T. A command
+//! along the top with the time, without a background of its own. The
+//! desktop appears in one piece (ADR 0028 §6), once the shell's panels are
+//! drawn, with no terminal; Ctrl+Alt+T opens one, and another. A command
 //! typed into it shows the terminal's
 //! sample as the reference in the repository has it. Windows float (ADR
 //! 0028 §2): a client's window opens in its own size, centred below the
@@ -12,7 +13,8 @@
 //! drag, and maximized it fills the screen below the bar and comes back.
 //! Beize UI's test program shows its sample – text, colours, blending –
 //! below its title bar exactly as it draws it offscreen, the reference in
-//! the repository. Killed, the shell comes back and the window stays. The
+//! the repository. Killed, the shell comes back, its panels kept until the
+//! new one is ready, and the window stays. The
 //! title bar moves the window, maximizes it with a double click and back,
 //! minimizes it, and closes it; the dock brings it back. A client that asks the compositor for its frame
 //! (xdg-decoration) gets the same title bar, its buttons the same to the
@@ -272,9 +274,23 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: the shell runs sandboxed, the compositor knows it, its menu bar shows the time, \
          its dock floats along the bottom with round corners"
     );
+    // In one piece: the desktop showed once the shell said its panels were
+    // drawn, not without them after the wait (a warning, which fails).
+    let shown = wait_for_compositor_line(
+        &shell,
+        "desktop shown with the shell, [0-9]* ms after the screen",
+    )?;
+    say!("  ok: the desktop appeared with the shell's panels: {shown}");
 
-    // The desktop starts with a terminal, Ctrl+Alt+T opens another: each in
-    // a unit of its own, with the owner's shell in it.
+    // The desktop starts with no terminal, as macOS' with no window;
+    // Ctrl+Alt+T opens one and another: each in a unit of its own, with the
+    // owner's shell in it.
+    let none = terminals(&shell)?;
+    ensure!(
+        none.is_empty(),
+        "a terminal opened with the desktop: {none:?}"
+    );
+    keys(&qmp, &["ctrl+alt+t"])?;
     let first = wait_for_terminals(&shell, 1)?;
     keys(&qmp, &["ctrl+alt+t"])?;
     let both = wait_for_terminals(&shell, 2)?;
@@ -285,8 +301,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     wait_for_shell_line(&shell, |l| l == "dock: beize-terminal running")?;
     wait_for_shell_line(&shell, |l| l == "menu bar: Terminal")?;
     say!(
-        "  ok: the desktop started with a terminal, Ctrl+Alt+T opened another, each with its \
-         shell; the dock shows the terminal running, the menu bar names it"
+        "  ok: the desktop started with no terminal, Ctrl+Alt+T opened one and another, each \
+         with its shell; the dock shows the terminal running, the menu bar names it"
     );
 
     // The new terminal has the keyboard: typed into once its shell reads,
@@ -631,7 +647,9 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  ok: Beize UI's window shows its sample below its title bar as the reference has it");
 
     // Killed, the shell starts again (ADR 0028 §1): the compositor knows
-    // it once more, the bar comes back, the desktop and the window stay.
+    // it once more and keeps the old one's panels until the new one is
+    // ready (§6, a warning if it is not within the wait), the bar comes
+    // back, the desktop and the window stay.
     let (_, lines) = shell.capture(&format!(
         "systemctl --user kill -s KILL beize-shell.service; \
          for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 2 ] && break; sleep 0.2; done; \
@@ -644,6 +662,14 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
             && lines.iter().filter(|l| *l == "active").count() == 3,
         "the shell did not come back after it was killed, or the desktop went: {lines:?}"
     );
+    wait_for_compositor_line(
+        &shell,
+        "the shell failed: its 2 panels stay until a new one is ready",
+    )?;
+    let replaced = wait_for_compositor_line(
+        &shell,
+        "a new shell is ready [0-9]* ms after the old one failed: its panels replace the kept ones",
+    )?;
     wait_for_panels(&machine)?;
     wait_for_screen(
         paths,
@@ -653,9 +679,46 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "beize-ui-after-shell",
     )?;
     say!(
-        "  ok: killed, the shell came back with its menu bar and dock; the desktop and the \
-         window stayed"
+        "  ok: killed, the shell came back with its menu bar and dock, kept until then; the \
+         desktop and the window stayed: {replaced}"
     );
+    // Stopped, with no new shell yet, its panels are still on the screen
+    // once the compositor has drawn without the shell – it said so, and
+    // half a second of frames followed, well within the wait of seconds –,
+    // and a shell started then replaces them.
+    let (_, lines) = shell.capture(
+        "k() { journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -c '^the shell failed: '; }; systemctl --user stop beize-shell.service; \
+         for i in $(seq 50); do [ \"$(k)\" -ge 2 ] && break; sleep 0.1; done; sleep 0.5; \
+         echo BEIZE-KEPT-$(k); systemctl --user is-active beize-shell.service",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "inactive") && lines.iter().any(|l| l == "BEIZE-KEPT-2"),
+        "the shell did not stop, or the compositor did not keep its panels: {lines:?}"
+    );
+    let file = machine.logs.join("kept-screen.ppm");
+    screendump(&qmp, &file)?;
+    let kept = Image::read_ppm(&fs::read(&file)?)?;
+    if let Err(e) = menu_bar(&kept).and_then(|()| dock(&kept).map(|_| ())) {
+        let shown = machine.logs.join("kept-screen.png");
+        kept.write_png(&shown)?;
+        return Err(e.context(format!(
+            "the stopped shell's panels did not stay; the screen is {}",
+            shown.display()
+        )));
+    }
+    let (_, lines) = shell.capture(
+        "r() { journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -c '^a new shell is ready '; }; systemctl --user start beize-shell.service; \
+         for i in $(seq 50); do [ \"$(r)\" -ge 2 ] && break; sleep 0.2; done; \
+         echo BEIZE-REPLACED-$(r)",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-REPLACED-2"),
+        "a shell started after one stopped did not replace its kept panels: {lines:?}"
+    );
+    wait_for_panels(&machine)?;
+    say!("  ok: stopped, the shell's panels stayed on the screen until a new one replaced them");
 
     // Beize UI's title bar (ADR 0028 §2): dragged, it moves the window by
     // exactly the drag; a double click maximizes the window, another
@@ -1372,18 +1435,27 @@ fn wait_for_dock(shell: &Shell, wanted: impl Fn(&[String]) -> bool) -> Result<Ve
     }
 }
 
-/// Waits until the compositor said `line`, in this boot.
-fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<()> {
+/// Waits until the compositor said `line` (a basic regular expression for
+/// the whole line), in this boot; the last line it took. If it does not,
+/// the error has what the compositor and the shell said last.
+fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<String> {
     let (_, lines) = shell.capture(&format!(
         "for i in $(seq 50); do journalctl --user -b -u beize-compositor.service -o cat \
          | grep -qx '{line}' && break; sleep 0.2; done; \
-         journalctl --user -b -u beize-compositor.service -o cat | grep -cx '{line}'"
+         journalctl --user -b -u beize-compositor.service -o cat | grep -x '{line}' \
+         | sed 's/^/BEIZE-SAID /' | tail -n 1"
     ))?;
-    ensure!(
-        lines.iter().any(|l| l != "0"),
-        "the compositor did not say \"{line}\": {lines:?}"
-    );
-    Ok(())
+    if let Some(said) = lines.iter().find_map(|l| l.strip_prefix("BEIZE-SAID ")) {
+        return Ok(said.to_owned());
+    }
+    let (_, last) = shell.capture(
+        "journalctl --user -b -u beize-compositor.service -u beize-shell.service \
+         -o short-monotonic | grep -v ': pointer at ' | tail -n 30",
+    )?;
+    bail!(
+        "the compositor did not say \"{line}\"; last said:\n{}",
+        last.join("\n")
+    )
 }
 
 /// Waits until `window` on the screen no longer shows `shown` – the window

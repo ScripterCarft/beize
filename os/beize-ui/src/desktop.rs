@@ -129,6 +129,10 @@ impl Desktop {
             entry.proxy.activate();
         }
     }
+
+    pub(crate) fn ready(&self) {
+        self.shell.ready();
+    }
 }
 
 impl Dispatch<BeizeShellV1, ()> for State {

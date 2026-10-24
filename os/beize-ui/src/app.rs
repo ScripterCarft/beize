@@ -429,6 +429,15 @@ impl App {
         }
     }
 
+    /// Tells the compositor the shell's panels are drawn, so the desktop
+    /// appears in one piece (ADR 0028 §6): once, after the first draw of
+    /// each (`watch_desktop`).
+    pub fn desktop_ready(&mut self) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.ready();
+        }
+    }
+
     /// The modifiers held now (for the pointer: Shift+click and the like).
     pub fn modifiers(&self) -> Modifiers {
         self.state.keyboard.modifiers()

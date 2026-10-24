@@ -405,6 +405,11 @@ impl Glass {
     pub fn live(&self) -> Option<&Behind> {
         self.live.as_ref()
     }
+
+    /// Stays as it is: no longer live, its panel gone (`keep_panels`).
+    pub fn freeze(&mut self) {
+        self.live = None;
+    }
 }
 
 impl Element for Glass {
