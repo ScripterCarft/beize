@@ -13,7 +13,7 @@ pub mod icon;
 pub mod text;
 pub mod titlebar;
 
-pub use draw::{Color, Rect, Scene};
+pub use draw::{Atlases, Color, Rect, Scene};
 pub use glyphs::Glyphs;
 pub use icon::AppIcon;
 pub use text::{Cells, Family, Style, Text};

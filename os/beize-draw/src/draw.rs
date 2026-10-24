@@ -10,7 +10,9 @@ use beize_vulkan::pipeline::{EXACT, GRADIENT, MASK, Quad, SOLID};
 use parley::{FontData, Layout, PositionedLayoutItem, Run};
 use tracing::debug;
 
-use crate::glyphs::{ATLAS_SIZE, Face, Full, Glyphs};
+use std::path::{Path, PathBuf};
+
+use crate::glyphs::{ATLAS_SIZE, COLOUR_ATLAS_SIZE, Face, Full, Glyphs};
 use crate::text::Cells;
 
 /// The face a run of Parley's is set in.
@@ -61,7 +63,7 @@ impl Color {
 }
 
 /// sRGB's transfer function, inverted (IEC 61966-2-1).
-fn decode(channel: u8) -> f32 {
+pub(crate) fn decode(channel: u8) -> f32 {
     let c = f32::from(channel) / 255.0;
     if c <= 0.04045 {
         c / 12.92
@@ -91,6 +93,27 @@ pub struct Scene {
     glyphs: Vec<Glyph>,
     /// Symbols, likewise.
     symbols: Vec<Symbol>,
+    /// Images in colour, likewise.
+    images: Vec<Image>,
+}
+
+/// Where the atlases lie in the texture array.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Atlases {
+    pub coverage: u32,
+    /// None where nothing draws images (the compositor's title bars): an
+    /// image then draws nothing.
+    pub colour: Option<u32>,
+}
+
+/// An image file (`Scene::image`) in a square of `size` pixels, its top
+/// left at `x`, `y` (whole pixels).
+struct Image {
+    pub quad: usize,
+    pub path: PathBuf,
+    pub size: u32,
+    pub x: f32,
+    pub y: f32,
 }
 
 /// A symbol (ADR 0028 §8) in a square of `size` pixels, its top left at
@@ -240,6 +263,25 @@ impl Scene {
         self.blend.push(true);
     }
 
+    /// The image file `path` – an app's icon, PNG or SVG – scaled into a
+    /// square of `size` pixels with its top left at `x`, `y`, on whole
+    /// pixels, texel for pixel.
+    pub fn image(&mut self, path: &Path, x: f32, y: f32, size: u32) {
+        self.images.push(Image {
+            quad: self.quads.len(),
+            path: path.to_owned(),
+            size,
+            x: x.round(),
+            y: y.round(),
+        });
+        self.quads.push(Quad {
+            color: [1.0; 4],
+            flags: EXACT,
+            ..Quad::default()
+        });
+        self.blend.push(true);
+    }
+
     /// The glyph `id` of a grid's font (a terminal's cell) with its pen at
     /// `x` and its baseline at `y`.
     pub fn cell_glyph(&mut self, cells: &Cells, id: u32, x: f32, y: f32, color: Color) {
@@ -302,6 +344,13 @@ impl Scene {
             x: s.x,
             y: s.y + dy,
         }));
+        self.images.extend(other.images.iter().map(|i| Image {
+            quad: i.quad + quads,
+            path: i.path.clone(),
+            size: i.size,
+            x: i.x,
+            y: i.y + dy,
+        }));
     }
 
     pub fn len(&self) -> usize {
@@ -318,17 +367,22 @@ impl Scene {
         !self.glyphs.is_empty() || !self.symbols.is_empty()
     }
 
-    /// The scene's quads with its glyphs and symbols placed in `glyphs`'
-    /// atlas – rasterized where new – which is `slot` in the texture array.
-    /// A full atlas starts over once; None if the scene's glyphs do not fit
-    /// even then.
-    pub fn quads(&self, glyphs: &mut Glyphs, slot: u32) -> Option<Vec<Quad>> {
+    /// Images to place: the scene needs the colour atlas.
+    pub fn has_images(&self) -> bool {
+        !self.images.is_empty()
+    }
+
+    /// The scene's quads with its glyphs, symbols and images placed in
+    /// `glyphs`' atlases – rasterized where new – which lie at `atlases` in
+    /// the texture array. A full atlas starts over once; None if the
+    /// scene's do not fit even then.
+    pub fn quads(&self, glyphs: &mut Glyphs, atlases: Atlases) -> Option<Vec<Quad>> {
         let mut quads = self.quads.clone();
-        if !self.has_glyphs() {
+        if !self.has_glyphs() && !self.has_images() {
             return Some(quads);
         }
         for attempt in 0..2 {
-            match self.place(glyphs, &mut quads, slot) {
+            match self.place(glyphs, &mut quads, atlases) {
                 Ok(()) => return Some(quads),
                 Err(Full) if attempt == 0 => {
                     debug!("the glyph atlas is full: starting over");
@@ -340,7 +394,8 @@ impl Scene {
         None
     }
 
-    fn place(&self, glyphs: &mut Glyphs, quads: &mut [Quad], slot: u32) -> Result<(), Full> {
+    fn place(&self, glyphs: &mut Glyphs, quads: &mut [Quad], atlases: Atlases) -> Result<(), Full> {
+        let slot = atlases.coverage;
         let texel = 1.0 / ATLAS_SIZE as f32;
         for glyph in &self.glyphs {
             let (font, face) = &self.runs[glyph.run];
@@ -364,6 +419,23 @@ impl Scene {
             let quad = &mut quads[symbol.quad];
             let (w, h) = (placed.w as f32, placed.h as f32);
             quad.pos = [symbol.x, symbol.y];
+            quad.size = [w, h];
+            quad.uv = [placed.x as f32, placed.y as f32];
+            quad.uv_x = [w, 0.0];
+            quad.uv_y = [0.0, h];
+            quad.texel = [texel, texel];
+            quad.texture = slot;
+        }
+        let texel = 1.0 / COLOUR_ATLAS_SIZE as f32;
+        for image in &self.images {
+            // Without a colour atlas: empty, nothing drawn.
+            let Some(slot) = atlases.colour else {
+                continue;
+            };
+            let placed = glyphs.image(&image.path, image.size)?;
+            let quad = &mut quads[image.quad];
+            let (w, h) = (placed.w as f32, placed.h as f32);
+            quad.pos = [image.x, image.y];
             quad.size = [w, h];
             quad.uv = [placed.x as f32, placed.y as f32];
             quad.uv_x = [w, 0.0];

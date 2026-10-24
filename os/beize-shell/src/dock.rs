@@ -12,12 +12,14 @@
 //! Its measures are macOS 26's, measured in Apple's press image of it (a
 //! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), its corners the
 //! continuous ones of `beize_vulkan`'s shader. Beize's apps show their
-//! symbols (`AppIcon`), others for now a tile with their initial, until
-//! their own come from hicolor. Light and opaque until the glass (ADR
-//! 0028, Reihenfolge d).
+//! symbols (`AppIcon`), others their icons (hicolor, `apps`), an app
+//! without one a tile with its initial. Light and opaque until the glass
+//! (ADR 0028, Reihenfolge d).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
+use crate::apps::App;
 use beize_ui::{
     AppIcon, Color, DesktopWindow, DesktopWindowId, Family, Rect, Scene, Style, Text, icon,
 };
@@ -47,6 +49,8 @@ const RADIUS: f32 = HEIGHT as f32 * 20.4 / 76.3;
 /// corners of Beize's app symbols.
 const ICON: f32 = TILE as f32 * 824.0 / 1024.0;
 const ICON_RADIUS: f32 = ICON * icon::RADIUS;
+/// Other apps' icons fill that square, on whole pixels.
+pub const ICON_PIXELS: u32 = ICON.round() as u32;
 /// The dot below a running app: measured 4.0 pt, its middle 3.7 pt above
 /// the dock's bottom.
 const DOT: f32 = 4.0;
@@ -83,6 +87,7 @@ pub enum Action {
 struct Item {
     app_id: String,
     name: String,
+    icon: Option<PathBuf>,
     /// Its windows, in the order they opened.
     windows: Vec<DesktopWindow>,
 }
@@ -102,14 +107,14 @@ pub struct Dock {
 }
 
 impl Dock {
-    pub fn new(names: &mut impl FnMut(&str) -> String) -> Dock {
+    pub fn new(names: &mut impl FnMut(&str) -> App) -> Dock {
         let mut dock = Dock::default();
         dock.update(&[], names);
         dock
     }
 
-    /// The desktop's windows now; `names` gives an app's name.
-    pub fn update(&mut self, windows: &[DesktopWindow], names: &mut impl FnMut(&str) -> String) {
+    /// The desktop's windows now; `names` gives an app's name and icon.
+    pub fn update(&mut self, windows: &[DesktopWindow], names: &mut impl FnMut(&str) -> App) {
         for window in windows {
             if window.active && self.active != Some(window.id) {
                 self.count += 1;
@@ -128,20 +133,28 @@ impl Dock {
         self.minimized.retain(|id, _| open(id));
         let mut items: Vec<Item> = PINNED
             .iter()
-            .map(|&app_id| Item {
-                app_id: app_id.to_owned(),
-                name: names(app_id),
-                windows: Vec::new(),
+            .map(|&app_id| {
+                let App { name, icon } = names(app_id);
+                Item {
+                    app_id: app_id.to_owned(),
+                    name,
+                    icon,
+                    windows: Vec::new(),
+                }
             })
             .collect();
         for window in windows {
             match items.iter_mut().find(|i| i.app_id == window.app_id) {
                 Some(item) => item.windows.push(window.clone()),
-                None => items.push(Item {
-                    app_id: window.app_id.clone(),
-                    name: names(&window.app_id),
-                    windows: vec![window.clone()],
-                }),
+                None => {
+                    let App { name, icon } = names(&window.app_id);
+                    items.push(Item {
+                        app_id: window.app_id.clone(),
+                        name,
+                        icon,
+                        windows: vec![window.clone()],
+                    });
+                }
             }
         }
         if items.len() != self.items.len() {
@@ -259,6 +272,9 @@ impl Dock {
             };
             if let Some(symbol) = AppIcon::of(&item.app_id) {
                 symbol.draw(&mut scene, icon);
+            } else if let Some(file) = &item.icon {
+                let at = |start: f32, side: f32| start + (side - ICON_PIXELS as f32) / 2.0;
+                scene.image(file, at(tile.x, tile.w), at(tile.y, tile.h), ICON_PIXELS);
             } else {
                 scene.rounded(icon, ICON_RADIUS, TILE_COLOR);
                 let initial: String = item.name.chars().take(1).collect();
@@ -300,8 +316,11 @@ mod tests {
         }
     }
 
-    fn names(id: &str) -> String {
-        id.to_owned()
+    fn names(id: &str) -> App {
+        App {
+            name: id.to_owned(),
+            icon: None,
+        }
     }
 
     /// Pressed and released over the `i`th app.

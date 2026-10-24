@@ -161,8 +161,8 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
   Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
   die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen.
 - **Bis (d)** ist das Dock hell und deckend wie die Menüleiste; Glas kommt mit (d). Beizes Apps
-  zeigen ihr Symbol (siehe 8), andere bis zu ihrem hicolor-Symbol eine Kachel mit ihrem
-  Anfangsbuchstaben.
+  zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol eine Kachel
+  mit ihrem Anfangsbuchstaben.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 
 ### 5. Kontrollzentrum
@@ -221,9 +221,11 @@ erledigt: Strg+Shift+C/V im Terminal ist endgültig.
 ### 8. Symbole
 
 Vektorsymbole (SVG) werden mit **resvg** gerastert (Rust, ausgereift, in Typst und vielen
-Werkzeugen verwendet), einmal je Größe, und landen im Atlas wie die Glyphen. vello_cpu (ADR 0027
-§9) bleibt außen vor, solange es eine 0.x-Version mit experimentellem Cache ist. Fremde
-App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG).
+Werkzeugen verwendet), einmal je Größe, und landen im Atlas wie die Glyphen; farbige Bilder
+(App-Symbole) in einem eigenen RGBA-Atlas, wie Skia farbige Glyphen von den 8-Bit-Glyphen
+trennt. vello_cpu (ADR 0027 §9) bleibt außen vor, solange es eine 0.x-Version mit
+experimentellem Cache ist. Fremde App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG,
+gewählt nach der Icon Theme Specification).
 
 - **Symbole in Leiste, Menüs und Kontrollzentrum: Phosphor** (MIT, über 1500 Symbole). Es ist
   das offene Set, das SF Symbols am nächsten kommt: ein Stil in mehreren Strichstärken

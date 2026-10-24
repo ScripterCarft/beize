@@ -326,7 +326,13 @@ impl Decorations {
             }
         };
         let quads = scene
-            .quads(&mut self.glyphs, atlas.slot())
+            .quads(
+                &mut self.glyphs,
+                beize_draw::Atlases {
+                    coverage: atlas.slot(),
+                    colour: None,
+                },
+            )
             .ok_or_else(|| beize_compositor::error::error("the bar's glyphs do not fit"))?;
         for (placed, coverage) in self.glyphs.take_uploads() {
             let rect = Rectangle::new(

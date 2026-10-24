@@ -54,12 +54,12 @@ fn run() -> Result<(), String> {
             translucent: false,
         })
         .map_err(|e| e.to_string())?;
-    // Names from the apps' desktop files, read once each.
-    let mut known: HashMap<String, String> = HashMap::new();
+    // Names and icons from the apps' desktop files, read once each.
+    let mut known: HashMap<String, apps::App> = HashMap::new();
     let mut names = |app_id: &str| {
         known
             .entry(app_id.to_owned())
-            .or_insert_with(|| apps::name(app_id))
+            .or_insert_with(|| apps::app(app_id, dock::ICON_PIXELS))
             .clone()
     };
     let mut dock = Dock::new(&mut names);
@@ -108,7 +108,10 @@ fn run() -> Result<(), String> {
                 info!("dock: {}", dock.summary());
                 redraw_dock = true;
             }
-            let name = windows.iter().find(|w| w.active).map(|w| names(&w.app_id));
+            let name = windows
+                .iter()
+                .find(|w| w.active)
+                .map(|w| names(&w.app_id).name);
             if name != active_name {
                 info!("menu bar: {}", name.as_deref().unwrap_or("(no app)"));
                 active_name = name;

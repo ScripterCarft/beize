@@ -19,7 +19,9 @@
 //! closes its window as Beize UI's does. Windows have round corners
 //! (compared without them), maximized ones do not. The dock (ADR 0028 §4)
 //! floats along the bottom with round corners, the pinned terminal first and
-//! every running app with it; a click starts the terminal once none runs.
+//! every running app with it, the client with the icon its desktop file
+//! names in the owner's hicolor theme; a click starts the terminal once
+//! none runs.
 //! The menu bar names the active app; the shell's list of windows is
 //! offered to no app.
 //! Signing out stops the desktop with its shell and terminals and takes
@@ -79,6 +81,19 @@ const DOCK_GAP: usize = 4;
 const DOCK_PADDING: usize = 10;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
 const DOCK_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
+/// The test client's icon (`CLIENT_ICON`): one colour, so the dock shows
+/// it in the middle of its tile as it is.
+const CLIENT_ICON_COLOR: [u8; 3] = [0xff, 0x80, 0x00];
+/// The test client's desktop file and its icon in the owner's data
+/// directory (XDG), as an app installed for one user brings them.
+const CLIENT_ICON: &str = "d=~/.local/share; mkdir -p $d/applications \
+     $d/icons/hicolor/scalable/apps && printf '%s\\n' '[Desktop Entry]' Type=Application \
+     Name=beize-testclient Icon=beize-test-icon Exec=/run/t/beize-testclient \
+     > $d/applications/beize-testclient.desktop && printf '%s' \
+     '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\"><rect width=\"16\" \
+     height=\"16\" fill=\"#ff8000\"/></svg>' \
+     > $d/icons/hicolor/scalable/apps/beize-test-icon.svg";
+
 /// Where the time is: the right end of the bar, this wide. "00:00" in
 /// Inter at 13 px is some 35 px; the rest of the bar is its colour alone.
 const CLOCK_WIDTH: usize = 80;
@@ -273,7 +288,12 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
 
     // A client started by the service manager, which knows the socket only
-    // from beize-session.
+    // from beize-session; its desktop file names its icon.
+    let (status, lines) = shell.capture(CLIENT_ICON)?;
+    ensure!(
+        status == 0,
+        "could not write the test client's desktop file and icon: {lines:?}"
+    );
     let (status, lines) = shell.capture(
         "systemd-run --user --unit=beize-testclient /run/t/beize-testclient --seconds 60",
     )?;
@@ -339,9 +359,18 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         desktop.pixel(at.0, at.1) != QUADRANTS[0],
         "the client's window has a square corner"
     );
+    // The dock shows its icon from the hicolor theme (ADR 0028 §8).
+    let apps = wait_for_dock(&shell, |apps| {
+        apps.iter().any(|a| a == "beize-testclient running")
+    })?;
+    let tile = apps
+        .iter()
+        .position(|a| a == "beize-testclient running")
+        .context("the test client left the dock")?;
+    wait_for_dock_icon(&machine, dock_tile(screen, apps.len(), tile)?)?;
     say!(
         "  ok: the client's window opened in its own size, {}x{}, centred below the menu bar, \
-         exactly its pattern; it is offered no panels",
+         exactly its pattern; it is offered no panels; the dock shows its icon",
         size.0,
         size.1
     );
@@ -1189,6 +1218,37 @@ fn wait_for_gone(machine: &Machine, (at, size): Window, shown: &Image, name: &st
 }
 
 /// An RGB image.
+/// Waits until the dock shows the test client's icon in the middle of its
+/// tile at `at`; if it does not, the last screen is in the logs.
+fn wait_for_dock_icon(machine: &Machine, at: (i32, i32)) -> Result<()> {
+    let file = machine.logs.join("dock-icon-screen.ppm");
+    let (x, y) = (usize::try_from(at.0)?, usize::try_from(at.1)?);
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        screendump(&machine.qmp(), &file)?;
+        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        let shown = screen.pixel(x, y);
+        let near = shown
+            .iter()
+            .zip(CLIENT_ICON_COLOR)
+            .all(|(&a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE);
+        if near {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let png = machine.logs.join("dock-icon-screen.png");
+            screen.write_png(&png)?;
+            bail!(
+                "the dock shows {shown:?} at {x},{y}, not the test client's icon {:?}; the \
+                 screen is {}",
+                CLIENT_ICON_COLOR,
+                png.display()
+            );
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
 struct Image {
     width: usize,
     height: usize,

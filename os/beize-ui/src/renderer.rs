@@ -1,7 +1,7 @@
 //! Drawing a scene into an image – a window's swapchain image or one of
 //! its own offscreen: the frames in flight with their quad and staging
-//! buffers, and the glyph atlas on the GPU, filled as text needs it
-//! (`glyphs`).
+//! buffers, and the atlases on the GPU – glyphs and symbols, images in
+//! colour – filled as the scenes need them (`glyphs`).
 //!
 //! Two frames are in flight, as in the compositor: a frame's objects are
 //! reused once the timeline says its last submission is done.
@@ -18,12 +18,15 @@ use beize_vulkan::pipeline::{Attachment, MASK, Quad};
 use tracing::{debug, warn};
 
 use crate::gpu::Gpu;
-use beize_draw::Scene;
-use beize_draw::glyphs::{ATLAS_SIZE, Glyphs};
+use beize_draw::glyphs::{ATLAS_SIZE, COLOUR_ATLAS_SIZE, Glyphs};
+use beize_draw::{Atlases, Scene};
 
 const IN_FLIGHT: usize = 2;
 /// 8 bits of coverage per texel.
 const ATLAS_FORMAT: vk::Format = vk::Format::R8_UNORM;
+/// Colour in sRGB, decoded to linear light when sampled, and alpha
+/// (`beize_draw::glyphs`, `take_colour_uploads`).
+const COLOUR_FORMAT: vk::Format = vk::Format::R8G8B8A8_SRGB;
 /// The target before drawing: a swapchain image is waited for at this
 /// stage (its acquisition), nothing of it is read.
 const UNTOUCHED: Access = (
@@ -53,7 +56,7 @@ struct InFlight {
     /// Signalled when a swapchain hands out the frame's image.
     acquired: vk::Semaphore,
     quads: Option<HostBuffer>,
-    /// New glyphs on their way to the atlas.
+    /// New glyphs and images on their way to the atlases.
     staging: Option<HostBuffer>,
     /// The submission that last used it.
     submission: u64,
@@ -66,10 +69,18 @@ pub struct Renderer {
     current: usize,
     submitted: u64,
     glyphs: Glyphs,
-    atlas: Option<Sampled>,
-    /// The atlas has been written: it waits between frames in
+    atlas: GpuAtlas,
+    colour: GpuAtlas,
+}
+
+/// An atlas on the GPU, made on first use.
+struct GpuAtlas {
+    format: vk::Format,
+    size: u32,
+    sampled: Option<Sampled>,
+    /// It has been written: it waits between frames in
     /// SHADER_READ_ONLY_OPTIMAL.
-    atlas_filled: bool,
+    filled: bool,
 }
 
 impl Renderer {
@@ -81,8 +92,8 @@ impl Renderer {
             current: 0,
             submitted: 0,
             glyphs: Glyphs::new(),
-            atlas: None,
-            atlas_filled: false,
+            atlas: GpuAtlas::new(ATLAS_FORMAT, ATLAS_SIZE),
+            colour: GpuAtlas::new(COLOUR_FORMAT, COLOUR_ATLAS_SIZE),
         };
         // From here on, Drop cleans up whatever was made.
         let d = &renderer.gpu.shared.device;
@@ -149,11 +160,22 @@ impl Renderer {
     ) -> Result<u64> {
         let i = self.current;
         self.next()?;
-        let slot = if scene.has_glyphs() { self.atlas()? } else { 0 };
+        let atlases = Atlases {
+            coverage: if scene.has_glyphs() {
+                self.atlas.slot(&self.gpu)?
+            } else {
+                0
+            },
+            colour: if scene.has_images() {
+                Some(self.colour.slot(&self.gpu)?)
+            } else {
+                None
+            },
+        };
         let quads = scene
-            .quads(&mut self.glyphs, slot)
-            .context("the scene's glyphs do not fit into the atlas")?;
-        let uploads = self.stage_glyphs(i)?;
+            .quads(&mut self.glyphs, atlases)
+            .context("the scene's glyphs and images do not fit into the atlases")?;
+        let [coverage, colour] = self.stage(i)?;
         let address = self.upload_quads(i, &quads)?;
         let shared = self.gpu.shared.clone();
         let d = &shared.device;
@@ -172,51 +194,9 @@ impl Renderer {
             )
             .context("recording")?;
         }
-        if let (Some(atlas), Some(staging)) = (&self.atlas, &self.in_flight[i].staging)
-            && !uploads.is_empty()
-        {
-            // Earlier frames may still read places a cleared atlas gives
-            // out again: the barrier waits for their reads too.
-            let (old, src) = if self.atlas_filled {
-                (vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL, SHADER_READ)
-            } else {
-                (vk::ImageLayout::UNDEFINED, NONE)
-            };
-            barriers(
-                d,
-                commands,
-                &[barrier(
-                    atlas.image,
-                    old,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    src,
-                    TRANSFER_WRITE,
-                    SAME,
-                )],
-            );
-            // SAFETY: the regions lie in the staging buffer and the atlas.
-            unsafe {
-                d.cmd_copy_buffer_to_image(
-                    commands,
-                    staging.buffer,
-                    atlas.image,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &uploads,
-                )
-            };
-            barriers(
-                d,
-                commands,
-                &[barrier(
-                    atlas.image,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    TRANSFER_WRITE,
-                    SHADER_READ,
-                    SAME,
-                )],
-            );
-            self.atlas_filled = true;
+        if let Some(staging) = &self.in_flight[i].staging {
+            self.atlas.copy(d, commands, staging.buffer, &coverage);
+            self.colour.copy(d, commands, staging.buffer, &colour);
         }
         barriers(
             d,
@@ -247,7 +227,7 @@ impl Renderer {
             "{} quads ({} glyphs and symbols, {} new) in {draws} draws",
             quads.len(),
             quads.iter().filter(|q| q.flags & MASK != 0).count(),
-            uploads.len()
+            coverage.len() + colour.len()
         );
         match target.after {
             After::Present => barriers(
@@ -330,8 +310,10 @@ impl Renderer {
         // completes (the buffers are this frame's, the atlas is kept).
         unsafe { d.queue_submit2(self.gpu.queue, &[info], vk::Fence::null()) }
             .context("submitting")?;
-        if let Some(atlas) = &self.atlas {
-            atlas.used(submission);
+        for atlas in [&self.atlas, &self.colour] {
+            if let Some(sampled) = &atlas.sampled {
+                sampled.used(submission);
+            }
         }
         self.submitted = submission;
         self.in_flight[i].submission = submission;
@@ -339,34 +321,22 @@ impl Renderer {
         Ok(submission)
     }
 
-    /// The atlas' place in the texture array, made on first use.
-    fn atlas(&mut self) -> Result<u32> {
-        if let Some(atlas) = &self.atlas {
-            return Ok(atlas.slot);
-        }
-        let shared = &self.gpu.shared;
-        let (image, memory) = own_image(
-            shared,
-            ATLAS_FORMAT,
-            (ATLAS_SIZE, ATLAS_SIZE),
-            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-        )?;
-        let atlas = Sampled::new(shared, image, memory, ATLAS_FORMAT, true)?;
-        self.gpu
-            .pipelines
-            .write(&shared.device, atlas.slot, atlas.view);
-        let slot = atlas.slot;
-        self.atlas = Some(atlas);
-        Ok(slot)
-    }
-
-    /// The new glyphs' coverage in frame `i`'s staging buffer; the copies
-    /// into the atlas.
-    fn stage_glyphs(&mut self, i: usize) -> Result<Vec<vk::BufferImageCopy>> {
-        let uploads = self.glyphs.take_uploads();
-        let bytes: usize = uploads.iter().map(|(_, c)| c.len()).sum();
+    /// The new glyphs' and images' texels in frame `i`'s staging buffer;
+    /// the copies into each atlas.
+    fn stage(&mut self, i: usize) -> Result<[Vec<vk::BufferImageCopy>; 2]> {
+        let uploads = [
+            self.glyphs.take_uploads(),
+            self.glyphs.take_colour_uploads(),
+        ];
+        // Each region starts on a whole texel of the colour atlas (Vulkan:
+        // a multiple of the format's texel size).
+        let bytes: usize = uploads
+            .iter()
+            .flatten()
+            .map(|(_, texels)| texels.len().next_multiple_of(4))
+            .sum();
         if bytes == 0 {
-            return Ok(Vec::new());
+            return Ok([Vec::new(), Vec::new()]);
         }
         let staging = grow(
             &self.gpu.shared,
@@ -374,39 +344,41 @@ impl Renderer {
             bytes as u64,
             vk::BufferUsageFlags::TRANSFER_SRC,
         )?;
-        let mut regions = Vec::with_capacity(uploads.len());
+        let mut regions = [Vec::new(), Vec::new()];
         let mut offset = 0;
-        for (placed, coverage) in &uploads {
-            // SAFETY: the buffer holds `bytes` (grown above), no submission
-            // reads it (`next` waited for this frame's last).
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    coverage.as_ptr(),
-                    staging.pointer.add(offset),
-                    coverage.len(),
-                )
-            };
-            regions.push(
-                vk::BufferImageCopy::default()
-                    .buffer_offset(offset as u64)
-                    .image_subresource(vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: 0,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })
-                    .image_offset(vk::Offset3D {
-                        x: placed.x as i32,
-                        y: placed.y as i32,
-                        z: 0,
-                    })
-                    .image_extent(vk::Extent3D {
-                        width: placed.w,
-                        height: placed.h,
-                        depth: 1,
-                    }),
-            );
-            offset += coverage.len();
+        for (uploads, regions) in uploads.iter().zip(&mut regions) {
+            for (placed, texels) in uploads {
+                // SAFETY: the buffer holds `bytes` (grown above), no
+                // submission reads it (`next` waited for this frame's last).
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        texels.as_ptr(),
+                        staging.pointer.add(offset),
+                        texels.len(),
+                    )
+                };
+                regions.push(
+                    vk::BufferImageCopy::default()
+                        .buffer_offset(offset as u64)
+                        .image_subresource(vk::ImageSubresourceLayers {
+                            aspect_mask: vk::ImageAspectFlags::COLOR,
+                            mip_level: 0,
+                            base_array_layer: 0,
+                            layer_count: 1,
+                        })
+                        .image_offset(vk::Offset3D {
+                            x: placed.x as i32,
+                            y: placed.y as i32,
+                            z: 0,
+                        })
+                        .image_extent(vk::Extent3D {
+                            width: placed.w,
+                            height: placed.h,
+                            depth: 1,
+                        }),
+                );
+                offset += texels.len().next_multiple_of(4);
+            }
         }
         Ok(regions)
     }
@@ -429,6 +401,95 @@ impl Renderer {
             std::ptr::copy_nonoverlapping(quads.as_ptr().cast::<u8>(), buffer.pointer, bytes)
         };
         Ok(buffer.address)
+    }
+}
+
+impl GpuAtlas {
+    const fn new(format: vk::Format, size: u32) -> GpuAtlas {
+        GpuAtlas {
+            format,
+            size,
+            sampled: None,
+            filled: false,
+        }
+    }
+
+    /// Its place in the texture array, made on first use.
+    fn slot(&mut self, gpu: &Gpu) -> Result<u32> {
+        if let Some(sampled) = &self.sampled {
+            return Ok(sampled.slot);
+        }
+        let shared = &gpu.shared;
+        let (image, memory) = own_image(
+            shared,
+            self.format,
+            (self.size, self.size),
+            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+        )?;
+        let sampled = Sampled::new(shared, image, memory, self.format, true)?;
+        gpu.pipelines
+            .write(&shared.device, sampled.slot, sampled.view);
+        let slot = sampled.slot;
+        self.sampled = Some(sampled);
+        Ok(slot)
+    }
+
+    /// Records the copies `regions` from `staging` into it.
+    fn copy(
+        &mut self,
+        d: &ash::Device,
+        commands: vk::CommandBuffer,
+        staging: vk::Buffer,
+        regions: &[vk::BufferImageCopy],
+    ) {
+        let Some(sampled) = &self.sampled else {
+            return;
+        };
+        if regions.is_empty() {
+            return;
+        }
+        // Earlier frames may still read places a cleared atlas gives out
+        // again: the barrier waits for their reads too.
+        let (old, src) = if self.filled {
+            (vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL, SHADER_READ)
+        } else {
+            (vk::ImageLayout::UNDEFINED, NONE)
+        };
+        barriers(
+            d,
+            commands,
+            &[barrier(
+                sampled.image,
+                old,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                src,
+                TRANSFER_WRITE,
+                SAME,
+            )],
+        );
+        // SAFETY: the regions lie in the staging buffer and the atlas.
+        unsafe {
+            d.cmd_copy_buffer_to_image(
+                commands,
+                staging,
+                sampled.image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                regions,
+            )
+        };
+        barriers(
+            d,
+            commands,
+            &[barrier(
+                sampled.image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                TRANSFER_WRITE,
+                SHADER_READ,
+                SAME,
+            )],
+        );
+        self.filled = true;
     }
 }
 
