@@ -19,9 +19,11 @@
 //! `beize-compositor.service`, which beize-session starts.
 
 mod apps;
+mod backdrop;
 mod corners;
 mod cursor;
 mod decorations;
+mod glass;
 mod gpu;
 mod input;
 mod keyboard;

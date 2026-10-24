@@ -3,6 +3,11 @@
 //! pair, and one descriptor set holding every texture (bindless). Dynamic
 //! rendering: no render pass or framebuffer objects. Mesa keeps compiled
 //! pipelines in its disk cache, so a start compiles nothing twice.
+//!
+//! The backdrop's passes – the background and its blur, drawn once per
+//! change (ADR 0028 §6) – have a fragment shader of their own
+//! (`shaders/backdrop.frag`, `backdrop`), so the one of every frame stays
+//! small.
 
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -13,6 +18,7 @@ use crate::error::{Context, Result};
 
 const VERTEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/quad.vert.spv"));
 const FRAGMENT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/quad.frag.spv"));
+const BACKDROP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/backdrop.frag.spv"));
 
 /// One quad as the shaders read it (`shaders/quad.glsl`, scalar layout).
 #[repr(C)]
@@ -60,6 +66,22 @@ pub const SHADOW: u32 = 8;
 /// its bottom (ADR 0028 §8, the apps' symbols), interpolated as CSS does
 /// by default: premultiplied, in sRGB as encoded.
 pub const GRADIENT: u32 = 16;
+/// Base glass (ADR 0028 §6): the texture is the backdrop's blurred copy,
+/// with grain of strength `sigma` (the noise's reach, as encoded: 1/255 is
+/// one 8-bit step) and a rim of light in `color` (premultiplied; alpha 0:
+/// none) along the rounded rectangle `clip`, whose corners of `radius` cut
+/// it.
+pub const GLASS: u32 = 32;
+/// The backdrop's passes (`backdrop`): Beize's background for a target of
+/// `clip`'s size, in the appearance `texture` (0 light, 1 dark).
+pub const WALLPAPER: u32 = 64;
+/// A pass of Dual Kawase down or up from the texture, its taps `sigma`
+/// source texels apart.
+pub const BLUR_DOWN: u32 = 128;
+pub const BLUR_UP: u32 = 256;
+/// With `BLUR_UP`: the glass's colour – saturation times `bottom[0]`, then
+/// the tint `color` (linear, premultiplied) over it.
+pub const MATERIAL: u32 = 512;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.
@@ -102,8 +124,11 @@ pub struct Pipelines {
     pub set: vk::DescriptorSet,
     vertex: vk::ShaderModule,
     fragment: vk::ShaderModule,
+    backdrop: vk::ShaderModule,
     /// Per target format: opaque, blending.
     by_format: HashMap<vk::Format, [vk::Pipeline; 2]>,
+    /// The backdrop's, per target format: opaque only.
+    backdrop_by_format: HashMap<vk::Format, vk::Pipeline>,
 }
 
 impl Pipelines {
@@ -116,7 +141,9 @@ impl Pipelines {
             set: vk::DescriptorSet::null(),
             vertex: vk::ShaderModule::null(),
             fragment: vk::ShaderModule::null(),
+            backdrop: vk::ShaderModule::null(),
             by_format: HashMap::new(),
+            backdrop_by_format: HashMap::new(),
         };
         // On failure, Drop of the caller's renderer is not reached: destroy
         // what was made so far.
@@ -216,6 +243,7 @@ impl Pipelines {
                 .context("descriptor set")?[0];
             self.vertex = module(d, VERTEX)?;
             self.fragment = module(d, FRAGMENT)?;
+            self.backdrop = module(d, BACKDROP)?;
         }
         Ok(())
     }
@@ -242,8 +270,8 @@ impl Pipelines {
         if let Some(p) = self.by_format.get(&format) {
             return Ok(*p);
         }
-        let opaque = self.pipeline(d, format, false)?;
-        let blend = match self.pipeline(d, format, true) {
+        let opaque = self.pipeline(d, format, self.fragment, false)?;
+        let blend = match self.pipeline(d, format, self.fragment, true) {
             Ok(p) => p,
             Err(e) => {
                 // SAFETY: just created, never used.
@@ -255,7 +283,28 @@ impl Pipelines {
         Ok([opaque, blend])
     }
 
-    fn pipeline(&self, d: &ash::Device, format: vk::Format, blend: bool) -> Result<vk::Pipeline> {
+    /// The backdrop's pipeline for `format` (`shaders/backdrop.frag`), as
+    /// the pair `record` takes: its passes never blend.
+    pub fn get_backdrop(
+        &mut self,
+        d: &ash::Device,
+        format: vk::Format,
+    ) -> Result<[vk::Pipeline; 2]> {
+        if let Some(&p) = self.backdrop_by_format.get(&format) {
+            return Ok([p, p]);
+        }
+        let p = self.pipeline(d, format, self.backdrop, false)?;
+        self.backdrop_by_format.insert(format, p);
+        Ok([p, p])
+    }
+
+    fn pipeline(
+        &self,
+        d: &ash::Device,
+        format: vk::Format,
+        fragment: vk::ShaderModule,
+        blend: bool,
+    ) -> Result<vk::Pipeline> {
         let entry = c"main";
         let stages = [
             vk::PipelineShaderStageCreateInfo::default()
@@ -264,7 +313,7 @@ impl Pipelines {
                 .name(entry),
             vk::PipelineShaderStageCreateInfo::default()
                 .stage(vk::ShaderStageFlags::FRAGMENT)
-                .module(self.fragment)
+                .module(fragment)
                 .name(entry),
         ];
         let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
@@ -424,8 +473,12 @@ impl Pipelines {
                 d.destroy_pipeline(opaque, None);
                 d.destroy_pipeline(blend, None);
             }
+            for p in self.backdrop_by_format.drain().map(|(_, p)| p) {
+                d.destroy_pipeline(p, None);
+            }
             d.destroy_shader_module(self.vertex, None);
             d.destroy_shader_module(self.fragment, None);
+            d.destroy_shader_module(self.backdrop, None);
             d.destroy_descriptor_pool(self.pool, None);
             d.destroy_pipeline_layout(self.layout, None);
             d.destroy_descriptor_set_layout(self.set_layout, None);
@@ -455,6 +508,28 @@ mod tests {
     fn the_shader_draws_the_same_corner() {
         let shader = include_str!("../shaders/quad.frag");
         assert!(shader.contains(&format!("const float EXTENT = {CORNER_EXTENT};")));
+    }
+
+    #[test]
+    fn the_shaders_know_the_same_flags() {
+        let shared = include_str!("../shaders/quad.glsl");
+        for (name, value) in [
+            ("SOLID", SOLID),
+            ("EXACT", EXACT),
+            ("MASK", MASK),
+            ("SHADOW", SHADOW),
+            ("GRADIENT", GRADIENT),
+            ("GLASS", GLASS),
+            ("WALLPAPER", WALLPAPER),
+            ("BLUR_DOWN", BLUR_DOWN),
+            ("BLUR_UP", BLUR_UP),
+            ("MATERIAL", MATERIAL),
+        ] {
+            assert!(
+                shared.contains(&format!("const uint {name} = {value}u;")),
+                "{name}"
+            );
+        }
     }
 
     #[test]

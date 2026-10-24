@@ -39,7 +39,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 use crate::clipboard::Clipboard;
-use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId};
+use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass};
 use crate::gpu::Gpu;
 use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::Renderer;
@@ -383,6 +383,29 @@ impl App {
             .as_ref()
             .map(|d| d.windows().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// The system's appearance, as the compositor tells the shell
+    /// (`watch_desktop`); light until it has.
+    pub fn appearance(&self) -> Appearance {
+        self.state
+            .desktop
+            .as_ref()
+            .map_or(Appearance::Light, |d| d.appearance)
+    }
+
+    /// Glass below part of the panel `id` (or none), drawn by the
+    /// compositor (ADR 0028 §6): what the scene leaves transparent there
+    /// shows it. Only the shell (`watch_desktop`); applies with the panel's
+    /// next draw.
+    pub fn set_glass(&mut self, id: WindowId, glass: Option<Glass>) {
+        let qh = self.queue.handle();
+        let Some(wl) = self.state.surface(id).map(|s| s.wl.clone()) else {
+            return;
+        };
+        if let Some(desktop) = &mut self.state.desktop {
+            desktop.set_glass(id, &wl, glass, &qh);
+        }
     }
 
     /// Brings a window of the desktop to the front, back on the screen if

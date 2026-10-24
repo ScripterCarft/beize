@@ -14,7 +14,7 @@ use std::sync::atomic::Ordering;
 use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::{Color32F, ContextId, Frame, Texture};
 use smithay::reexports::ash::{self, vk};
-use smithay::utils::{Buffer, Physical, Rectangle, Transform};
+use smithay::utils::{Buffer, Physical, Rectangle, Size, Transform};
 use tracing::{debug, warn};
 
 use super::device::Ext;
@@ -27,7 +27,7 @@ use crate::error::{Error, Result};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
-use beize_vulkan::pipeline::{Attachment, Pipelines, SHADOW, corner_extent};
+use beize_vulkan::pipeline::{Attachment, GLASS, Pipelines, SHADOW, corner_extent};
 
 /// Round corners for what a frame draws (`VkFrame::set_rounding`), in the
 /// framebuffer: the rectangle, the radius, the corners' squares.
@@ -140,29 +140,31 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
 
     /// The shadow of `caster` (the output's space) with corners of
     /// `radius`, blurred by `sigma`, in `color` (premultiplied): in `dst`,
-    /// cut to its `damage`, but not under the caster, which covers it.
+    /// cut to its `damage`, but not under `cover` – the window, whose
+    /// shadow falls offset below it – which hides it there.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_shadow(
         &mut self,
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         caster: Rectangle<i32, Physical>,
+        cover: Rectangle<i32, Physical>,
         radius: i32,
         sigma: f32,
         color: [f32; 4],
     ) {
         let parts: Vec<_> = geometry::absolute(dst, damage).collect();
-        // The caster but its corners, which let the shadow show.
+        // The window but its corners, which let the shadow show.
         let c =
-            corner_extent(radius as f32, caster.size.w as f32, caster.size.h as f32).ceil() as i32;
+            corner_extent(radius as f32, cover.size.w as f32, cover.size.h as f32).ceil() as i32;
         let covered = [
             Rectangle::new(
-                (caster.loc.x + c, caster.loc.y).into(),
-                (caster.size.w - 2 * c, caster.size.h).into(),
+                (cover.loc.x + c, cover.loc.y).into(),
+                (cover.size.w - 2 * c, cover.size.h).into(),
             ),
             Rectangle::new(
-                (caster.loc.x, caster.loc.y + c).into(),
-                (caster.size.w, caster.size.h - 2 * c).into(),
+                (cover.loc.x, cover.loc.y + c).into(),
+                (cover.size.w, cover.size.h - 2 * c).into(),
             ),
         ];
         let fb = self.space.framebuffer_rect(caster);
@@ -182,6 +184,70 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             self.recorded.quads.push(quad);
             self.recorded.blend.push(true);
         }
+    }
+
+    /// Base glass (ADR 0028 §6) in the rounded rectangle `shape` (the
+    /// output's space) with corners of `radius`: `glass` – the backdrop's
+    /// blurred copy over the whole `screen`, smaller – read where it lies,
+    /// with `grain` and a `rim` of light (premultiplied; alpha 0: none). In
+    /// `dst`, cut to its `damage`; opaque but at the corners.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_glass(
+        &mut self,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        shape: Rectangle<i32, Physical>,
+        radius: f32,
+        glass: &VkTexture,
+        screen: Size<i32, Physical>,
+        grain: f32,
+        rim: [f32; 4],
+    ) {
+        let size = glass.0.size;
+        if screen.w <= 0 || screen.h <= 0 {
+            return;
+        }
+        let (sx, sy) = (
+            f64::from(size.w) / f64::from(screen.w),
+            f64::from(size.h) / f64::from(screen.h),
+        );
+        let mapping = Mapping {
+            src: Rectangle::new(
+                (f64::from(dst.loc.x) * sx, f64::from(dst.loc.y) * sy).into(),
+                (f64::from(dst.size.w) * sx, f64::from(dst.size.h) * sy).into(),
+            ),
+            dst,
+            transform: Transform::Normal,
+        };
+        let fb = self.space.framebuffer_rect(shape);
+        let clip = [
+            fb.loc.x as f32,
+            fb.loc.y as f32,
+            fb.size.w as f32,
+            fb.size.h as f32,
+        ];
+        let r = corner_extent(radius, clip[2], clip[3]).ceil();
+        let corners = [
+            [clip[0], clip[1], r, r],
+            [clip[0] + clip[2] - r, clip[1], r, r],
+            [clip[0], clip[1] + clip[3] - r, r, r],
+            [clip[0] + clip[2] - r, clip[1] + clip[3] - r, r, r],
+        ];
+        let parts: Vec<_> = geometry::absolute(dst, damage).collect();
+        for part in parts {
+            let mut quad = geometry::quad(&self.space, part, Some((&mapping, size)));
+            quad.flags = GLASS;
+            quad.texture = glass.0.gpu.slot;
+            quad.color = rim;
+            quad.clip = clip;
+            quad.radius = radius;
+            quad.sigma = grain;
+            // Opaque but where its corners let what is below show.
+            let blend = corners.iter().any(|c| overlaps(&quad, c));
+            self.recorded.quads.push(quad);
+            self.recorded.blend.push(blend);
+        }
+        self.uses(glass);
     }
 
     fn uses(&mut self, texture: &VkTexture) {
@@ -364,63 +430,67 @@ pub(super) fn record_uploads(
     barriers(d, commands, &after);
 }
 
-/// The compositor's own pictures (`VkRenderer::draw_picture`), each drawn
-/// whole through its sRGB view, then ready for the frame to sample.
+/// The compositor's own pictures (`VkRenderer::draw_picture`, the
+/// backdrop), each drawn whole through its sRGB view, then ready to be
+/// sampled – by the frame or by the next pass (a blur reads the one
+/// before). `pipelines`: the quads' and the backdrop's.
 pub(super) fn record_passes(
     d: &ash::Device,
     commands: vk::CommandBuffer,
     layouts: &Pipelines,
-    pipelines: [vk::Pipeline; 2],
+    pipelines: [[vk::Pipeline; 2]; 2],
     passes: &[Pass],
     addresses: &[u64],
     submission: u64,
 ) {
-    // Drawn whole: what it held goes, once earlier frames have read it.
-    let before: Vec<_> = passes
-        .iter()
-        .map(|p| {
-            barrier(
-                p.texture.0.gpu.image,
+    for (pass, &address) in passes.iter().zip(addresses) {
+        let Some(view) = pass.texture.0.attachment else {
+            continue;
+        };
+        let image = pass.texture.0.gpu.image;
+        // Drawn whole: what it held goes, once earlier reads are done.
+        barriers(
+            d,
+            commands,
+            &[barrier(
+                image,
                 vk::ImageLayout::UNDEFINED,
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 SHADER_READ,
                 COLOR_WRITE,
                 SAME,
-            )
-        })
-        .collect();
-    barriers(d, commands, &before);
-    for (pass, &address) in passes.iter().zip(addresses) {
-        let Some(view) = pass.texture.0.attachment else {
-            continue;
-        };
+            )],
+        );
         let size = pass.texture.0.size;
         let attachment = Attachment {
             view,
             size: (size.w as u32, size.h as u32),
             load: false,
         };
+        let pipelines = pipelines[usize::from(pass.backdrop)];
         // SAFETY: the picture is in COLOR_ATTACHMENT_OPTIMAL (above), the
         // pipelines are its view's format's; the quads live in this frame's
-        // buffer until the submission completes.
+        // buffer until the submission completes, and what they read was
+        // drawn by an earlier pass or is filled.
         unsafe { layouts.record(d, commands, pipelines, &attachment, address, &pass.blend) };
-        pass.texture.0.filled.store(true, Ordering::Relaxed);
-        pass.texture.used(submission);
-    }
-    let after: Vec<_> = passes
-        .iter()
-        .map(|p| {
-            barrier(
-                p.texture.0.gpu.image,
+        barriers(
+            d,
+            commands,
+            &[barrier(
+                image,
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 COLOR_WRITE,
                 SHADER_READ,
                 SAME,
-            )
-        })
-        .collect();
-    barriers(d, commands, &after);
+            )],
+        );
+        pass.texture.0.filled.store(true, Ordering::Relaxed);
+        pass.texture.used(submission);
+        if let Some(read) = &pass.reads {
+            read.used(submission);
+        }
+    }
 }
 
 /// The frame's quads, drawn into its target.

@@ -68,12 +68,31 @@ struct Upload {
     regions: Vec<vk::BufferImageCopy>,
 }
 
-/// A picture the compositor draws for itself (`draw_picture`), recorded
-/// with the next submission ahead of its frame.
+/// A picture the compositor draws for itself (`draw_picture`, the
+/// backdrop), recorded with the next submission ahead of its frame, in
+/// order: a pass may read what one before it drew.
 struct Pass {
     texture: VkTexture,
     quads: Vec<Quad>,
     blend: Vec<bool>,
+    /// Drawn with the backdrop's shader (`beize_vulkan::pipeline`).
+    backdrop: bool,
+    /// What it reads, kept until the GPU is done with it.
+    reads: Option<VkTexture>,
+}
+
+/// How the base glass is made of the backdrop (ADR 0028 §6): blurred by
+/// Dual Kawase `down` halvings and `up` doublings back (the glass keeps
+/// 1/2^(down - up) of the size: it is soft, and the frame's filter scales
+/// it up), the taps `offset` texels apart; then its saturation times
+/// `saturation`, and `tint` (linear, premultiplied) over it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Material {
+    pub down: u32,
+    pub up: u32,
+    pub offset: f32,
+    pub saturation: f32,
+    pub tint: [f32; 4],
 }
 
 /// A picture's format: read as UNORM, drawn through an sRGB view.
@@ -236,8 +255,77 @@ impl VkRenderer {
             texture: texture.clone(),
             quads,
             blend,
+            backdrop: false,
+            reads: None,
         });
         Ok(texture)
+    }
+
+    /// Beize's background for a screen of `size`, in `appearance` (0
+    /// light, 1 dark): computed by the backdrop's shader (ADR 0028 §6), no
+    /// image file. Drawn with the next submission, ahead of its frame.
+    pub fn draw_wallpaper(
+        &mut self,
+        size: Size<i32, Buffer>,
+        appearance: u32,
+    ) -> Result<VkTexture> {
+        let texture = self.picture_texture(size)?;
+        let mut quad = pass_quad(size, None);
+        quad.flags = beize_vulkan::pipeline::WALLPAPER;
+        quad.texture = appearance;
+        quad.clip = [0.0, 0.0, size.w as f32, size.h as f32];
+        self.backdrop_pass(&texture, quad, None);
+        Ok(texture)
+    }
+
+    /// The base glass of `source` (`Material`): drawn with the next
+    /// submission, after what draws `source`.
+    pub fn draw_glass(&mut self, source: &VkTexture, material: Material) -> Result<VkTexture> {
+        use beize_vulkan::pipeline::{BLUR_DOWN, BLUR_UP, MATERIAL};
+        if material.down == 0 {
+            return Err(error("glass without blur"));
+        }
+        let mut sizes = vec![source.0.size];
+        for _ in 0..material.down {
+            let last = sizes[sizes.len() - 1];
+            sizes.push(((last.w + 1) / 2, (last.h + 1) / 2).into());
+        }
+        let up = material.up.min(material.down) as usize;
+        let mut from = source.clone();
+        let steps = material.down as usize + up;
+        for step in 0..steps {
+            let (size, flags) = if step < material.down as usize {
+                (sizes[step + 1], BLUR_DOWN)
+            } else {
+                (
+                    sizes[sizes.len() - 2 - (step - material.down as usize)],
+                    BLUR_UP,
+                )
+            };
+            let last = step + 1 == steps;
+            let texture = self.picture_texture(size)?;
+            let mut quad = pass_quad(size, Some(&from));
+            quad.flags = flags;
+            quad.sigma = material.offset;
+            if last {
+                quad.flags |= MATERIAL;
+                quad.color = material.tint;
+                quad.bottom = [material.saturation, 0.0, 0.0, 0.0];
+            }
+            self.backdrop_pass(&texture, quad, Some(from));
+            from = texture;
+        }
+        Ok(from)
+    }
+
+    fn backdrop_pass(&mut self, texture: &VkTexture, quad: Quad, reads: Option<VkTexture>) {
+        self.passes.push(Pass {
+            texture: texture.clone(),
+            quads: vec![quad],
+            blend: vec![false],
+            backdrop: true,
+            reads,
+        });
     }
 
     fn picture_texture(&mut self, size: Size<i32, Buffer>) -> Result<VkTexture> {
@@ -570,6 +658,23 @@ impl VkRenderer {
         self.upload(&texture, data, stride, &[Rectangle::from_size(size)])?;
         Ok(texture)
     }
+}
+
+/// A quad over a whole picture of `size`, reading all of `source` (a
+/// pass of the backdrop).
+fn pass_quad(size: Size<i32, Buffer>, source: Option<&VkTexture>) -> Quad {
+    let mut quad = Quad {
+        size: [size.w as f32, size.h as f32],
+        ..Quad::default()
+    };
+    if let Some(source) = source {
+        let s = source.0.size;
+        quad.uv_x = [s.w as f32, 0.0];
+        quad.uv_y = [0.0, s.h as f32];
+        quad.texel = [1.0 / s.w as f32, 1.0 / s.h as f32];
+        quad.texture = source.0.gpu.slot;
+    }
+    quad
 }
 
 /// Whether Vulkan imports dmabufs of `format` with `modifier` for sampling.
@@ -999,7 +1104,10 @@ impl VkRenderer {
         }
         let addresses = self.write_quads(i, &lists)?;
         if !passes.is_empty() {
-            let pipelines = self.pipelines.get(&d, PICTURE_DRAWN)?;
+            let pipelines = [
+                self.pipelines.get(&d, PICTURE_DRAWN)?,
+                self.pipelines.get_backdrop(&d, PICTURE_DRAWN)?,
+            ];
             frame::record_passes(
                 &d,
                 commands,

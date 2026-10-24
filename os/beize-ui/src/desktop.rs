@@ -4,13 +4,30 @@
 //! offered the protocol.
 //!
 //! A window's changes take effect together at its `done`; the list changed
-//! when `Dispatched::desktop` says so.
+//! when `Dispatched::desktop` says so – as when the appearance changed.
+//!
+//! The shell asks for glass below its panels here too (`beize_glass_v1`):
+//! the compositor draws it, as macOS' WindowServer draws a material.
 
+use beize_draw::Appearance;
+use beize_protocols::shell::client::beize_glass_v1::BeizeGlassV1;
 use beize_protocols::shell::client::beize_shell_v1::{self, BeizeShellV1};
 use beize_protocols::shell::client::beize_window_v1::{self, BeizeWindowV1};
+use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, QueueHandle, WEnum, event_created_child};
 
-use crate::app::State;
+use crate::Rect;
+use crate::app::{State, WindowId};
+
+/// Glass below part of a window (`App::set_glass`): a rectangle in its
+/// coordinates with round corners, and whether a rim of light runs along
+/// its edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glass {
+    pub rect: Rect,
+    pub radius: f32,
+    pub rim: bool,
+}
 
 /// A window of the desktop: the how-manieth it is in the list, so ids
 /// follow the order windows opened.
@@ -36,21 +53,60 @@ struct Entry {
 }
 
 pub(crate) struct Desktop {
-    _shell: BeizeShellV1,
+    shell: BeizeShellV1,
     entries: Vec<Entry>,
     next: u64,
-    /// The list changed since the app last heard.
+    /// The list or the appearance changed since the app last heard.
     pub(crate) changed: bool,
+    pub(crate) appearance: Appearance,
+    /// The glass asked for below the app's windows.
+    glasses: Vec<(WindowId, BeizeGlassV1)>,
 }
 
 impl Desktop {
     pub(crate) fn new(shell: BeizeShellV1) -> Desktop {
         Desktop {
-            _shell: shell,
+            shell,
             entries: Vec::new(),
             next: 0,
             changed: false,
+            appearance: Appearance::Light,
+            glasses: Vec::new(),
         }
+    }
+
+    /// Glass below the window `id` (its surface `surface`), or none; it
+    /// applies with the window's next commit.
+    pub(crate) fn set_glass(
+        &mut self,
+        id: WindowId,
+        surface: &WlSurface,
+        glass: Option<Glass>,
+        qh: &QueueHandle<State>,
+    ) {
+        let Some(glass) = glass else {
+            if let Some(i) = self.glasses.iter().position(|(w, _)| *w == id) {
+                self.glasses.swap_remove(i).1.destroy();
+            }
+            return;
+        };
+        let proxy = match self.glasses.iter().find(|(w, _)| *w == id) {
+            Some((_, proxy)) => proxy.clone(),
+            None => {
+                let proxy = self.shell.get_glass(surface, qh, ());
+                self.glasses.push((id, proxy.clone()));
+                proxy
+            }
+        };
+        let r = glass.rect;
+        proxy.set_shape(
+            r.x.round() as i32,
+            r.y.round() as i32,
+            r.w.round() as i32,
+            r.h.round() as i32,
+            f64::from(glass.radius),
+            u32::from(glass.rim),
+        );
     }
 
     /// The windows, in the order they opened.
@@ -74,9 +130,23 @@ impl Dispatch<BeizeShellV1, ()> for State {
         _: &Connection,
         _: &QueueHandle<State>,
     ) {
-        let (beize_shell_v1::Event::Window { window }, Some(desktop)) = (event, &mut state.desktop)
-        else {
+        let Some(desktop) = &mut state.desktop else {
             return;
+        };
+        let window = match event {
+            beize_shell_v1::Event::Window { window } => window,
+            beize_shell_v1::Event::Appearance { appearance } => {
+                let appearance = match appearance {
+                    WEnum::Value(beize_shell_v1::Appearance::Dark) => Appearance::Dark,
+                    _ => Appearance::Light,
+                };
+                if appearance != desktop.appearance {
+                    desktop.appearance = appearance;
+                    desktop.changed = true;
+                }
+                return;
+            }
+            _ => return,
         };
         let id = DesktopWindowId(desktop.next);
         desktop.next += 1;
@@ -96,6 +166,19 @@ impl Dispatch<BeizeShellV1, ()> for State {
     event_created_child!(State, BeizeShellV1, [
         beize_shell_v1::EVT_WINDOW_OPCODE => (BeizeWindowV1, ()),
     ]);
+}
+
+/// Glass has no events.
+impl Dispatch<BeizeGlassV1, ()> for State {
+    fn event(
+        _: &mut State,
+        _: &BeizeGlassV1,
+        _: <BeizeGlassV1 as wayland_client::Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+    }
 }
 
 impl Dispatch<BeizeWindowV1, ()> for State {

@@ -42,7 +42,7 @@ use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::utils::{
-    Clock, Logical, Monotonic, Point, Rectangle, SERIAL_COUNTER, Scale, Transform,
+    Clock, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Scale, Size, Transform,
 };
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
@@ -69,6 +69,7 @@ use smithay::{
 };
 use tracing::{error, info, warn};
 
+use crate::backdrop::{Appearance, Backdrop};
 use crate::corners::{Rounded, Shadow};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
@@ -90,19 +91,23 @@ mod scene {
     use smithay::backend::renderer::element::texture::TextureRenderElement;
     use smithay::render_elements;
 
-    use crate::corners::{Rounded, Rounding, Shadow};
+    use crate::backdrop::Glass;
+    use crate::corners::{Effects, Rounded, Shadow};
 
     render_elements! {
         /// What a frame draws, front to back: the pointer where no cursor
         /// plane shows it, then the surfaces – panels above the windows,
-        /// windows each with its popups, title bar, round corners and
-        /// shadow, panels below them.
-        pub Element<R> where R: ImportAll + ImportMem + Rounding;
+        /// each with its glass, windows each with its popups, title bar,
+        /// round corners and shadow, panels below them – and the background
+        /// behind all.
+        pub Element<R> where R: ImportAll + ImportMem + Effects;
         Cursor=MemoryRenderBufferRenderElement<R>,
         Surface=WaylandSurfaceRenderElement<R>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
         Shadow=Shadow,
+        Glass=Glass,
+        Wallpaper=TextureRenderElement<<R as RendererSuper>::TextureId>,
     }
 }
 type Element = scene::Element<VkRenderer>;
@@ -151,6 +156,13 @@ pub struct State {
     pub popups: PopupManager,
     /// What the title bars of other apps' windows share (`decorations`).
     decorations: Decorations,
+    /// Light or dark (`backdrop`).
+    pub appearance: Appearance,
+    /// The background and the glass, drawn for the screen's size and the
+    /// appearance (`backdrop_for`, numbered by `backdrops`).
+    backdrop: Option<Backdrop>,
+    backdrop_for: Option<(Size<i32, Physical>, Appearance)>,
+    backdrops: u64,
     /// The screen: None until the session is first active, as only then
     /// does logind hand out the GPU (a session started on a background VT
     /// waits).
@@ -234,6 +246,10 @@ impl State {
             shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
             decorations: Decorations::default(),
+            appearance: Appearance::from_environment(),
+            backdrop: None,
+            backdrop_for: None,
+            backdrops: 0,
             screen: None,
             output: None,
             pointer: Point::default(),
@@ -424,6 +440,20 @@ impl State {
         let Some(area) = self.space.output_geometry(output) else {
             return;
         };
+        // The background and the glass, once per size and appearance: drawn
+        // with this frame, ahead of it.
+        let want = (area.size.to_physical(1), self.appearance);
+        if self.backdrop_for != Some(want) {
+            self.backdrop_for = Some(want);
+            self.backdrops += 1;
+            self.backdrop = match Backdrop::new(screen.renderer(), want.0, want.1, self.backdrops) {
+                Ok(backdrop) => Some(backdrop),
+                Err(e) => {
+                    warn!("drawing the background: {e}; a plain colour instead");
+                    None
+                }
+            };
+        }
         let at = self.pointer.to_physical(1.0).to_i32_round();
         let on_plane = self
             .cursor
@@ -445,8 +475,8 @@ impl State {
                 Err(e) => warn!("drawing the pointer: {e}"),
             }
         }
-        let (upper, lower) = panels(screen.renderer(), output);
-        elements.extend(upper.into_iter().map(Element::Surface));
+        let (upper, lower) = panels(screen.renderer(), output, self.backdrop.as_ref());
+        elements.extend(upper);
         // Each window with its bar above it, front to back.
         let windows: Vec<_> = self
             .space
@@ -498,7 +528,10 @@ impl State {
                 elements.push(Element::Shadow(Shadow::new(window, frame)));
             }
         }
-        elements.extend(lower.into_iter().map(Element::Surface));
+        elements.extend(lower);
+        if let Some(backdrop) = &self.backdrop {
+            elements.push(Element::Wallpaper(backdrop.wallpaper()));
+        }
         let cursor = self
             .cursor
             .image(began)
@@ -843,15 +876,14 @@ delegate_cursor_shape!(State);
 /// yet, so nothing is needed of it.
 impl TabletSeatHandler for State {}
 
-/// The panels' surfaces to draw: those above the windows and those below,
-/// each front to back.
+/// The panels to draw, each with the glass it asked for below it (with a
+/// `backdrop`): those above the windows and those below, each front to
+/// back.
 fn panels(
     renderer: &mut VkRenderer,
     output: &WlOutput,
-) -> (
-    Vec<WaylandSurfaceRenderElement<VkRenderer>>,
-    Vec<WaylandSurfaceRenderElement<VkRenderer>>,
-) {
+    backdrop: Option<&Backdrop>,
+) -> (Vec<Element>, Vec<Element>) {
     let map = layer_map_for_output(output);
     let (mut upper, mut lower) = (Vec::new(), Vec::new());
     // The map lists them back to front.
@@ -859,17 +891,21 @@ fn panels(
         let Some(place) = map.layer_geometry(panel) else {
             continue;
         };
-        let elements = AsRenderElements::<VkRenderer>::render_elements(
-            panel,
-            renderer,
-            place.loc.to_physical(1),
-            Scale::from(1.0),
-            1.0,
-        );
-        match panel.layer() {
-            Layer::Overlay | Layer::Top => upper.extend(elements),
-            Layer::Bottom | Layer::Background => lower.extend(elements),
-        }
+        let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> =
+            AsRenderElements::<VkRenderer>::render_elements(
+                panel,
+                renderer,
+                place.loc.to_physical(1),
+                Scale::from(1.0),
+                1.0,
+            );
+        let glass = backdrop.and_then(|b| b.glass(panel.wl_surface(), place.loc));
+        let list = match panel.layer() {
+            Layer::Overlay | Layer::Top => &mut upper,
+            Layer::Bottom | Layer::Background => &mut lower,
+        };
+        list.extend(surfaces.into_iter().map(Element::Surface));
+        list.extend(glass.map(Element::Glass));
     }
     (upper, lower)
 }

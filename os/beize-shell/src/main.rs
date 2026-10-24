@@ -6,10 +6,11 @@
 //! `beize-shell.service` in the user's desktop, restarted if it fails; it
 //! ends with the session.
 //!
-//! The bar for now: light (VISION: the shell is light), 24 px like macOS'
-//! menu bar, the active app's name on the left in bold, the time on the
-//! right. Glass, the Beize menu and the status come with the next parts
-//! (ADR 0028, Reihenfolge).
+//! The bar for now: 24 px like macOS' menu bar, the active app's name on
+//! the left in bold, the time on the right. Bar and dock lie on base glass,
+//! which the compositor draws below them (ADR 0028 §6): they draw only
+//! their content, in ink for the appearance it tells. The Beize menu and
+//! the status come with the next parts (ADR 0028, Reihenfolge).
 
 mod apps;
 mod clock;
@@ -19,15 +20,18 @@ use std::collections::HashMap;
 use std::process::ExitCode;
 
 use beize_ui::input::{Button, Pointer};
-use beize_ui::{App, Color, Edge, Family, Input, Panel, Rect, Scene, Style, Text};
+use beize_ui::{
+    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text,
+};
 use tracing::info;
 
 use dock::{Action, Dock};
 
 /// The menu bar's height at scale 1, as macOS'.
 const HEIGHT: u32 = 24;
-const BAR: Color = Color::rgb(0xf5f5f5);
-const INK: Color = Color::rgb(0x1d1d1d);
+/// The bar's text on light glass and on dark.
+const INK_LIGHT: Color = Color::rgb(0x1d1d1d);
+const INK_DARK: Color = Color::rgb(0xffffff);
 /// Space at the bar's ends.
 const MARGIN: f32 = 12.0;
 
@@ -51,7 +55,7 @@ fn run() -> Result<(), String> {
             width: 0,
             height: HEIGHT,
             margin: 0,
-            translucent: false,
+            translucent: true,
         })
         .map_err(|e| e.to_string())?;
     // Names and icons from the apps' desktop files, read once each.
@@ -81,6 +85,7 @@ fn run() -> Result<(), String> {
     let (mut bar_shown, mut dock_shown) = (false, false);
     let mut dock_width = dock.width();
     let mut active_name: Option<String> = None;
+    let mut appearance = app.appearance();
     loop {
         let mut dispatched = app
             .dispatch(None, &[minutes.fd()])
@@ -100,6 +105,12 @@ fn run() -> Result<(), String> {
         }
         let mut redraw_bar = bar_events.configured || tick;
         let mut redraw_dock = false;
+        if app.appearance() != appearance {
+            appearance = app.appearance();
+            info!("appearance {appearance:?}");
+            redraw_bar = true;
+            redraw_dock = true;
+        }
         if dispatched.desktop {
             let windows = app.desktop_windows();
             let before = dock.summary();
@@ -156,42 +167,67 @@ fn run() -> Result<(), String> {
         bar_shown |= bar_events.configured;
         if bar_shown && redraw_bar {
             let size = app.size(bar);
-            let scene = menu_bar(app.text(), size, active_name.as_deref(), clock::now());
+            app.set_glass(bar, Some(bar_glass(size)));
+            let scene = menu_bar(
+                app.text(),
+                size,
+                active_name.as_deref(),
+                clock::now(),
+                appearance,
+            );
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
         }
         dock_shown |= dock_events.configured;
         if dock_shown && (redraw_dock || dock_events.configured) {
             let size = app.size(dock_panel);
-            let scene = dock.draw(app.text(), size);
+            app.set_glass(dock_panel, Some(Dock::glass(size)));
+            let scene = dock.draw(app.text(), size, appearance);
             app.draw(dock_panel, &scene).map_err(|e| e.to_string())?;
         }
     }
 }
 
-/// The bar in `size`: the active app's name on the left, the time on the
-/// right, both centred in the height.
+/// The bar's glass: all of it, square, without a rim – it runs along the
+/// screen's edge.
+fn bar_glass((w, h): (u32, u32)) -> Glass {
+    Glass {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            w: w as f32,
+            h: h as f32,
+        },
+        radius: 0.0,
+        rim: false,
+    }
+}
+
+/// The bar's content in `size`: the active app's name on the left, the
+/// time on the right, both centred in the height; the rest transparent.
 fn menu_bar(
     text: &mut Text,
     (w, h): (u32, u32),
     app: Option<&str>,
     time: Option<clock::Time>,
+    appearance: Appearance,
 ) -> Scene {
     let (w, h) = (w as f32, h as f32);
     let mut scene = Scene::new();
-    scene.fill(
-        Rect {
-            x: 0.0,
-            y: 0.0,
-            w,
-            h,
-        },
-        BAR,
-    );
+    scene.clear(Rect {
+        x: 0.0,
+        y: 0.0,
+        w,
+        h,
+    });
+    let ink = match appearance {
+        Appearance::Light => INK_LIGHT,
+        Appearance::Dark => INK_DARK,
+    };
     let style = |weight| Style {
         family: Family::Sans,
         size: 13.0,
         weight,
-        color: INK,
+        color: ink,
     };
     if let Some(app) = app {
         // Bold, as macOS names the active app.

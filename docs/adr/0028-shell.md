@@ -53,8 +53,9 @@ Die Shell spricht mit dem Compositor über **wlr-layer-shell** (Ebenen oben und 
 reservierte Ränder; Smithay bringt es mit, COSMIC, KDE und niri nutzen es) und ein eigenes
 privilegiertes Protokoll **`beize-shell-v1`** (`os/beize-protocols`, nach dem Vorbild von
 ext-foreign-toplevel-list und wlr-foreign-toplevel-management): die Fensterliste mit App-ID,
-Titel und Zustand (aktiv, minimiert) und das Aktivieren, das ein minimiertes Fenster
-zurückholt; Blur hinter einer Fläche und der Ursprung von Animationen kommen mit (d) und (g).
+Titel und Zustand (aktiv, minimiert), das Aktivieren, das ein minimiertes Fenster
+zurückholt, das Erscheinungsbild (hell, dunkel) und Glas unter einer Fläche
+(`beize_glass_v1`, Abschnitt 6); der Ursprung von Animationen kommt mit (g).
 Minimiert wird vom Fenster aus (`xdg_toplevel.set_minimized`). Beize UI hält die Verbindung
 einer App mit allen ihren Fenstern (`App`, wie NSApplication), so sind Menüleiste und Dock zwei
 Fenster eines Prozesses auf einer Verbindung. Beides bekommt nur die
@@ -160,9 +161,9 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 - **Ecken wie Apples:** stetig gekrümmt (die Kurve der Maske aus Apples App-Icon-Vorlage) für
   Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
   die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen.
-- **Bis (d)** ist das Dock hell und deckend wie die Menüleiste; Glas kommt mit (d). Beizes Apps
-  zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol eine Kachel
-  mit ihrem Anfangsbuchstaben.
+- Beizes Apps zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol
+  eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf Glas mit Lichtkante (siehe 6),
+  der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 
 ### 5. Kontrollzentrum
@@ -180,15 +181,35 @@ funktioniert.
 
 ### 6. Material, Animation, Hintergrund
 
-Die drei Stufen der VISION, umgesetzt im Renderer des Compositors:
+Die drei Stufen der VISION, umgesetzt im Renderer des Compositors. Das Material zeichnet
+der Compositor, nicht die App, wie macOS' WindowServer und Windows' DWM: Die Shell sagt über
+`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, gilt mit
+ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
 
-- **Grundglas** (Menüleiste, Dock, Titelleisten): Das Hintergrundbild wird einmal pro
-  Wechsel weichgezeichnet und dann nur noch gelesen (Mica). Das kostet so gut wie nichts.
-- **Lebendiges Glas** (Kontrollzentrum, Menüs, später Suche): Dual-Kawase auf ¼–⅛
-  Auflösung, nur neu gerechnet, wenn sich dahinter etwas ändert. Ist das Budget knapp,
-  sinkt die Auflösung, statt dass ein Bild verloren geht.
+- **Grundglas** (Menüleiste, Titelleisten): Der Hintergrund wird einmal pro Wechsel
+  (Bildschirmgröße, Erscheinungsbild) weichgezeichnet – Dual Kawase wie bei KWin, vier
+  Halbierungen und zwei Verdopplungen zurück, das Glas hat ¼ der Größe –, seine Sättigung
+  ×1,8 angehoben und getönt: Hell `#F6F6F6` zu 30 %, Dunkel `#1E1E20` zu 45 % (Anhalt:
+  Mica mit `#F3F3F3` zu 50 % und `#202020` zu 80 %; geschätzt, vom Besitzer am 24.10. an
+  Entwürfen und Bildschirmfotos abgenommen). Danach wird es nur noch gelesen (Mica). Ein Bild
+  fügt je Pixel nur Korn (±1,5 Stufen) und die Lichtkante hinzu; das Glas gilt als deckend,
+  darunter wird nichts gezeichnet. Hintergrund und Blur haben einen eigenen Shader
+  (`backdrop.frag`), damit der Shader jedes Bildes klein bleibt.
+- **Lebendiges Glas** (Dock – Besitzer, 24.10.: Fenster dahinter scheinen verschwommen durch
+  wie bei macOS –, Kontrollzentrum, Menüs, später Suche): was im selben Bild wirklich dahinter
+  liegt, mit Dual Kawase auf ¼–⅛ Auflösung, dann wie beim Grundglas angehoben und getönt; nur
+  neu gerechnet, wenn sich dahinter etwas ändert. Ist das Budget knapp, sinkt die Auflösung,
+  statt dass ein Bild verloren geht.
 - **Fläche:** getönt mit feinem Korn, ohne Blur.
-- Dazu Farbanhebung, eine Lichtkante von 1 px, Korn.
+- **Lichtkante:** ein Ring von etwa 1,5 px innen am Rand. Ihre Helligkeit folgt der Richtung
+  zum Licht (oben links), schwächer auf der Gegenseite, dazwischen fast keine – wie Apples
+  Liquid Glass; je Pixel aus der Abstandsfunktion der Ecken, kostet praktisch nichts.
+  Gleichmäßig rundum ist ein Schalter im Shader (`RIM_FOLLOWS_LIGHT`), damit man es später
+  vergleichen kann (Besitzer). Lichtbrechung am Rand wie bei Liquid Glass kommt später.
+- **Erscheinungsbild:** Hell oder Dunkel ist eine Systemeinstellung, nicht eine Eigenschaft
+  des Bildes; Vorgabe Hell wie macOS. Das Glas nimmt die Tönung dazu, der Hintergrund seine
+  Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Bis es
+  Einstellungen gibt, zeigt `BEIZE_APPEARANCE=dark` in `~/.config/environment.d` Dunkel.
 - **Start aus einem Guss:** Der Compositor zeigt das erste Bild erst, wenn die Shell
   Menüleiste und Dock geliefert hat (höchstens 1 s, dann ohne sie), und blendet es vom
   Schwarz des Modus-Wechsels ein. Es gibt kein Bild mit halbem Desktop, wie bei macOS
@@ -199,8 +220,14 @@ Die drei Stufen der VISION, umgesetzt im Renderer des Compositors:
   laufen im Compositor im Takt der Bildwiederholung; jede hat einen Ursprung (Fenster aus
   dem Dock-Symbol). Schritt 4 legt das Gerüst und kurze Überblendungen an, die gestalteten
   Animationen (Minimieren ins Dock, Öffnen aus dem Symbol) kommen danach.
-- **Hintergrund:** ein eigenes Standardbild als Verlauf, im Shader berechnet (keine
-  Bilddatei im Image). Eigene Bilder kommen mit den Einstellungen.
+- **Hintergrund:** ein eigenes Standardbild, im Shader berechnet (keine Bilddatei im
+  Image), vom Besitzer am 24.10. an Entwürfen gewählt: vier Farbpunkte, in Oklab gemischt (so
+  werden Übergänge nicht trüb), darüber vier geschwungene Bänder mit scharfer, heller
+  Oberkante. Ohne sie wäre Grundglas unsichtbar: ein weicher Verlauf sieht weichgezeichnet
+  aus wie vorher. Das oberste Band liegt unter der Menüleiste, damit ihre Kante sichtbar
+  bleibt. Je eine helle und eine dunkle Fassung mit denselben Formen, wie macOS' dynamische
+  Bilder; Dithering gegen Streifen. Lage nach der Bildschirmhöhe, so behält es auf jedem
+  Seitenverhältnis seine Form. Eigene Bilder kommen mit den Einstellungen.
 
 ### 7. Tastenkürzel (Strg-Modell)
 
@@ -269,8 +296,9 @@ b) Schwebende Fenster, Verschieben und Größe, Fokus; Titelleiste in Beize UI m
    macOS, runde Ecken und Schatten (✓ 23.10.).
 c) `beize-shell-v1` mit der Fensterliste; Dock: angeheftet, laufend, starten, aktivieren,
    minimieren; der Name der aktiven App in der Menüleiste. ✓ 23.10.
-d) Grundglas, Hintergrund, Symbole, der Start aus einem Guss; danach der Lasttest und ein
-   Hardware-Test.
+d) Symbole (✓ 24.10.), Hintergrund und Grundglas für Menüleiste und Dock (✓ 24.10.),
+   lebendiges Glas für das Dock, Glas der Titelleisten, der Start aus einem Guss; danach der
+   Lasttest und ein Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
    Neustart, Ausschalten über logind).
 f) App-Menüs (`beize-menu-v1`), Alt+Tab, Snap.

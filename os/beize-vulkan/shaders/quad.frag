@@ -161,9 +161,66 @@ vec4 gradient(float y) {
     return from_encoded(mix(to_encoded(color), to_encoded(bottom), t));
 }
 
+// Uniform in [0, 1) for a pixel: an integer hash (the "lowbias32" finaliser
+// of Chris Wellons' hash prospector), the same every frame.
+float hash(uvec2 p) {
+    uint h = p.x * 0x8da6b343u ^ p.y * 0xd8163841u;
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
+    return float(h) * (1.0 / 4294967296.0);
+}
+
+// Base glass (ADR 0028 §6): the backdrop's blurred, lifted and tinted copy
+// (backdrop.frag), with grain and a rim of light along its edge.
+//
+// The rim follows the light, as Apple's Liquid Glass: bright where the edge
+// faces it (top left), weaker on the opposite side, all but gone between.
+// RIM_FOLLOWS_LIGHT false: the same all round – a developer's choice, it
+// costs the same.
+const bool RIM_FOLLOWS_LIGHT = true;
+const vec2 LIGHT = vec2(-0.6, -0.8);
+
+// How much rim the pixel at `p` shows: a ring of about 1.5 px just inside
+// the edge of `clip` with corners of `radius`.
+float rim(vec2 p) {
+    float d = edge_distance(p, clip, rounding.x);
+    float ring = clamp(1.6 - abs(d + 0.8), 0.0, 1.0);
+    if (ring <= 0.0 || !RIM_FOLLOWS_LIGHT) {
+        return ring * 0.6;
+    }
+    // The edge's direction: the distance's gradient.
+    vec2 n = vec2(
+        edge_distance(p + vec2(0.5, 0.0), clip, rounding.x)
+            - edge_distance(p - vec2(0.5, 0.0), clip, rounding.x),
+        edge_distance(p + vec2(0.0, 0.5), clip, rounding.x)
+            - edge_distance(p - vec2(0.0, 0.5), clip, rounding.x));
+    float facing = dot(n / max(length(n), 1e-4), LIGHT);
+    float light = facing > 0.0 ? facing * facing : 0.25 * facing * facing;
+    return ring * (0.08 + 0.92 * light);
+}
+
+// `color` is the rim's (premultiplied), `rounding.y` the grain's strength.
+vec4 glass(vec4 sampled) {
+    uvec2 p = uvec2(gl_FragCoord.xy);
+    // Triangular noise: steadier than uniform at the same strength.
+    float grain = (hash(p) - hash(p + uvec2(7919u, 104729u))) * rounding.y;
+    vec4 base = vec4(sampled.rgb + grain, 1.0);
+    float r = color.a > 0.0 ? rim(gl_FragCoord.xy) : 0.0;
+    return base * (1.0 - color.a * r) + color * r;
+}
+
 void main() {
     if ((flags & SHADOW) != 0u) {
         result = color * shadow(gl_FragCoord.xy, clip, rounding.x, rounding.y);
+        return;
+    }
+    if ((flags & GLASS) != 0u) {
+        vec4 sampled = textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
+                                  uv * texel, 0.0);
+        result = glass(sampled) * inside(gl_FragCoord.xy, clip, rounding.x);
         return;
     }
     // Round corners (rounding.x > 0): only what lies inside the window.

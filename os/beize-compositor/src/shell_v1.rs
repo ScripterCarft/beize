@@ -8,6 +8,9 @@
 //! with its surface. What each window last told the shell is kept with it,
 //! so a change sends only what changed – after anything that may change it
 //! (`refresh`): focus, minimizing, a new title or app id.
+//!
+//! The shell also hears the appearance and asks for glass below its panels
+//! (`glass`, `backdrop`).
 
 use std::cell::RefCell;
 
@@ -21,6 +24,7 @@ use smithay::reexports::wayland_server::{
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
+use crate::backdrop::Appearance;
 use crate::state::{ClientState, State};
 
 /// The shell's bound instances of the global.
@@ -197,6 +201,10 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
         data_init: &mut DataInit<'_, State>,
     ) {
         let instance = data_init.init(resource, ());
+        instance.appearance(match state.appearance {
+            Appearance::Light => beize_shell_v1::Appearance::Light,
+            Appearance::Dark => beize_shell_v1::Appearance::Dark,
+        });
         for window in state.listed_windows() {
             let Some(number) = with_listed(&window, |l| l.number) else {
                 continue;
@@ -218,16 +226,19 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
 }
 
 impl Dispatch<BeizeShellV1, ()> for State {
-    /// Its one request is `destroy`: the instance goes (`destroyed`).
+    /// Glass below a surface (`glass`); `destroy` ends in `destroyed`.
     fn request(
         _: &mut State,
         _: &Client,
         _: &BeizeShellV1,
-        _: beize_shell_v1::Request,
+        request: beize_shell_v1::Request,
         _: &(),
         _: &DisplayHandle,
-        _: &mut DataInit<'_, State>,
+        data_init: &mut DataInit<'_, State>,
     ) {
+        if let beize_shell_v1::Request::GetGlass { id, surface } = request {
+            data_init.init(id, surface);
+        }
     }
 
     fn destroyed(

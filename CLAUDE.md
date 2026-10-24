@@ -80,7 +80,7 @@ Neubinden, echte Hardware).
 
 | Pfad | Inhalt |
 | --- | --- |
-| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-draw` (was Beize UI und Compositor gleich zeichnen: Szene aus Quads, Text mit Parley, Skrifa, zeno, Symbole (Phosphor, resvg) im Glyphen-Atlas, Farbbilder (App-Symbole, PNG/SVG) im Farbatlas, `icon` die App-Symbole von Beize, Titelleiste `titlebar`, ADR 0028 §2; ohne Wayland und GPU), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; `App` hält Verbindung, Eingabe, GPU, Atlas und Schrift für alle Fenster einer App (`app`), Fenster über Vulkan-WSI, sRGB, mit der Titelleiste aus `beize-draw` (`window`), Leisten der Shell, auch durchsichtig; `desktop` die Fensterliste für die Shell; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `windows` schwebende Fenster (Platz, Maximieren, Verschieben/Größe per Grab), `decorations` Rahmen fremder Apps (xdg-decoration, Leiste als eigenes Bild über `VkRenderer::draw_picture`), `trust`/`layers` die Shell und ihre Leisten, `shell_v1` ihre Fensterliste (beize-shell-v1; Minimieren und Zurückholen in `windows`), `input`/`keyboard`/`cursor` (Zeiger aus dem Thema, cursor-shape-v1); Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr), `beize-systemd` (sd-login, sd-bus zum Benutzermanager; für beize-session; `apps` startet Apps als `app-<ID>@<Zufall>.service`, für Compositor und Dock), `beize-protocols` (eigene Wayland-Protokolle aus XML, `client`/`server`: `beize-shell-v1.xml`), `beize-shell` (Menüleiste mit App-Name und Uhr, `dock`, `apps` Namen und Symbole aus Desktop-Dateien, hicolor), `beize-terminal` (Terminal auf Beize UI, Unit `app-beize\x2dterminal@.service`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
+| `os/` | eigener Rust-Code im Image: `beize-tpm` (initrd: PCR-12-Prüfung, Neubinden nach Recovery, Notfall-Tor mit Neustart einer Version auf Probe, Keymap aus der EFI-Variable), `beize-setup` (1. Start: Tastatur, Konto, Zeitzone), `beize-accounts` (Kontodienst `beize-accountsd`, Konten als systemd-Benutzerdatensätze in `/etc/userdb`; Client-Bibliothek; `beize-account passwd|reset|add`), `beize-update` (ADR 0020: `beize-updated` prüft und installiert über systemd-sysupdate, `beize-update-fetch` holt ohne Rechte, `beize-update install <Quelle>`), `beize-varlink` (Varlink, sd-json, `Secret` für beide Dienste), `beize-vulkan` (ADR 0027 §9: Vulkan-Gerät, Quad-Pipelines mit Shadern – `quad.frag` jedes Bild, `backdrop.frag` Hintergrund und Blur –, Bilder im Textur-Array; geteilt von Compositor und Beize UI, ohne Smithay), `beize-draw` (was Beize UI und Compositor gleich zeichnen: Szene aus Quads, Text mit Parley, Skrifa, zeno, Symbole (Phosphor, resvg) im Glyphen-Atlas, Farbbilder (App-Symbole, PNG/SVG) im Farbatlas, `icon` die App-Symbole von Beize, Titelleiste `titlebar`, ADR 0028 §2; ohne Wayland und GPU), `beize-ui` (ADR 0027 §9: Toolkit der eigenen Apps; `App` hält Verbindung, Eingabe, GPU, Atlas und Schrift für alle Fenster einer App (`app`), Fenster über Vulkan-WSI, sRGB, mit der Titelleiste aus `beize-draw` (`window`), Leisten der Shell, auch durchsichtig; `desktop` die Fensterliste für die Shell; `Offscreen` für Tests; `beize-ui-test` nur Test-Medium, Referenz `tests/sample.png`), `beize-compositor` (ADR 0027: Smithay, eigene Bildschleife und Vulkan-Renderer; `gpu`/`output` Bildschirm, `state` Protokolle und wann gezeichnet wird, `shell` xdg-shell, `windows` schwebende Fenster (Platz, Maximieren, Verschieben/Größe per Grab), `decorations` Rahmen fremder Apps (xdg-decoration, Leiste als eigenes Bild über `VkRenderer::draw_picture`), `trust`/`layers` die Shell und ihre Leisten, `shell_v1` ihre Fensterliste (beize-shell-v1; Minimieren und Zurückholen in `windows`), `backdrop` Hintergrund, Grundglas und Erscheinungsbild, `glass` wo die Shell Glas will (`beize_glass_v1`), `input`/`keyboard`/`cursor` (Zeiger aus dem Thema, cursor-shape-v1); Log mit Journal-Priorität, `BEIZE_COMPOSITOR_LOG=debug`), `beize-session` (startet den Desktop aus einer Anmeldung und beendet ihn mit ihr), `beize-systemd` (sd-login, sd-bus zum Benutzermanager; für beize-session; `apps` startet Apps als `app-<ID>@<Zufall>.service`, für Compositor und Dock), `beize-protocols` (eigene Wayland-Protokolle aus XML, `client`/`server`: `beize-shell-v1.xml`), `beize-shell` (Menüleiste mit App-Name und Uhr, `dock`, `apps` Namen und Symbole aus Desktop-Dateien, hicolor), `beize-terminal` (Terminal auf Beize UI, Unit `app-beize\x2dterminal@.service`), `beize-testclient` (Wayland-Client für Tests, nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug: `source` `recipe` `packages` `install` `kernel` `layout` `tree` `usr` `initrd` `microcode` `secureboot` `image` `installer` `debuginfo` (MiniDebugInfo je Paket) `stamp` (Fingerabdrücke der Schritte; `build.rs` hasht den Code, der Ergebnisse bestimmt) `boottimes` `hwcheck` `outdated` `paths` `util` (`run`, `say!`/`capture`); `vm/`: `machine` `console` (`Session`) `report` `checks` `run` `debug`, `smoke/` (`mod.rs` Ablauf; Szenarien in `trust` `access` `updates` `integrity` `desktop`) |
 | `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt + signiert, `latest` für `bz outdated`), `deps`, `stage`, `[build] script`, zuletzt die Metadaten `[sbom]` (Lizenz, CPE, ADR 0022) und `[files]` (was ins Image kommt); ohne `stage` nur Quelle (linux, linux-firmware, intel-microcode) |
 | `keys/` | Maintainer-Schlüssel + `README.md`; `microsoft/` (gepinnt); `secureboot/` öffentliche Produktionsschlüssel + Anleitung für den Besitzer |
@@ -302,7 +302,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1, d2 fertig, d3 Grundglas und Hintergrund als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1, d2, d3a fertig, d3b lebendiges Glas fürs Dock als Nächstes)
 
 **Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
@@ -352,7 +352,7 @@ in kurzen Folgen, ADR 0027 §6), EDID und `/sys/kernel/debug/dri/0/state` auf de
 der Konsole), Strichstärke hell auf dunkel gegen dunkel auf hell. `measure/hw-test.sh` auf dem
 Messzweig dafür erweitern.
 
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2 24.10.:**
+**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2 und d3a 24.10.:**
 (a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
 (`windows.rs`, Randstreifen 5 px, Grabs), Titelleiste wie macOS aus `beize-draw` (`titlebar::Look`,
 Windows wählbar), Rahmen für fremde Apps (`decorations.rs`, getestet nur mit dem Testprogramm;
@@ -393,11 +393,22 @@ Doppelpfeil am Rand; Rand des vorderen Fensters gewinnt jetzt (vorher nur über 
 auch beim Ziehen). Beize UI `App::set_cursor` (Terminal: Text-Strich). `bz outdated` kennt
 `{ github = "…" }`. Smoke prüft Text-Strich und Doppelpfeil über die Journalzeile `cursor <name>: …`.
 Phosphor in der Menüleiste kommt mit ihren Einträgen in (e); Sift = Dateimanager des Besitzers und
-Papierkorb bekommen ihr Symbol mit sich. **Als Nächstes:** d3 Grundglas und Hintergrund (ADR 0028 §6:
-Standardbild als Verlauf im Shader; Menüleiste, Dock, Titelleisten aus Grundglas = Hintergrund einmal
-je Wechsel weichgezeichnet, dann nur gelesen; Farbanhebung, 1-px-Lichtkante, Korn; Farben von Dock
-und Punkt); d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des Besitzers) und ein
-Hardware-Test. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
+Papierkorb bekommen ihr Symbol mit sich. **d3a fertig 24.10.:** Hintergrund und Grundglas (ADR 0028
+§6, Motiv und Glas vom Besitzer an Python-Entwürfen und VM-Bildern abgenommen): `backdrop.frag`
+rechnet je Bildschirmgröße und Erscheinungsbild den Hintergrund und daraus das Glas (Dual Kawase,
+Sättigung, Tönung), `quad.frag` (`GLASS`) im Bild nur Korn und Lichtkante (`RIM_FOLLOWS_LIGHT`,
+Entwickler-Schalter); `beize_glass_v1` und das Ereignis `appearance` in beize-shell-v1; Shell zeichnet
+nur Inhalt. Hell/Dunkel bis zu den Einstellungen per `BEIZE_APPEARANCE=dark` in
+`~/.config/environment.d` (in der VM: Datei unter `/home/smoke/.config/environment.d/`, die
+VM-Disk von `bz debug` behält sie bis zum nächsten Image). Behoben dabei: Unter jedem Fenster fehlte
+10 px Schatten (verdeckt wurde vom verschobenen Schattenrechteck statt vom Fenster). Smoke prüft
+Leiste und Dock jetzt als weiches Glas mit Stufe an der Kante. Python-Modelle des Motivs: Wegwerf-Arbeit.
+**Als Nächstes:** d3b lebendiges Glas fürs Dock (Besitzer: Fenster dahinter verschwommen wie
+macOS; im Bild: was dahinter liegt, ¼ Auflösung, nur bei Änderung dahinter), d3c Glas der
+Titelleisten (Beize UI zeichnet sie selbst: braucht ein Protokoll für alle Apps, vorher mit dem
+Besitzer klären); d4 Start aus einem Guss; danach der Lasttest (ADR 0028 §9, Wunsch des
+Besitzers) und ein Hardware-Test. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
+Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
 App-Installation); fremde Apps ohne Unit-Vorlage startet das Dock noch nicht (nur `Exec=`).

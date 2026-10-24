@@ -2,7 +2,7 @@
 //! and types `beize-session`; the compositor runs as the owner in its
 //! sandbox, logind knows the session as a Wayland one. The shell (ADR 0028)
 //! runs in its own sandbox, the compositor knows it, and its menu bar lies
-//! along the top with the time. A terminal opens with the desktop and
+//! along the top with the time, on glass that ends at its edge. A terminal opens with the desktop and
 //! another with Ctrl+Alt+T. A command typed into it shows the terminal's
 //! sample as the reference in the repository has it. Windows float (ADR
 //! 0028 §2): a client's window opens in its own size, centred below the
@@ -64,10 +64,9 @@ const CHANNEL_TOLERANCE: u8 = 2;
 /// changed character.
 const POINTER_SIZE: usize = 24;
 
-/// The menu bar along the top of the screen (os/beize-shell, `HEIGHT` and
-/// `BAR`); windows lie below it.
+/// The menu bar along the top of the screen (os/beize-shell, `HEIGHT`);
+/// windows lie below it.
 const MENU_BAR: usize = 24;
-const MENU_BAR_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
 /// Where the active app's name is: the left end of the bar, at most this
 /// wide (the shell's journal says which name it shows, `SHELL_SAID`).
 const APP_NAME_WIDTH: usize = 200;
@@ -82,7 +81,13 @@ const DOCK_TILE: usize = 48;
 const DOCK_GAP: usize = 4;
 const DOCK_PADDING: usize = 10;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
-const DOCK_COLOR: [u8; 3] = [0xf5, 0xf5, 0xf5];
+/// Menu bar and dock lie on base glass (ADR 0028 §6), whose colour is the
+/// background's, blurred: no colour to compare with, but soft – no pixel
+/// further than this from its neighbour in a channel (the blur's slope and
+/// the grain) – and set off from the background at its edge, by at least
+/// `GLASS_STEP` in the mean of a row (light glass, tinted towards white).
+const GLASS_SMOOTH: u8 = 6;
+const GLASS_STEP: f64 = 8.0;
 /// The test client's icon (`CLIENT_ICON`): one colour, so the dock shows
 /// it in the middle of its tile as it is.
 const CLIENT_ICON_COLOR: [u8; 3] = [0xff, 0x80, 0x00];
@@ -97,7 +102,7 @@ const CLIENT_ICON: &str = "d=~/.local/share; mkdir -p $d/applications \
      > $d/icons/hicolor/scalable/apps/beize-test-icon.svg";
 
 /// Where the time is: the right end of the bar, this wide. "00:00" in
-/// Inter at 13 px is some 35 px; the rest of the bar is its colour alone.
+/// Inter at 13 px is some 35 px; the rest of the bar is glass alone.
 const CLOCK_WIDTH: usize = 80;
 /// The time's least ink, in dark pixels: well below the narrowest time,
 /// "11:11", and well above none.
@@ -1047,10 +1052,23 @@ fn wait_for_panels(machine: &Machine) -> Result<()> {
     }
 }
 
-/// Whether `screen` has the menu bar: its colour across the top but the
-/// pointer, the app's name and the time, and the time's ink at the right
-/// end. Which time it shows depends on the minute, which name the shell's
-/// journal says; Beize UI's text itself is checked exactly with the windows.
+/// Whether two pixels are as close as neighbours on soft glass.
+fn soft(a: [u8; 3], b: [u8; 3]) -> bool {
+    a.iter().zip(b).all(|(a, b)| a.abs_diff(b) <= GLASS_SMOOTH)
+}
+
+/// The mean of all channels of row `y` from `xs.start` to `xs.end`.
+fn row_mean(screen: &Image, y: usize, xs: std::ops::Range<usize>) -> f64 {
+    let n = xs.len().max(1) as f64;
+    let sum: u64 = xs.flat_map(|x| screen.pixel(x, y)).map(u64::from).sum();
+    sum as f64 / (3.0 * n)
+}
+
+/// Whether `screen` has the menu bar: soft glass across the top but the
+/// pointer, the app's name and the time, the time's ink at the right end,
+/// and a step to what is below exactly at its lower edge. Which time it
+/// shows depends on the minute, which name the shell's journal says; Beize
+/// UI's text itself is checked exactly with the windows.
 fn menu_bar(screen: &Image) -> Result<()> {
     ensure!(
         screen.width > CLOCK_WIDTH + APP_NAME_WIDTH && screen.height > MENU_BAR,
@@ -1058,93 +1076,71 @@ fn menu_bar(screen: &Image) -> Result<()> {
         screen.width,
         screen.height
     );
-    let near = |a: [u8; 3], b: [u8; 3]| {
-        a.iter()
-            .zip(b)
-            .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
-    };
     let clock = screen.width - CLOCK_WIDTH;
     let mut other = 0;
     let mut ink = 0;
     for y in 0..MENU_BAR {
-        for x in 0..screen.width {
+        for x in APP_NAME_WIDTH..screen.width {
             let shown = screen.pixel(x, y);
-            if x < APP_NAME_WIDTH {
-                continue;
-            }
             if x >= clock {
                 ink += usize::from(shown.iter().all(|&c| c < 0x80));
-            } else if !near(shown, MENU_BAR_COLOR) {
+            } else if !soft(shown, screen.pixel(x - 1, y)) {
                 other += 1;
             }
         }
     }
     ensure!(
         other == 0,
-        "{other} pixels of the menu bar's strip are not its colour"
+        "{other} pixels of the menu bar's strip are not soft glass"
     );
     ensure!(
         ink >= CLOCK_INK,
         "the menu bar shows no time: {ink} dark pixels at its right end"
     );
-    // Below it, something else: a window, not more bar.
-    let below = (APP_NAME_WIDTH..clock).all(|x| near(screen.pixel(x, MENU_BAR), MENU_BAR_COLOR));
-    ensure!(!below, "the menu bar is higher than {MENU_BAR} pixels");
+    // Its lower edge: a step to what is below, none a row above.
+    let row = |y| row_mean(screen, y, APP_NAME_WIDTH..clock);
+    let edge = (row(MENU_BAR - 1) - row(MENU_BAR)).abs();
+    let inside = (row(MENU_BAR - 2) - row(MENU_BAR - 1)).abs();
+    ensure!(
+        edge >= GLASS_STEP && inside < GLASS_STEP / 2.0,
+        "the menu bar does not end {MENU_BAR} pixels down: a step of {edge:.1} there, \
+         {inside:.1} a row above"
+    );
     Ok(())
 }
 
-/// The dock in `screen`, centred along the bottom: its colour in its
-/// middle row from edge to edge, but for its tiles, and what is below
-/// showing at its round corner. Its width says how many apps it has; that
-/// number.
+/// The dock in `screen`, centred along the bottom: in its middle row (the
+/// only rows without tiles lie in its round corners) the background runs
+/// soft from the screen's left edge to the dock's rim, which steps away
+/// from it; at its round corner the background shows. Its width says how
+/// many apps it has; that number.
 fn dock(screen: &Image) -> Result<usize> {
-    let near = |a: [u8; 3]| {
-        a.iter()
-            .zip(DOCK_COLOR)
-            .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
-    };
     ensure!(
         screen.height > DOCK_ZONE + MENU_BAR,
         "a screen {} high has no room for the dock",
         screen.height
     );
     let top = screen.height - DOCK_ZONE;
-    // Through the tiles, where the corners are far.
     let row = top + DOCK_HEIGHT / 2;
     let centre = screen.width / 2;
-    // Leftwards from the middle, over tiles (never wider than one), to the
-    // dock's last pixel of its colour.
-    let mut left = None;
-    let mut run = 0;
-    for x in (0..=centre).rev() {
-        if near(screen.pixel(x, row)) {
-            left = Some(x);
-            run = 0;
-        } else {
-            run += 1;
-            if run > DOCK_TILE {
-                break;
-            }
-        }
+    // Rightwards over the soft background to the first step: the dock.
+    let mut left = 1;
+    while left < centre && soft(screen.pixel(left - 1, row), screen.pixel(left, row)) {
+        left += 1;
     }
-    let left = left.context("no dock along the bottom of the screen")?;
-    // The hairline is one pixel outside the colour.
-    let x = left - 1;
-    let width = 2 * (centre - x);
-    let tiles = (width + DOCK_GAP).saturating_sub(2 * DOCK_PADDING) / (DOCK_TILE + DOCK_GAP);
+    ensure!(left < centre, "no dock along the bottom of the screen");
+    let width = 2 * (centre - left);
+    let step = (DOCK_TILE + DOCK_GAP) as f64;
+    let tiles = (((width + DOCK_GAP) as f64 - (2 * DOCK_PADDING) as f64) / step).round();
+    let tiles = tiles.max(0.0) as usize;
     let expected = 2 * DOCK_PADDING + tiles * DOCK_TILE + tiles.saturating_sub(1) * DOCK_GAP;
     ensure!(
         tiles >= 1 && width.abs_diff(expected) <= 1,
         "the dock is {width} wide, which is no number of apps"
     );
     // A round corner shows what is below, as the pixel beside the dock.
-    let same = |a: [u8; 3], b: [u8; 3]| {
-        a.iter()
-            .zip(b)
-            .all(|(a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE)
-    };
     ensure!(
-        x > 0 && same(screen.pixel(x, top), screen.pixel(x - 1, top)),
+        soft(screen.pixel(left, top), screen.pixel(left - 1, top)),
         "the dock's corner is square"
     );
     Ok(tiles)
@@ -1502,13 +1498,22 @@ mod tests {
         fs::remove_file(&difference).unwrap();
     }
 
+    /// The background in the tests: a soft blue, darker than glass.
+    const BACKGROUND: [u8; 3] = [0x80, 0x9a, 0xd0];
+
+    /// Glass at `x`: lighter than the background, its colour drifting
+    /// slowly as a blurred background's does.
+    fn glass(x: usize) -> [u8; 3] {
+        [0xb0 + (x / 40 % 4) as u8, 0xc8, 0xf0]
+    }
+
     /// A screen of `width`×40 with the menu bar, ink for a time at its
-    /// right end, a dark window below it and a pointer.
+    /// right end, the background below it and a pointer.
     fn desktop(width: usize) -> Image {
         let mut screen = Image {
             width,
             height: 40,
-            pixels: [0x1e; 3].repeat(width * 40),
+            pixels: BACKGROUND.repeat(width * 40),
         };
         let mut set = |x: usize, y: usize, c: [u8; 3]| {
             let at = (y * width + x) * 3;
@@ -1516,7 +1521,7 @@ mod tests {
         };
         for y in 0..MENU_BAR {
             for x in 0..width {
-                set(x, y, MENU_BAR_COLOR);
+                set(x, y, glass(x));
             }
         }
         for y in 8..16 {
@@ -1532,26 +1537,27 @@ mod tests {
         screen
     }
 
-    /// A dark screen with a dock of `apps` tiles, its corners round or not.
+    /// The background with a dock of `apps` tiles on glass, a rim of
+    /// light along its edge, its corners round or not.
     fn with_dock(apps: usize, round: bool) -> Image {
         let (w, h) = (400, 200);
         let mut screen = Image {
             width: w,
             height: h,
-            pixels: [0x1e; 3].repeat(w * h),
+            pixels: BACKGROUND.repeat(w * h),
         };
         let width = 2 * DOCK_PADDING + apps * DOCK_TILE + (apps - 1) * DOCK_GAP;
         let (x0, y0) = ((w - width) / 2, h - DOCK_ZONE);
         for y in y0..y0 + DOCK_HEIGHT {
             for x in x0..x0 + width {
                 let corner = round && (x - x0).min(x0 + width - 1 - x) < 3 && y - y0 < 3;
-                let edge = x == x0 || x == x0 + width - 1 || y == y0;
+                let rim = (x - x0).min(x0 + width - 1 - x) < 2 || y - y0 < 2;
                 let c = if corner {
-                    [0x1e; 3]
-                } else if edge {
-                    [0xd0; 3]
+                    BACKGROUND
+                } else if rim {
+                    [0xe8, 0xf0, 0xff]
                 } else {
-                    DOCK_COLOR
+                    glass(x)
                 };
                 let at = (y * w + x) * 3;
                 screen.pixels[at..at + 3].copy_from_slice(&c);
@@ -1576,7 +1582,7 @@ mod tests {
         }
         assert!(dock(&with_dock(2, false)).is_err());
         let none = Image {
-            pixels: vec![0x1e; 400 * 200 * 3],
+            pixels: BACKGROUND.repeat(400 * 200),
             ..with_dock(1, true)
         };
         assert!(dock(&none).is_err());
@@ -1591,8 +1597,8 @@ mod tests {
             .crop((150, MENU_BAR), (50, 40 - MENU_BAR))
             .unwrap();
         assert_eq!((window.width, window.height), (50, 40 - MENU_BAR));
-        assert_eq!(window.pixel(0, 0), [0x1e; 3]);
-        assert_eq!(window.pixel(13, 0), [0x1e; 3]);
+        assert_eq!(window.pixel(0, 0), BACKGROUND);
+        assert_eq!(window.pixel(13, 0), BACKGROUND);
         assert!(desktop(200).crop((151, MENU_BAR), (50, 1)).is_err());
         // A stray pixel on the bar, no time, a bar too high, no bar at all.
         let mut stray = desktop(400);
@@ -1602,18 +1608,18 @@ mod tests {
         for x in 360..400 {
             for y in 0..MENU_BAR {
                 let at = (y * 400 + x) * 3;
-                no_time.pixels[at..at + 3].copy_from_slice(&MENU_BAR_COLOR);
+                no_time.pixels[at..at + 3].copy_from_slice(&glass(x));
             }
         }
         assert!(menu_bar(&no_time).is_err());
         let mut high = desktop(400);
         for x in 0..400 {
             let at = (MENU_BAR * 400 + x) * 3;
-            high.pixels[at..at + 3].copy_from_slice(&MENU_BAR_COLOR);
+            high.pixels[at..at + 3].copy_from_slice(&glass(x));
         }
         assert!(menu_bar(&high).is_err());
         let none = Image {
-            pixels: vec![0x1e; 400 * 40 * 3],
+            pixels: BACKGROUND.repeat(400 * 40),
             ..desktop(400)
         };
         assert!(menu_bar(&none).is_err());

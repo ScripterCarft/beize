@@ -499,8 +499,8 @@ struct Image<F> {
     target: RefCell<Target>,
 }
 
-/// Beize's background until the shell draws one: what the damage tracker
-/// clears to where no window is.
+/// What the damage tracker clears to where nothing is drawn: only before
+/// the background (`backdrop`) is, or if it cannot be.
 const BACKGROUND: [f32; 4] = [0.08, 0.10, 0.14, 1.0];
 
 /// The time between two vblanks of `mode`.

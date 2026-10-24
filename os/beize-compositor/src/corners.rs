@@ -9,14 +9,14 @@
 //! its window geometry for its own shadow – keep theirs, as on GNOME; a
 //! maximized window has neither, its edges are the screen's.
 
-use beize_compositor::render::{VkFrame, VkRenderer};
+use beize_compositor::render::{VkFrame, VkRenderer, VkTexture};
 use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
 use smithay::backend::renderer::{Renderer, RendererSuper};
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
-use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transform};
+use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
 use std::cell::RefCell;
 
 /// The corners' radius: macOS 27's windows, with the continuous corner of
@@ -49,9 +49,10 @@ const INACTIVE: Look = Look {
     alpha: 0.2,
 };
 
-/// The renderer's part: round corners and shadows in a frame. A trait, as
-/// the frame's elements are generic over the renderer (`state::scene`).
-pub trait Rounding: Renderer {
+/// The renderer's part: round corners, shadows and glass (`backdrop`) in
+/// a frame. A trait, as the frame's elements are generic over the renderer
+/// (`state::scene`).
+pub trait Effects: Renderer<TextureId = VkTexture> {
     fn set_rounding(
         frame: &mut Self::Frame<'_, '_>,
         rounding: Option<(Rectangle<i32, Physical>, f32)>,
@@ -62,13 +63,26 @@ pub trait Rounding: Renderer {
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         caster: Rectangle<i32, Physical>,
+        cover: Rectangle<i32, Physical>,
         radius: i32,
         sigma: f32,
         color: [f32; 4],
     );
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glass(
+        frame: &mut Self::Frame<'_, '_>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        shape: Rectangle<i32, Physical>,
+        radius: f32,
+        glass: &VkTexture,
+        screen: Size<i32, Physical>,
+        grain: f32,
+        rim: [f32; 4],
+    );
 }
 
-impl Rounding for VkRenderer {
+impl Effects for VkRenderer {
     fn set_rounding(
         frame: &mut VkFrame<'_, '_>,
         rounding: Option<(Rectangle<i32, Physical>, f32)>,
@@ -81,11 +95,26 @@ impl Rounding for VkRenderer {
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         caster: Rectangle<i32, Physical>,
+        cover: Rectangle<i32, Physical>,
         radius: i32,
         sigma: f32,
         color: [f32; 4],
     ) {
-        frame.draw_shadow(dst, damage, caster, radius, sigma, color);
+        frame.draw_shadow(dst, damage, caster, cover, radius, sigma, color);
+    }
+
+    fn draw_glass(
+        frame: &mut VkFrame<'_, '_>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        shape: Rectangle<i32, Physical>,
+        radius: f32,
+        glass: &VkTexture,
+        screen: Size<i32, Physical>,
+        grain: f32,
+        rim: [f32; 4],
+    ) {
+        frame.draw_glass(dst, damage, shape, radius, glass, screen, grain, rim);
     }
 }
 
@@ -179,7 +208,7 @@ impl<E: Element> Element for Rounded<E> {
     }
 }
 
-impl<R: Rounding, E: RenderElement<R>> RenderElement<R> for Rounded<E> {
+impl<R: Effects, E: RenderElement<R>> RenderElement<R> for Rounded<E> {
     fn draw(
         &self,
         frame: &mut R::Frame<'_, '_>,
@@ -286,7 +315,7 @@ impl Element for Shadow {
     }
 }
 
-impl<R: Rounding> RenderElement<R> for Shadow {
+impl<R: Effects> RenderElement<R> for Shadow {
     fn draw(
         &self,
         frame: &mut R::Frame<'_, '_>,
@@ -300,12 +329,17 @@ impl<R: Rounding> RenderElement<R> for Shadow {
         let offset = dst.loc - self.area().loc;
         let mut caster = self.cast();
         caster.loc += offset;
+        // The window itself hides the shadow below it, not the caster,
+        // which lies lower by the offset.
+        let mut cover = self.caster;
+        cover.loc += offset;
         let a = self.look.alpha;
         R::draw_shadow(
             frame,
             dst,
             damage,
             caster,
+            cover,
             RADIUS,
             self.look.sigma,
             [0.0, 0.0, 0.0, a],

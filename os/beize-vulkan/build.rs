@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const SHADERS: [&str; 2] = ["quad.vert", "quad.frag"];
+const SHADERS: [&str; 3] = ["quad.vert", "quad.frag", "backdrop.frag"];
 const INCLUDES: [&str; 1] = ["quad.glsl"];
 const TARGET: &str = "vulkan1.3";
 

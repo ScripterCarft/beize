@@ -13,15 +13,17 @@
 //! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), its corners the
 //! continuous ones of `beize_vulkan`'s shader. Beize's apps show their
 //! symbols (`AppIcon`), others their icons (hicolor, `apps`), an app
-//! without one a tile with its initial. Light and opaque until the glass
-//! (ADR 0028, Reihenfolge d).
+//! without one a tile with its initial. It lies on base glass with a rim
+//! of light, which the compositor draws (`glass`, ADR 0028 §6); the dock
+//! draws only its content.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::apps::App;
 use beize_ui::{
-    AppIcon, Color, DesktopWindow, DesktopWindowId, Family, Rect, Scene, Style, Text, icon,
+    AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Rect, Scene, Style,
+    Text, icon,
 };
 
 /// Pinned when the desktop starts (ADR 0028 §4); more apps come as Beize
@@ -56,17 +58,16 @@ pub const ICON_PIXELS: u32 = ICON.round() as u32;
 const DOT: f32 = 4.0;
 const DOT_ABOVE: f32 = 3.7;
 
-const BACKGROUND: Color = Color::rgb(0xf5f5f5);
-/// A hairline around it, so it stands out on a light window below.
-const RIM: Color = Color {
-    a: 0x1f,
-    ..Color::rgb(0x000000)
-};
 const TILE_COLOR: Color = Color::rgb(0x3a3a3c);
 const INITIAL: Color = Color::rgb(0xffffff);
-const RUNNING: Color = Color {
+/// The dot below a running app: dark on light glass, light on dark.
+const RUNNING_LIGHT: Color = Color {
     a: 0x99,
     ..Color::rgb(0x1d1d1d)
+};
+const RUNNING_DARK: Color = Color {
+    a: 0xcc,
+    ..Color::rgb(0xffffff)
 };
 /// Over a tile while it is pressed: darker, as macOS shows it.
 const PRESSED: Color = Color {
@@ -237,25 +238,35 @@ impl Dock {
         Some(Action::Activate(shown.iter().map(|w| w.id).collect()))
     }
 
-    /// The dock in `(w, h)`: transparent outside its round corners.
-    pub fn draw(&self, text: &mut Text, (w, h): (u32, u32)) -> Scene {
+    /// Its glass in `(w, h)`: all of it, with round corners and a rim.
+    pub fn glass((w, h): (u32, u32)) -> Glass {
+        Glass {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: w as f32,
+                h: h as f32,
+            },
+            radius: RADIUS,
+            rim: true,
+        }
+    }
+
+    /// The dock's content in `(w, h)`, for `appearance`: the rest is
+    /// transparent, the glass below shows.
+    pub fn draw(&self, text: &mut Text, (w, h): (u32, u32), appearance: Appearance) -> Scene {
         let (w, h) = (w as f32, h as f32);
-        let all = Rect {
+        let mut scene = Scene::new();
+        scene.clear(Rect {
             x: 0.0,
             y: 0.0,
             w,
             h,
+        });
+        let running = match appearance {
+            Appearance::Light => RUNNING_LIGHT,
+            Appearance::Dark => RUNNING_DARK,
         };
-        let mut scene = Scene::new();
-        scene.clear(all);
-        scene.rounded(all, RADIUS, RIM);
-        let inner = Rect {
-            x: 1.0,
-            y: 1.0,
-            w: w - 2.0,
-            h: h - 2.0,
-        };
-        scene.rounded(inner, RADIUS - 1.0, BACKGROUND);
         let style = Style {
             family: Family::Sans,
             size: 22.0,
@@ -295,7 +306,7 @@ impl Dock {
                     w: DOT,
                     h: DOT,
                 };
-                scene.rounded(dot, DOT / 2.0, RUNNING);
+                scene.rounded(dot, DOT / 2.0, running);
             }
         }
         scene
