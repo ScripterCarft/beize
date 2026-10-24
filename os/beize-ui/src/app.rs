@@ -24,6 +24,10 @@ use wayland_client::protocol::{
     wl_surface::WlSurface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop};
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::{
+    Shape as CursorShape, WpCursorShapeDeviceV1,
+};
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
 use wayland_protocols::xdg::shell::client::{
     xdg_surface::{self, XdgSurface},
     xdg_toplevel::{self, XdgToplevel},
@@ -138,6 +142,14 @@ pub(crate) struct State {
     /// Of the last key press or click: copying names the input it
     /// answers, a title bar's move the press.
     pub(crate) serial: u32,
+    /// The pointer's image by name (cursor-shape-v1); none where the
+    /// compositor lacks the protocol.
+    cursor_shapes: Option<WpCursorShapeManagerV1>,
+    cursor: Option<WpCursorShapeDeviceV1>,
+    /// The pointer's last enter, which naming its image answers, and the
+    /// image named since.
+    entered: u32,
+    cursor_shown: Option<CursorShape>,
 }
 
 impl State {
@@ -214,6 +226,10 @@ impl App {
                 clipboard,
                 desktop: None,
                 serial: 0,
+                cursor_shapes: globals.bind(&qh, 1..=1, ()).ok(),
+                cursor: None,
+                entered: 0,
+                cursor_shown: None,
             },
             globals,
             seat,
@@ -413,6 +429,14 @@ impl App {
     }
 
     /// The window's title, in its title bar and the shell.
+    /// The pointer's image over `id`'s content (over the title bar it is
+    /// the arrow): the text cursor over text, as AppKit's views name theirs.
+    pub fn set_cursor(&mut self, id: WindowId, shape: CursorShape) {
+        if let Some(window) = self.windows.iter_mut().find(|w| w.id == id) {
+            window.content_cursor = shape;
+        }
+    }
+
     pub fn set_title(&mut self, id: WindowId, title: &str) {
         if let Some(window) = self.window(id) {
             window.set_title(title);
@@ -566,6 +590,17 @@ impl App {
                     &qh,
                 )?;
             }
+        }
+        // The pointer's image for where it is now (`Window::cursor`).
+        let shape = state
+            .pointer_on
+            .and_then(|id| self.windows.iter().find(|w| w.id == id))
+            .map(Window::cursor);
+        if let (Some(shape), Some(device)) = (shape, &state.cursor)
+            && state.cursor_shown != Some(shape)
+        {
+            device.set_shape(state.entered, shape);
+            state.cursor_shown = Some(shape);
         }
         windows.retain(|(_, events)| events.any());
         let desktop = self
@@ -745,8 +780,20 @@ impl Dispatch<WlSeat, ()> for State {
         }
         let pointer = caps.contains(wl_seat::Capability::Pointer);
         match (state.wl_pointer.take(), pointer) {
-            (None, true) => state.wl_pointer = Some(seat.get_pointer(qh, ())),
-            (Some(gone), false) => gone.release(),
+            (None, true) => {
+                let pointer = seat.get_pointer(qh, ());
+                state.cursor = state
+                    .cursor_shapes
+                    .as_ref()
+                    .map(|shapes| shapes.get_pointer(&pointer, qh, ()));
+                state.wl_pointer = Some(pointer);
+            }
+            (Some(gone), false) => {
+                if let Some(device) = state.cursor.take() {
+                    device.destroy();
+                }
+                gone.release();
+            }
             (kept, _) => state.wl_pointer = kept,
         }
     }
@@ -791,8 +838,14 @@ impl Dispatch<WlPointer, ()> for State {
         if let wl_pointer::Event::Button { serial, .. } = &event {
             state.serial = *serial;
         }
-        if let wl_pointer::Event::Enter { surface, .. } = &event {
+        if let wl_pointer::Event::Enter {
+            surface, serial, ..
+        } = &event
+        {
             state.pointer_on = state.id_of(surface);
+            // The image is the app's to name again (`dispatch`).
+            state.entered = *serial;
+            state.cursor_shown = None;
         }
         let leave = matches!(event, wl_pointer::Event::Leave { .. });
         let mut input = Vec::new();
@@ -808,3 +861,5 @@ delegate_noop!(State: ignore WlCompositor);
 delegate_noop!(State: ignore WlSurface);
 delegate_noop!(State: ignore WlRegion);
 delegate_noop!(State: ignore ZwlrLayerShellV1);
+delegate_noop!(State: WpCursorShapeManagerV1);
+delegate_noop!(State: WpCursorShapeDeviceV1);

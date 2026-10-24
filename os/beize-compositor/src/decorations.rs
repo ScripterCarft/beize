@@ -106,16 +106,22 @@ pub enum Hit {
 impl State {
     /// The topmost window under `at`, and whether its content or its bar.
     pub fn window_under(&self, at: Point<f64, Logical>) -> Option<(Window, Hit)> {
-        self.space.elements().rev().find_map(|window| {
-            let geometry = self.space.element_geometry(window)?;
-            if self.bar_at(window, geometry, at).is_some() {
-                return Some((window.clone(), Hit::Bar));
-            }
-            let origin = self.space.element_location(window)? - window.geometry().loc;
-            window
-                .is_in_input_region(&(at - origin.to_f64()))
-                .then(|| (window.clone(), Hit::Content))
-        })
+        self.space
+            .elements()
+            .rev()
+            .find_map(|window| self.hit(window, at).map(|hit| (window.clone(), hit)))
+    }
+
+    /// Whether `at` lies on `window`'s content or bar.
+    pub fn hit(&self, window: &Window, at: Point<f64, Logical>) -> Option<Hit> {
+        let geometry = self.space.element_geometry(window)?;
+        if self.bar_at(window, geometry, at).is_some() {
+            return Some(Hit::Bar);
+        }
+        let origin = self.space.element_location(window)? - window.geometry().loc;
+        window
+            .is_in_input_region(&(at - origin.to_f64()))
+            .then_some(Hit::Content)
     }
 
     /// `at` on the bar of `window` (content at `geometry`), relative to the

@@ -227,6 +227,15 @@ trennt. vello_cpu (ADR 0027 §9) bleibt außen vor, solange es eine 0.x-Version 
 experimentellem Cache ist. Fremde App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG,
 gewählt nach der Icon Theme Specification).
 
+- **Zeiger: Bibata Modern Classic** (GPL-3.0, Xcursor 16–96 px), vom Besitzer am 24.10. gewählt
+  vor Adwaita, Breeze, Capitaine und Phinger: schwarz mit weißem Rand wie macOS' Zeiger, ohne sie
+  zu kopieren; Warten animiert (54 Bilder je 40 ms), „Warten“ und „verboten“ farbig. Eingetragen
+  als Thema „default“ für Apps, die Zeiger selbst laden. Der Compositor zeigt ihn mit 24 px:
+  benannt von Apps über cursor-shape-v1 (Beize UI: Text-Strich über dem Inhalt des Terminals,
+  sonst der Pfeil), wo keine App ist, den Pfeil oder an einem Fensterrand den Doppelpfeil. Der
+  Rand des vorderen Fensters gewinnt vor den Fenstern dahinter, wie bei macOS. Ein eigener
+  Zeigersatz oder ein besserer ist für später vorgemerkt (Besitzer).
+
 - **Symbole in Leiste, Menüs und Kontrollzentrum: Phosphor** (MIT, über 1500 Symbole). Es ist
   das offene Set, das SF Symbols am nächsten kommt: ein Stil in mehreren Strichstärken
   (passend zu Inters Gewichten) und je eine gefüllte Variante für „an“. Lucide und Tabler

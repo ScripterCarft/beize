@@ -30,12 +30,13 @@ use smithay::backend::session::libseat::LibSeatSession;
 use smithay::desktop::utils::send_frames_surface_tree;
 use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
 use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
-use smithay::input::pointer::CursorImageStatus;
+use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode as OutputMode, Output as WlOutput, PhysicalProperties, Subpixel};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
 use smithay::reexports::input::Libinput;
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -47,6 +48,7 @@ use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
 };
+use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
 };
@@ -60,9 +62,10 @@ use smithay::wayland::shell::wlr_layer::{Layer, WlrLayerShellState};
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shm::{ShmHandler, ShmState};
+use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::{
-    delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat,
-    delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf,
+    delegate_output, delegate_seat, delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
@@ -130,6 +133,7 @@ pub struct State {
     _outputs: OutputManagerState,
     seat_state: SeatState<State>,
     data_device: DataDeviceState,
+    _cursor_shape: CursorShapeManagerState,
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
@@ -166,6 +170,8 @@ pub struct State {
     pacing_timer: Option<RegistrationToken>,
     /// "Frame done" for clients when nothing was drawn.
     frame_timer: Option<RegistrationToken>,
+    /// Draws an animated pointer's next frame.
+    cursor_timer: Option<RegistrationToken>,
     failure: Option<Error>,
 }
 
@@ -216,6 +222,8 @@ impl State {
             }),
             _outputs: OutputManagerState::new_with_xdg_output::<State>(&display),
             data_device: DataDeviceState::new::<State>(&display),
+            // Apps name their pointer's image (`cursor`).
+            _cursor_shape: CursorShapeManagerState::new::<State>(&display),
             seat_state,
             seat,
             keyboard,
@@ -236,6 +244,7 @@ impl State {
             draw_timer: None,
             pacing_timer: None,
             frame_timer: None,
+            cursor_timer: None,
             failure: None,
             display,
             handle,
@@ -416,9 +425,12 @@ impl State {
             return;
         };
         let at = self.pointer.to_physical(1.0).to_i32_round();
-        let on_plane = self.cursor.image().is_some_and(|i| screen.cursor_fits(i));
+        let on_plane = self
+            .cursor
+            .image(began)
+            .is_some_and(|i| screen.cursor_fits(i));
         let mut elements: Vec<Element> = Vec::new();
-        if !on_plane && let Some((buffer, hotspot)) = self.cursor.drawn() {
+        if !on_plane && let Some((buffer, hotspot)) = self.cursor.drawn(began) {
             let location = (at - Point::from(hotspot)).to_f64();
             match MemoryRenderBufferRenderElement::from_buffer(
                 screen.renderer(),
@@ -489,7 +501,7 @@ impl State {
         elements.extend(lower.into_iter().map(Element::Surface));
         let cursor = self
             .cursor
-            .image()
+            .image(began)
             .filter(|_| on_plane)
             .map(|image| (image, at));
         let frame = screen.render(&elements, cursor, requested, began);
@@ -502,6 +514,48 @@ impl State {
             Ok(Frame::Unchanged) => self.frame_done_later(),
             Err(e) => self.fail(e),
         }
+        self.animate_cursor(began);
+    }
+
+    /// An animated pointer (`cursor`): draws again when its next frame is
+    /// due; a still one sets no timer.
+    fn animate_cursor(&mut self, now: Duration) {
+        if self.cursor_timer.is_some() {
+            return;
+        }
+        let Some(next) = self.cursor.next_frame(now) else {
+            return;
+        };
+        let token = self.handle.insert_source(
+            Timer::from_duration(next.saturating_sub(now)),
+            |_, _, state| {
+                state.cursor_timer = None;
+                state.changed();
+                TimeoutAction::Drop
+            },
+        );
+        match token {
+            Ok(token) => self.cursor_timer = Some(token),
+            Err(e) => warn!("cursor timer: {}", e.error),
+        }
+    }
+
+    /// The pointer is on no client's surface: the compositor names its
+    /// image – a resize arrow on a window's edge, as macOS shows it, else
+    /// the arrow. Not during a grab: a resize keeps its arrow.
+    pub fn own_cursor(&mut self) {
+        if self.seat.get_pointer().is_some_and(|p| p.is_grabbed()) {
+            return;
+        }
+        let icon = match self.edge_under(self.pointer).map(|(_, edges)| edges) {
+            Some(ResizeEdge::Top | ResizeEdge::Bottom) => CursorIcon::NsResize,
+            Some(ResizeEdge::Left | ResizeEdge::Right) => CursorIcon::EwResize,
+            Some(ResizeEdge::TopLeft | ResizeEdge::BottomRight) => CursorIcon::NwseResize,
+            Some(ResizeEdge::TopRight | ResizeEdge::BottomLeft) => CursorIcon::NeswResize,
+            _ => CursorIcon::Default,
+        };
+        let now = self.clock.now().into();
+        self.cursor.set(CursorImageStatus::Named(icon), now);
     }
 
     /// While frames come in a row, checks twice a second whether they
@@ -754,7 +808,8 @@ impl SeatHandler for State {
     }
 
     fn cursor_image(&mut self, _seat: &Seat<State>, image: CursorImageStatus) {
-        self.cursor.set(image);
+        let now = self.clock.now().into();
+        self.cursor.set(image, now);
         self.changed();
     }
 }
@@ -782,6 +837,11 @@ delegate_data_device!(State);
 delegate_output!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
+delegate_cursor_shape!(State);
+
+/// cursor-shape-v1 also names tablet tools' images; Beize has no tablets
+/// yet, so nothing is needed of it.
+impl TabletSeatHandler for State {}
 
 /// The panels' surfaces to draw: those above the windows and those below,
 /// each front to back.

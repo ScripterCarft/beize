@@ -517,19 +517,9 @@ impl State {
     /// resize, for windows without a frame of their own.
     pub fn resize_from_edge(&mut self, button: u32, serial: Serial) -> bool {
         let at = self.pointer;
-        let hit = self.space.elements().rev().find_map(|window| {
-            let geometry = self.space.element_geometry(window)?;
-            edge_at(frame(window, geometry), at).map(|edges| (window.clone(), edges))
-        });
-        let Some((window, edges)) = hit else {
+        let Some((window, edges)) = self.edge_under(at) else {
             return false;
         };
-        let maximized = window
-            .toplevel()
-            .is_some_and(|t| t.current_state().states.contains(XdgState::Maximized));
-        if maximized {
-            return false;
-        }
         self.focus(Some(window.clone()));
         let start = GrabStartData {
             focus: None,
@@ -538,6 +528,32 @@ impl State {
         };
         self.begin_resize(window, start, edges, serial);
         true
+    }
+
+    /// The window whose edge strip lies under `at`, and which edges. Front
+    /// to back, as macOS decides: the strip of a window in front wins over
+    /// the windows behind it, a window's content or bar in front over the
+    /// strip, a panel over all. None for a maximized window, which does
+    /// not resize.
+    pub fn edge_under(&self, at: Point<f64, Logical>) -> Option<(Window, ResizeEdge)> {
+        if self.panel_under(at) {
+            return None;
+        }
+        for window in self.space.elements().rev() {
+            if self.hit(window, at).is_some() {
+                return None;
+            }
+            let Some(geometry) = self.space.element_geometry(window) else {
+                continue;
+            };
+            if let Some(edges) = edge_at(frame(window, geometry), at) {
+                let maximized = window
+                    .toplevel()
+                    .is_some_and(|t| t.current_state().states.contains(XdgState::Maximized));
+                return (!maximized).then(|| (window.clone(), edges));
+            }
+        }
+        None
     }
 
     fn begin_resize(

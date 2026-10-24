@@ -21,3 +21,5 @@ pub use beize_draw::{
 pub use desktop::{DesktopWindow, DesktopWindowId};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;
+/// The pointer's images by name (cursor-shape-v1, the CSS names).
+pub use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape as CursorShape;

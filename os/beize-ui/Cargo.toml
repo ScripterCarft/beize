@@ -18,7 +18,9 @@ ash = { version = "0.38", default-features = false, features = ["debug", "loaded
 # wl_surface. Loaded at run time (dlopen) like Vulkan: the desktop has it
 # for Mesa anyway, and the buildroot, where CI lints and tests, has none.
 wayland-client = { version = "0.31", features = ["system", "dlopen"] }
-wayland-protocols = { version = "0.32", features = ["client"] }
+# The pointer's image by name: cursor-shape-v1 (staging), which names
+# tablet tools of tablet-v2 (unstable) too.
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 # Panels of Beize's shell (wlr-layer-shell, ADR 0028 §1); the version
 # Smithay serves.
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }

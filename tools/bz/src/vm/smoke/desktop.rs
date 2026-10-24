@@ -23,7 +23,9 @@
 //! names in the owner's hicolor theme; a click starts the terminal once
 //! none runs.
 //! The menu bar names the active app; the shell's list of windows is
-//! offered to no app.
+//! offered to no app. The pointer is the theme's (ADR 0028 §8): the text
+//! cursor the terminal names over its text (cursor-shape-v1), a resize
+//! arrow on a window's edge.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //!
@@ -286,6 +288,13 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: the typed command ran in the terminal, its window shows the sample as the \
          reference has it"
     );
+    // Over its text, the text cursor the terminal names.
+    let ((x, y), (w, h)) = terminal;
+    let middle = (i32::try_from(x + w / 2)?, i32::try_from(y + h / 2)?);
+    drag(&qmp, screen_size(&machine)?, middle, middle, false)?;
+    wait_for_compositor_line(&shell, "cursor text: 1 frame at 24 px")?;
+    park(&qmp, screen_size(&machine)?)?;
+    say!("  ok: over the terminal's text the pointer is the theme's text cursor");
 
     // A client started by the service manager, which knows the socket only
     // from beize-session; its desktop file names its icon.
@@ -359,6 +368,14 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         desktop.pixel(at.0, at.1) != QUADRANTS[0],
         "the client's window has a square corner"
     );
+    // On its right edge, the compositor's resize arrow.
+    let edge = (
+        i32::try_from(at.0 + size.0 + 2)?,
+        i32::try_from(at.1 + size.1 / 2)?,
+    );
+    drag(&qmp, screen, edge, edge, false)?;
+    wait_for_compositor_line(&shell, "cursor ew-resize: 1 frame at 24 px")?;
+    park(&qmp, screen)?;
     // The dock shows its icon from the hicolor theme (ADR 0028 §8).
     let apps = wait_for_dock(&shell, |apps| {
         apps.iter().any(|a| a == "beize-testclient running")
@@ -370,7 +387,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     wait_for_dock_icon(&machine, dock_tile(screen, apps.len(), tile)?)?;
     say!(
         "  ok: the client's window opened in its own size, {}x{}, centred below the menu bar, \
-         exactly its pattern; it is offered no panels; the dock shows its icon",
+         exactly its pattern; it is offered no panels; its edge shows the resize arrow, the \
+         dock its icon",
         size.0,
         size.1
     );

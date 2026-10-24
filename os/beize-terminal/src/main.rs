@@ -26,7 +26,7 @@ use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::{ClipboardType, Config, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
-use beize_ui::{Appearance, Input, Key, KeyState, Keysym, WindowId};
+use beize_ui::{Appearance, CursorShape, Input, Key, KeyState, Keysym, WindowId};
 use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
 
@@ -118,6 +118,8 @@ fn run() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     // Its title bar dark, as its content.
     ui.set_appearance(window, Appearance::Dark);
+    // Over the text, the text cursor, as macOS' Terminal shows it.
+    ui.set_cursor(window, CursorShape::Text);
     let text = ui.text();
     let fonts = Fonts {
         regular: text.cells(FONT_SIZE, 400.0).map_err(|e| e.to_string())?,

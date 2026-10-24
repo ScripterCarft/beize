@@ -1,11 +1,16 @@
 //! The pointer's image. The screen shows it on the cursor plane (`output`),
 //! so moving the pointer draws nothing: the display engine places the
 //! image, as on every Mac and in KWin and Mutter. Images are premultiplied
-//! ARGB8888, the format of the cursor plane.
+//! ARGB8888, the format of the cursor plane – and of Xcursor files.
 //!
-//! A client may set its own image (a surface with an shm buffer); otherwise
-//! Beize shows its arrow. Beize has no cursor theme yet – its icons come
-//! with the shell (ADR 0027 §5) – so every named cursor is the arrow for now.
+//! A client sets its own image (a surface with an shm buffer) or names one
+//! (cursor-shape-v1, as GTK 4, Qt 6 and Chromium do); where no client is
+//! under the pointer, the compositor names one: the arrow, or a resize
+//! arrow on a window's edge (`input`). Named images come from the cursor
+//! theme "default" – Bibata Modern Classic (recipes/bibata-cursor.toml,
+//! ADR 0028 §8) – read once each at `SIZE`; one the theme lacks is the
+//! arrow. An animated one (waiting) shows each frame for its delay: the
+//! state draws again when the next is due (`next_frame`).
 //!
 //! Without a cursor plane that fits the image, the pointer is drawn into
 //! the frame instead (`Cursor::drawn`): then a move redraws the two small
@@ -14,16 +19,26 @@
 //! hotspot (DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, Linux 6.8), which
 //! Smithay's KMS layer cannot yet.
 
+use std::collections::HashMap;
+use std::time::Duration;
+
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
 use smithay::backend::renderer::utils::with_renderer_surface_state;
-use smithay::input::pointer::{CursorImageAttributes, CursorImageStatus};
+use smithay::input::pointer::{CursorIcon, CursorImageAttributes, CursorImageStatus};
 use smithay::reexports::wayland_server::protocol::wl_shm;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::Transform;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shm::with_buffer_contents;
-use tracing::debug;
+use tracing::{debug, info, warn};
+use xcursor::CursorTheme;
+
+/// The theme's name: "default" inherits Beize's (recipes/bibata-cursor.toml),
+/// as libXcursor and wayland-cursor look it up.
+const THEME: &str = "default";
+/// The pointer's size in pixels at scale 1: GNOME's and KDE's default.
+const SIZE: u32 = 24;
 
 /// A cursor image: premultiplied ARGB8888, rows without padding. `id`
 /// changes with the pixels, so the screen copies them only then.
@@ -36,9 +51,42 @@ pub struct Image {
     pub pixels: Vec<u8>,
 }
 
+/// A named cursor's frames, each with how long it shows; one for a still
+/// one.
+#[derive(Debug, Default)]
+struct Frames(Vec<(Image, Duration)>);
+
+impl Frames {
+    /// The frame shown `elapsed` after it started, and when the next is
+    /// due (from the start); none for a still one.
+    fn at(&self, elapsed: Duration) -> Option<(&Image, Option<Duration>)> {
+        let (first, _) = self.0.first()?;
+        let cycle: Duration = self.0.iter().map(|(_, delay)| *delay).sum();
+        if self.0.len() == 1 || cycle.is_zero() {
+            return Some((first, None));
+        }
+        let cycles = elapsed.as_nanos() / cycle.as_nanos();
+        let mut end = cycle * u32::try_from(cycles).unwrap_or(u32::MAX);
+        let into = elapsed.saturating_sub(end);
+        let mut shown = Duration::ZERO;
+        for (image, delay) in &self.0 {
+            shown += *delay;
+            if into < shown {
+                end += shown;
+                return Some((image, Some(end)));
+            }
+        }
+        Some((first, None))
+    }
+}
+
 pub struct Cursor {
     pub status: CursorImageStatus,
-    arrow: Image,
+    theme: CursorTheme,
+    /// Named images, read on first use; empty where the theme has none.
+    named: HashMap<CursorIcon, Frames>,
+    /// When the named image was set: its animation counts from there.
+    since: Duration,
     /// The client's image, from its cursor surface's last commit.
     surface: Option<Image>,
     next_id: u64,
@@ -48,35 +96,126 @@ pub struct Cursor {
 
 impl Cursor {
     pub fn new() -> Cursor {
-        Cursor {
-            status: CursorImageStatus::default_named(),
-            arrow: arrow(0),
+        let mut cursor = Cursor {
+            status: CursorImageStatus::Hidden,
+            theme: CursorTheme::load(THEME),
+            named: HashMap::new(),
+            since: Duration::ZERO,
             surface: None,
             next_id: 1,
             drawn: None,
-        }
+        };
+        cursor.set(CursorImageStatus::default_named(), Duration::ZERO);
+        cursor
     }
 
-    /// The image to show, or none (hidden, or a client's surface without
-    /// a usable buffer yet).
-    pub fn image(&self) -> Option<&Image> {
+    /// The image to show `now`, or none (hidden, or a client's surface
+    /// without a usable buffer yet).
+    pub fn image(&self, now: Duration) -> Option<&Image> {
         match &self.status {
             CursorImageStatus::Hidden => None,
-            CursorImageStatus::Named(_) => Some(&self.arrow),
+            CursorImageStatus::Named(icon) => self
+                .frames(*icon)
+                .at(now.saturating_sub(self.since))
+                .map(|(image, _)| image),
             CursorImageStatus::Surface(_) => self.surface.as_ref(),
         }
     }
 
-    pub fn set(&mut self, status: CursorImageStatus) {
+    /// When an animated image shows its next frame, after `now`.
+    pub fn next_frame(&self, now: Duration) -> Option<Duration> {
+        let CursorImageStatus::Named(icon) = &self.status else {
+            return None;
+        };
+        let (_, next) = self.frames(*icon).at(now.saturating_sub(self.since))?;
+        next.map(|next| self.since + next)
+    }
+
+    /// The named image, else the arrow.
+    fn frames(&self, icon: CursorIcon) -> &Frames {
+        static NONE: Frames = Frames(Vec::new());
+        [icon, CursorIcon::Default]
+            .iter()
+            .filter_map(|icon| self.named.get(icon))
+            .find(|frames| !frames.0.is_empty())
+            .unwrap_or(&NONE)
+    }
+
+    /// Shows `status` from `now`; the same named image again changes
+    /// nothing, so an animation runs on.
+    pub fn set(&mut self, status: CursorImageStatus, now: Duration) {
+        if let (CursorImageStatus::Named(old), CursorImageStatus::Named(new)) =
+            (&self.status, &status)
+            && old == new
+        {
+            return;
+        }
         let surface = match &status {
             CursorImageStatus::Surface(surface) => Some(surface.clone()),
             _ => None,
         };
+        if let CursorImageStatus::Named(icon) = &status {
+            for icon in [*icon, CursorIcon::Default] {
+                if !self.named.contains_key(&icon) {
+                    let frames = self.load(icon);
+                    self.named.insert(icon, frames);
+                }
+            }
+        }
         self.status = status;
+        self.since = now;
         self.surface = None;
         if let Some(surface) = surface {
             self.committed(&surface);
         }
+    }
+
+    /// The theme's frames for `icon` at `SIZE`, by its name or an older
+    /// one (X11's cursor font, which themes link).
+    fn load(&mut self, icon: CursorIcon) -> Frames {
+        let names = std::iter::once(icon.name()).chain(icon.alt_names().iter().copied());
+        let Some(file) = names.clone().find_map(|name| self.theme.load_icon(name)) else {
+            let names: Vec<&str> = names.collect();
+            warn!("the cursor theme has no {}", names.join(" or "));
+            return Frames::default();
+        };
+        let images = std::fs::read(&file)
+            .ok()
+            .and_then(|data| xcursor::parser::parse_xcursor(&data))
+            .unwrap_or_default();
+        // The size nearest `SIZE`; its frames in the file's order.
+        let Some(size) = images
+            .iter()
+            .map(|i| i.size)
+            .min_by_key(|size| size.abs_diff(SIZE))
+        else {
+            warn!("the cursor {} cannot be read", file.display());
+            return Frames::default();
+        };
+        let mut frames = Vec::new();
+        for image in images.into_iter().filter(|i| i.size == size) {
+            let id = self.next_id;
+            self.next_id += 1;
+            let (Ok(x), Ok(y)) = (i32::try_from(image.xhot), i32::try_from(image.yhot)) else {
+                continue;
+            };
+            frames.push((
+                Image {
+                    id,
+                    width: image.width,
+                    height: image.height,
+                    hotspot: (x, y),
+                    // The file's bytes: premultiplied ARGB, little-endian.
+                    pixels: image.pixels_rgba,
+                },
+                Duration::from_millis(image.delay.into()),
+            ));
+        }
+        // Once each, for the smoke test (tools/bz, `desktop`).
+        let n = frames.len();
+        let s = if n == 1 { "" } else { "s" };
+        info!("cursor {}: {n} frame{s} at {size} px", icon.name());
+        Frames(frames)
     }
 
     /// The surface committed: if it is the cursor, its new image.
@@ -97,13 +236,13 @@ impl Cursor {
         }
     }
 
-    /// The image as a buffer to draw into the frame, where the screen has
-    /// no cursor plane for it; kept while the image stays, so the renderer
-    /// uploads it once. With its hotspot.
-    pub fn drawn(&mut self) -> Option<(MemoryRenderBuffer, (i32, i32))> {
-        let (id, hotspot) = self.image().map(|i| (i.id, i.hotspot))?;
+    /// The image `now` as a buffer to draw into the frame, where the
+    /// screen has no cursor plane for it; kept while the image stays, so
+    /// the renderer uploads it once. With its hotspot.
+    pub fn drawn(&mut self, now: Duration) -> Option<(MemoryRenderBuffer, (i32, i32))> {
+        let (id, hotspot) = self.image(now).map(|i| (i.id, i.hotspot))?;
         if self.drawn.as_ref().is_none_or(|(drawn, _)| *drawn != id) {
-            let image = self.image()?;
+            let image = self.image(now)?;
             let buffer = MemoryRenderBuffer::from_slice(
                 &image.pixels,
                 Fourcc::Argb8888,
@@ -179,107 +318,41 @@ fn surface_image(surface: &WlSurface, id: u64) -> Option<Image> {
     copied.ok().flatten()
 }
 
-/// Beize's arrow, until its icon set brings one: black with a white rim,
-/// edges antialiased (4×4 samples per pixel).
-fn arrow(id: u64) -> Image {
-    // The outline, tip at the origin, in pixels.
-    const SHAPE: [(f32, f32); 7] = [
-        (0.0, 0.0),
-        (0.0, 16.5),
-        (4.0, 12.8),
-        (6.8, 19.3),
-        (9.3, 18.2),
-        (6.6, 11.8),
-        (11.6, 11.8),
-    ];
-    const RIM: f32 = 1.0;
-    const MARGIN: f32 = 1.0;
-    const SIZE: u32 = 24;
-    const SAMPLES: u32 = 4;
-    let mut pixels = Vec::with_capacity((SIZE * SIZE * 4) as usize);
-    for py in 0..SIZE {
-        for px in 0..SIZE {
-            let (mut cover, mut white) = (0.0f32, 0.0f32);
-            for sy in 0..SAMPLES {
-                for sx in 0..SAMPLES {
-                    let x = px as f32 + (sx as f32 + 0.5) / SAMPLES as f32 - MARGIN;
-                    let y = py as f32 + (sy as f32 + 0.5) / SAMPLES as f32 - MARGIN;
-                    if inside(&SHAPE, x, y) {
-                        cover += 1.0;
-                        if distance(&SHAPE, x, y) < RIM {
-                            white += 1.0;
-                        }
-                    }
-                }
-            }
-            let n = (SAMPLES * SAMPLES) as f32;
-            // Premultiplied: white contributes its coverage, black nothing.
-            let value = (white / n * 255.0).round() as u8;
-            let alpha = (cover / n * 255.0).round() as u8;
-            pixels.extend_from_slice(&[value, value, value, alpha]);
-        }
-    }
-    Image {
-        id,
-        width: SIZE,
-        height: SIZE,
-        hotspot: (MARGIN as i32, MARGIN as i32),
-        pixels,
-    }
-}
-
-/// Even-odd rule.
-fn inside(shape: &[(f32, f32)], x: f32, y: f32) -> bool {
-    let mut inside = false;
-    let mut j = shape.len() - 1;
-    for i in 0..shape.len() {
-        let ((xi, yi), (xj, yj)) = (shape[i], shape[j]);
-        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
-}
-
-/// Distance to the outline.
-fn distance(shape: &[(f32, f32)], x: f32, y: f32) -> f32 {
-    let mut nearest = f32::MAX;
-    for i in 0..shape.len() {
-        let (ax, ay) = shape[i];
-        let (bx, by) = shape[(i + 1) % shape.len()];
-        let (dx, dy) = (bx - ax, by - ay);
-        let t = (((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
-        let (cx, cy) = (ax + t * dx - x, ay + t * dy - y);
-        nearest = nearest.min((cx * cx + cy * cy).sqrt());
-    }
-    nearest
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn pixel(image: &Image, x: u32, y: u32) -> [u8; 4] {
-        let i = ((y * image.width + x) * 4) as usize;
-        image.pixels[i..i + 4].try_into().unwrap_or_default()
+    fn image(id: u64) -> Image {
+        Image {
+            id,
+            width: 1,
+            height: 1,
+            hotspot: (0, 0),
+            pixels: vec![0; 4],
+        }
     }
 
     #[test]
-    fn the_arrow_is_black_with_a_white_rim() {
-        let arrow = arrow(0);
-        assert_eq!(
-            arrow.pixels.len(),
-            (arrow.width * arrow.height * 4) as usize
-        );
-        // Inside the shaft: opaque black.
-        assert_eq!(pixel(&arrow, 3, 8), [0, 0, 0, 255]);
-        // On the left edge: the rim, opaque white.
-        assert_eq!(pixel(&arrow, 1, 8), [255, 255, 255, 255]);
-        // Right of the tip and below the tail: nothing.
-        assert_eq!(pixel(&arrow, 10, 2), [0, 0, 0, 0]);
-        assert_eq!(pixel(&arrow, 2, 23), [0, 0, 0, 0]);
-        // Premultiplied: no channel above alpha.
-        assert!(arrow.pixels.as_chunks::<4>().0.iter().all(|p| p[0] <= p[3]));
+    fn a_still_image_has_no_next_frame() {
+        let frames = Frames(vec![(image(1), Duration::from_millis(40))]);
+        let (shown, next) = frames.at(Duration::from_secs(5)).unwrap();
+        assert_eq!((shown.id, next), (1, None));
+        assert!(Frames::default().at(Duration::ZERO).is_none());
+    }
+
+    #[test]
+    fn an_animation_shows_each_frame_for_its_delay_and_runs_round() {
+        let ms = Duration::from_millis;
+        let frames = Frames(vec![(image(1), ms(40)), (image(2), ms(60))]);
+        let at = |t| {
+            let (image, next) = frames.at(ms(t)).unwrap();
+            (image.id, next)
+        };
+        assert_eq!(at(0), (1, Some(ms(40))));
+        assert_eq!(at(39), (1, Some(ms(40))));
+        assert_eq!(at(40), (2, Some(ms(100))));
+        // The second round.
+        assert_eq!(at(100), (1, Some(ms(140))));
+        assert_eq!(at(1050), (2, Some(ms(1100))));
     }
 }

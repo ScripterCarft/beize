@@ -1,0 +1,42 @@
+# Bibata Modern Classic, Beize's pointers (ADR 0028 §8): black with a white
+# rim and round edges, as macOS draws its pointers without copying them;
+# the waiting pointer turns (54 frames, 40 ms each). Chosen by the owner
+# (2026-10-24) over Adwaita, Breeze, Capitaine and Phinger. The release's
+# Xcursor files as they are, every size from 16 to 96 px: the SVG sources
+# build only with clickgen and a headless browser (cbmp). The compositor
+# reads them (os/beize-compositor, `cursor`); "default" names the theme for
+# apps that load pointers themselves (libXcursor, wayland-cursor).
+name = "bibata-cursor"
+version = "2.0.7"
+stage = "target"
+
+[source]
+latest = { github = "ful1e5/Bibata_Cursor" }
+url = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v{version}/Bibata-Modern-Classic.tar.xz"
+file = "Bibata-Modern-Classic-{version}.tar.xz"
+sha256 = "7d3495864e5bbef02f5e77de760b2905903b63c71495a78ef6306d19a3b556d8"
+unsigned = "Bibata signs neither its releases nor its tags and publishes no checksums (checked 2026-10-24); pinned by SHA-256"
+
+[build]
+script = '''
+theme="$PKG/usr/share/icons/Bibata-Modern-Classic"
+install -d "$theme"
+cp -a "$SRC/cursors" "$theme/"
+install -m644 "$SRC/index.theme" "$theme/"
+# The default theme, as the Icon Theme Specification looks it up.
+install -d "$PKG/usr/share/icons/default"
+printf '[Icon Theme]\nInherits=Bibata-Modern-Classic\n' > "$PKG/usr/share/icons/default/index.theme"
+'''
+
+[sbom]
+# As the project states it: its LICENSE is the GPL 3, no file says "or
+# any later version".
+license = "GPL-3.0-only"
+# No CPE: pointer images (data); the NVD lists no product for them.
+cpe = []
+
+[files]
+image = [
+  "usr/share/icons/Bibata-Modern-Classic/**",
+  "usr/share/icons/default/index.theme",
+]

@@ -50,6 +50,10 @@ pub enum Latest {
     /// and that release-monitoring.org does not list (Anitya has the same
     /// backend): `{ npm = "@phosphor-icons/core" }`.
     Npm(String),
+    /// A project's latest release on GitHub, for projects that publish
+    /// there only and that release-monitoring.org does not list (Anitya
+    /// has a GitHub backend too): `{ github = "ful1e5/Bibata_Cursor" }`.
+    Github(String),
     /// A URL that always serves upstream's current file; newer when its
     /// SHA-256 differs from the pin: `{ file = "https://…" }`.
     File(String),

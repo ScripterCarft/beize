@@ -116,7 +116,13 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
     ));
     state.pointer = to;
     state.bar_hover(to);
-    let under = state.surface_under(to);
+    // A window's edge strip in front: no client has the pointer there.
+    let under = if state.edge_under(to).is_some() {
+        None
+    } else {
+        state.surface_under(to)
+    };
+    let own = under.is_none();
     if let Some(pointer) = state.seat.get_pointer() {
         pointer.motion(
             state,
@@ -129,6 +135,9 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
         );
         pointer.frame(state);
     }
+    if own {
+        state.own_cursor();
+    }
     // Only the cursor plane moves; nothing is drawn.
     state.changed();
 }
@@ -137,19 +146,19 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     let serial = SERIAL_COUNTER.next_serial();
     let pressed = event.state() == ButtonState::Pressed;
     let grabbed = state.seat.get_pointer().is_some_and(|p| p.is_grabbed());
-    if pressed && !grabbed && !state.panel_under(state.pointer) {
-        let under = state.window_under(state.pointer);
-        if let Some((window, hit)) = under {
-            state.focus(Some(window.clone()));
-            if hit == Hit::Bar {
-                // The compositor's title bar (`decorations`): a drag goes
-                // to its grab, like the edge's.
-                state.bar_press(&window, event.button_code(), serial);
-            }
-        } else if state.surface_under(state.pointer).is_none() {
-            // Beside a window, on its edge: the compositor resizes it; the
-            // press goes to that drag (`windows`).
-            state.resize_from_edge(event.button_code(), serial);
+    // On a window's edge in front (`edge_under`): the compositor resizes
+    // it; the press goes to that drag (`windows`).
+    if pressed
+        && !grabbed
+        && !state.panel_under(state.pointer)
+        && !state.resize_from_edge(event.button_code(), serial)
+        && let Some((window, hit)) = state.window_under(state.pointer)
+    {
+        state.focus(Some(window.clone()));
+        if hit == Hit::Bar {
+            // The compositor's title bar (`decorations`): a drag goes to its
+            // grab, like the edge's.
+            state.bar_press(&window, event.button_code(), serial);
         }
     }
     if let Some(pointer) = state.seat.get_pointer() {

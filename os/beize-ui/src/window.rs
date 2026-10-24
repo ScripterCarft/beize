@@ -34,6 +34,7 @@ use crate::renderer::{After, Renderer, Target};
 use beize_draw::Scene;
 use beize_draw::Text;
 use beize_draw::titlebar::{self, Appearance, Press, TitleBar};
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
 /// sRGB: the GPU blends in linear light and stores sRGB (`draw`).
 const FORMAT: vk::Format = vk::Format::B8G8R8A8_SRGB;
@@ -78,6 +79,8 @@ pub(crate) struct Window {
     /// there until released, as Wayland's own implicit grab.
     pointer_at: Option<(f64, f64)>,
     in_content: bool,
+    /// The pointer's image over the content (`App::set_cursor`).
+    pub(crate) content_cursor: Shape,
     held_in_content: usize,
     vk_surface: vk::SurfaceKHR,
     swapchain: Option<Swapchain>,
@@ -106,6 +109,7 @@ impl Window {
             bar_changed: false,
             pointer_at: None,
             in_content: false,
+            content_cursor: Shape::Default,
             held_in_content: 0,
             vk_surface,
             swapchain: None,
@@ -279,6 +283,16 @@ impl Window {
         }
         events.input = routed;
         self.bar_changed && self.content.is_some()
+    }
+
+    /// The pointer's image where it is: the arrow on the title bar, the
+    /// content's elsewhere (a panel is all content).
+    pub(crate) fn cursor(&self) -> Shape {
+        if self.bar.is_some() && !self.in_content {
+            Shape::Default
+        } else {
+            self.content_cursor
+        }
     }
 
     /// Draws `scene` (the content, or the whole of a panel) and shows it

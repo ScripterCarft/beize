@@ -103,6 +103,17 @@ fn check(source: &Source, version: &str) -> Result<Option<String>> {
                 .with_context(|| format!("npm names no version of {package}"))?;
             (compare_versions(newest, version) == Ordering::Greater).then(|| newest.to_owned())
         }
+        Latest::Github(repository) => {
+            // The release GitHub marks as latest: not a draft or pre-release.
+            let json = fetch_json(&format!(
+                "https://api.github.com/repos/{repository}/releases/latest"
+            ))?;
+            let tag = json["tag_name"]
+                .as_str()
+                .with_context(|| format!("GitHub names no release of {repository}"))?;
+            let newest = tag.strip_prefix('v').unwrap_or(tag);
+            (compare_versions(newest, version) == Ordering::Greater).then(|| newest.to_owned())
+        }
         Latest::File(url) => {
             let file = std::env::temp_dir().join(format!("bz-latest-{}", std::process::id()));
             util::run(
