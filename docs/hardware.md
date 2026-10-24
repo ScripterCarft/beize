@@ -43,7 +43,8 @@ Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 ## Desktop testen (Messbau)
 
 Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz, den **Zeitplan**
-des Compositors, das **Terminal** und die Schrift von Beize UI auf dem Monitor. Messbau =
+des Compositors, den **Lasttest**, Shell, Glas, das **Terminal** und die Schrift von Beize UI
+auf dem Monitor. Messbau =
 Zweig `measure/desktop`: `main` + `kernel/measure/*.patch` (nouveau-Patches, die upstream
 noch fehlen) + `measure/hw-test.sh`, Version `0.5.<n>` (`OS_VERSION` auf dem Zweig); 0.6
 von `main` ersetzt ihn. Claude baut und prüft ihn (Smoke, Skript in der VM) und taggt ihn
@@ -74,10 +75,12 @@ Bildern spät.
 
 **C. Desktop und Terminal (alles im Terminal, kein Wechsel nach tty2 mehr)**
 
-5. Auf tty1 anmelden, `beize-session` eingeben. Erwartet: nach etwa einer Sekunde füllt ein
-   dunkles Terminal den Bildschirm, oben links `beize ~ $` mit weißem Block-Cursor. Ohne
-   Titelleiste und Knöpfe – das ist so gewollt, die kommen mit der Shell (Schritt 4).
-   `ls` tippen: kommt die Ausgabe?
+5. Auf tty1 anmelden, `beize-session` eingeben. Erwartet: kurz schwarz, dann blendet der
+   Desktop als Ganzes ein – blauer Hintergrund mit Bändern, oben die Menüleiste ohne
+   Hintergrund (Uhr rechts), unten das Dock auf Glas mit dem Terminal-Symbol. Es öffnet sich
+   **kein** Fenster (wie macOS). **Strg+Alt+T** (oder Klick aufs Terminal im Dock): ein
+   Terminal mit Titelleiste und drei Knöpfen, `beize ~ $`. `ls` tippen: kommt die Ausgabe?
+   Wirkt die weiße Schrift der Menüleiste scharf, nicht zu dick?
    - Meldung `beize-session: …` und zurück an der Shell: abfotografieren, weiter mit 9.
    - Schwarz oder eingefroren, Strg+Alt+F2 hilft nicht: Reset-Taste. Nichts geht verloren,
      der Desktop startet nie von selbst; nach dem Neustart weiter mit 9 (`-1`).
@@ -88,7 +91,7 @@ Bildern spät.
    run0 mount -o uid=$(id -u),gid=$(id -g) /dev/disk/by-label/BEIZE /run/stick
    bash /run/stick/beize-test/hw-test.sh
    ```
-7. Das Skript führt durch drei Teile, jeweils weiter mit Enter:
+7. Das Skript führt durch vier Teile, jeweils weiter mit Enter:
    1. **Terminal-Probe.** Erwartet, Zeile für Zeile: „Grüße aus Beize: äöü ÄÖÜ ß é ñ €
       „Zitat“ – é“; „fett“ (kräftiger), „schwach“ (grauer), „unterstrichen“,
       „durchgestrichen“, „invers“ (dunkel auf hell); die Wörter rot, grün, gelb, blau,
@@ -99,25 +102,36 @@ Bildern spät.
       pixelig?
    2. **Beize UI**, 30 Sekunden ein Fenster mit Text in Inter und JetBrains Mono, hell auf
       dunkel und dunkel auf hell. Wirken heller und dunkler Text gleich kräftig? Danach
-      kommt das Terminal von selbst zurück.
+      schließt es sich von selbst.
    3. **Bildtakt**, 20 Sekunden das Testfenster: oben rot und grün, unten blau und weiß, durch
       den oberen Rand läuft ein dunkler Balken. Gleichmäßig, ohne Ruckler oder Risse? Dabei
       a, s, d tippen, die Maus über das Fenster bewegen, einmal links klicken.
+   4. **Lasttest** (ADR 0028 §9), 40 Sekunden zwölf Fenster mit wandernden Farbverläufen und
+      gleitenden Blöcken. Gleich zu Beginn das vorderste an seiner Titelleiste nach unten
+      ziehen, bis es zur Hälfte hinter dem Dock liegt, dann die Maus ruhen lassen. Läuft alles
+      flüssig? Scheinen die Farben verschwommen und bewegt durchs Dock?
 
    Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
    Erwartet:
    - `GPU /dev/dri/card… (nouveau)`, `renderer on NVIDIA GeForce RTX 3070 Ti (NVK …)`,
-     `screen DP-…: 2560x1440 at 240 Hz`, `rendering with … straight into the screen buffer`
+     `screen DP-…: 2560x1440 at 240 Hz, it had …` (der Modus der Konsole davor),
+     `rendering with … straight into the screen buffer`, `desktop shown with the shell, … ms`
    - `frames: 4800 of 4800, 4.17 ms apart on average`
    - unter „Bildtakt des Testfensters“: **`pacing: … 0 late (drawing 0, GPU 0, display 0)`**
      und **`change to screen median` höchstens ein Bild** (4,17 ms) – der Prüfwert für den
      Zeitplan; `ready median … before the vblank begins, least …` über 0 (der Spielraum);
      `busy` nur wenige Prozent. Sind doch Bilder spät, sagt die Klammer, welcher Teil des
      Modells nicht hält, und je spätem Bild eine Zeile `late frame (…)` seine Zeiten.
+   - unter „Lasttest“: die `pacing:`-Zeilen der Szene, Ziel **`0 late`** und **`GPU median`
+     unter 1 ms**; `load: 12 windows, … frames in 40 s` – flüssig sind 12 × 240 × 40 ≈
+     115 000 Bilder.
    - `Tasten im Fenster: 7` (das Loslassen der Enter-Taste, die das Fenster startete, gehört
      ihm, wie Wayland es will), `Klicks: 2`
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
-8. Noch von Hand im Terminal (je kurz, Foto nur bei Fehlern):
+8. Noch von Hand (je kurz, Foto nur bei Fehlern):
+   - **Fenster:** das Terminal an der Titelleiste ziehen, am Rand größer ziehen, gelber Knopf
+     (ins Dock, Klick aufs Symbol holt es zurück), **Super+F** (Vollbild; Maus an den oberen
+     Rand holt die Menüleiste auf Glas), noch einmal Super+F.
    - **Strg+Alt+T**: ein zweites Terminal öffnet sich darüber. Darin `exit`: es schließt sich,
      das erste ist wieder da und nimmt Tasten an.
    - **Kopieren:** mit der Maus Text markieren (Doppelklick = Wort), **Strg+Shift+C**,
@@ -131,8 +145,10 @@ Bildern spät.
    `bash /run/stick/beize-test/hw-test.sh -1` (nach Reset: die Logs des Starts davor).
 10. Ende: `run0 umount /run/stick`, `systemctl reboot` (beendet auch den Desktop). Den Stick
     stecken lassen und Claude sagen: „Hardware-Test fertig“, dazu was du gesehen hast
-    (Terminal-Probe richtig? Heller und dunkler Text gleich kräftig? Testfenster flüssig?
-    Strg+Alt+T, Kopieren, Mausrad, ê?). Die Ergebnisse holt Claude selbst vom Stick.
+    (Desktop als Ganzes eingeblendet? Schrift der Menüleiste? Glas und Hintergrund in echt?
+    Terminal-Probe richtig? Heller und dunkler Text gleich kräftig? Testfenster und Lasttest
+    flüssig? Fenster, Vollbild, Strg+Alt+T, Kopieren, Mausrad, ê?). Die Ergebnisse holt Claude
+    selbst vom Stick.
 
 ## Startzeit messen
 

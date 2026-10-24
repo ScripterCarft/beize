@@ -463,10 +463,14 @@ dem kritischen Pfad, auf Hardware messen. In 1 von ~8 Smoke-Läufen hing die VM 
 **Lasttest fertig 24.10.** (ADR 0028 §9): `beize-load-test` auf dem Test-Medium, 12 Fenster
 zeichnen jedes Bild, eins wird hinters Dock gezogen; Smoke prüft Funktion und Glas (Gegenprobe
 rot). Dabei behoben: der Smoke tippte ins zweite Terminal, bevor dessen Fenster stand (erste Tasten
-gingen ans erste Terminal, VM langsam). **Als Nächstes:** Hardware-Test mit Messbau 0.5.102
-(`hw-test.sh` Teil 4/4 Lasttest; Entwurf der Änderung lag als Python-Skript vor), dort auch den
-Start messen (Zeile `desktop shown with the shell, … ms`) und Abschnitt C in `docs/hardware.md`
-auf den Desktop mit Shell umschreiben (öffnet kein Terminal mehr: Strg+Alt+T). Der Besitzer will es „verdammt effizient“, ohne Abstriche am
+gingen ans erste Terminal, VM langsam), und Zeilen des Compositors trugen je nach Ereignis
+Smithays Span davor (`drm_atomic: pacing: …`); ab info jetzt nur die Nachricht.
+**Als Nächstes: Hardware-Test mit Messbau 0.5.102** (`measure/desktop`, auf `main` gehoben,
+`hw-test.sh` Teil 4/4 Lasttest, in der VM durchlaufen; Anleitung `docs/hardware.md` C, auf den
+Desktop mit Shell umgeschrieben). Wartet auf den Besitzer: `./bz release`, dann kopiert Claude
+Release, Skript und Testprogramme (jetzt auch `beize-load-test`) auf den Stick. Einmal im Smoke
+des Messbaus fand die VM-Firmware im Update-Szenario den Bootloader der Platte nicht („Boot0002 …
+Not Found“, vor dem Kernel); im zweiten Lauf grün, Ursache offen – beobachten. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
