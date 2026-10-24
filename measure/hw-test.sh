@@ -2,7 +2,8 @@
 # Measurement build only (measure/desktop), never on main: the hardware
 # test of Beize's desktop (ADR 0027, step 3 g), run from the USB stick in
 # Beize's terminal: the terminal's sample, Beize UI's sample, the frame
-# schedule with the test client. Steps: docs/hardware.md.
+# schedule with the test client, the load test's scene (ADR 0028 §9).
+# Steps: docs/hardware.md.
 #
 #   bash /run/stick/beize-test/hw-test.sh        the test, then the logs
 #   bash /run/stick/beize-test/hw-test.sh logs   only the logs of this start
@@ -39,32 +40,43 @@ if [ "$mode" = test ]; then
     # file system says of exec; the windows through the service manager,
     # as an app's would.
     rt=$XDG_RUNTIME_DIR
-    for p in beize-testclient beize-ui-test beize-terminal-sample; do
+    for p in beize-testclient beize-ui-test beize-load-test beize-terminal-sample; do
         cp "$here/$p" "$rt/$p" && chmod 700 "$rt/$p" || exit 1
     done
 
     clear
     "$rt/beize-terminal-sample"
     echo
-    echo "  1/3 Terminal: die Probe des Terminals. Schrift scharf, Farben und Rahmen wie in"
+    echo "  1/4 Terminal: die Probe des Terminals. Schrift scharf, Farben und Rahmen wie in"
     echo "  der Anleitung? Weiter mit Enter."
     read -r
 
-    echo "  2/3 Beize UI: Gleich zeigt ein Fenster 30 Sekunden lang Text hell auf dunkel und"
+    echo "  2/4 Beize UI: Gleich zeigt ein Fenster 30 Sekunden lang Text hell auf dunkel und"
     echo "  dunkel auf hell. Wirkt der helle Text kräftiger als der dunkle? Danach kommt das"
     echo "  Terminal von selbst zurück. Start mit Enter."
     read -r
     systemd-run --user --quiet --unit=hw-test-ui "$rt/beize-ui-test" --seconds 30 || exit 1
     wait_for hw-test-ui.service
 
-    echo "  3/3 Bildtakt: Gleich füllt das Testfenster 20 Sekunden lang den Bildschirm. Dabei"
-    echo "  a s d tippen, die Maus über das Fenster bewegen und einmal links klicken. Danach"
-    echo "  kommt das Terminal von selbst zurück. Start mit Enter."
+    echo "  3/4 Bildtakt: Gleich zeigt das Testfenster 20 Sekunden lang rot, grün, blau und"
+    echo "  weiß, oben läuft ein dunkler Balken. Dabei a s d tippen, die Maus über das Fenster"
+    echo "  bewegen und einmal links klicken. Danach schließt es sich von selbst. Start mit Enter."
     read -r
     date '+%F %T' > "$out/client-start.txt"
     systemd-run --user --quiet --unit=hw-test-client \
         "$rt/beize-testclient" --frames 4800 --seconds 20 || exit 1
     wait_for hw-test-client.service
+
+    echo "  4/4 Last: Gleich öffnen sich 12 Fenster mit laufenden Farbverläufen, 40 Sekunden"
+    echo "  lang. Zieh gleich zu Beginn das vorderste an seiner Titelleiste nach unten, bis es"
+    echo "  zur Hälfte hinter dem Dock liegt, dann die Maus nicht mehr bewegen. Läuft alles"
+    echo "  flüssig? Scheint das Fenster bewegt durchs Dock? Danach schließen sie sich von selbst."
+    echo "  Start mit Enter."
+    read -r
+    date '+%F %T' > "$out/load-start.txt"
+    systemd-run --user --quiet --unit=hw-test-load \
+        "$rt/beize-load-test" --windows 12 --seconds 40 || exit 1
+    wait_for hw-test-load.service
     # The compositor sums the frames up once they stopped for a quarter
     # second; it looks twice a second.
     sleep 2
@@ -74,6 +86,7 @@ b="-b $boot"
 journalctl --user $b -u beize-compositor.service -o short-monotonic > "$out/compositor.log" 2>&1
 journalctl --user $b -u hw-test-client.service -o short-monotonic > "$out/client.log" 2>&1
 journalctl --user $b -u hw-test-ui.service -o short-monotonic > "$out/ui.log" 2>&1
+journalctl --user $b -u hw-test-load.service -o short-monotonic > "$out/load.log" 2>&1
 journalctl --user $b -o short-monotonic > "$out/user-journal.log" 2>&1
 cat /sys/class/drm/card*-*/modes > "$out/modes.txt" 2>&1
 for edid in /sys/class/drm/card*-*/edid; do
@@ -86,15 +99,25 @@ run0 journalctl $b -o short-monotonic > "$out/system-journal.log" 2>&1
 echo
 echo "== Ergebnis (alles in $out)"
 cat "$out/version.txt"
-grep -h -E 'GPU |screen |renderer on|rendering with|cursor plane|lavapipe|keyboard layout' \
+grep -h -E 'GPU |screen |desktop shown|renderer on|rendering with|cursor plane|lavapipe|keyboard layout' \
     "$out/compositor.log" | sed 's/^.*\]: //' | grep -v '^pacing: ' | sort -u
 grep -h -E 'frames:|drawing:|configure|keymap' "$out/client.log" | sed 's/^.*\]: //'
 if [ -s "$out/client-start.txt" ]; then
     # The terminal's frames have summaries of their own (the Enter just
     # pressed): the client's is the one with the most frames.
     echo "Bildtakt des Testfensters, vom Compositor selbst gemessen:"
+    until=()
+    [ -s "$out/load-start.txt" ] && until=(--until "$(cat "$out/load-start.txt")")
     journalctl --user -u beize-compositor.service --since "$(cat "$out/client-start.txt")" \
-        -o cat | grep '^pacing: ' | sort -t ' ' -k 2 -n | tail -n 1
+        "${until[@]}" -o cat | grep '^pacing: ' | sort -t ' ' -k 2 -n | tail -n 1
+fi
+if [ -s "$out/load-start.txt" ]; then
+    # The drag at the start is a run of its own; the scene's 40 s come in
+    # pieces of 30 s.
+    echo "Lasttest, vom Compositor selbst gemessen:"
+    journalctl --user -u beize-compositor.service --since "$(cat "$out/load-start.txt")" \
+        -o cat | grep '^pacing: ' | sort -t ' ' -k 2 -n | tail -n 2
+    grep -h ': load: ' "$out/load.log" | sed 's/^.*\]: //'
 fi
 echo "Tasten im Fenster: $(grep -c ' key ' "$out/client.log"), Klicks: $(grep -c 'button ' "$out/client.log")"
 echo "Warnungen des Compositors:"
