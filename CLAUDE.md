@@ -309,7 +309,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Frühjahrsputz B erledigt – JETZT: C, die Messwerte)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Phase 3 großteils erledigt – JETZT: ADR 0029, dann Protokolle, Messbau)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -338,27 +338,33 @@ Zeile-für-Zeile-Durchsicht von `windows.rs`, `state.rs`, `input.rs`, Shell, Bei
 `smoke/desktop.rs` (bisher nur nach Mustern gesucht). Smithay bringt `rand`, `sha2 0.10`,
 `rustix 0.38` fest mit (nicht abschaltbar).
 
-**Phase 3 (Architektur, Performance, Engineering; Besitzer, 25.10.: Analyse geliefert, „alles
-umsetzen“).** Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts, 5 VMs parallel (3 GiB je VM
-reserviert), Firmware ~4 s je Start; Desktop im Leerlauf 0 Aufwachvorgänge; `/usr` 168 MB;
-Compositor 7,4 MB, Shell 4,6, Terminal 4,8 (Text-Stapel ~1,25 MB und SVG ~0,6 MB in jedem).
-Reihenfolge, jede Änderung gemessen vorher/nachher, mit Gegenprobe, ohne Designänderung:
-1. Smoke schneller bei gleicher Abdeckung (✓ 25.10.: 152 → ~140 s, Bildschirm-Abfragen sofort/100 ms, Lasttest 6 s, `-nodefaults`, Journal-Disk auf eigenem Slot; mit 6 VMs 128 s, aber RCU-Stalls, siehe unten) (RAM-Reserve je VM nach Bedarf, Lasttest 15 → 5 s,
-   Ereignis statt 500-ms-Abfrage, Firmware-Stellschrauben messen, 2 vCPU wo kein Budget misst;
-   Ziel ≤ 115 s, CI-Nachtlauf zwei VMs parallel). 2. Lebendiges Glas: Blur-Kette wiederverwenden
-   (heute 6 neue VkImages je Änderung, `backdrop.rs` → `draw_glass`). 3. C a–d (unten).
-4. Bildschirm-Hotplug + link-status (ADR, als Liste von Bildschirmen angelegt). 5. Smithay-
-   Protokolle presentation-time, fifo/commit-timing, viewporter, xdg-activation, idle-inhibit;
-   dann Bildschirm aus bei Inaktivität (Zeiten wie macOS, Besitzer bestätigt). 6. Beize UI:
-   Größenänderung ohne `device_wait_idle` (`oldSwapchain`). 7. Szenenaufbau aus
-   `State::render` nach `scene.rs`; Desktop-Smoke in Phasen; Schriften per mmap ✓. Verworfen:
-   ein gemeinsamer Journal-Logger (die Kopien unterscheiden sich mit Grund; eine Crate oder
-   libsystemd in jeder App für 40 Zeilen). 8. `panic = "abort"` gemessen und verworfen (−1,1 MB
-   in drei Programmen, aber ein Panic eines Hilfs-Threads beendete die Sitzung); Intel/AMD
-   brauchen erst Kernel-Treiber, Firmware, libdrm → #17 (kommentiert 25.10.). Regeln: Crate-Grenzen per
-   `cargo deny` (`wrappers`), Leerlauf-Ratsche im Desktop-Smoke, Größen-Ratsche (+3 %).
-   Bewusst so bleiben: eigener Renderer/Bildschleife, `bz`, EROFS zstd, Shell als Prozess,
-   FFI zu libsystemd, Spec-Konstanten im Smoke (der Test ist die Spezifikation).
+**Phase 3 (Architektur, Performance, Engineering; Besitzer, 25.10.: „alles umsetzen“).**
+Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvorgänge; `/usr`
+168 MB; Compositor 7,4 MB, Shell 4,6, Terminal 4,8. Erledigt (25.10., je gemessen, mit Gegenprobe):
+- Smoke 152 → ~140 s, gleiche Prüfungen: Bildschirm-Abfragen sofort und alle 100 ms
+  (`poll_screen`), Lasttest 6 s, RAM-Reserve je VM nach Messung, `-nodefaults`, Journal-Disk auf
+  eigenem PCI-Slot (Firmware versuchte jedes Mal, von ihr zu booten). 6 VMs gäben 128 s, aber
+  RCU-Stalls bis 21 s im Gast (#41) – eine VM-Breite CPU bleibt frei.
+- Lebendiges Glas zeichnet in dieselben Bilder (vorher 6 neue VkImages je Änderung): in der VM
+  ohne Unterschied, auf der GPU Kernel-Aufrufe – **der Hardware-Test misst es** (Glas war dort
+  0,77 von 1,48 ms CPU je Bild).
+- Genaue GPU-Zeit je Bild, auch in jeder „late frame“-Zeile (vorher die eines früheren Bildes).
+- Schriften per mmap (geteilt statt 1,5 MB je App); `scene.rs` aus `State::render`;
+  Desktop-Smoke in Phasen (339 statt 760 Zeilen).
+- Regeln, automatisch: Crate-Schichten in `deny.toml`, Leerlauf-Ratsche im Desktop-Smoke (fand
+  einen Testclient, der mitten in späteren Prüfungen selbst endete), Größen-Ratsche
+  `sizes.toml`, `bz` räumt Platz selbst auf (`space.rs`).
+- Verworfen mit Grund: gemeinsamer Journal-Logger; `panic = "abort"` (−1,1 MB, aber ein Panic
+  eines Hilfs-Threads beendete die Sitzung); Resize ohne `device_wait_idle` (kein gemessenes
+  Problem; falls der Hardware-Test Ruckeln zeigt: `VK_EXT_swapchain_maintenance1`-Fences);
+  Intel/AMD brauchen erst Kernel-Treiber, Firmware, libdrm → #17.
+Offen: **ADR 0029 Bildschirme** (Entwurf `docs/adr/0029-bildschirme.md`, nicht committet, wartet
+auf den Besitzer), dann Umbau GPU/Bildschirme + Hotplug + link-status mit Smoke über
+`/sys/class/drm/*/status`; **Protokolle** (Vorschlag: presentation-time, fifo/commit-timing,
+viewporter, xdg-activation, idle-inhibit, dann Bildschirm aus bei Inaktivität); danach ein
+Messbau für den Hardware-Test (Glas, C b–d, Monitor aus/an). Bewusst so bleiben: eigener
+Renderer/Bildschleife, `bz`, EROFS zstd, Shell als Prozess, FFI zu libsystemd,
+Spec-Konstanten im Smoke.
 
 **C – die Messwerte** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“).
 Jede erst belegen (Ursache im Quelltext und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann
