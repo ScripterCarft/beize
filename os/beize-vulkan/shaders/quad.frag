@@ -50,18 +50,23 @@ float coverage(float raw, vec4 text) {
 // (ADR 0028 §2): an arc of `radius` in the middle, eased into each edge by
 // a curve whose curvature rises from zero – no kink in curvature where a
 // circle meets the edge. Measured from the mask of Apple's App Icon
-// Template (iOS 27, vector): it reaches EXTENT radii along each edge. RHO:
-// from the corner's centre, EXTENT radii in from both edges, the distance
-// to the curve in EXTENT radii, every 45/16 degrees from the edge to the
-// diagonal, about which the corner is symmetric. Linear between them it
-// is off by less than 3e-4 of the extent (src/pipeline.rs, CORNER_EXTENT).
+// Template (iOS 27, vector): it reaches EXTENT radii along each edge. From
+// the corner's centre, EXTENT radii in from both edges, the distance to
+// the curve in EXTENT radii, measured every 45/16 degrees from the edge (1)
+// to the diagonal (1.118093), about which the corner is symmetric: RHO, a
+// polynomial in x = s², s = 1 - t, t the angle from the edge in eighths of
+// a turn (1 on the diagonal, where it is flat). It meets the 17 measured
+// points within 5e-5 (src/pipeline.rs, CORNER_EXTENT). A formula, not the
+// table it was before: read with an index computed per pixel, NVK
+// returned garbage from it at times – rays from every corner (24.10.).
 const float EXTENT = 1.48744;
-const float RHO[17] = float[](
-    1.000000, 1.001193, 1.004700, 1.010436, 1.018224, 1.027838,
-    1.038913, 1.050913, 1.063232, 1.075213, 1.086245, 1.095866,
-    1.103823, 1.110052, 1.114512, 1.117195, 1.118093
-);
-const float STEPS_PER_RADIAN = 16.0 / 0.7853981633974483;
+const float RHO0 = 1.1180579;
+const float RHO1 = -0.2242271;
+const float RHO2 = -0.0785316;
+const float RHO3 = 0.5015202;
+const float RHO4 = -0.4636726;
+const float RHO5 = 0.1468606;
+const float QUARTER_PI = 0.7853981633974483;
 
 // The signed distance of `p` to the rectangle `box` with corners of
 // `radius`, negative inside. Where the curve does not fit – a capsule, a
@@ -84,12 +89,15 @@ float edge_distance(vec2 p, vec4 box, float radius) {
     // In the corner: from its centre, the curve's distance by angle.
     float r = length(w);
     float phi = atan(-w.x, -w.y);
-    float a = min(phi, 1.5707963267948966 - phi) * STEPS_PER_RADIAN;
-    int i = min(int(a), 15);
-    float rho = mix(RHO[i], RHO[i + 1], a - float(i)) * extent;
+    float s = 1.0 - min(phi, 2.0 * QUARTER_PI - phi) / QUARTER_PI;
+    float x = s * s;
+    float rho = (RHO0 + x * (RHO1 + x * (RHO2 + x * (RHO3 + x * (RHO4 + x * RHO5))))) * extent;
+    // d(rho)/d(phi): through x = s² and s = 1 - phi / (pi / 4).
+    float drho_dx = RHO1 + x * (2.0 * RHO2 + x * (3.0 * RHO3 + x * (4.0 * RHO4 + x * 5.0 * RHO5)));
+    float drho_dphi = -drho_dx * 2.0 * s / QUARTER_PI * extent;
     // Along the ray the distance is r - rho; the curve's slant to it
     // shortens the true distance: divide by the gradient's length.
-    float slope = (RHO[i + 1] - RHO[i]) * STEPS_PER_RADIAN * extent / max(r, 1e-3);
+    float slope = drho_dphi / max(r, 1e-3);
     return (r - rho) / sqrt(1.0 + slope * slope);
 }
 
