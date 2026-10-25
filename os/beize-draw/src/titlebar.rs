@@ -34,10 +34,12 @@ pub enum Look {
 }
 
 impl Look {
-    /// The bar's height: macOS' title bar, Windows 11's caption buttons.
+    /// The bar's height: macOS' title bar (28 for its 12 px circles) grown
+    /// with Beize's larger circles, the same space above and below them;
+    /// Windows 11's caption buttons.
     pub const fn height(self) -> u32 {
         match self {
-            Look::Mac => 28,
+            Look::Mac => CIRCLE + 2 * CIRCLE_TOP,
             Look::Windows => 32,
         }
     }
@@ -48,18 +50,23 @@ pub const LOOK: Look = Look::Mac;
 /// The bar's height in `LOOK`.
 pub const HEIGHT: u32 = LOOK.height();
 
-const TITLE_SIZE: f32 = 13.0;
+/// macOS' 13 with its 12 px circles, grown with Beize's.
+const TITLE_SIZE: f32 = 15.0;
 const TITLE_WEIGHT: f32 = 600.0;
 /// Two presses at most this far apart are a double click (GNOME's
 /// default), and at most this far moved.
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const DOUBLE_CLICK_DISTANCE: f64 = 4.0;
 
-/// macOS' circles: their diameter, the first one's left edge and the step
-/// from one to the next (AppKit's standard window buttons).
-const CIRCLE: u32 = 12;
-const CIRCLE_LEFT: f32 = 8.0;
-const CIRCLE_STEP: f32 = 20.0;
+/// macOS' circles: their diameter and the step from one to the next, as
+/// measured in macOS 26 (13.3 and 23 pt in the owner's photo of Finder; the
+/// owner chose 14, 25.10.: AppKit's standard 12/20 looked too small on his
+/// screen); the space above, below and left of them, AppKit's 8 grown with
+/// them.
+const CIRCLE: u32 = 14;
+const CIRCLE_STEP: f32 = 23.0;
+const CIRCLE_TOP: u32 = 9;
+const CIRCLE_LEFT: f32 = CIRCLE_TOP as f32;
 /// Windows 11's buttons and the box their marks fill.
 const BUTTON_WIDTH: f32 = 46.0;
 const MARK: u32 = 16;
@@ -146,7 +153,8 @@ const GREEN: Circle = Circle {
     mark: 0x006500,
 };
 
-/// The marks, each on its own grid: macOS' in the 12 px circle, Windows'
+/// The marks, each on its own grid: macOS' on a 12 grid scaled to the
+/// circle, Windows'
 /// in a 16 px box with a 10 px mark, one pixel wide, on the pixel grid.
 const DISC: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="6"/></svg>"#;
 const RIM: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5.75" fill="none" stroke="#000" stroke-width="0.5"/></svg>"##;
@@ -426,12 +434,12 @@ mod tests {
     #[test]
     fn macs_circles_lie_at_the_left() {
         let bar = bar(Look::Mac);
-        assert_eq!(bar.button_at(400.0, 14.0, 14.0), Some(Button::Close));
-        assert_eq!(bar.button_at(400.0, 34.0, 14.0), Some(Button::Minimize));
-        assert_eq!(bar.button_at(400.0, 54.0, 14.0), Some(Button::Maximize));
-        assert_eq!(bar.button_at(400.0, 64.0, 14.0), None);
-        assert_eq!(bar.button_at(400.0, 380.0, 14.0), None);
-        assert_eq!(bar.button_at(400.0, 14.0, 28.0), None);
+        assert_eq!(bar.button_at(400.0, 16.0, 16.0), Some(Button::Close));
+        assert_eq!(bar.button_at(400.0, 39.0, 16.0), Some(Button::Minimize));
+        assert_eq!(bar.button_at(400.0, 62.0, 16.0), Some(Button::Maximize));
+        assert_eq!(bar.button_at(400.0, 74.0, 16.0), None);
+        assert_eq!(bar.button_at(400.0, 380.0, 16.0), None);
+        assert_eq!(bar.button_at(400.0, 16.0, 32.0), None);
     }
 
     #[test]
@@ -449,26 +457,26 @@ mod tests {
     fn a_button_acts_only_when_released_over_it() {
         let mut bar = bar(Look::Mac);
         let now = Instant::now();
-        bar.hover(400.0, Some((14.0, 10.0)));
-        assert_eq!(bar.press(400.0, 14.0, 10.0, now), Press::Button);
+        bar.hover(400.0, Some((16.0, 10.0)));
+        assert_eq!(bar.press(400.0, 16.0, 10.0, now), Press::Button);
         assert_eq!(bar.release(), Some(Button::Close));
         // Pressed on close, released over zoom: nothing.
-        bar.press(400.0, 14.0, 10.0, now);
-        bar.hover(400.0, Some((54.0, 10.0)));
+        bar.press(400.0, 16.0, 10.0, now);
+        bar.hover(400.0, Some((62.0, 10.0)));
         assert_eq!(bar.release(), None);
         assert!(!bar.holding());
-        bar.hover(400.0, Some((34.0, 10.0)));
-        assert_eq!(bar.press(400.0, 34.0, 10.0, now), Press::Button);
+        bar.hover(400.0, Some((39.0, 10.0)));
+        assert_eq!(bar.press(400.0, 39.0, 10.0, now), Press::Button);
         assert_eq!(bar.release(), Some(Button::Minimize));
     }
 
     #[test]
     fn the_marks_show_with_the_pointer_over_the_circles() {
         let mut bar = bar(Look::Mac);
-        assert!(bar.hover(400.0, Some((34.0, 10.0))));
+        assert!(bar.hover(400.0, Some((39.0, 10.0))));
         assert!(bar.over_buttons);
         // From one circle to the next: still over them.
-        assert!(bar.hover(400.0, Some((54.0, 10.0))));
+        assert!(bar.hover(400.0, Some((62.0, 10.0))));
         assert!(bar.over_buttons);
         assert!(bar.hover(400.0, Some((200.0, 10.0))));
         assert!(!bar.over_buttons);

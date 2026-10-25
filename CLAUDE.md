@@ -103,6 +103,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 ./bz smoke           # DER Abnahmetest (~2,5 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
+#   · --screen 2560x1440 (Bildschirmgröße der VM; ohne: 1280x800 wie Smoke und Referenzen)
 #   '@screendump build/x.png' (was der Bildschirm zeigt) · '@keys a shift+z ctrl+alt+f2'
 #   · '@mouse 40 30 [click]' (QMP; PS/2-Maus, relativ;
 #   pixelgenau zieht nur der Desktop-Smoke, über ein virtio-Tablet: `console::drag`) · Testprogramme der Pakete
@@ -328,9 +329,13 @@ Neuzeichnen nur so viele Zeilen, wie der Prompt vor dem Umbruch hatte; dazu der 
 Größen, die bash schon überholt haben. Lösung wie Ghostty/Kitty: OSC-133-Marken im PS1/PS0
 (`/usr/lib/beize/profile`), das Terminal leert die Zeilen des Prompts statt umzubrechen und
 schickt einer Shell am Prompt eine Größe nach der anderen (`prompt.rs`, Test mit echtem bash,
-Gegenprobe rot). Auf Hardware noch ungeprüft. Kosmetik: Besitzer findet Leiste und Knöpfe klein –
-Werte sind macOS bei Faktor 1 (109 ppi = Apples 1×-Maß); vorgeschlagen: echte Skalierung für
-alles (z. B. 125 %), **Entscheidung des Besitzers offen**. Offen: 4.
+Gegenprobe rot). Auf Hardware noch ungeprüft. **Neue Maße, vom Besitzer an VM-Bildern
+abgenommen (25.10.)**, „das neue 100 %“: Knöpfe 14/23, Titelleiste 32 (schmal, mit den Knöpfen
+gewachsen), Titel 15; Menüleiste 32, Schrift 15, Datum „Mon 9 Jun 07:36“ (englisch bis zu den
+Sprachen, ADR 0017); Dock 90, Kachel 70, Symbol 56 auf ganzen Pixeln, ringsum 17 px, Punkt
+schwarz mittig darunter; gemeinsame Werte in `beize-draw` `measures` (ADR 0028 §2–4). Besitzer:
+fremde Symbole behalten vorerst ihre Form (macOS 26 zwingt sie in die Kachelform). Später:
+Skalierung je Bildschirm aus EDID (HD wirkt bei 100 % größer, wie bei Windows/macOS). Offen: 4.
 
 **B. Frühjahrsputz – gründlich, nicht oberflächlich, vor allem anderen** (Besitzer: „erstmal
 hart optimieren“, „wirklich alles sehr professionell“, „viel kleinere Größen für alles und
@@ -391,11 +396,9 @@ dabei, wie macOS), PNG im eigenen Thread nach `$XDG_RUNTIME_DIR/screenshots` –
 schreibt wegen seiner Sandbox (`ProtectHome=read-only`) nur dort; Ablage im Home kommt mit einer
 eigenen Bildschirmfoto-App (wie macOS' Screenshot neben dem WindowServer), Sandbox nicht
 gelockert. Smoke vergleicht das PNG pixelgenau mit QEMUs screendump (Gegenprobe R/B vertauscht:
-rot). Kosmetik, dem Besitzer erklärt, **noch nicht ändern**: Beize läuft fest mit Faktor 1 (kein
-Skalieren; macOS auf 1440p ebenso 1×, Retina 2×); Skalierung (fractional-scale-v1) braucht seine
-Entscheidung. Titelleiste: macOS 26/27 hat bei Toolbar-Fenstern ~51 pt Kopf und ~13,6-pt-Knöpfe
-im Abstand 23 – wenn größer, dann Knöpfe und Leiste zusammen (Besitzer). Hintergrund „pixelig“:
-mit seinen Fotos von 0.5.104 klären.
+rot). Kosmetik: erledigt mit den neuen Maßen (siehe „Stand A“ oben); Beize zeichnet weiter
+mit Faktor 1, Skalierung je Bildschirm kommt später. Hintergrund „pixelig“: nicht geprüft,
+der Besitzer hat nicht mehr danach gefragt – offen, falls er es wieder sieht.
 **VM-Beobachtung:** im Desktop-Smoke meldet der Gast-Kernel bei ~36 s einen RCU-Stall, der bei
 ~15 s beginnt (alle Smoke-VMs starten parallel): `rcu_preempt kthread starved` auf einer CPU im
 Leerlauf (`pv_native_safe_halt`) – der Weckruf an die virtuelle CPU kam nicht (verschachteltes

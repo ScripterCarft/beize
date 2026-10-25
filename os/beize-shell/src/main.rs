@@ -6,8 +6,8 @@
 //! `beize-shell.service` in the user's desktop, restarted if it fails; it
 //! ends with the session.
 //!
-//! The bar for now: 24 px like macOS' menu bar, the active app's name on
-//! the left in bold, the time on the right. As macOS' since 26 it has no
+//! The bar for now: macOS' menu bar in Beize's measures (`measures`), the
+//! active app's name on the left in bold, the date and time on the right. As macOS' since 26 it has no
 //! background: white ink on the scrim the compositor lays behind it, dark
 //! only where the background stays very light, as the compositor measures
 //! it (ADR 0028 §3). With the background switched on (`BarLook::Glass`,
@@ -25,19 +25,20 @@ use std::process::ExitCode;
 
 use beize_ui::input::{Button, Pointer};
 use beize_ui::{
-    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text,
+    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text, measures,
 };
 use tracing::info;
 
 use dock::{Action, Dock};
 
-/// The menu bar's height at scale 1, as macOS'.
-const HEIGHT: u32 = 24;
+const HEIGHT: u32 = measures::MENU_BAR;
 /// The bar's text on a light background and on a dark one.
 const INK_LIGHT: Color = Color::rgb(0x1d1d1d);
 const INK_DARK: Color = Color::rgb(0xffffff);
-/// Space at the bar's ends.
-const MARGIN: f32 = 12.0;
+/// Its size, macOS' 13 a little larger (the owner chose between 15 and
+/// 16.25, macOS' at `SCALE`), and the space at the bar's ends, macOS' 12.
+const TEXT_SIZE: f32 = 15.0;
+const MARGIN: f32 = 12.0 * measures::SCALE;
 
 /// What lies behind the menu bar (ADR 0028 §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -259,7 +260,7 @@ fn menu_bar(
     text: &mut Text,
     (w, h): (u32, u32),
     app: Option<&str>,
-    time: Option<clock::Time>,
+    time: Option<String>,
     backdrop: Appearance,
 ) -> Scene {
     let (w, h) = (w as f32, h as f32);
@@ -276,7 +277,7 @@ fn menu_bar(
     };
     let style = |weight, color| Style {
         family: Family::Sans,
-        size: 13.0,
+        size: TEXT_SIZE,
         weight,
         color,
     };
@@ -291,7 +292,7 @@ fn menu_bar(
         put(&mut scene, app, 700.0, Some(MARGIN));
     }
     if let Some(time) = time {
-        put(&mut scene, &time.to_string(), 500.0, None);
+        put(&mut scene, &time, 500.0, None);
     }
     scene
 }

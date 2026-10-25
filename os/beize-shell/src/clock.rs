@@ -1,7 +1,8 @@
-//! The menu bar's clock: the local time, and a timer at the start of each
-//! minute – also when the clock is set (NTS, ADR 0012), so the bar never
-//! shows a stale minute.
+//! The menu bar's clock: the local date and time, and a timer at the start
+//! of each minute – also when the clock is set (NTS, ADR 0012), so the bar
+//! never shows a stale minute.
 
+use std::ffi::CStr;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -11,20 +12,12 @@ use rustix::time::{
     timerfd_settime,
 };
 
-/// Hours and minutes, local time.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Time {
-    pub hour: u8,
-    pub minute: u8,
-}
-
-impl std::fmt::Display for Time {
-    /// 24 hours, as C.UTF-8 (`%H:%M`): regional formats and the date come
-    /// with the settings (ADR 0017).
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:02}:{:02}", self.hour, self.minute)
-    }
-}
+/// Weekday, day, month and the time, as macOS' menu bar shows them: "Mon
+/// 9 Jun 07:36", 24 hours. The C library names the day and month in the
+/// shell's locale, C.UTF-8 – English – until Beize has languages (ADR
+/// 0017, the owner: English for now, 25.10.); their order per language
+/// (German "Mo. 9. Juni") comes with them.
+const FORMAT: &CStr = c"%a %-d %b %H:%M";
 
 unsafe extern "C" {
     /// glibc: reads the zone again if /etc/localtime changed. localtime_r
@@ -32,8 +25,8 @@ unsafe extern "C" {
     fn tzset();
 }
 
-/// The local time now; None if the C library cannot say.
-pub fn now() -> Option<Time> {
+/// The local date and time now; None if the C library cannot say.
+pub fn now() -> Option<String> {
     let seconds = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
     let t = libc::time_t::try_from(seconds).ok()?;
     // SAFETY: tm is plain data that localtime_r fills; tzset only reads
@@ -46,10 +39,17 @@ pub fn now() -> Option<Time> {
         }
         tm
     };
-    Some(Time {
-        hour: u8::try_from(tm.tm_hour).ok()?,
-        minute: u8::try_from(tm.tm_min).ok()?,
-    })
+    format(&tm)
+}
+
+/// `tm` in `FORMAT`.
+fn format(tm: &libc::tm) -> Option<String> {
+    let mut text = [0u8; 64];
+    // SAFETY: strftime writes at most text's length, its end included, and
+    // reads only tm and the format.
+    let n = unsafe { libc::strftime(text.as_mut_ptr().cast(), text.len(), FORMAT.as_ptr(), tm) };
+    // 0: it did not fit (no date is that long) or came out empty.
+    (n > 0).then(|| String::from_utf8_lossy(&text[..n]).into_owned())
 }
 
 /// Readable at the start of every minute of the wall clock, and when the
@@ -116,15 +116,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shows_hours_and_minutes_with_two_digits() {
-        let t = Time { hour: 9, minute: 5 };
-        assert_eq!(t.to_string(), "09:05");
+    fn shows_the_day_and_the_time_as_macos() {
+        // SAFETY: tm is plain data.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        // Tuesday, 9 June 2026, 07:05.
+        (tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_wday) = (126, 5, 9, 2);
+        (tm.tm_hour, tm.tm_min) = (7, 5);
+        assert_eq!(format(&tm).as_deref(), Some("Tue 9 Jun 07:05"));
     }
 
     #[test]
     fn knows_the_time_and_arms_the_timer() {
         let t = now().expect("local time");
-        assert!(t.hour < 24 && t.minute < 60);
+        assert!(t.ends_with(|c: char| c.is_ascii_digit()), "{t}");
         let minutes = Minutes::new().expect("timer");
         // Not yet due (unless a minute starts right now): nothing to take.
         minutes.take().expect("take");

@@ -39,6 +39,7 @@ pub fn debug(
     machine: &str,
     recovery_key: Option<&str>,
     tpm: Option<&str>,
+    screen: Option<(u32, u32)>,
     commands: &[String],
 ) -> Result<()> {
     let mut machine = if machine == "run" {
@@ -62,6 +63,7 @@ pub fn debug(
         );
     }
     machine.test_medium = super::machine::test_medium(paths)?;
+    machine.screen = screen;
     let answers = recovery_key.map_or_else(Answers::none, Answers::recovery_key);
 
     util::step(&format!("Booting {}", machine.name()));

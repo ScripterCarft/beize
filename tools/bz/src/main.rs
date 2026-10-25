@@ -96,6 +96,9 @@ enum Command {
         /// Another TPM state directory beside the machine, e.g. `smoke-other-tpm`
         #[arg(long)]
         tpm: Option<String>,
+        /// The screen's size, e.g. `2560x1440` (QEMU's 1280x800 without)
+        #[arg(long, value_parser = parse_screen)]
+        screen: Option<(u32, u32)>,
         /// Commands for the root shell; `@wait N` pauses N seconds,
         /// `@screendump FILE` saves the screen as PNG, `@keys K…` presses
         /// keys (QEMU names, `ctrl+alt+f2` together), `@mouse DX DY [click]`
@@ -206,12 +209,14 @@ fn main() -> Result<()> {
             machine,
             recovery_key,
             tpm,
+            screen,
             commands,
         } => vm::debug(
             &paths,
             &machine,
             recovery_key.as_deref(),
             tpm.as_deref(),
+            screen,
             &commands,
         ),
         Command::Smoke { quick } => vm::smoke(&paths, quick),
@@ -270,6 +275,13 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// A screen's size as `bz debug --screen` takes it: `2560x1440`.
+fn parse_screen(size: &str) -> std::result::Result<(u32, u32), String> {
+    let (width, height) = size.split_once('x').ok_or("the size is WIDTHxHEIGHT")?;
+    let number = |n: &str| n.parse::<u32>().map_err(|e| format!("{n}: {e}"));
+    Ok((number(width)?, number(height)?))
 }
 
 fn verify_sources(paths: &Paths) -> Result<()> {

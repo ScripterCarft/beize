@@ -10,8 +10,9 @@
 //! it.
 //!
 //! Its measures are macOS 26's, measured in Apple's press image of it (a
-//! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), its corners the
-//! continuous ones of `beize_vulkan`'s shader. Beize's apps show their
+//! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), in Beize's measures
+//! as the menu bar (`measures`), its corners the continuous ones of
+//! `beize_vulkan`'s shader. Beize's apps show their
 //! symbols (`AppIcon`), others their icons (hicolor, `apps`), an app
 //! without one a tile with its initial. It lies on live glass with a rim
 //! of light, which the compositor draws (`glass`, ADR 0028 §6): a window
@@ -22,6 +23,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::apps::App;
+use beize_ui::measures::{SCALE, scaled};
 use beize_ui::{
     AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Rect, Scene, Style,
     Text, icon,
@@ -31,45 +33,52 @@ use beize_ui::{
 /// has them.
 const PINNED: [&str; 1] = ["beize-terminal"];
 
-/// An app's tile, square, and the space between tiles: measured 52 pt
-/// from tile to tile, the icon 38.6 pt – 48 on Apple's icon grid.
-pub const TILE: u32 = 48;
-pub const GAP: u32 = 4;
-/// Around the tiles: measured 9.7 pt to the middle of the dock's rim.
+/// An app's tile, square, the space between tiles and around them. macOS
+/// 26 measured: 52 pt from tile to tile, the icon 38.6 pt – 48 on Apple's
+/// icon grid –, 9.7 pt to the middle of the dock's rim. At `SCALE` the owner
+/// found the icons small and the spaces large (25.10.): the icons larger
+/// and the tiles side by side – the icon grid's margin alone parts them,
+/// about 14 px. One padding all round, so the icons keep the same space to
+/// the rim above, below and at the sides: 17 px (the owner: a little more
+/// than 15; the dock 90 high).
+pub const TILE: u32 = 70;
+pub const GAP: u32 = 0;
 pub const PADDING: u32 = 10;
 /// The dock's height: tile and padding above and below, the dot in the
 /// lower padding.
 pub const HEIGHT: u32 = TILE + 2 * PADDING;
 /// Between the dock and the bottom of the screen, it floats: measured
 /// 5.1 pt.
-pub const MARGIN: u32 = 5;
+pub const MARGIN: u32 = scaled(5.0);
 
 /// Its corners: measured 20.4 pt on a dock 76.3 pt high in a screenshot
 /// of macOS 27 (macOS 26 rounded it more), kept in proportion as the dock
 /// grows with its tiles.
 const RADIUS: f32 = HEIGHT as f32 * 20.4 / 76.3;
-/// The icon on its tile, as Apple's icon grid: 824 of 1024, with the
-/// corners of Beize's app symbols.
-const ICON: f32 = TILE as f32 * 824.0 / 1024.0;
+/// The icon on its tile, as Apple's icon grid: 824 of 1024, on whole
+/// pixels (as AppKit aligns to the backing store): its soft edge lies
+/// within the quad, none of it cut off. Beize's app symbols with their
+/// corners, other apps' icons filling the square.
+pub const ICON_PIXELS: u32 = (TILE as f32 * 824.0 / 1024.0 + 0.5) as u32;
+const ICON: f32 = ICON_PIXELS as f32;
 const ICON_RADIUS: f32 = ICON * icon::RADIUS;
-/// Other apps' icons fill that square, on whole pixels.
-pub const ICON_PIXELS: u32 = ICON.round() as u32;
-/// The dot below a running app: measured 4.0 pt, its middle 3.7 pt above
-/// the dock's bottom.
-const DOT: f32 = 4.0;
-const DOT_ABOVE: f32 = 3.7;
+// Centred on whole pixels in the tile.
+const _: () = assert!((TILE - ICON_PIXELS).is_multiple_of(2));
+/// The dot below a running app: measured 4.0 pt; its middle 3.7 pt above
+/// the dock's bottom on macOS, higher in Beize, a small space below it (the
+/// owner, 25.10.): halfway between the icon and the dock's rim, whatever
+/// the padding.
+const DOT: f32 = 4.0 * SCALE;
+const DOT_ABOVE: f32 = (PADDING as f32 + (TILE as f32 - ICON) / 2.0) / 2.0;
+/// An app's initial on its tile, when it has no icon: 22 on a tile of 48.
+const INITIAL_SIZE: f32 = 22.0 * TILE as f32 / 48.0;
 
 const TILE_COLOR: Color = Color::rgb(0x3a3a3c);
 const INITIAL: Color = Color::rgb(0xffffff);
-/// The dot below a running app: dark on light glass, light on dark.
-const RUNNING_LIGHT: Color = Color {
-    a: 0x99,
-    ..Color::rgb(0x1d1d1d)
-};
-const RUNNING_DARK: Color = Color {
-    a: 0xcc,
-    ..Color::rgb(0xffffff)
-};
+/// The dot below a running app: dark on light glass, light on dark, solid
+/// (the owner, 25.10.: blacker than macOS' 60 %).
+const RUNNING_LIGHT: Color = Color::rgb(0x000000);
+const RUNNING_DARK: Color = Color::rgb(0xffffff);
 /// Over a tile while it is pressed: darker, as macOS shows it.
 const PRESSED: Color = Color {
     a: 0x40,
@@ -272,7 +281,7 @@ impl Dock {
         };
         let style = Style {
             family: Family::Sans,
-            size: 22.0,
+            size: INITIAL_SIZE,
             weight: 600.0,
             color: INITIAL,
         };
@@ -303,9 +312,10 @@ impl Dock {
                 scene.rounded(icon, ICON_RADIUS, PRESSED);
             }
             if !item.windows.is_empty() {
+                // On whole pixels, as the icon.
                 let dot = Rect {
-                    x: tile.x + (tile.w - DOT) / 2.0,
-                    y: h - DOT_ABOVE - DOT / 2.0,
+                    x: (tile.x + (tile.w - DOT) / 2.0).round(),
+                    y: (h - DOT_ABOVE - DOT / 2.0).round(),
                     w: DOT,
                     h: DOT,
                 };

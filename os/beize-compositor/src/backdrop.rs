@@ -20,6 +20,7 @@
 
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Material, Target, VkRenderer, VkTexture};
+use beize_draw::measures;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
@@ -108,9 +109,8 @@ pub enum Tone {
     Dark,
 }
 
-/// The strip measured for the menu bar's tone: the bar (24 px) and a
-/// little below, where its letters' shadows fall.
-const BAR_STRIP: i32 = 24;
+/// The strip measured for the menu bar's tone: the bar.
+const BAR_STRIP: i32 = measures::MENU_BAR as i32;
 /// White ink down to a contrast of 2:1: 1.05 / (L + 0.05) >= 2, so a
 /// relative luminance L of at most 0.475 behind it. macOS keeps its bar
 /// white on all but very light backgrounds (the owner's Mac; Apple names
@@ -121,7 +121,7 @@ const WHITE_UP_TO: f64 = 1.05 / 2.0 - 0.05;
 /// edge eased out (smoothstep) to nothing at the bar's bottom – no edge
 /// below it. Barely seen (the owner: "du siehst ihn kaum, aber er ist
 /// da"); Apple publishes no values: estimated, judged on screenshots.
-const SCRIM_HEIGHT: i32 = 24;
+const SCRIM_HEIGHT: i32 = measures::MENU_BAR as i32;
 const SCRIM_TOP: f32 = 0.15;
 
 /// The scrim's opacity in row `y`.

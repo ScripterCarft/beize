@@ -16,7 +16,7 @@ mod window;
 
 pub use app::{App, Dispatched, Edge, Events, Panel, WindowId};
 pub use beize_draw::{
-    AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, text,
+    AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, measures, text,
 };
 pub use desktop::{DesktopWindow, DesktopWindowId, Glass};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};

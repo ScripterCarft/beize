@@ -58,6 +58,9 @@ pub(super) struct Machine {
     /// A virtio tablet beside the PS/2 mouse: an absolute pointer, so tests
     /// put it on a pixel (`console::drag`); libinput accelerates the mouse.
     pub(super) tablet: bool,
+    /// The screen's size, width and height, as its EDID names it; `None`:
+    /// QEMU's 1280x800, which the smoke test's references have.
+    pub(super) screen: Option<(u32, u32)>,
 }
 
 impl Machine {
@@ -73,6 +76,7 @@ impl Machine {
             usb_stick: None,
             test_medium: None,
             tablet: false,
+            screen: None,
         }
     }
 
@@ -420,7 +424,12 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         // (the other devices keep their PCI addresses): atomic KMS with a
         // cursor plane for the compositor, lavapipe draws into its dumb
         // buffers (ADR 0027 §6).
-        .args(["-vga", "virtio"])
+        .args(["-vga", "virtio"]);
+    if let Some((width, height)) = machine.screen {
+        cmd.args(["-global", &format!("virtio-vga.xres={width}")])
+            .args(["-global", &format!("virtio-vga.yres={height}")]);
+    }
+    cmd
         // The RAM exists before the guest starts, as on a real PC. Beize's
         // kernel clears all memory at boot (INIT_ON_FREE, ADR 0015); without
         // this the host would only then provide each page, and the kernel

@@ -74,9 +74,9 @@ const CHANNEL_TOLERANCE: u8 = 2;
 /// changed character.
 const POINTER_SIZE: usize = 24;
 
-/// The menu bar along the top of the screen (os/beize-shell, `HEIGHT`);
+/// The menu bar along the top of the screen (os/beize-draw, `measures`);
 /// windows lie below it.
-const MENU_BAR: usize = 24;
+const MENU_BAR: usize = 32;
 /// Where the active app's name is: the left end of the bar, at most this
 /// wide (the shell's journal says which name it shows, `SHELL_SAID`).
 const APP_NAME_WIDTH: usize = 200;
@@ -85,10 +85,10 @@ const _: () = assert!(APP_NAME_WIDTH >= POINTER_SIZE);
 /// The dock (os/beize-shell, `dock`): this high, this far above the bottom
 /// of the screen, its tiles this wide with this gap and padding; windows
 /// stay above it, so the window area ends `DOCK_ZONE` above the bottom.
-const DOCK_HEIGHT: usize = 68;
-const DOCK_MARGIN: usize = 5;
-const DOCK_TILE: usize = 48;
-const DOCK_GAP: usize = 4;
+const DOCK_HEIGHT: usize = 90;
+const DOCK_MARGIN: usize = 6;
+const DOCK_TILE: usize = 70;
+const DOCK_GAP: usize = 0;
 const DOCK_PADDING: usize = 10;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
 /// The menu bar has no background (ADR 0028 §3), the dock lies on glass
@@ -124,9 +124,10 @@ const CLIENT_ICON: &str = "d=~/.local/share; mkdir -p $d/applications \
      height=\"16\" fill=\"#ff8000\"/></svg>' \
      > $d/icons/hicolor/scalable/apps/beize-test-icon.svg";
 
-/// Where the time is: the right end of the bar, this wide. "00:00" in
-/// Inter at 13 px is some 35 px; the rest of the bar is the background.
-const CLOCK_WIDTH: usize = 80;
+/// Where the date and time are: the right end of the bar, this wide. "Wed
+/// 30 Sep 23:59" in Inter at 15 px is some 125 px; the rest of the bar is
+/// the background.
+const CLOCK_WIDTH: usize = 200;
 /// The time's least ink, in pixels far from the background beside it
 /// (`INK_FROM`), white or dark: well below the narrowest time,
 /// "11:11", and well above none.
@@ -173,19 +174,19 @@ const CLIENT_TITLE: usize = 32;
 /// bottom right corner: clear of the terminals' windows below it, and of
 /// the dock, which lies over windows dragged under it (as macOS' does).
 const MOVE_BY: (i32, i32) = (-150, 60);
-const RESIZE_BY: (i32, i32) = (60, 40);
+const RESIZE_BY: (i32, i32) = (60, 30);
 
 /// Beize UI's title bar along the top of its windows (os/beize-ui,
 /// `titlebar`), and how far the test drags a window by it.
-const TITLE_BAR: usize = 28;
-// Its 800x628 window stays clear of the dock (`MOVE_BY`).
-const UI_MOVE_BY: (i32, i32) = (-100, 20);
-/// The bar's circles at its left end, 20 px apart from 8 px on, close
-/// centred 14 px in (os/beize-draw, `titlebar`); compared from the end of
+const TITLE_BAR: usize = 32;
+// Its 800x632 window stays clear of the dock (`MOVE_BY`).
+const UI_MOVE_BY: (i32, i32) = (-100, 10);
+/// The bar's circles at its left end, 23 px apart from 9 px on, close
+/// centred 16 px in (os/beize-draw, `titlebar`); compared from the end of
 /// the round corner on.
-const BUTTONS: (usize, usize) = (CORNER, 68);
-const CLOSE_X: usize = 14;
-const CIRCLE_STEP: usize = 20;
+const BUTTONS: (usize, usize) = (CORNER, 77);
+const CLOSE_X: usize = 16;
+const CIRCLE_STEP: usize = 23;
 /// A place on a bar away from its circles.
 const BAR_GRIP_X: usize = 120;
 /// The windows' round corners (os/beize-compositor, `corners`): the

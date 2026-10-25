@@ -138,7 +138,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   „Zurück“ kommen mit den eigenen Apps.
 - **Fensterknöpfe** (`os/beize-draw`, `titlebar`), ein Code für Beize UI und den Rahmen des
   Compositors. Das Aussehen ist ein `Look`, heute fest `Mac`, später eine Einstellung:
-  - **Mac (Vorgabe):** Die Leiste ist 28 px hoch. Links liegen drei Kreise (12 px, alle 20 px),
+  - **Mac (Vorgabe):** Links liegen drei Kreise, 14 px alle 23 px (an macOS 26 gemessen: 13,3/23;
+    Besitzer 25.10.), die Leiste ist mit 9 px darüber und darunter 32 px hoch, der Titel 15 px.
     Schließen rot, Minimieren gelb, Zoom grün. Bei inaktivem Fenster sind sie grau. Ist der
     Zeiger über ihnen, zeigen alle drei ihr Zeichen, gedrückt werden sie dunkler.
   - **Windows:** Die Leiste ist 32 px hoch, rechts flache Knöpfe 46 × 32, Schließen rot unter
@@ -151,7 +152,7 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 
 ### 3. Menüleiste (oben)
 
-Durchgehend, so hoch wie macOS' Leiste (24 px bei Faktor 1), **ohne Hintergrund** wie seit
+Durchgehend, 32 px hoch wie die Titelleisten, Schrift 15 px, **ohne Hintergrund** wie seit
 macOS 26 (Besitzer, 24.10.): nur ihr Inhalt über dem Hintergrund. Unter ihr liegt nie ein
 Fenster (sie hält ihren Streifen frei), also nur Beizes Hintergrund: Der Compositor misst ihn
 dort einmal je Wechsel und sagt der Shell, ob es hell oder dunkel ist
@@ -182,8 +183,8 @@ Einstellung, die dann zur Laufzeit umschaltet.
   Beenden. Die Apps behalten ihre eigenen Menüs im Fenster. Das ist ehrlich gesagt der eine
   Punkt, an dem Beize nicht wie macOS sein kann.
 - **Rechts:** Statussymbole (Netz, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
-  Datum und Uhrzeit. Bis es regionale Formate gibt (ADR 0017: LANG ist C.UTF-8), steht dort
-  nur die Uhrzeit mit 24 Stunden. Sie springt zu Beginn jeder Minute um, auch wenn die Uhr
+  Datum und Uhrzeit wie macOS („Mon 9 Jun 07:36“, 24 Stunden), die Namen von der C-Bibliothek:
+  englisch, bis es Sprachen gibt (ADR 0017; Besitzer 25.10.). Sie springt zu Beginn jeder Minute um, auch wenn die Uhr
   gestellt wird (timerfd mit `CANCEL_ON_SET`). Ein Klick auf die Uhr öffnet später die Benachrichtigungen.
 
 ### 4. Dock (unten)
@@ -203,7 +204,9 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
   dieselbe ID tragen.
 - **Ecken wie Apples:** stetig gekrümmt (die Kurve der Maske aus Apples App-Icon-Vorlage) für
   Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
-  die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen.
+  die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen, für
+  Beize größer (Besitzer, 25.10.; `beize-draw` `measures`): 90 hoch, Symbole 56 px dicht
+  nebeneinander, ringsum 17 px zum Rand, der Punkt schwarz mittig darunter.
 - Beizes Apps zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol
   eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf Glas mit Lichtkante (siehe 6),
   der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
