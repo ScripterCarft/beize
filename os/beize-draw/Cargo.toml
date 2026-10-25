@@ -18,6 +18,8 @@ tracing = "0.1"
 parley = { version = "0.12", default-features = false, features = ["std"] }
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
 zeno = { version = "0.3", default-features = false, features = ["eval", "std"] }
+# The font files mapped, shared by all apps (`text`).
+rustix = { version = "1.1", default-features = false, features = ["fs", "mm", "std"] }
 # Symbols (ADR 0028 §8): Phosphor's SVGs, rasterized by resvg once per
 # size into the glyph atlas. Vector shapes only: no text, fonts or bitmaps
 # inside an SVG.

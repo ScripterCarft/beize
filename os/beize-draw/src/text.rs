@@ -57,19 +57,23 @@ impl Text {
         files.sort();
         let fonts = files
             .iter()
-            .map(|f| std::fs::read(f).context(format!("reading {}", f.display())))
+            .map(|f| Ok(Blob::new(Arc::new(Mapped::open(f)?))))
             .collect::<Result<Vec<_>>>()?;
-        Text::with_fonts(fonts)
+        Text::with_blobs(fonts)
     }
 
     /// These fonts only (tests).
     pub fn with_fonts(fonts: impl IntoIterator<Item = Vec<u8>>) -> Result<Text> {
+        Text::with_blobs(fonts.into_iter().map(|data| Blob::new(Arc::new(data))))
+    }
+
+    fn with_blobs(fonts: impl IntoIterator<Item = Blob<u8>>) -> Result<Text> {
         let mut collection = Collection::new(CollectionOptions {
             shared: false,
             system_fonts: false,
         });
         for data in fonts {
-            collection.register_fonts(Blob::new(Arc::new(data)), None);
+            collection.register_fonts(data, None);
         }
         for (name, generics) in [
             (
@@ -185,6 +189,63 @@ impl Cells {
 }
 
 /// The font files under `dir`, recursively.
+/// A font file mapped read-only: its pages are the page cache's, shared by
+/// every app that maps it, not a copy in each app's heap (1.5 MB each).
+/// The fonts lie on /usr, read-only and verified (dm-verity, ADR 0008): a
+/// file there cannot change or shrink under the mapping.
+struct Mapped {
+    pointer: *mut std::ffi::c_void,
+    len: usize,
+}
+
+// SAFETY: the mapping is read-only and stays until the value is dropped;
+// any thread may read it.
+unsafe impl Send for Mapped {}
+// SAFETY: as above.
+unsafe impl Sync for Mapped {}
+
+impl Mapped {
+    fn open(path: &Path) -> Result<Mapped> {
+        let what = || format!("mapping {}", path.display());
+        let file = std::fs::File::open(path).context(what())?;
+        let len = file.metadata().context(what())?.len();
+        let len = usize::try_from(len).context(what())?;
+        if len == 0 {
+            return Err(error(format!("{}: an empty font file", path.display())));
+        }
+        // SAFETY: a new private, read-only mapping of the whole file where
+        // the kernel chooses; why the file stays as it is: `Mapped`.
+        let pointer = unsafe {
+            rustix::mm::mmap(
+                std::ptr::null_mut(),
+                len,
+                rustix::mm::ProtFlags::READ,
+                rustix::mm::MapFlags::PRIVATE,
+                &file,
+                0,
+            )
+        }
+        .context(what())?;
+        Ok(Mapped { pointer, len })
+    }
+}
+
+impl AsRef<[u8]> for Mapped {
+    fn as_ref(&self) -> &[u8] {
+        // SAFETY: `len` readable bytes are mapped there until the value is
+        // dropped, which the borrow cannot outlive.
+        unsafe { std::slice::from_raw_parts(self.pointer.cast(), self.len) }
+    }
+}
+
+impl Drop for Mapped {
+    fn drop(&mut self) {
+        // SAFETY: the mapping is ours and unmapped only here; no slice of
+        // it outlives the value.
+        let _ = unsafe { rustix::mm::munmap(self.pointer, self.len) };
+    }
+}
+
 fn collect(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> {
     for entry in std::fs::read_dir(dir).context(format!("reading {}", dir.display()))? {
         let path = entry.context("reading the fonts")?.path();
