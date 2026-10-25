@@ -302,9 +302,44 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-24: M3 Schritt 4 Shell, (a)–(c), d1–d4b, Start aus einem Guss und Lasttest fertig, Hardware-Test als Nächstes)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: M3 Schritt 4 Shell bis Lasttest fertig; Hardware-Test 0.5.103 läuft beim Besitzer – JETZT: unten „AUFTRAG FÜR DEN NÄCHSTEN CHAT“)
 
-**Beim Besitzer** läuft der Messbau 0.5.101 (Tag `measure/desktop-0.5.101`); 0.6 von `main`
+**AUFTRAG FÜR DEN NÄCHSTEN CHAT** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem
+Test“). Release 0.5.103 und `D:\beize-test` (Skript, Testprogramme samt `beize-load-test`) liegen
+auf dem Stick; der Besitzer installiert und testet nach `docs/hardware.md` C. Sagt er „Hardware-Test
+fertig“:
+1. Ergebnisse holen: neuestes `D:\beize-test\results-*` per PowerShell nach
+   `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\` kopieren (Befunde von 0.5.102 zum Vergleich:
+   `~/hw-logs/results-20261024-194800`). Seine Beobachtungen ernst nehmen, Fotos auswerten.
+2. Bestätigen oder widerlegen, was 0.5.103 behebt (Details weiter unten „Hardware-Test 0.5.102“):
+   Ecken ohne Strahlen (bestätigt erst den erschlossenen NVK-Mechanismus der Tabelle – bleiben
+   Strahlen, war die Ursache eine andere: weiter suchen, nicht die Formel verteidigen), Schrift der
+   Menüleiste schlank (Strichstärke beurteilt er), Pfeil über dem Testfenster und nach dem
+   Schließen, Einblenden ohne späte Bilder (`late frame` direkt nach `desktop shown` dürfen nicht
+   mehr kommen).
+3. **Die drei Auffälligkeiten der Messwerte beheben** – jede erst belegen (Ursache im Quelltext
+   und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann ändern, Smoke + Gegenprobe:
+   a) **Konsole 60 Hz, Sitzung 240 Hz** (`screen DP-1: 2560x1440 at 240 Hz, it had 2560x1440 at
+      60 Hz`): der Moduswechsel beim Start der Sitzung lässt den Monitor neu einrasten = die
+      schwarze Lücke. Lösung finden, die macOS-artig ohne Flackern ist (Fedoras flicker-free boot:
+      grafische Anmeldung setzt den ersten Modus; oder die Konsole gleich im Modus des Desktops,
+      z. B. über den Modus, den der Kernel fbdev wählt – recherchieren, wie Mutter/KWin den
+      vorhandenen Modus übernehmen). Mit dem Besitzer abstimmen, falls es die grafische Anmeldung
+      vorzieht.
+   b) **CPU-Zeit je Bild** (0.5.102 Lasttest: Median 1,44 ms, 99 % 2,88, „busy 42 %“; Ziel „der
+      Compositor langweilt sich“): die neue Aufteilung in `pacing:` und jeder `late frame`-Zeile
+      (`drawing in parts … scene/glass/frame/commit`) auswerten, den größten Teil im Quelltext
+      verfolgen (Smithay-Damage über ~40 Elemente, `render_elements_from_surface_tree`, lebendiges
+      Glas zweimal rendern, dmabuf-Fences/`foreign`-Barrieren je Fenster, KMS-Commit) und dort
+      gezielt senken – erst messen, dann ändern; jede Änderung mit neuem Messwert belegen.
+   c) **Späte Bilder „display“** im Lasttest (0.5.102: 479 von 542, fertig nur 0,1–0,7 ms vor dem
+      vblank, Vorlauf schon ein ganzes Bild, `lead 4.17`): hängt an b) – weniger CPU-Zeit gibt
+      Spielraum. Zusätzlich klären, wie viel Vorlauf nouveau zum Programmieren braucht (Kernel-
+      Quelle `nv50_disp`/`nouveau` Commit-Pfad, KWins Sicherheitsrand) und ob der gelernte Rand
+      (`schedule.rs`, `MOST_LEARNT`) dafür reicht. Testfenster: 0.5.102 12 von 4796 spät (0.5.101: 4).
+4. Danach §11 aktualisieren, Messbau 0.5.104 nur wenn nötig (Besitzer: nicht öfter als nötig).
+
+**Beim Besitzer** läuft der Messbau 0.5.102, gleich 0.5.103 (Tag `measure/desktop-0.5.103`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
 Update vom Stick und Hardware-Test: `docs/hardware.md`. Wiederherstellung: nach F8
 Leertaste halten, „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC;
@@ -347,12 +382,9 @@ beim Besitzer läuft. Tests schneller machen kommt erst nach der Shell (Besitzer
   (`FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER`, die grafische Anmeldung setzt den ersten Modus),
   sinnvoll erst mit grafischer Anmeldung.
 
-**Nächster Hardware-Test** (nicht öfter als nötig, Besitzer): die Zeilen `late frame` (Zeitplan
-in kurzen Folgen, ADR 0027 §6), EDID und der Modus der Konsole (Beize hat kein debugfs; der
-Compositor schreibt ihn jetzt selbst: `screen …: … Hz, it had …`, aus dem CRTC beim Übernehmen), Strichstärke hell auf dunkel gegen dunkel auf hell. Dazu (Besitzer, 24.10.): die
-weiße Schrift der Menüleiste im hellen Modus – wirkt sie unscharf oder zu dick? Erst auf der
-Hardware beurteilen, dann ggf. ändern; Glas und Hintergrund dort zum ersten Mal in echt. `measure/hw-test.sh` auf dem
-Messzweig dafür erweitern.
+**Hardware-Tests:** nicht öfter als nötig (Besitzer). Beize hat kein debugfs; den Modus der
+Konsole schreibt der Compositor (`screen …: … Hz, it had …`). `measure/hw-test.sh` liegt auf dem
+Messzweig `measure/desktop` (auf `main` gehoben je Messbau, Version in `tools/bz/src/layout.rs`).
 
 **JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2, d3a, d3b 24.10.:**
 (a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
@@ -483,8 +515,8 @@ die schwarze Lücke zur Sitzung. Messwerte: Testfenster 4796 Bilder/20 s, 12 sp�
 6568/30 s (91 %), 542 spät, davon 479 „display“ (fertig nur 0,1–0,7 ms vor dem vblank, Vorlauf
 schon ein ganzes Bild), GPU-Median 0,32 ms (Ziel < 1 ms erfüllt), CPU 1,44 ms (42 % busy). Wohin
 die CPU-Zeit geht, misst jetzt `pacing:` in Teilen (`scene/glass/frame/commit`).
-**Als Nächstes:** Messbau 0.5.103 mit diesen Fixes; dort die Teile messen, dann gezielt die
-CPU-Zeit senken (erst messen, dann ändern). Einmal im Smoke des Messbaus 0.5.102 fand die
+Messbau 0.5.103 mit diesen Fixes ist gebaut, im Smoke grün, getaggt, auf dem Stick (25.10.);
+weiter siehe AUFTRAG oben in §11. Einmal im Smoke des Messbaus 0.5.102 fand die
 VM-Firmware im Update-Szenario den Bootloader der Platte nicht („Boot0002 … Not Found“, vor dem
 Kernel); im zweiten Lauf grün, Ursache offen – beobachten. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:

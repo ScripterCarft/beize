@@ -49,8 +49,8 @@ Zweig `measure/desktop`: `main` + `kernel/measure/*.patch` (nouveau-Patches, die
 noch fehlen) + `measure/hw-test.sh`, Version `0.5.<n>` (`OS_VERSION` auf dem Zweig); 0.6
 von `main` ersetzt ihn. Claude baut und prüft ihn (Smoke, Skript in der VM) und taggt ihn
 als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 §6, Logs in
-`~/hw-logs/results-*`. Zuletzt 0.5.101 (23.10.): Terminal, Text und Eingabe gut, 4 von 4797
-Bildern spät.
+`~/hw-logs/results-*`. Zuletzt 0.5.102 (24.10.): flüssig; Testfenster 12 von 4796 Bildern spät,
+Lasttest 542 von 6568; Befunde (Schrift, Zeiger, Ecken) in CLAUDE.md §11, behoben in 0.5.103.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
