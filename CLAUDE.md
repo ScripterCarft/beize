@@ -309,7 +309,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Phase 3 großteils erledigt – JETZT: ADR 0029, dann Protokolle, Messbau)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Phase 3 großteils erledigt – JETZT: Phase 3 abschließen, dann Shell)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -358,11 +358,19 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
   eines Hilfs-Threads beendete die Sitzung); Resize ohne `device_wait_idle` (kein gemessenes
   Problem; falls der Hardware-Test Ruckeln zeigt: `VK_EXT_swapchain_maintenance1`-Fences);
   Intel/AMD brauchen erst Kernel-Treiber, Firmware, libdrm → #17.
-Offen: **ADR 0029 Bildschirme** (Entwurf `docs/adr/0029-bildschirme.md`, nicht committet, wartet
-auf den Besitzer), dann Umbau GPU/Bildschirme + Hotplug + link-status mit Smoke über
-`/sys/class/drm/*/status`; **Protokolle** (Vorschlag: presentation-time, fifo/commit-timing,
-viewporter, xdg-activation, idle-inhibit, dann Bildschirm aus bei Inaktivität); danach ein
-Messbau für den Hardware-Test (Glas, C b–d, Monitor aus/an). Bewusst so bleiben: eigener
+**JETZT, in dieser Reihenfolge (Besitzer, 25.10., alles freigegeben):**
+1. **ADR 0029 Bildschirme** (angenommen): GPU und Bildschirme trennen, Hotplug über udev,
+   `link-status` BAD → denselben Modus neu setzen; Smoke über `/sys/class/drm/*/status`
+   (`off`/`detect` erzeugt echten Hotplug, in der VM geprüft) mit Gegenprobe.
+2. **Protokolle** in der Reihenfolge presentation-time, fifo/commit-timing, viewporter,
+   xdg-activation, idle-inhibit, dann Bildschirm aus bei Inaktivität (Zeiten wie macOS); je eine
+   Smoke-Prüfung mit Gegenprobe (Testclient bindet sie).
+3. **Alte Tests aufräumen** (Besitzer: „alte Tests wegmachen, die mittlerweile sowieso
+   funktionieren“): Prüfungen, die nur einen längst behobenen Einzelfehler nachstellten und keine
+   Eigenschaft mehr absichern, sowie Testprogramme/Mess-Skripte ohne Nutzer. Zuerst die Liste mit
+   Grund vorlegen; Sicherheit, Boot, Update, Rollback und Recovery bleiben vollständig abgedeckt.
+4. Messbau für den Hardware-Test (Glas, C b–d, Monitor aus/an), dann **weiter mit der Shell**
+   (Schritt 4 (e)–(g), ADR 0028). Bewusst so bleiben: eigener
 Renderer/Bildschleife, `bz`, EROFS zstd, Shell als Prozess, FFI zu libsystemd,
 Spec-Konstanten im Smoke.
 
