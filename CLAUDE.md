@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: viewporter + xdg-activation fertig – JETZT, Reihenfolge des Besitzers: 1. Smoke-Aussetzer, 2. Compositor unter die Lupe, 3. idle-inhibit + Bildschirm aus – Punkt 2 unten)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25 abends: Smoke-Aussetzer gelöst, Compositor-Befunde A–E liegen beim Besitzer zur Entscheidung – Punkt 2 unten; danach idle-inhibit + Bildschirm aus)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -372,8 +372,20 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
    „Monitor aus/an, Kabel ab/an“ in `measure/hw-test.sh` kommt mit dem Messbau (4.).
    Smithay-Bericht Nr. 4 (Blob 0) liegt in `~/upstream/smithay/ISSUES.md`. CI beider Commits
    grün (8039442 nach Neustart durch den Besitzer: Bootbudget war Runner-Rauschen).
-2. **NÄCHSTE CHATS, Reihenfolge des Besitzers (25.10.):** (i) die Smoke-Aussetzer (unten);
-   (ii) **den Compositor unter die Lupe** (Besitzer: „kein weiterer Compositor, ein richtig
+2. **Compositor unter der Lupe, Stand 25.10. abends** (Besitzer: „production ready, komplette
+   Lösungen, keine 10 %“). Erledigt: (i) Smoke-Aussetzer (unten); Befund 1 behoben (711b5a6,
+   dmabuf-Commit wartet auf den Fence des Clients, DmabufBlocker wie anvil/Mutter/KWin; vorher
+   wartete unsere Submission auf der GPU und `current()` ohne Zeitlimit auf der CPU – ein hängender
+   Client fror die Sitzung ein; in der VM nicht prüfbar, shm); Teile je Bild aufgeschlüsselt
+   (bdaefd2: damage/wait/record/sync/queue statt „frame“; VM-Lasttest damage 0,13–0,16 ms).
+   **Vorgelegt, Entscheidung des Besitzers offen:** (A) lebendiges Glas in einem Durchgang wie
+   KWins Blur (heute zweiter Damage-Lauf + zweite Submission je Bild, HW 0,77 ms); (B) explizites
+   Sync `linux-drm-syncobj-v1` (Smithay hat es; statt 2 ioctls je Client-Puffer und Bild); (C)
+   Bild-Slots ohne Blockieren (`current()` wartet unbegrenzt im Haupt-Thread); (D) Direct Scanout
+   für Vollbild; (E) Knöpfe als SDF im Quad-Shader (kein SVG), Titeltext fremder Fenster von der
+   Shell (wie GNOMEs `mutter-x11-frames`; Compositor ohne Text-Stapel, −1,9 MB), Symbole als
+   Phosphor-Schrift (wie SF Symbols). Der nächste Messbau zeigt `sync`/`queue`/`wait` auf NVK.
+   Ursprüngliche Notiz (ii) **den Compositor unter die Lupe** (Besitzer: „kein weiterer Compositor, ein richtig
    guter, schneller“): Größe und Arbeit je Bild. Gemessen 25.10. (a691064, gestrippt 7,68 MB,
    `.text` 5,7 MB): Text-Stapel nur für fremde Titelleisten ~1,3 MB (harfrust 376 KiB, skrifa
    320, read-fonts 271, zeno 187, parley 132, fontique 44), SVG für die Knopf-Symbole ~0,6 MB
