@@ -1,7 +1,14 @@
-//! When clients' content may apply: wp_fifo and wp_commit_timing, as Mesa's
-//! Vulkan FIFO present mode and video players use them. Smithay holds a
-//! commit back with a barrier; the compositor lifts it.
+//! When clients' content may apply: once the GPU has drawn it, and as
+//! wp_fifo and wp_commit_timing ask, as Mesa's Vulkan FIFO present mode and
+//! video players use them. Smithay holds a commit back with a barrier; the
+//! compositor lifts it.
 //!
+//! - drawn: a commit of a dmabuf waits until the client's GPU has written it
+//!   (its implicit write fence), as Mutter, KWin, niri and Smithay's anvil
+//!   hold it; till then the surface shows what it showed. Applied at once,
+//!   the frame's own submission waited for the client's work on the GPU, and
+//!   the compositor waited for that frame before its next but one – a slow
+//!   or hung client held up every window, the pointer and the input.
 //! - fifo: a commit waits until the one before it was shown. Its barrier is
 //!   taken with what a frame draws and lifted at that frame's vblank
 //!   (`State::present`), for hidden surfaces with their "frame done" – as
@@ -16,6 +23,7 @@
 
 use std::time::Duration;
 
+use smithay::reexports::calloop::Interest;
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -23,13 +31,17 @@ use smithay::utils::{Monotonic, Time};
 use smithay::wayland::commit_timing::{
     CommitTimerBarrierStateUserData, CommitTimerStateUserData, Timestamp,
 };
-use smithay::wayland::compositor::{add_pre_commit_hook, with_states};
+use smithay::wayland::compositor::{
+    BufferAssignment, SurfaceAttributes, add_blocker, add_pre_commit_hook, with_states,
+};
+use smithay::wayland::dmabuf::get_dmabuf;
 use tracing::warn;
 
 use crate::state::State;
 
-/// Watches a new surface's commits for a time they wait for. This hook comes
-/// before Smithay's, which takes the time and holds the commit back.
+/// Watches a new surface's commits for a time they wait for – this hook
+/// comes before Smithay's, which takes the time and holds the commit back –
+/// and for a dmabuf the GPU still writes.
 pub fn watch(surface: &WlSurface) {
     add_pre_commit_hook::<State, _>(surface, |state, _, surface| {
         let time = with_states(surface, |states| {
@@ -40,6 +52,35 @@ pub fn watch(surface: &WlSurface) {
         });
         if let Some(time) = time {
             state.wake_for(duration(time));
+        }
+    });
+    add_pre_commit_hook::<State, _>(surface, |state, _, surface| {
+        let dmabuf = with_states(surface, |states| {
+            match states
+                .cached_state
+                .get::<SurfaceAttributes>()
+                .pending()
+                .buffer
+                .as_ref()
+            {
+                Some(BufferAssignment::NewBuffer(buffer)) => get_dmabuf(buffer).ok().cloned(),
+                _ => None,
+            }
+        });
+        let (Some(dmabuf), Some(client)) = (dmabuf, surface.client()) else {
+            return;
+        };
+        // Err: written already, nothing to wait for.
+        let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) else {
+            return;
+        };
+        let inserted = state.handle.insert_source(source, move |_, _, state| {
+            state.unblock(vec![client.clone()]);
+            Ok(())
+        });
+        match inserted {
+            Ok(_) => add_blocker(surface, blocker),
+            Err(e) => warn!("waiting for a client's buffer: {}", e.error),
         }
     });
 }
