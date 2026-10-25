@@ -2146,7 +2146,9 @@ mod tests {
 
     #[test]
     fn finds_the_menu_bar_with_its_time_and_nothing_else() {
-        let screen = desktop(400);
+        // Room for the app's name and the date.
+        let w = 600;
+        let screen = desktop(w);
         menu_bar(&screen).unwrap();
         // A window below it, cut out of the screen.
         let window = desktop(200)
@@ -2157,18 +2159,18 @@ mod tests {
         assert_eq!(window.pixel(13, 0), BACKGROUND);
         assert!(desktop(200).crop((151, MENU_BAR), (50, 1)).is_err());
         // A stray pixel on the bar, no time, a background of its own.
-        let mut stray = desktop(400);
-        stray.pixels[(5 * 400 + 300) * 3] = 0;
+        let mut stray = desktop(w);
+        stray.pixels[(5 * w + 300) * 3] = 0;
         assert!(menu_bar(&stray).is_err());
         let none = Image {
-            pixels: BACKGROUND.repeat(400 * 40),
-            ..desktop(400)
+            pixels: BACKGROUND.repeat(w * 40),
+            ..desktop(w)
         };
         assert!(menu_bar(&none).is_err());
-        let mut with_background = desktop(400);
+        let mut with_background = desktop(w);
         for x in 0..360 {
             for y in 0..MENU_BAR {
-                let at = (y * 400 + x) * 3;
+                let at = (y * w + x) * 3;
                 with_background.pixels[at..at + 3].copy_from_slice(&glass(x));
             }
         }
