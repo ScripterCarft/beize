@@ -302,7 +302,63 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Hardware-Test 0.5.103 ausgewertet, Leck beim Resizen behoben, Bildschirmfoto; Messbau 0.5.104 in Arbeit – JETZT: unten „AUFTRAG“ Punkt 3)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Messbau 0.5.104 beim Besitzer – JETZT: „AUFTRAG FÜR DEN NÄCHSTEN CHAT“ direkt hier darunter, in dieser Reihenfolge A → B → C)
+
+**AUFTRAG FÜR DEN NÄCHSTEN CHAT** (Besitzer, 25.10.). Release 0.5.104 und `D:\beize-test`
+(Skript mit 6 Teilen, Testprogramme) liegen auf dem Stick; der Besitzer testet und gibt dem Chat
+alle Ergebnisse.
+
+**A. Ergebnisse von 0.5.104 auswerten, dann das Foto aus dem Test entfernen**
+1. Neuestes `D:\beize-test\results-*` nach `~/hw-logs/` kopieren (PowerShell, siehe unten).
+2. Leck belegt? Unter „Puffer des Compositors“ muss `held: … dmabufs` nach dem Ziehen (Teil 5)
+   klein bleiben; Terminal blieb offen (Besitzer). Sonst weiter suchen.
+3. `results-*/screenshots/*.png` ansehen und dem Besitzer die Kosmetik erklären (Hintergrund
+   „pixelig“, Titelleiste/Knöpfe, Leiste, Dock; Werte siehe „Bildschirmfoto“ unten) – **nicht
+   ungefragt ändern**.
+4. Dann **Teil 6 (Bildschirmfotos) aus `measure/hw-test.sh` entfernen** (Messzweig, wieder
+   „x/5“; die Kopie nach `screenshots/` und die Zeile „Bildschirmfotos:“) und Punkt 6 aus
+   `docs/hardware.md` (Besitzer: „sobald ich die Screenshots habe“). Ob Teil 5 (Resizen) bleibt
+   und ob das Kürzel Super+Shift+3 im Compositor bleibt (echte Funktion wie macOS, Smoke prüft
+   sie), den Besitzer fragen – Vorschlag: Kürzel bleibt, Teil 5 fliegt nach bestandenem Beleg.
+
+**B. Frühjahrsputz – gründlich, nicht oberflächlich, vor allem anderen** (Besitzer: „erstmal
+hart optimieren“, „wirklich alles sehr professionell“, „viel kleinere Größen für alles und
+weniger RAM, aber an sinnvollen Stellen oder Bugs sparen“, „die VM kein Stress mehr“, „keine
+Tests, die 2 GB Daten brauchen“, „alte Tests und mds komplett entfernen“, „sinnlose Tests
+entfernen“, „alle Testprogramme“, „Wichtiges behalten“). Vorgehen: erst messen und eine Liste
+(was, wie groß, warum weg oder warum bleibt) dem Besitzer zeigen, nach seinem OK löschen/ändern,
+danach erneut messen. Bestand vom 25.10.:
+- **WSL**: vhdx 75 GB (`%LOCALAPPDATA%\wsl\{4cae8202-…}\ext4.vhdx`), drinnen 65 GB belegt.
+  `~/beize` 39 GB, davon `target/` **27 GB** (Cargo, mehrere Profile/alte Artefakte), `build/`
+  12 GB (`work` 3,6, `buildroot` 3,1 – nötig, `cache` 2,7, `out` 1,6 mit alten Releases 0.5,
+  0.5.101–0.5.103 je ~190 MB, `fuzz` 0,6). `~/upstream` **11 GB** (`kernel` 7,3 für die
+  gesendeten nouveau-Patches – Antworten abwarten?, `mei-src`/`nouveau-edid` je 1,8, wohl alt:
+  Besitzer fragen). `~/.cache/JetBrains` **7,9 GB** (IDE des Besitzers: fragen). `~/hw-logs`
+  72 MB bleibt. Danach vhdx verkleinern (Besitzer, Schritte unten unter Platte).
+- **VM-Stress**: je VM 2 GiB fest (`prealloc=on`, wegen INIT_ON_FREE – Kommentar in
+  `vm/machine.rs` lesen), 4 vCPUs, `parallel_vms()` nach CPUs/RAM; Smoke-Maschinen kopieren ein
+  4,7-GB-Image (sparse) je Szenario, Logs mit 16-MB-Journal-Dateien und PPM-Screendumps. Der
+  RCU-Stall (unten) spricht für Überbuchung. Ziel: weniger parallel/kleiner wo gemessen
+  ausreichend, Overlays (qcow2 mit backing file) statt Kopien, keine GB an Testdaten.
+- **Tests**: jedes Smoke-Szenario und jeden Unit-/Integrationstest auflisten: Was sichert er, ist
+  er doppelt, dauert er unnötig? Testprogramme (`beize-testclient`, `beize-ui-test`,
+  `beize-load-test`, `beize-terminal-sample`, `beize-render-test`) – nur, was Smoke oder
+  `hw-test.sh` wirklich brauchen. Sicherheitskette (Secure Boot, TPM, verity, Updates) bleibt.
+- **Doku**: 35 .md (CLAUDE.md, VISION, hardware, 28 ADRs, Rest suchen): veraltete entfernen,
+  CLAUDE.md §11 auf den Stand eindampfen (Geschichte gehört in Git), ADRs nur nach OK
+  zusammenlegen.
+- **Image und RAM**: `usr.erofs` 173 MB, `.efi` 27 MB; je Paket messen, Ballast und Bugs suchen
+  (wie das Leck), RSS von Compositor/Shell/Terminal in VM und auf Hardware messen.
+- **Claude-Dateien auf dem PC, nur Projekt code-projects**: in `C:\Users\Joe\.claude\projects\
+  F--code-projects\` (25.10.: 15 `.jsonl`, 8 Ordner, 78 MB) und den nach Sitzungs-ID benannten
+  Dateien anderswo unter `C:\Users\Joe\.claude\` (z. B. `file-history`, `todos`,
+  `shell-snapshots`, `session-env`, `debug`) alles, dessen Sitzung es nicht mehr gibt. Nie
+  `memory/`, nie andere Projekte, nie die laufende Sitzung; Liste zeigen, dann löschen.
+- **Stick**: alte Releases `D:\beize-0.5.102`, `-0.5.103`, Ergebnisse, die schon in `~/hw-logs`
+  liegen – nach OK.
+
+**C. Danach** Punkt 3 unten (die drei Messwerte) samt dem 100-ms-Takt beim Einblenden, dann die
+Kosmetik nach den Entscheidungen des Besitzers.
 
 **Hardware-Test 0.5.103 (25.10., `~/hw-logs/results-20261025-085227`):** Besitzer bestätigt:
 Schrift, Ecken (ohne Strahlen: der erschlossene NVK-Mechanismus der Tabelle hält), Zeiger,
@@ -335,7 +391,7 @@ Leerlauf (`pv_native_safe_halt`) – der Weckruf an die virtuelle CPU kam nicht 
 KVM in WSL2), nicht der Gast. Erschlossen, nicht bewiesen; wohl dieselbe Ursache wie „libinput:
 system too slow“ und „Boot0002 not found“ früher.
 
-**AUFTRAG** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“), Punkte 1–2 erledigt:
+**Messwerte** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“; kommt in C):
 3. **Die drei Auffälligkeiten der Messwerte beheben** – jede erst belegen (Ursache im Quelltext
    und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann ändern, Smoke + Gegenprobe:
    a) **Konsole 60 Hz, Sitzung 240 Hz** (`screen DP-1: 2560x1440 at 240 Hz, it had 2560x1440 at
@@ -356,10 +412,9 @@ system too slow“ und „Boot0002 not found“ früher.
       Spielraum. Zusätzlich klären, wie viel Vorlauf nouveau zum Programmieren braucht (Kernel-
       Quelle `nv50_disp`/`nouveau` Commit-Pfad, KWins Sicherheitsrand) und ob der gelernte Rand
       (`schedule.rs`, `MOST_LEARNT`) dafür reicht. Testfenster: 0.5.102 12 von 4796 spät (0.5.101: 4).
-4. Messbau 0.5.104 (Leck, Bildschirmfoto; `hw-test.sh` Teil 5 Resizen mit `held:`, Teil 6
-   Fotos nach `results-*/screenshots/`) geht zum Besitzer; seine Fotos auswerten.
 
-**Beim Besitzer** läuft der Messbau 0.5.103 (Tag `measure/desktop-0.5.103`); 0.6 von `main`
+**Beim Besitzer** kommt der Messbau 0.5.104 (Tag `measure/desktop-0.5.104`, auf dem Stick
+25.10.; davor 0.5.103); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
 Update vom Stick und Hardware-Test: `docs/hardware.md`. Wiederherstellung: nach F8
 Leertaste halten, „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC;
