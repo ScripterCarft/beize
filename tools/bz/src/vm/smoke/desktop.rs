@@ -220,6 +220,9 @@ const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// looked for every 500 ms (`PACING_CHECK`, state.rs), with room.
 const RUN_ENDED: Duration = Duration::from_secs(1);
 
+/// How long the still desktop is watched for waking.
+const IDLE_SECONDS: u64 = 3;
+
 pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-desktop")?;
     machine.test_medium = test_medium(paths)?;
@@ -684,6 +687,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "the compositor counted {frames} frames of the client's 120: {pacing}"
     );
     say!("  ok: the compositor measured the client's frames: {pacing}");
+    // Its window would go by itself later, in the middle of another check.
+    shell.capture("systemctl --user stop beize-testclient-frames")?;
 
     // Beize UI: its window through Vulkan's WSI shows the sample as the
     // reference has it – the same renderer, glyphs and blending offscreen.
@@ -925,6 +930,49 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "the compositor warned: {unexpected:?}"
     );
     say!("  ok: no warnings from the compositor (but Smithay's known one)");
+
+    // Still, nothing of the desktop wakes (ADR 0027 §6: events, no
+    // polling): for IDLE_SECONDS the compositor, the shell and the terminal
+    // switch to no other task, not one of their threads – measured off the
+    // minute, when the menu bar's clock ticks, once the terminal's first
+    // frames are done – and with no test program left, whose window going
+    // by itself would wake them rightly (a test client did, 25.10.).
+    let (_, left) = shell.capture(
+        "systemctl --user list-units --state=active --plain --no-legend 'beize-testclient*' \
+         'beize-ui-test*' 'beize-load-test*' | sed 's/^/BEIZE-LEFT /'",
+    )?;
+    let left: Vec<&String> = left
+        .iter()
+        .filter(|l| l.starts_with("BEIZE-LEFT "))
+        .collect();
+    ensure!(
+        left.is_empty(),
+        "test programs still run before the desktop is watched still: {left:?}"
+    );
+    thread::sleep(RUN_ENDED);
+    let (_, lines) = shell.capture(&format!(
+        "c() {{ cat /proc/$1/task/*/status | awk '/ctxt_switches/ {{s += $2}} END {{print s}}'; }}; \
+         while [ $((10#$(date +%S))) -gt $((58 - {IDLE_SECONDS})) ]; do sleep 0.5; done; \
+         for n in beize-compositor beize-shell beize-terminal; do \
+         p=$(pgrep -f \"^/usr/lib/beize/$n\" | head -n 1); echo \"$n $p $(c $p)\"; done > /tmp/idle; \
+         sleep {IDLE_SECONDS}; \
+         while read -r n p s; do echo \"BEIZE-IDLE $n $(( $(c $p) - s ))\"; done < /tmp/idle"
+    ))?;
+    let woke: Vec<(&str, u64)> = lines
+        .iter()
+        .filter_map(|l| {
+            let (name, switches) = l.strip_prefix("BEIZE-IDLE ")?.split_once(' ')?;
+            Some((name, switches.parse().ok()?))
+        })
+        .collect();
+    ensure!(
+        woke.len() == 3 && woke.iter().all(|&(_, n)| n == 0),
+        "the still desktop woke: task switches in {IDLE_SECONDS} s {woke:?}; {lines:?}"
+    );
+    say!(
+        "  ok: still, the compositor, the shell and the terminal did not wake once in \
+         {IDLE_SECONDS} s"
+    );
 
     // Signing out: logind ends the session, beize-session stops the desktop
     // and, last of all, takes the environment back: waited for that, the

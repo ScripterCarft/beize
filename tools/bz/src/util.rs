@@ -110,13 +110,18 @@ pub fn hex(bytes: &[u8]) -> String {
 }
 
 /// How many jobs that each need `cpus_each` CPUs and `memory_each_mib` of
-/// memory this machine runs side by side (at least one).
-pub fn parallel(cpus_each: usize, memory_each_mib: u64) -> usize {
+/// memory this machine runs side by side, the CPUs of `spare` jobs left
+/// for other work (at least one).
+pub fn parallel(cpus_each: usize, memory_each_mib: u64, spare: usize) -> usize {
     let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
     let memory_kib = std::fs::read_to_string("/proc/meminfo")
         .ok()
         .and_then(|info| meminfo_kib(&info, "MemTotal"));
-    jobs_for(cpus / cpus_each.max(1), memory_kib, memory_each_mib)
+    jobs_for(
+        (cpus / cpus_each.max(1)).saturating_sub(spare),
+        memory_kib,
+        memory_each_mib,
+    )
 }
 
 pub fn jobs_for(by_cpus: usize, memory_kib: Option<u64>, memory_each_mib: u64) -> usize {

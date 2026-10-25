@@ -100,7 +100,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 #   --variant base|desktop (Vorgabe desktop, ADR 0025) gilt für alle Befehle; je Variante
 #   build/out/<variante>/ und build/work/variant-<variante>/ (usr-Baum, VMs); Kernel, initrd geteilt
 ./bz smoke --quick   # Installation + 2 Starts mit allen Prüfungen (~30 s): die schnelle Schleife
-./bz smoke           # DER Abnahmetest (~2,2 min, Szenarien parallel), vor jedem Commit grün
+./bz smoke           # DER Abnahmetest (~2,3 min, Szenarien parallel), vor jedem Commit grün
 ./bz debug 'journalctl -b -p warning' …   # Befehle auf der Root-Shell einer VM, Ausgabe auf stdout
 #   --machine <name> (von smoke liegengelassen) · --tpm <dir> · --recovery-key … · '@wait N'
 #   · --screen 2560x1440 (Bildschirmgröße der VM; ohne: 1280x800 wie Smoke und Referenzen)
@@ -150,7 +150,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
   --seconds 30` oder `/usr/lib/beize/beize-terminal`. `@screendump` nur unter `build/`
   (QEMUs Sandbox). Tote Tasten: `localectl set-keymap --no-convert de-latin1 && localectl
   set-x11-keymap --no-convert de pc105 "" terminate:ctrl_alt_bksp`, dann `@keys grave_accent e`.
-- Start in der VM: 3,8 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~130 s (6 VMs parallel). Der zweite Start
+- Start in der VM: 3,8 s Gast-Uptime, erster Start ~6 s, Smoke lokal ~140 s (5 VMs parallel, eine VM-Breite CPU frei, `parallel_vms`). Der zweite Start
   hat ein Zeitbudget je Phase (`BOOT_BUDGET` in `vm/checks.rs`, ~1,5× CI-Messwert); bei
   Änderung neu messen und den Kommentar aktualisieren.
 - CI (`.github/workflows/ci.yml`): Job `buildroot` legt das Buildroot-Image in GHCR an, wenn
@@ -340,7 +340,7 @@ umsetzen“).** Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts, 5 VMs parallel 
 reserviert), Firmware ~4 s je Start; Desktop im Leerlauf 0 Aufwachvorgänge; `/usr` 168 MB;
 Compositor 7,4 MB, Shell 4,6, Terminal 4,8 (Text-Stapel ~1,25 MB und SVG ~0,6 MB in jedem).
 Reihenfolge, jede Änderung gemessen vorher/nachher, mit Gegenprobe, ohne Designänderung:
-1. Smoke schneller bei gleicher Abdeckung (Teil 1 ✓ 25.10.: 152 → ~130 s; offen: Firmware, Journal-Abfragen) (RAM-Reserve je VM nach Bedarf, Lasttest 15 → 5 s,
+1. Smoke schneller bei gleicher Abdeckung (✓ 25.10.: 152 → ~140 s, Bildschirm-Abfragen sofort/100 ms, Lasttest 6 s, `-nodefaults`, Journal-Disk auf eigenem Slot; mit 6 VMs 128 s, aber RCU-Stalls, siehe unten) (RAM-Reserve je VM nach Bedarf, Lasttest 15 → 5 s,
    Ereignis statt 500-ms-Abfrage, Firmware-Stellschrauben messen, 2 vCPU wo kein Budget misst;
    Ziel ≤ 115 s, CI-Nachtlauf zwei VMs parallel). 2. Lebendiges Glas: Blur-Kette wiederverwenden
    (heute 6 neue VkImages je Änderung, `backdrop.rs` → `draw_glass`). 3. C a–d (unten).
@@ -348,9 +348,11 @@ Reihenfolge, jede Änderung gemessen vorher/nachher, mit Gegenprobe, ohne Design
    Protokolle presentation-time, fifo/commit-timing, viewporter, xdg-activation, idle-inhibit;
    dann Bildschirm aus bei Inaktivität (Zeiten wie macOS, Besitzer bestätigt). 6. Beize UI:
    Größenänderung ohne `device_wait_idle` (`oldSwapchain`). 7. Szenenaufbau aus
-   `State::render` nach `scene.rs`; ein Journal-Logger in `beize-systemd`; Schriften per mmap;
-   Desktop-Smoke in Phasen. 8. Profil `image` mit `panic = "abort"` (messen; bz behält
-   Unwinding), ANV/RADV (Besitzer: ja; nur in der VM prüfbar). Regeln: Crate-Grenzen per
+   `State::render` nach `scene.rs`; Desktop-Smoke in Phasen; Schriften per mmap ✓. Verworfen:
+   ein gemeinsamer Journal-Logger (die Kopien unterscheiden sich mit Grund; eine Crate oder
+   libsystemd in jeder App für 40 Zeilen). 8. `panic = "abort"` gemessen und verworfen (−1,1 MB
+   in drei Programmen, aber ein Panic eines Hilfs-Threads beendete die Sitzung); Intel/AMD
+   brauchen erst Kernel-Treiber, Firmware, libdrm → #17 (kommentiert 25.10.). Regeln: Crate-Grenzen per
    `cargo deny` (`wrappers`), Leerlauf-Ratsche im Desktop-Smoke, Größen-Ratsche (+3 %).
    Bewusst so bleiben: eigener Renderer/Bildschleife, `bz`, EROFS zstd, Shell als Prozess,
    FFI zu libsystemd, Spec-Konstanten im Smoke (der Test ist die Spezifikation).
@@ -358,7 +360,9 @@ Reihenfolge, jede Änderung gemessen vorher/nachher, mit Gegenprobe, ohne Design
 **C – die Messwerte** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“).
 Jede erst belegen (Ursache im Quelltext und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann
 ändern, Smoke + Gegenprobe:
-a) **Konsole 60 Hz, Sitzung 240 Hz** (`it had 2560x1440 at 60 Hz`): der Moduswechsel zur Sitzung
+a) **Entschieden 25.10.:** die grafische Anmeldung (Compositor ab dem Start, ein Moduswechsel
+   im Startvorgang wie beim Mac) kommt später sauber mit eigenem ADR; bis dahin bleibt die Lücke.
+   **Konsole 60 Hz, Sitzung 240 Hz** (`it had 2560x1440 at 60 Hz`): der Moduswechsel zur Sitzung
    lässt den Monitor neu einrasten = die schwarze Lücke. Lösung macOS-artig ohne Flackern
    (Fedoras flicker-free boot mit grafischer Anmeldung, oder die Konsole gleich im Modus des
    Desktops; recherchieren, wie Mutter/KWin den vorhandenen Modus übernehmen). Mit dem Besitzer
@@ -385,8 +389,8 @@ satter, hell blasser (Material: Sättigung 1,8, Tönung 30/45 %): passt erstmal,
 es wieder sieht. Apples Icons und „macOS-Look“-Sets sind tabu (VISION). Die feste Wartezeit auf
 die Shell weicht einem Konzept (#40).
 
-**Beobachten, Ursache offen:** RCU-Stall im Gast beim parallelen Smoke (erschlossen: der Weckruf
-an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
+**Beobachten, Ursache offen:** RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
+Issue; erschlossen: der Weckruf an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
 „Boot0002 … Not Found“ im Update-Szenario (einmal).
 
 **Offen in Schritt 4:** Die Shell liest Namen aus Desktop-Dateien nur einmal je App; fremde Apps

@@ -194,9 +194,15 @@ fn copy_sparse(from: &Path, to: &Path) -> Result<()> {
 /// with Secure Boot, the kernel clearing memory, cryptography). Measured
 /// 2026-10-17 on 4 CPUs (the CI's runner, `taskset -c 0-3`): two VMs side by
 /// side took as long as one after the other (579 s against 585 s), each
-/// scenario twice as long, and one ran into its timeout.
+/// scenario twice as long, and one ran into its timeout. And one VM's CPUs
+/// stay for bz beside them (the releases and images scenarios build).
+/// Measured 25.10. on 24 CPUs: six VMs took 128 s a run, five 141 s; with
+/// six, a guest's CPU went unwoken for up to 21 s (`rcu_preempt detected
+/// stalls`, nested KVM under WSL, CLAUDE.md §11) and broke the desktop in 2
+/// of 12 runs, with five it happened in 1 of 3 runs without harm. The stall
+/// is not the VMs' number; until it is understood, the margin.
 pub(super) fn parallel_vms() -> usize {
-    util::parallel(VM_CPUS, VM_RESERVE_MIB)
+    util::parallel(VM_CPUS, VM_RESERVE_MIB, 1)
 }
 
 /// The memory a VM takes on the host: the largest guest and what QEMU
