@@ -309,7 +309,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: presentation-time, fifo, commit-timing fertig – JETZT: viewporter + xdg-activation, Punkt 2 unten)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: viewporter + xdg-activation fertig – JETZT: zuerst die Smoke-Aussetzer, dann idle-inhibit + Bildschirm aus, Punkt 2 unten)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -366,8 +366,8 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
    „Monitor aus/an, Kabel ab/an“ in `measure/hw-test.sh` kommt mit dem Messbau (4.).
    Smithay-Bericht Nr. 4 (Blob 0) liegt in `~/upstream/smithay/ISSUES.md`. CI beider Commits
    grün (8039442 nach Neustart durch den Besitzer: Bootbudget war Runner-Rauschen).
-2. **Protokolle – NÄCHSTER CHAT: viewporter + xdg-activation**; der Chat danach:
-   **idle-inhibit + Bildschirm aus bei Inaktivität** (gehören zusammen: inhibit wirkt erst mit
+2. **Protokolle – NÄCHSTER CHAT: zuerst die Smoke-Aussetzer (unten, „Beobachten“), dann
+   idle-inhibit + Bildschirm aus bei Inaktivität** (gehören zusammen: inhibit wirkt erst mit
    der Leerlauf-Erkennung; Zeiten wie macOS) – Aufteilung des Besitzers, 25.10. Je eine
    Smoke-Prüfung mit Gegenprobe (Testclient bindet sie). Bildschirm aus passt zu ADR 0029
    (Bildschleife ruhen lassen wie bei „weg“, CRTC aus per DPMS/ACTIVE=0). In der VM zählt eine
@@ -375,6 +375,18 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
    neu zeichneten). Mehrere Testclient-Fenster: `placed(…, "beize-testclient", n)` zählt alle
    (der Rahmen-Client ist jetzt das 5.). Vor dem Commit drei volle Smoke-Läufe: Fehler, die 1 von
    120 Bildern treffen, zeigen sich erst so.
+   ~~viewporter + xdg-activation~~ erledigt 25.10.: viewporter nur das Global (Smithays
+   Surface-View, der Renderer kann src/Skalierung schon, linear gefiltert). `activation.rs`: ein
+   Token zählt nur vom aktiven Client mit Serial ab dem letzten Tastatur-Enter, und nur solange
+   dieser Fokus besteht (niri/anvil, Mutters user time; **kein Zeitlimit**, Fokuswechsel beendet
+   es), einmal verwendbar; abgelehnt nur ins Log – Dock-Hüpfen wie macOS kommt mit Schritt 4.
+   Neue Fenster werden weiter immer aktiv (Focus-Stealing-Schutz für neue Fenster bräuchte Tokens
+   beim Start über Dock/Ctrl+Alt+T, `XDG_ACTIVATION_TOKEN`; dann mit ADR). Smoke: `viewport`
+   (480×360, Ausschnitt bei ¾, Nähte ±1 px), `activation` (gewährt / Fokus gewandert / ohne
+   Serial; Roundtrip statt Timer, Ziel immer das Fenster ohne Fokus). Gegenproben rot: Renderer
+   ignoriert src, alles gewähren, nur ohne Serial gewähren, alles ignorieren. `sizes.toml`
+   Compositor 7274 → 7569 (davon gemessen viewporter +37, activation +56 KB; Rest seit 9801fb4
+   angesammelt, je knapp unter 3 %).
    ~~fifo + commit-timing~~ erledigt 25.10. (`timing.rs`): fifo-Barriere einer gezeigten Fläche
    fällt beim vblank ihres Bildes (`Shown.fifo`), die einer nicht gezeigten **sofort beim
    Zeichnen** (Protokoll: „may ignore the constraint“, gedrosselt wird über die Zeitstempel des
@@ -443,6 +455,14 @@ satter, hell blasser (Material: Sättigung 1,8, Tönung 30/45 %): passt erstmal,
 es wieder sieht. Apples Icons und „macOS-Look“-Sets sind tabu (VISION). Die feste Wartezeit auf
 die Shell weicht einem Konzept (#40).
 
+**Smoke-Aussetzer, ZUERST klären (25.10. gemessen):** ältere Desktop-Prüfungen scheitern
+zeitweise – fifo („108 of 119 a vblank apart“, 10–13 Bilder am Stück spät), Lasttest (Lauf
+zerfällt, ein Bild 284 ms), Minimieren (Klick verloren, libinput „system too slow“ 62–261 ms,
+~3 s nach dem Shell-Neustart). **Auch ohne viewporter/activation:** Basis 2 von 4 Läufen rot
+(fifo), mit ihnen 4 von 12; Einplanung und Code vor den neuen Prüfungen gleich. Muster: Hänger
+von 150–550 ms im ganzen Gast bei 5 parallelen VMs (wie #41, nicht belegt). Bei 4ad22e3 waren
+drei Läufe grün. So ist „drei grüne Läufe vor dem Commit“ Würfeln – erst Ursache finden
+(Host-Messung während des Smoke, vCPU-Wartezeit, Vergleich mit 4 VMs), dann beheben.
 **Beobachten, Ursache offen:** Leerlauf-Ratsche: Compositor einmal in 3 s aufgewacht (1 von 6 Smoke-Läufen 25.10., Log überschrieben; nicht zugeordnet), RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
 Issue; erschlossen: der Weckruf an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
 „Boot0002 … Not Found“ im Update-Szenario (einmal).

@@ -3,7 +3,8 @@
 //! wl_output, copy and paste (wl_data_device), windows (xdg-shell,
 //! `shell`) with their frames (xdg-decoration, `decorations`), the
 //! shell's panels (wlr-layer-shell, `layers`) and its list of windows
-//! (beize-shell-v1, `shell_v1`).
+//! (beize-shell-v1, `shell_v1`), cropped and scaled surfaces (viewporter)
+//! and windows that ask to become active (xdg-activation, `activation`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
 //! screen for a redraw at the deadline of the next vblank (`schedule`),
@@ -77,10 +78,12 @@ use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::wayland::viewporter::ViewporterState;
+use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::{
     delegate_commit_timing, delegate_compositor, delegate_cursor_shape, delegate_data_device,
     delegate_dmabuf, delegate_fifo, delegate_output, delegate_presentation, delegate_seat,
-    delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
@@ -130,6 +133,8 @@ pub struct State {
     _presentation: PresentationState,
     _fifo: FifoManagerState,
     _commit_timing: CommitTimingManagerState,
+    _viewporter: ViewporterState,
+    pub activation: XdgActivationState,
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
@@ -321,6 +326,10 @@ impl State {
             // (`timing`).
             _fifo: FifoManagerState::new::<State>(&display),
             _commit_timing: CommitTimingManagerState::new::<State>(&display),
+            // Video players and browsers crop and scale their buffers;
+            // Smithay applies it to what a surface shows (its view).
+            _viewporter: ViewporterState::new::<State>(&display),
+            activation: XdgActivationState::new::<State>(&display),
             seat_state,
             seat,
             keyboard,
@@ -1550,6 +1559,7 @@ delegate_cursor_shape!(State);
 delegate_presentation!(State);
 delegate_fifo!(State);
 delegate_commit_timing!(State);
+delegate_viewporter!(State);
 
 /// cursor-shape-v1 also names tablet tools' images; Beize has no tablets
 /// yet, so nothing is needed of it.

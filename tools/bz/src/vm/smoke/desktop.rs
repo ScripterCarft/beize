@@ -21,7 +21,10 @@
 //! minimizes it, and closes it; the dock brings it back. A client that asks the compositor for its frame
 //! (xdg-decoration) gets the same title bar, its buttons the same to the
 //! pixel, above its pattern, centred with it; the bar moves, maximizes and
-//! closes its window as Beize UI's does. Windows have round corners
+//! closes its window as Beize UI's does. A client's viewport crops and
+//! scales its buffer (viewporter); an app hands on activation with a token
+//! of its focus, and a token of a focus gone activates nothing
+//! (xdg-activation). Windows have round corners
 //! (compared without them), maximized ones do not. The dock (ADR 0028 §4)
 //! floats along the bottom with round corners on live glass, which shows a
 //! window dragged behind it, the pinned terminal first and
@@ -60,6 +63,14 @@ use crate::vm::console::{
 };
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
+
+/// The test client's `--viewport` window: its size, and where its
+/// quadrants split – the part shown starts a quarter into the red one,
+/// scaled 1.5 times (os/beize-testclient, `VIEWPORT_SOURCE`). Scaling
+/// blends the pixels this close to a split.
+const VIEWPORT_SIZE: (usize, usize) = (480, 360);
+const VIEWPORT_SPLIT: (usize, usize) = (360, 270);
+const VIEWPORT_SEAM: usize = 1;
 
 /// The test client's quadrants as the screen shows them (RGB), from
 /// os/beize-testclient: red, green above; blue, white below.
@@ -543,6 +554,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
 
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
+    viewport(&shell, &machine)?;
+    activation(&shell)?;
     load(&shell, &machine, &qmp, screen)?;
 
     // Over the second terminal where it covers only the desktop, its text
@@ -1086,7 +1099,7 @@ fn client_summary(shell: &Shell, unit: &str, args: &str, last: &str) -> Result<V
         "systemd-run --user --unit={unit} /run/t/beize-testclient {args} --seconds 20 \
          && for i in $(seq 100); do journalctl --user -u {unit} -o cat | grep -q '^{last}' \
          && break; sleep 0.2; done; journalctl --user -u {unit} -o cat \
-         | grep -E '^(presentation|fifo|timed): '; systemctl --user stop {unit}"
+         | grep -E '^(presentation|fifo|timed|activation [a-z ]+): '; systemctl --user stop {unit}"
     ))?;
     Ok(lines)
 }
@@ -1466,6 +1479,100 @@ fn framed(
     say!(
         "  ok: the compositor's bar moved the window by exactly the drag, a double click \
          maximized it below the bar and back, its close button closed it"
+    );
+    Ok(())
+}
+
+/// A client crops and scales its buffer (wp_viewporter): its window has
+/// the size it named and shows the part of its pattern it named – the
+/// quadrants split at three quarters, not at the halves of the whole
+/// buffer – but where scaling blends the seams.
+fn viewport(shell: &Shell, machine: &Machine) -> Result<()> {
+    const UNIT: &str = "beize-testclient-viewport";
+    let (status, lines) = shell.capture(&format!(
+        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --viewport --seconds 60 \
+         && for i in $(seq 50); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         && break; sleep 0.2; done; journalctl --user -u {UNIT} -o cat"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l.starts_with("configure ")),
+        "the viewport client got no window (exit status {status}): {lines:?}"
+    );
+    // The test client's sixth window, after the framed one.
+    let (at, size) = placed(shell, "beize-testclient", 6)?;
+    ensure!(
+        size == VIEWPORT_SIZE,
+        "the viewport client's window is {}x{}, not the {}x{} it named",
+        size.0,
+        size.1,
+        VIEWPORT_SIZE.0,
+        VIEWPORT_SIZE.1
+    );
+    let difference = machine.logs.join("viewport-difference.ppm");
+    let looked = poll_screen(machine, "viewport", |screen| {
+        let window = screen.crop(at, size)?;
+        compare(
+            &window,
+            |x, y| viewported(&window, x, y),
+            "the part of the pattern the client named",
+            &difference,
+        )
+    })?;
+    if let Err((_, e)) = looked {
+        let said = last_said(shell, &[UNIT, "beize-compositor"])?;
+        return Err(e.context(format!(
+            "the viewport client's window, {}x{} at {},{}, on {}; the client and the \
+             compositor last said: {said:?}",
+            size.0,
+            size.1,
+            at.0,
+            at.1,
+            screen_file(machine, "viewport").display()
+        )));
+    }
+    shell.capture(&format!("systemctl --user stop {UNIT}"))?;
+    say!(
+        "  ok: a client's viewport cropped and scaled its buffer: {}x{}, the part it named",
+        size.0,
+        size.1
+    );
+    Ok(())
+}
+
+/// What the viewport client's `window` should show at `x`, `y`: the
+/// quadrants split at `VIEWPORT_SPLIT`; beside a split, what it shows.
+fn viewported(window: &Image, x: usize, y: usize) -> [u8; 3] {
+    let (sx, sy) = VIEWPORT_SPLIT;
+    if x.abs_diff(sx) <= VIEWPORT_SEAM || y.abs_diff(sy) <= VIEWPORT_SEAM {
+        return window.pixel(x, y);
+    }
+    QUADRANTS[usize::from(x >= sx) + 2 * usize::from(y >= sy)]
+}
+
+/// Apps hand on activation with a token (xdg-activation) while the focus
+/// it was made of lasts: a client's second window asks for its first with
+/// a token of its own focus and gets it; a token of that focus once the
+/// first has the keyboard, and one without a serial, activate nothing.
+fn activation(shell: &Shell) -> Result<()> {
+    let said = client_summary(
+        shell,
+        "beize-testclient-activation",
+        "--activation",
+        "activation no serial: ",
+    )?;
+    for wanted in [
+        "activation active app: granted",
+        "activation focus moved: refused",
+        "activation no serial: refused",
+    ] {
+        ensure!(
+            said.iter().any(|l| l == wanted),
+            "not \"{wanted}\": {said:?}"
+        );
+    }
+    say!(
+        "  ok: an app handed on activation with a token of its focus; one of a focus gone, \
+         and one without a serial, activated nothing"
     );
     Ok(())
 }

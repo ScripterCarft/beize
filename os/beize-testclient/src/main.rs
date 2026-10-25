@@ -30,6 +30,18 @@
 //! many frames were a vblank apart. `--timed N` gives each frame after the
 //! first a time, 2.5 refreshes after the last one showed (wp_commit_timing),
 //! and prints how many showed at the first vblank at or after their time.
+//!
+//! `--viewport` shows the pattern through wp_viewporter: the part from
+//! `VIEWPORT_SOURCE` – off centre, so its quadrants split at three
+//! quarters – scaled to `VIEWPORT_SIZE`, the window's size.
+//!
+//! `--activation` opens a second window once the first is active and, once
+//! that one is, asks for the first to become active again with a token of
+//! the second's focus (xdg-activation); then for the window without the
+//! keyboard, with a token of that focus the first has taken since, and
+//! with one without a serial.
+//! A roundtrip after each request tells whether the window got the
+//! keyboard, one line each: `activation <case>: granted` or `refused`.
 
 use std::fs::File;
 use std::io::Read as _;
@@ -45,6 +57,7 @@ use wayland_client::protocol::{
     wl_buffer::{self, WlBuffer},
     wl_callback::{self, WlCallback},
     wl_compositor::WlCompositor,
+    wl_display::WlDisplay,
     wl_keyboard::{self, WlKeyboard},
     wl_pointer::{self, WlPointer},
     wl_region::WlRegion,
@@ -65,6 +78,13 @@ use wayland_protocols::wp::presentation_time::client::{
     wp_presentation::{self, WpPresentation},
     wp_presentation_feedback::{self, WpPresentationFeedback},
 };
+use wayland_protocols::wp::viewporter::client::{
+    wp_viewport::WpViewport, wp_viewporter::WpViewporter,
+};
+use wayland_protocols::xdg::activation::v1::client::{
+    xdg_activation_token_v1::{self, XdgActivationTokenV1},
+    xdg_activation_v1::XdgActivationV1,
+};
 use wayland_protocols::xdg::decoration::zv1::client::{
     zxdg_decoration_manager_v1::ZxdgDecorationManagerV1,
     zxdg_toplevel_decoration_v1::{self, ZxdgToplevelDecorationV1},
@@ -84,6 +104,14 @@ const BAR: u32 = 0xff20_2020;
 /// The moving bar of `--frames`, and how far it moves each frame.
 const BAR_SIZE: (i32, i32) = (32, 32);
 const BAR_STEP: i32 = 8;
+/// The window's size when the compositor leaves the choice.
+const CHOSEN_SIZE: (i32, i32) = (640, 480);
+/// `--viewport`: the part of the buffer shown (x, y, width, height), and
+/// the size it is shown in, 1.5 times.
+const VIEWPORT_SOURCE: (f64, f64, f64, f64) = (80.0, 60.0, 320.0, 240.0);
+const VIEWPORT_SIZE: (i32, i32) = (480, 360);
+/// `--activation`: the second window, white.
+const SECOND_SIZE: (i32, i32) = (320, 240);
 /// The buffers `--fifo` draws into, as a swapchain of three.
 const SWAPCHAIN: usize = 3;
 /// How far ahead of the last frame `--timed` sets the next, in refreshes.
@@ -111,6 +139,8 @@ struct Options {
     pace: Pace,
     seconds: u64,
     server_side: bool,
+    viewport: bool,
+    activation: bool,
 }
 
 /// What the next of the frames waits for.
@@ -130,6 +160,8 @@ fn options() -> Result<Options> {
         pace: Pace::Callbacks,
         seconds: 10,
         server_side: false,
+        viewport: false,
+        activation: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -149,6 +181,8 @@ fn options() -> Result<Options> {
             }
             "--seconds" => options.seconds = value()?,
             "--server-side" => options.server_side = true,
+            "--viewport" => options.viewport = true,
+            "--activation" => options.activation = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -212,8 +246,73 @@ struct App {
     /// The answers are summed up.
     presented_all: bool,
     bar: i32,
+    /// `--viewport`: how the surface crops and scales its buffer.
+    viewport: Option<WpViewport>,
+    /// `--activation`: its second window and requests.
+    activation: Option<Activation>,
     running: bool,
 }
+
+/// `--activation`: the second window and the requests, in turn (`Step`).
+struct Activation {
+    manager: XdgActivationV1,
+    wm_base: XdgWmBase,
+    display: WlDisplay,
+    step: Step,
+    second: Option<Second>,
+    /// The serial of the second window's keyboard enter.
+    second_entered: Option<u32>,
+    /// The window with the keyboard: a request asks for the other, so
+    /// each case stands on its own.
+    focused: Option<WlSurface>,
+    /// The window a request asked for, and whether it got the keyboard
+    /// since.
+    target: Option<WlSurface>,
+    got_it: bool,
+}
+
+/// What `--activation` waits for, in this order.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// The first window to become active; it then opens the second.
+    First,
+    /// The second to become active.
+    Second,
+    /// The first, asked for with a token of the second's focus.
+    ActiveApp,
+    /// The window without the keyboard, with a token of the second's
+    /// focus, which the first has since.
+    FocusMoved,
+    /// The window without the keyboard, with a token without a serial.
+    NoSerial,
+    Done,
+}
+
+impl Step {
+    fn name(self) -> &'static str {
+        match self {
+            Step::ActiveApp => "active app",
+            Step::FocusMoved => "focus moved",
+            Step::NoSerial => "no serial",
+            Step::First | Step::Second | Step::Done => "",
+        }
+    }
+}
+
+/// The second window of `--activation`, white in its one buffer.
+struct Second {
+    surface: WlSurface,
+    _xdg_surface: XdgSurface,
+    _toplevel: XdgToplevel,
+    buffer: WlBuffer,
+    _file: File,
+}
+
+/// The roundtrip after a request of `--activation`.
+struct Roundtrip;
+
+/// The objects of `--activation`'s second window.
+struct SecondWindow;
 
 /// A frame on the screen, as wp_presentation_feedback.presented says.
 struct Shown {
@@ -256,6 +355,36 @@ fn run() -> Result<()> {
     }
 
     let surface = compositor.create_surface(&qh, ());
+    let viewport = if options.viewport {
+        let viewporter: WpViewporter = globals
+            .bind(&qh, 1..=1, ())
+            .map_err(missing("wp_viewporter"))?;
+        let viewport = viewporter.get_viewport(&surface, &qh, ());
+        let (x, y, w, h) = VIEWPORT_SOURCE;
+        viewport.set_source(x, y, w, h);
+        viewport.set_destination(VIEWPORT_SIZE.0, VIEWPORT_SIZE.1);
+        Some(viewport)
+    } else {
+        None
+    };
+    let activation = if options.activation {
+        let manager: XdgActivationV1 = globals
+            .bind(&qh, 1..=1, ())
+            .map_err(missing("xdg_activation_v1"))?;
+        Some(Activation {
+            manager,
+            wm_base: wm_base.clone(),
+            display: connection.display(),
+            step: Step::First,
+            second: None,
+            second_entered: None,
+            focused: None,
+            target: None,
+            got_it: false,
+        })
+    } else {
+        None
+    };
     let fifo = match options.pace {
         Pace::Fifo => {
             let manager: WpFifoManagerV1 = globals
@@ -321,6 +450,8 @@ fn run() -> Result<()> {
         discarded: Vec::new(),
         presented_all: false,
         bar: 0,
+        viewport,
+        activation,
         running: true,
     };
     let deadline = Instant::now() + Duration::from_secs(options.seconds);
@@ -400,8 +531,10 @@ fn report_drawing(times: &[Duration]) {
 
 impl App {
     fn size(&self) -> (i32, i32) {
+        // The viewport gives the window its size, from this buffer.
         match self.size {
-            (0, _) | (_, 0) => (640, 480),
+            _ if self.viewport.is_some() => CHOSEN_SIZE,
+            (0, _) | (_, 0) => CHOSEN_SIZE,
             size => size,
         }
     }
@@ -632,6 +765,108 @@ impl App {
         }
     }
 
+    /// `--activation`: a window got the keyboard with `serial`; the next
+    /// step, if it waited for that.
+    fn entered(&mut self, surface: &WlSurface, serial: u32, qh: &QueueHandle<App>) {
+        let first = self.surface.clone();
+        let Some(activation) = &mut self.activation else {
+            return;
+        };
+        if activation.target.as_ref() == Some(surface) {
+            activation.got_it = true;
+        }
+        activation.focused = Some(surface.clone());
+        let second = activation.second.as_ref().map(|s| s.surface.clone());
+        match activation.step {
+            Step::First if *surface == first => {
+                match open_second(&self.compositor, &self.shm, &activation.wm_base, qh) {
+                    Ok(window) => activation.second = Some(window),
+                    Err(e) => {
+                        eprintln!("beize-testclient: {e}");
+                        self.running = false;
+                        return;
+                    }
+                }
+                activation.step = Step::Second;
+            }
+            Step::Second if Some(surface) == second.as_ref() => {
+                activation.second_entered = Some(serial);
+                activation.step = Step::ActiveApp;
+                self.ask_token(qh);
+            }
+            _ => {}
+        }
+    }
+
+    /// `--activation`: a token from the second window, with the serial its
+    /// step calls for.
+    fn ask_token(&self, qh: &QueueHandle<App>) {
+        let Some(activation) = &self.activation else {
+            return;
+        };
+        let token = activation.manager.get_activation_token(qh, ());
+        if activation.step != Step::NoSerial
+            && let Some(serial) = activation.second_entered
+        {
+            token.set_serial(serial, &self.seat);
+        }
+        if let Some(second) = &activation.second {
+            token.set_surface(&second.surface);
+        }
+        token.commit();
+    }
+
+    /// `--activation`: the token arrived; the request of this step, and a
+    /// roundtrip after it.
+    fn activate(&mut self, token: String, qh: &QueueHandle<App>) {
+        let first = self.surface.clone();
+        let Some(activation) = &mut self.activation else {
+            return;
+        };
+        let second = activation.second.as_ref().map(|s| s.surface.clone());
+        let target = match activation.step {
+            Step::ActiveApp => Some(first),
+            _ if activation.focused.as_ref() == Some(&first) => second,
+            _ => Some(first),
+        };
+        let Some(target) = target else {
+            return;
+        };
+        activation.manager.activate(token, &target);
+        activation.target = Some(target);
+        activation.got_it = false;
+        activation.display.sync(qh, Roundtrip);
+    }
+
+    /// `--activation`: the roundtrip after a request is back – the window
+    /// asked for has the keyboard by now, or it will not; the next step.
+    fn answered_activation(&mut self, qh: &QueueHandle<App>) {
+        let Some(activation) = &mut self.activation else {
+            return;
+        };
+        let step = activation.step;
+        println!(
+            "activation {}: {}",
+            step.name(),
+            if activation.got_it {
+                "granted"
+            } else {
+                "refused"
+            }
+        );
+        activation.target = None;
+        activation.step = match step {
+            Step::ActiveApp => Step::FocusMoved,
+            Step::FocusMoved => Step::NoSerial,
+            _ => Step::Done,
+        };
+        if activation.step == Step::Done {
+            println!("activation done");
+        } else {
+            self.ask_token(qh);
+        }
+    }
+
     /// The window is opaque: the compositor need not draw what is under it.
     fn set_opaque(&self, qh: &QueueHandle<App>) {
         let (w, h) = self.size();
@@ -640,6 +875,40 @@ impl App {
         self.surface.set_opaque_region(Some(&region));
         region.destroy();
     }
+}
+
+/// `--activation`'s second window, white; it shows its buffer on its
+/// first configure.
+fn open_second(
+    compositor: &WlCompositor,
+    shm: &WlShm,
+    wm_base: &XdgWmBase,
+    qh: &QueueHandle<App>,
+) -> Result<Second> {
+    let (w, h) = SECOND_SIZE;
+    let bytes = w * h * 4;
+    let fd = rustix::fs::memfd_create("beize-testclient", rustix::fs::MemfdFlags::CLOEXEC)
+        .map_err(|e| format!("memfd: {e}"))?;
+    let file = File::from(fd);
+    let pixels: Vec<u8> = (0..w * h).flat_map(|_| WHITE.to_le_bytes()).collect();
+    file.write_all_at(&pixels, 0)
+        .map_err(|e| format!("writing the buffer: {e}"))?;
+    let pool: WlShmPool = shm.create_pool(file.as_fd(), bytes, qh, ());
+    let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, qh, SecondWindow);
+    pool.destroy();
+    let surface = compositor.create_surface(qh, ());
+    let xdg_surface = wm_base.get_xdg_surface(&surface, qh, SecondWindow);
+    let toplevel = xdg_surface.get_toplevel(qh, SecondWindow);
+    toplevel.set_title("beize-testclient second".into());
+    toplevel.set_app_id("beize-testclient".into());
+    surface.commit();
+    Ok(Second {
+        surface,
+        _xdg_surface: xdg_surface,
+        _toplevel: toplevel,
+        buffer,
+        _file: file,
+    })
 }
 
 /// The quadrants, and the bar at `bar` (its left edge) if given: the
@@ -832,7 +1101,7 @@ impl Dispatch<WlKeyboard, ()> for App {
         event: wl_keyboard::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<App>,
+        qh: &QueueHandle<App>,
     ) {
         match event {
             wl_keyboard::Event::Keymap { fd, size, .. } => {
@@ -846,8 +1115,22 @@ impl Dispatch<WlKeyboard, ()> for App {
                     Err(e) => println!("keymap unreadable: {e}"),
                 }
             }
-            wl_keyboard::Event::Enter { .. } => println!("keyboard focus"),
-            wl_keyboard::Event::Leave { .. } => println!("keyboard focus lost"),
+            wl_keyboard::Event::Enter {
+                serial, surface, ..
+            } => {
+                if surface == app.surface {
+                    println!("keyboard focus");
+                } else {
+                    println!("keyboard focus, second window");
+                }
+                app.entered(&surface, serial, qh);
+            }
+            wl_keyboard::Event::Leave { .. } => {
+                println!("keyboard focus lost");
+                if let Some(activation) = &mut app.activation {
+                    activation.focused = None;
+                }
+            }
             wl_keyboard::Event::Key {
                 key,
                 state: WEnum::Value(state),
@@ -1014,6 +1297,87 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
     }
 }
 
+/// `--activation`: the second window shows its buffer.
+impl Dispatch<XdgSurface, SecondWindow> for App {
+    fn event(
+        app: &mut App,
+        xdg_surface: &XdgSurface,
+        event: xdg_surface::Event,
+        _: &SecondWindow,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+        if let xdg_surface::Event::Configure { serial } = event {
+            xdg_surface.ack_configure(serial);
+            if let Some(second) = app.activation.as_ref().and_then(|a| a.second.as_ref()) {
+                let (w, h) = SECOND_SIZE;
+                second.surface.attach(Some(&second.buffer), 0, 0);
+                second.surface.damage_buffer(0, 0, w, h);
+                second.surface.commit();
+            }
+        }
+    }
+}
+
+impl Dispatch<XdgToplevel, SecondWindow> for App {
+    fn event(
+        _: &mut App,
+        _: &XdgToplevel,
+        _: xdg_toplevel::Event,
+        _: &SecondWindow,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+    }
+}
+
+/// The second window's one buffer stays as it is.
+impl Dispatch<WlBuffer, SecondWindow> for App {
+    fn event(
+        _: &mut App,
+        _: &WlBuffer,
+        _: wl_buffer::Event,
+        _: &SecondWindow,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+    }
+}
+
+impl Dispatch<WlCallback, Roundtrip> for App {
+    fn event(
+        app: &mut App,
+        _: &WlCallback,
+        event: wl_callback::Event,
+        _: &Roundtrip,
+        _: &Connection,
+        qh: &QueueHandle<App>,
+    ) {
+        if let wl_callback::Event::Done { .. } = event {
+            app.answered_activation(qh);
+        }
+    }
+}
+
+impl Dispatch<XdgActivationTokenV1, ()> for App {
+    fn event(
+        app: &mut App,
+        token: &XdgActivationTokenV1,
+        event: xdg_activation_token_v1::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<App>,
+    ) {
+        if let xdg_activation_token_v1::Event::Done { token: made } = event {
+            token.destroy();
+            app.activate(made, qh);
+        }
+    }
+}
+
+delegate_noop!(App: ignore XdgActivationV1);
+delegate_noop!(App: ignore WpViewporter);
+delegate_noop!(App: ignore WpViewport);
 delegate_noop!(App: ignore ZxdgDecorationManagerV1);
 delegate_noop!(App: ignore WpFifoManagerV1);
 delegate_noop!(App: ignore WpFifoV1);

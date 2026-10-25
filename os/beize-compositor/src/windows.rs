@@ -179,7 +179,7 @@ fn fills(window: &Window) -> bool {
 }
 
 /// The window's app, for the log.
-fn app_id(window: &Window) -> String {
+pub fn app_id(window: &Window) -> String {
     let id = window.toplevel().and_then(|toplevel| {
         with_states(toplevel.wl_surface(), |states| {
             states

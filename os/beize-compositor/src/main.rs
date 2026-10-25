@@ -15,11 +15,13 @@
 //! - `input`, `keyboard`, `cursor`: libinput, the layout localed set, the
 //!   pointer on the cursor plane.
 //! - `opening`: the desktop appears in one piece, once the shell is ready.
+//! - `activation`: windows that ask to become active (xdg-activation).
 //! - `apps`: apps in the user's service manager (the terminal).
 //!
 //! Clients connect on `$XDG_RUNTIME_DIR/wayland-0`. It runs as
 //! `beize-compositor.service`, which beize-session starts.
 
+mod activation;
 mod apps;
 mod backdrop;
 mod corners;
