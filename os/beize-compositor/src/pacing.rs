@@ -68,15 +68,40 @@ pub struct Times {
 
 /// Where a frame's drawing (CPU) went, from when it began to its commit:
 /// the scene put together (every window's, panel's and shadow's
-/// elements), live glass drawn behind its panels, the frame itself
-/// (damage, recording, the GPU's queue, the buffers' fences) and the
-/// commit to KMS.
+/// elements), live glass drawn behind its panels, then the frame itself –
+/// its damage and quads (Smithay's damage tracker calling the renderer),
+/// waiting for the GPU to give back a frame's objects, the recording of
+/// its commands, the fences of the clients' buffers and its own (implicit
+/// sync) and the submission to the GPU's queue – and the commit to KMS.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Parts {
     pub scene: Duration,
     pub glass: Duration,
-    pub frame: Duration,
+    pub damage: Duration,
+    pub wait: Duration,
+    pub record: Duration,
+    pub sync: Duration,
+    pub queue: Duration,
     pub commit: Duration,
+}
+
+impl Parts {
+    const NAMES: [&str; 8] = [
+        "scene", "glass", "damage", "wait", "record", "sync", "queue", "commit",
+    ];
+
+    fn each(&self) -> [Duration; 8] {
+        [
+            self.scene,
+            self.glass,
+            self.damage,
+            self.wait,
+            self.record,
+            self.sync,
+            self.queue,
+            self.commit,
+        ]
+    }
 }
 
 /// The frames of one run.
@@ -102,7 +127,7 @@ struct Run {
     /// The schedule's lead, in milliseconds.
     lead: Vec<f64>,
     /// The drawing's parts (`Parts`), in milliseconds.
-    parts: [Vec<f64>; 4],
+    parts: [Vec<f64>; 8],
 }
 
 pub struct Pacing {
@@ -172,12 +197,7 @@ impl Pacing {
         run.gpu.extend(gpu_ms);
         run.ahead.push(ms(begins) - ms(ready));
         run.lead.extend(times.lead.map(ms));
-        let p = times.parts;
-        for (all, part) in run
-            .parts
-            .iter_mut()
-            .zip([p.scene, p.glass, p.frame, p.commit])
-        {
+        for (all, part) in run.parts.iter_mut().zip(times.parts.each()) {
             all.push(ms(part));
         }
         if vblank.saturating_sub(run.first) >= PIECE {
@@ -232,7 +252,7 @@ impl Pacing {
         let (ahead, lead) = (sorted(&run.ahead), sorted(&run.lead));
         let busy = (median(&cpu) + median(&gpu)) / budget * 100.0;
         let parts = run.parts.each_ref().map(|p| sorted(p));
-        let parts = ["scene", "glass", "frame", "commit"]
+        let parts = Parts::NAMES
             .iter()
             .zip(&parts)
             .map(|(name, p)| format!("{name} {:.2}/{:.2}", median(p), percentile(p, 0.99)))
@@ -294,17 +314,19 @@ fn late(
     format!(
         "late frame ({who}), ms from its vblank's begin: change {:.2}, planned {:.2}, began \
          {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {gpu}; {plan}; drawing in parts, ms: \
-         scene {:.2}, glass {:.2}, frame {:.2}, commit {:.2}",
+         {}",
         at(times.requested),
         at(times.planned),
         at(times.began),
         at(times.committed),
         at(ready),
         at(shown),
-        ms(p.scene),
-        ms(p.glass),
-        ms(p.frame),
-        ms(p.commit),
+        Parts::NAMES
+            .iter()
+            .zip(p.each())
+            .map(|(name, part)| format!("{name} {:.2}", ms(part)))
+            .collect::<Vec<_>>()
+            .join(", "),
     )
 }
 
@@ -425,7 +447,11 @@ mod tests {
             parts: Parts {
                 scene: at(50),
                 glass: at(20),
-                frame: at(110),
+                damage: at(50),
+                wait: at(10),
+                record: at(20),
+                sync: at(10),
+                queue: at(20),
                 commit: at(20),
             },
         };
@@ -442,8 +468,8 @@ mod tests {
             line,
             "late frame (display), ms from its vblank's begin: change -2.54, planned -2.54, \
              began -2.54, committed -2.34, ready -2.34, shown 4.17; on the GPU 0.08 ms; planned \
-             with a lead of 3.00 ms; drawing in parts, ms: scene 0.05, glass 0.02, frame 0.11, \
-             commit 0.02"
+             with a lead of 3.00 ms; drawing in parts, ms: scene 0.05, glass 0.02, damage 0.05, \
+             wait 0.01, record 0.02, sync 0.01, queue 0.02, commit 0.02"
         );
         // Only the first few of a run are logged one by one.
         let mut p = Pacing::new(REFRESH, BLANK);

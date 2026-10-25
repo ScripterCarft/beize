@@ -801,6 +801,8 @@ where
             .userdata()
             .get::<Image<F::Framebuffer>>()
             .context("screen buffer data")?;
+        // What live glass submitted is the glass part's.
+        renderer.take_spent();
         let framing: Duration = self.clock.now().into();
         let (damage, fence, shown) = {
             let mut target = image.target.borrow_mut();
@@ -854,7 +856,14 @@ where
         });
         let planes = primary.into_iter().chain(cursor);
         let committing: Duration = self.clock.now().into();
-        parts.frame = committing.saturating_sub(framing);
+        let spent = renderer.take_spent();
+        parts.wait = spent.wait;
+        parts.record = spent.record;
+        parts.sync = spent.sync;
+        parts.queue = spent.queue;
+        parts.damage = committing
+            .saturating_sub(framing)
+            .saturating_sub(spent.wait + spent.record + spent.sync + spent.queue);
         if self.modeset {
             self.surface
                 .commit(planes, true)

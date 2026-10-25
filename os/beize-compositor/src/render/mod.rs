@@ -3,9 +3,10 @@
 //!
 //! Built for doing little: a frame draws only its damage, each damaged
 //! piece of a surface one quad, all quads of a frame in one buffer and few
-//! draws (bindless textures, `pipeline`). The CPU never waits for the GPU:
-//! two frames are in flight, a frame's end goes to KMS and into the dmabufs
-//! it touched as a sync_file (`sync`). Only lavapipe's copy to a dumb
+//! draws (bindless textures, `pipeline`). Two submissions are in flight; the
+//! CPU waits for the GPU only when it is that far behind (`current`, the
+//! `wait` of a frame's parts). A frame's end goes to KMS and into the
+//! dmabufs it touched as a sync_file (`sync`). lavapipe's copy to a dumb
 //! buffer waits, as the CPU has to copy.
 
 mod device;
@@ -18,6 +19,7 @@ mod texture;
 use std::collections::HashMap;
 use std::os::fd::AsFd;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use smithay::backend::allocator::dmabuf::{Dmabuf, WeakDmabuf};
 use smithay::backend::allocator::{Buffer as _, Format, Fourcc, Modifier};
@@ -95,6 +97,19 @@ pub struct Material {
     pub tint: [f32; 4],
 }
 
+/// Where the CPU's time went in the submissions since it was last taken
+/// (`VkRenderer::take_spent`): waiting for the GPU to give back a frame's
+/// objects (or for lavapipe's copy), recording the commands, the fences of
+/// the clients' dmabufs and of the frame (sync_file in and out), and the
+/// submission to the queue.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Spent {
+    pub wait: Duration,
+    pub record: Duration,
+    pub sync: Duration,
+    pub queue: Duration,
+}
+
 /// A picture's format: read as UNORM, drawn through an sRGB view.
 const PICTURE: vk::Format = vk::Format::R8G8B8A8_UNORM;
 const PICTURE_DRAWN: vk::Format = vk::Format::R8G8B8A8_SRGB;
@@ -119,6 +134,7 @@ pub struct VkRenderer {
     context: ContextId<VkTexture>,
     debug: DebugFlags,
     name: String,
+    spent: Spent,
 }
 
 impl std::fmt::Debug for VkRenderer {
@@ -163,6 +179,7 @@ impl VkRenderer {
             context: ContextId::new(),
             debug: DebugFlags::empty(),
             name: phd.name().to_owned(),
+            spent: Spent::default(),
         };
         for _ in 0..IN_FLIGHT {
             let frame = renderer.in_flight_new()?;
@@ -190,6 +207,11 @@ impl VkRenderer {
     /// flat while windows come, go and change size (a leak shows here).
     pub fn held(&self) -> (usize, u32) {
         (self.dmabufs.len(), self.shared.textures_in_use())
+    }
+
+    /// Where the CPU's time went in the submissions since the last call.
+    pub fn take_spent(&mut self) -> Spent {
+        std::mem::take(&mut self.spent)
     }
 
     /// The number of the last submission: a frame's, right after it.
@@ -1079,7 +1101,10 @@ impl VkRenderer {
         frame: Option<&mut frame::Recorded<'_>>,
         readout: Option<&frame::Readout>,
     ) -> Result<u64> {
+        let began = Instant::now();
         let i = self.current()?;
+        let recording = Instant::now();
+        self.spent.wait += recording - began;
         // Each submission lets go of the clients' dmabufs that are gone (a
         // window's old size, a closed app), as Smithay's GLES renderer does
         // each frame: Smithay asks for it only in its DrmCompositor, which
@@ -1133,6 +1158,7 @@ impl VkRenderer {
             );
         }
         let mut waits = Vec::new();
+        let mut synced = Duration::ZERO;
         if let Some(frame) = frame {
             let pipelines = self.pipelines.get(&d, frame.target.format)?;
             let quads = addresses.last().copied().unwrap_or_default();
@@ -1145,7 +1171,9 @@ impl VkRenderer {
                 frame,
                 submission,
             );
+            let syncing = Instant::now();
             waits = frame::implicit_waits(&d, &self.ext, frame, submission);
+            synced = syncing.elapsed();
         }
         if let Some(readout) = readout {
             frame::record_readout(&d, commands, readout);
@@ -1175,6 +1203,9 @@ impl VkRenderer {
             .wait_semaphore_infos(&wait_infos)
             .command_buffer_infos(&buffers)
             .signal_semaphore_infos(&signal);
+        let queueing = Instant::now();
+        self.spent.record += (queueing - recording).saturating_sub(synced);
+        self.spent.sync += synced;
         // SAFETY: the fence is not pending (its frame is done); every
         // object the commands use lives until this submission completes.
         unsafe {
@@ -1182,6 +1213,7 @@ impl VkRenderer {
             d.queue_submit2(self.queue, &[info], fence)
                 .context("submitting")?;
         }
+        self.spent.queue += queueing.elapsed();
         for s in waits {
             self.shared.defer(submission, Garbage::Semaphore(s));
         }
@@ -1260,10 +1292,26 @@ impl VkRenderer {
         }
         if let Some(readback) = &target.readback {
             // lavapipe's copy: the CPU copies, so it waits.
+            let waiting = Instant::now();
             self.shared.wait(submission)?;
             readback.copy_out(target.size)?;
+            self.spent.wait += waiting.elapsed();
             return Ok(SyncPoint::signaled());
         }
+        let syncing = Instant::now();
+        let point = self.export_frame(frame, submission);
+        self.spent.sync += syncing.elapsed();
+        point
+    }
+
+    /// The frame's fence as a sync_file, for KMS and into the dmabufs it
+    /// touched.
+    fn export_frame(
+        &mut self,
+        frame: &mut frame::Recorded<'_>,
+        submission: u64,
+    ) -> Result<SyncPoint> {
+        let target = &*frame.target;
         let i = (self.current + IN_FLIGHT - 1) % IN_FLIGHT;
         let fence = self.in_flight[i].fence;
         let info = vk::FenceGetFdInfoKHR::default()
