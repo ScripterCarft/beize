@@ -285,8 +285,15 @@ impl VkRenderer {
     }
 
     /// The base glass of `source` (`Material`): drawn with the next
-    /// submission, after what draws `source`.
-    pub fn draw_glass(&mut self, source: &VkTexture, material: Material) -> Result<VkTexture> {
+    /// submission, after what draws `source`. Into the pictures of `chain`
+    /// where they have the step's size (live glass keeps them from one
+    /// change to the next), else into new ones, which `chain` keeps.
+    pub fn draw_glass(
+        &mut self,
+        source: &VkTexture,
+        material: Material,
+        chain: &mut Vec<VkTexture>,
+    ) -> Result<VkTexture> {
         use beize_vulkan::pipeline::{BLUR_DOWN, BLUR_UP, MATERIAL};
         if material.down == 0 {
             return Err(error("glass without blur"));
@@ -309,7 +316,18 @@ impl VkRenderer {
                 )
             };
             let last = step + 1 == steps;
-            let texture = self.picture_texture(size)?;
+            let texture = match chain.get(step) {
+                Some(t) if t.0.size == size && t.0.attachment.is_some() => {
+                    self.passes.retain(|p| !Arc::ptr_eq(&p.texture.0, &t.0));
+                    t.clone()
+                }
+                _ => {
+                    let texture = self.picture_texture(size)?;
+                    chain.truncate(step);
+                    chain.push(texture.clone());
+                    texture
+                }
+            };
             let mut quad = pass_quad(size, Some(&from));
             quad.flags = flags;
             quad.sigma = material.offset;

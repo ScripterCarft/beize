@@ -195,7 +195,7 @@ impl Backdrop {
         if let Some(glass) = &self.glass {
             return Some(glass.clone());
         }
-        match renderer.draw_glass(&self.picture, self.appearance.material()) {
+        match renderer.draw_glass(&self.picture, self.appearance.material(), &mut Vec::new()) {
             Ok(glass) => Some(self.glass.insert(glass).clone()),
             Err(e) => {
                 tracing::warn!("base glass: {e}");
@@ -491,6 +491,8 @@ pub struct LiveGlass {
     damage: OutputDamageTracker,
     drawn: bool,
     glass: Option<(VkTexture, Appearance)>,
+    /// The pictures the blur draws into, drawn again at each change.
+    chain: Vec<VkTexture>,
     id: Id,
     commit: CommitCounter,
 }
@@ -506,6 +508,7 @@ impl LiveGlass {
             damage: OutputDamageTracker::new(size, 1.0, Transform::Normal),
             drawn: false,
             glass: None,
+            chain: Vec::new(),
             id: Id::new(),
             commit: CommitCounter::default(),
         })
@@ -570,7 +573,7 @@ impl LiveGlass {
                 .target
                 .texture()
                 .context("live glass without a texture")?;
-            let blurred = renderer.draw_glass(behind, appearance.material())?;
+            let blurred = renderer.draw_glass(behind, appearance.material(), &mut self.chain)?;
             self.glass = Some((blurred, appearance));
             self.commit.increment();
         }
