@@ -40,7 +40,9 @@ pub fn run(paths: &Paths) -> Result<()> {
 pub(super) fn machine(paths: &Paths) -> Result<Machine> {
     clear_boot_logs(paths)?;
     let image = paths.image.join("disk.img");
-    let machine = Machine::named(paths, "run");
+    let mut machine = Machine::named(paths, "run");
+    // By hand the desktop runs too.
+    machine.memory_mib = super::machine::DESKTOP_MEMORY_MIB;
     let outdated = |p: &Path| -> Result<bool> {
         Ok(!p.exists() || fs::metadata(p)?.modified()? < fs::metadata(&image)?.modified()?)
     };

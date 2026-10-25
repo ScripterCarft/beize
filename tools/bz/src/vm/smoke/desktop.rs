@@ -57,7 +57,7 @@ use crate::vm::console::{
     keys, screendump,
 };
 use crate::vm::debug::Shell;
-use crate::vm::machine::{Machine, test_medium};
+use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
 
 /// The test client's quadrants as the screen shows them (RGB), from
 /// os/beize-testclient: red, green above; blue, white below.
@@ -216,6 +216,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     machine.test_medium = test_medium(paths)?;
     // Drags land on the pixel (`console::drag`).
     machine.tablet = true;
+    machine.memory_mib = DESKTOP_MEMORY_MIB;
     ensure!(
         machine.test_medium.is_some(),
         "no test medium: the test client is missing"
@@ -942,7 +943,20 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          back"
     );
     shell.stop()?;
+    remove_screens(&machine.logs)?;
     machine.remove()
+}
+
+/// The screen dumps of a passed run go (3 MB each, some 30 a run); a failed
+/// run keeps them beside its logs, with the PNGs it wrote for the owner.
+fn remove_screens(logs: &Path) -> Result<()> {
+    for entry in fs::read_dir(logs)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "ppm") {
+            fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
 }
 
 /// The load test's scene (ADR 0028 §9): its top window, dragged by its bar

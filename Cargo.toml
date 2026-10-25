@@ -23,6 +23,11 @@ undocumented_unsafe_blocks = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
 
+# Tests and lints: debug information for Beize's own code only. With it for
+# every crate, target/ grew to 28 GB (25.10.).
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

@@ -61,7 +61,19 @@ pub(super) struct Machine {
     /// The screen's size, width and height, as its EDID names it; `None`:
     /// QEMU's 1280x800, which the smoke test's references have.
     pub(super) screen: Option<(u32, u32)>,
+    /// The guest's memory in MiB (`MEMORY_MIB`, more for the desktop).
+    pub(super) memory_mib: u32,
 }
+
+/// A test VM's memory: a boot to the end of the boot report uses ~310 MiB
+/// (measured 25.10., MemTotal less MemAvailable), so 1 GiB leaves it room.
+/// Each VM holds all of it from the start (`prealloc`); with 2 GiB each,
+/// five side by side held 10 of WSL's 16 GiB.
+pub(super) const MEMORY_MIB: u32 = 1024;
+
+/// The desktop's: ~560 MiB in use under the load test (12 windows on
+/// lavapipe; the user's slice peaked at 486 MiB), measured 25.10.
+pub(super) const DESKTOP_MEMORY_MIB: u32 = 1536;
 
 impl Machine {
     pub(super) fn named(paths: &Paths, name: &str) -> Self {
@@ -77,6 +89,7 @@ impl Machine {
             test_medium: None,
             tablet: false,
             screen: None,
+            memory_mib: MEMORY_MIB,
         }
     }
 
@@ -175,7 +188,9 @@ fn copy_sparse(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// How many VMs run side by side, on any machine: each has 4 virtual CPUs
-/// and 2 GiB (`qemu`), plus room for QEMU and swtpm themselves – as many as
+/// and at most 1.5 GiB (`qemu`), plus room for QEMU and swtpm themselves
+/// (3 GiB reserved, unchanged when the guests shrank: more VMs would
+/// overbook the CPUs, which the guests' RCU stalls hinted at) – as many as
 /// CPUs and memory hold, at least one. Not more VMs than CPUs allow: a boot
 /// computes for most of its time (firmware with Secure Boot, the kernel
 /// clearing memory, cryptography). Measured 2026-10-17 on 4 CPUs (the CI's
@@ -419,7 +434,7 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
     cmd.args(["-global", "driver=cfi.pflash01,property=secure,value=on"])
         .arg("-smp")
         .arg(VM_CPUS.to_string())
-        .args(["-m", "2G", "-no-reboot"])
+        .args(["-m", &format!("{}M", machine.memory_mib), "-no-reboot"])
         // virtio-gpu, the GPU VMs use today, in the standard VGA's place
         // (the other devices keep their PCI addresses): atomic KMS with a
         // cursor plane for the compositor, lavapipe draws into its dumb
@@ -435,7 +450,13 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         // this the host would only then provide each page, and the kernel
         // phase would measure the host's paging – on the nested CI runner
         // 0.6–4 s depending on what the job touched before.
-        .args(["-object", "memory-backend-ram,id=ram,size=2G,prealloc=on"])
+        .args([
+            "-object",
+            &format!(
+                "memory-backend-ram,id=ram,size={}M,prealloc=on",
+                machine.memory_mib
+            ),
+        ])
         .args(["-machine", "memory-backend=ram"])
         .arg("-drive")
         .arg(format!(

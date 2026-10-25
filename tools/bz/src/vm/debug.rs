@@ -64,6 +64,8 @@ pub fn debug(
     }
     machine.test_medium = super::machine::test_medium(paths)?;
     machine.screen = screen;
+    // By hand the desktop runs too.
+    machine.memory_mib = super::machine::DESKTOP_MEMORY_MIB;
     let answers = recovery_key.map_or_else(Answers::none, Answers::recovery_key);
 
     util::step(&format!("Booting {}", machine.name()));
