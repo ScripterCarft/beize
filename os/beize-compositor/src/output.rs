@@ -26,7 +26,7 @@ use smithay::backend::drm::{
     PlaneDamageClips, PlaneState,
 };
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::element::RenderElement;
+use smithay::backend::renderer::element::{RenderElement, RenderElementStates};
 use smithay::backend::renderer::{Bind, ExportMem};
 use smithay::reexports::drm::buffer::{
     Buffer as _, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
@@ -552,13 +552,14 @@ struct Pending<B: Buffer> {
     learn: bool,
 }
 
-/// What `Output::render` did.
-#[derive(Debug, PartialEq, Eq)]
+/// What `Output::render` did; with what the frame shows (each element in
+/// view, for presentation feedback).
+#[derive(Debug)]
 pub enum Frame {
     /// A frame (or a cursor move) waits for its vblank.
-    Queued,
+    Queued(RenderElementStates),
     /// Nothing changed: no frame.
-    Unchanged,
+    Unchanged(RenderElementStates),
     /// The last frame is not on the screen yet; the next follows it.
     Deferred,
 }
@@ -787,7 +788,7 @@ where
             .get::<Image<F::Framebuffer>>()
             .context("screen buffer data")?;
         let framing: Duration = self.clock.now().into();
-        let (damage, fence) = {
+        let (damage, fence, shown) = {
             let mut target = image.target.borrow_mut();
             let mut framebuffer = renderer.bind(&mut *target)?;
             let result = self
@@ -800,7 +801,7 @@ where
                     BACKGROUND,
                 )
                 .map_err(|e| error(format!("rendering: {e:?}")))?;
-            (result.damage.cloned(), result.sync.export())
+            (result.damage.cloned(), result.sync.export(), result.states)
         };
         let damaged = damage.is_some();
         let cursor = match &mut self.cursor {
@@ -809,7 +810,7 @@ where
         };
         if !damaged && cursor.is_none() {
             // Nothing changed: no frame, no commit; the slot goes back.
-            return Ok(Frame::Unchanged);
+            return Ok(Frame::Unchanged(shown));
         }
 
         let size = slot.size();
@@ -878,7 +879,7 @@ where
                 aim: plan.and_then(|p| p.aim),
             });
         }
-        Ok(Frame::Queued)
+        Ok(Frame::Queued(shown))
     }
 
     /// The commit is on the screen; the time of its vblank, if KMS said.

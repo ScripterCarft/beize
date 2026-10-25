@@ -19,6 +19,10 @@
 //! only the bar's strip (and damages only that), so the measure is the
 //! compositor's pace, not the client's drawing; its own drawing time is
 //! printed too. `--seconds S` ends it after S seconds (default 10).
+//! It asks for each of those frames when it showed (wp_presentation) and,
+//! once all answered, prints how many showed, on which clock, with which
+//! flags, and whether times and sequence rose and each time lay before its
+//! answer arrived.
 
 use std::fs::File;
 use std::io::Read as _;
@@ -44,6 +48,10 @@ use wayland_client::protocol::{
     wl_surface::WlSurface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop};
+use wayland_protocols::wp::presentation_time::client::{
+    wp_presentation::{self, WpPresentation},
+    wp_presentation_feedback::{self, WpPresentationFeedback},
+};
 use wayland_protocols::xdg::decoration::zv1::client::{
     zxdg_decoration_manager_v1::ZxdgDecorationManagerV1,
     zxdg_toplevel_decoration_v1::{self, ZxdgToplevelDecorationV1},
@@ -145,8 +153,29 @@ struct App {
     frame_times: Vec<u32>,
     /// How long each frame took to draw.
     draw_times: Vec<Duration>,
+    /// When the frames showed, if the compositor tells.
+    presentation: Option<WpPresentation>,
+    /// The clock its times are on.
+    clock: Option<u32>,
+    /// Frames asked about, those that showed, and the numbers of those
+    /// discarded (the first is 1).
+    asked: u32,
+    shown: Vec<Shown>,
+    discarded: Vec<u32>,
+    /// The answers are summed up.
+    presented_all: bool,
     bar: i32,
     running: bool,
+}
+
+/// A frame on the screen, as wp_presentation_feedback.presented says.
+struct Shown {
+    time: Duration,
+    refresh: u32,
+    sequence: u64,
+    flags: u32,
+    /// When the answer arrived, on the same clock.
+    arrived: Duration,
 }
 
 fn run() -> Result<()> {
@@ -170,6 +199,12 @@ fn run() -> Result<()> {
         .bind(&qh, 1..=6, ())
         .map_err(missing("xdg_wm_base"))?;
     let seat: WlSeat = globals.bind(&qh, 5..=9, ()).map_err(missing("wl_seat"))?;
+    let presentation: Option<WpPresentation> = (options.frames > 0)
+        .then(|| globals.bind(&qh, 1..=2, ()).ok())
+        .flatten();
+    if options.frames > 0 && presentation.is_none() {
+        println!("presentation: not offered");
+    }
 
     let surface = compositor.create_surface(&qh, ());
     let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
@@ -206,6 +241,12 @@ fn run() -> Result<()> {
         frame_asked: false,
         frame_times: Vec::new(),
         draw_times: Vec::new(),
+        presentation,
+        clock: None,
+        asked: 0,
+        shown: Vec::new(),
+        discarded: Vec::new(),
+        presented_all: false,
         bar: 0,
         running: true,
     };
@@ -325,6 +366,10 @@ impl App {
         if self.frames_left > 0 && !self.frame_asked {
             self.frame_asked = true;
             self.surface.frame(qh, ());
+            if let Some(presentation) = &self.presentation {
+                presentation.feedback(&self.surface, qh, ());
+                self.asked += 1;
+            }
             self.bar = (self.bar + BAR_STEP) % (size.0 - BAR_SIZE.0).max(1);
         }
         self.surface.commit();
@@ -366,6 +411,64 @@ impl App {
             filled: false,
         });
         Ok(index)
+    }
+
+    /// How many frames were answered, shown or discarded; the answers come
+    /// in the order of the frames.
+    fn answered(&self) -> u32 {
+        u32::try_from(self.shown.len() + self.discarded.len()).unwrap_or(u32::MAX)
+    }
+
+    /// Once the frames are drawn and each answered whether it showed: the
+    /// sum, at once, as the client may be stopped any moment after.
+    fn report_presentation(&mut self) {
+        let answered = self.answered();
+        if self.presented_all
+            || self.presentation.is_none()
+            || self.frames_left > 0
+            || answered < self.asked
+        {
+            return;
+        }
+        self.presented_all = true;
+        let shown = &self.shown;
+        let names = [
+            (wp_presentation_feedback::Kind::Vsync, "vsync"),
+            (wp_presentation_feedback::Kind::HwClock, "hw_clock"),
+            (
+                wp_presentation_feedback::Kind::HwCompletion,
+                "hw_completion",
+            ),
+            (wp_presentation_feedback::Kind::ZeroCopy, "zero_copy"),
+        ];
+        let common = shown.iter().fold(u32::MAX, |all, s| all & s.flags);
+        let flags: Vec<&str> = names
+            .iter()
+            .filter(|(kind, _)| common & kind.bits() != 0)
+            .map(|(_, name)| *name)
+            .collect();
+        let yes = |b: bool| if b { "yes" } else { "no" };
+        let rising = shown
+            .windows(2)
+            .all(|w| w[1].time > w[0].time && w[1].sequence > w[0].sequence);
+        let before = shown.iter().all(|s| s.time <= s.arrived);
+        let refresh = shown.last().map_or(0, |s| s.refresh);
+        println!(
+            "presentation: {} of {} shown, {} discarded {:?}, clock {}, refresh {refresh} ns, on \
+             all: {}, rising {}, before arrival {}",
+            shown.len(),
+            self.asked,
+            self.discarded.len(),
+            self.discarded,
+            self.clock.map_or("none".into(), |c| c.to_string()),
+            if flags.is_empty() {
+                "no flags".into()
+            } else {
+                flags.join(" ")
+            },
+            yes(rising),
+            yes(before),
+        );
     }
 
     /// The window is opaque: the compositor need not draw what is under it.
@@ -500,6 +603,7 @@ impl Dispatch<WlCallback, ()> for App {
             app.frame_asked = false;
             app.frame_times.push(callback_data);
             app.frames_left = app.frames_left.saturating_sub(1);
+            app.report_presentation();
             if app.frames_left > 0
                 && let Err(e) = app.draw(qh)
             {
@@ -661,6 +765,71 @@ impl Dispatch<ZxdgToplevelDecorationV1, ()> for App {
                     "client_side"
                 }
             );
+        }
+    }
+}
+
+impl Dispatch<WpPresentation, ()> for App {
+    fn event(
+        app: &mut App,
+        _: &WpPresentation,
+        event: wp_presentation::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+        if let wp_presentation::Event::ClockId { clk_id } = event {
+            app.clock = Some(clk_id);
+        }
+    }
+}
+
+impl Dispatch<WpPresentationFeedback, ()> for App {
+    fn event(
+        app: &mut App,
+        _: &WpPresentationFeedback,
+        event: wp_presentation_feedback::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+        match event {
+            wp_presentation_feedback::Event::Presented {
+                tv_sec_hi,
+                tv_sec_lo,
+                tv_nsec,
+                refresh,
+                seq_hi,
+                seq_lo,
+                flags,
+            } => {
+                // CLOCK_MONOTONIC, as the compositor names it (clock 1);
+                // another clock fails the check by its number.
+                let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+                app.shown.push(Shown {
+                    time: Duration::new(
+                        (u64::from(tv_sec_hi) << 32) | u64::from(tv_sec_lo),
+                        tv_nsec,
+                    ),
+                    refresh,
+                    sequence: (u64::from(seq_hi) << 32) | u64::from(seq_lo),
+                    flags: match flags {
+                        WEnum::Value(kind) => kind.bits(),
+                        WEnum::Unknown(bits) => bits,
+                    },
+                    arrived: Duration::new(
+                        u64::try_from(now.tv_sec).unwrap_or(0),
+                        u32::try_from(now.tv_nsec).unwrap_or(0),
+                    ),
+                });
+                app.report_presentation();
+            }
+            wp_presentation_feedback::Event::Discarded => {
+                let frame = app.answered() + 1;
+                app.discarded.push(frame);
+                app.report_presentation();
+            }
+            _ => {}
         }
     }
 }

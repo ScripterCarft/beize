@@ -972,9 +972,45 @@ fn frames(shell: &Shell) -> Result<()> {
         "the compositor counted {frames} frames of the client's 120: {pacing}"
     );
     say!("  ok: the compositor measured the client's frames: {pacing}");
+    presentation(shell)?;
     // Its window would go by itself later, in the middle of another check.
     shell.capture("systemctl --user stop beize-testclient-frames")?;
 
+    Ok(())
+}
+
+/// The client of `frames` heard for each frame when it showed
+/// (wp_presentation): at its vblank, on CLOCK_MONOTONIC (clock 1), timed
+/// by the hardware – flags only a vblank's time gets, not the "changed
+/// nothing" path's –, times and sequence rising, each before it arrived.
+/// And none was discarded: a client drawing on "frame done" hears it only
+/// once its last frame is drawn, so it never replaces one not yet shown
+/// (until 0.5.104 one in 120 was, when its commit came after drawing
+/// began; three runs of three).
+fn presentation(shell: &Shell) -> Result<()> {
+    let (_, lines) = shell.capture(
+        "for i in $(seq 25); do journalctl --user -u beize-testclient-frames -o cat \
+         | grep -q '^presentation: ' && break; sleep 0.2; done; \
+         journalctl --user -u beize-testclient-frames -o cat | grep '^presentation: '",
+    )?;
+    let line = lines
+        .iter()
+        .find(|l| l.starts_with("presentation: "))
+        .context("the client said nothing of when its frames showed")?;
+    for part in [
+        "presentation: 120 of 120 shown, 0 discarded",
+        "clock 1,",
+        "on all: vsync hw_clock hw_completion,",
+        "rising yes,",
+        "before arrival yes",
+    ] {
+        ensure!(line.contains(part), "not \"{part}\": {line}");
+    }
+    ensure!(
+        !line.contains("refresh 0 ns"),
+        "no refresh with the frames: {line}"
+    );
+    say!("  ok: the client heard when each frame showed: {line}");
     Ok(())
 }
 

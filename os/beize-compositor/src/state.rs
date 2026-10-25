@@ -20,6 +20,7 @@ use std::time::Duration;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::{DrmEvent, DrmNode};
 use smithay::backend::renderer::ImportDma;
+use smithay::backend::renderer::element::RenderElementStates;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::utils::CommitCounter;
@@ -27,7 +28,10 @@ use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
-use smithay::desktop::utils::send_frames_surface_tree;
+use smithay::desktop::utils::{
+    OutputPresentationFeedback, send_frames_surface_tree,
+    surface_presentation_feedback_flags_from_states,
+};
 use smithay::desktop::{LayerSurface, PopupManager, Space, Window, layer_map_for_output};
 use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::{CursorIcon, CursorImageStatus};
@@ -37,25 +41,30 @@ use smithay::reexports::calloop::channel::{self, Sender};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
 use smithay::reexports::input::Libinput;
+use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
 use smithay::reexports::wayland_server::backend::{
     ClientData, ClientId, DisconnectReason, GlobalId,
 };
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
+use smithay::reexports::wayland_server::protocol::wl_callback::WlCallback;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::utils::{
-    Clock, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Size, Transform,
+    Clock, ClockSource, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Size,
+    Transform,
 };
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
-    CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
+    CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes, SurfaceData,
+    TraversalAction, get_parent, is_sync_subsurface, with_surface_tree_downward,
 };
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
 };
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
+use smithay::wayland::presentation::{PresentationState, Refresh};
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
@@ -68,7 +77,8 @@ use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::{
     delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf,
-    delegate_output, delegate_seat, delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_output, delegate_presentation, delegate_seat, delegate_shm, delegate_xdg_decoration,
+    delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
@@ -115,6 +125,7 @@ pub struct State {
     seat_state: SeatState<State>,
     data_device: DataDeviceState,
     _cursor_shape: CursorShapeManagerState,
+    _presentation: PresentationState,
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
@@ -183,7 +194,25 @@ pub struct State {
     frame_timer: Option<RegistrationToken>,
     /// Draws an animated pointer's next frame.
     cursor_timer: Option<RegistrationToken>,
+    /// What clients hear once their content shows (`Shown`): that of the
+    /// frame waiting for its vblank, and that of commits that changed
+    /// nothing on the screen, told at the next vblank or a refresh later.
+    presenting: Option<Shown>,
+    unchanged: Vec<Shown>,
+    /// What the last frame showed, changed or not (the damage tracker's
+    /// states); the other surfaces are hidden.
+    drawn: RenderElementStates,
+    /// When hidden surfaces last heard "frame done".
+    hidden_done: Option<Duration>,
     failure: Option<Error>,
+}
+
+/// What a frame drew of clients, told them once it is on the screen: when
+/// (wp_presentation), and that they may draw their next frame ("frame
+/// done").
+struct Shown {
+    feedback: Option<OutputPresentationFeedback>,
+    callbacks: Vec<WlCallback>,
 }
 
 #[derive(Default)]
@@ -253,6 +282,9 @@ impl State {
             data_device: DataDeviceState::new::<State>(&display),
             // Apps name their pointer's image (`cursor`).
             _cursor_shape: CursorShapeManagerState::new::<State>(&display),
+            // When a frame showed, for video and games (Mesa's Vulkan
+            // present wait, GTK, mpv), on the clock of the vblank times.
+            _presentation: PresentationState::new::<State>(&display, Monotonic::ID as u32),
             seat_state,
             seat,
             keyboard,
@@ -291,6 +323,10 @@ impl State {
             pacing_timer: None,
             frame_timer: None,
             cursor_timer: None,
+            presenting: None,
+            unchanged: Vec::new(),
+            drawn: RenderElementStates::default(),
+            hidden_done: None,
             failure: None,
             display,
             handle,
@@ -342,10 +378,12 @@ impl State {
         self.handle
             .insert_source(events, |event, metadata, state| match event {
                 DrmEvent::VBlank(crtc) => {
+                    let sequence = metadata.as_ref().map_or(0, |m| m.sequence);
                     let time = state
                         .gpu
                         .as_mut()
                         .and_then(|gpu| gpu.vblank(crtc, metadata.take()));
+                    state.presented(time, sequence);
                     state.frame_done(time);
                     if state.redraw {
                         state.schedule_render();
@@ -435,6 +473,10 @@ impl State {
             Ok(Change::None) => {}
             Ok(Change::Gone) => {
                 info!("no screen: windows keep their places until one comes");
+                // Its last frame will not show.
+                if let Some(shown) = self.presenting.take() {
+                    self.never_shown(shown);
+                }
                 self.frame_done_later();
             }
             Ok(Change::Retrained) => self.changed(),
@@ -876,9 +918,20 @@ impl State {
             self.changed_at = None;
         }
         match frame {
-            Ok(Frame::Queued) => {}
+            Ok(Frame::Queued(shown)) => {
+                let taken = self.take_shown(&shown);
+                if let Some(old) = self.presenting.replace(taken) {
+                    self.never_shown(old);
+                }
+                self.drawn = shown;
+            }
             Ok(Frame::Deferred) => self.redraw = true,
-            Ok(Frame::Unchanged) => self.frame_done_later(),
+            Ok(Frame::Unchanged(shown)) => {
+                let taken = self.take_shown(&shown);
+                self.unchanged.push(taken);
+                self.drawn = shown;
+                self.frame_done_later();
+            }
             Err(e) => self.fail(e),
         }
         self.animate_cursor(began);
@@ -969,6 +1022,7 @@ impl State {
             .handle
             .insert_source(Timer::from_duration(refresh), |_, _, state| {
                 state.frame_timer = None;
+                state.presented_unchanged();
                 state.frame_done(None);
                 TimeoutAction::Drop
             });
@@ -978,28 +1032,170 @@ impl State {
         }
     }
 
-    /// Tells the clients on the screen their frame is shown, at `time`
-    /// (the vblank) or now. Without a screen, all are hidden.
+    /// Each surface of the windows – with their popups, minimized ones too –
+    /// and of the panels.
+    fn each_surface(&self, mut f: impl FnMut(&WlSurface, &SurfaceData)) {
+        let mut tree = |surface: &WlSurface| {
+            with_surface_tree_downward(
+                surface,
+                (),
+                |_, _, &()| TraversalAction::DoChildren(()),
+                |surface, states, &()| f(surface, states),
+                |_, _, &()| true,
+            );
+        };
+        for window in self.space.elements().chain(&self.minimized) {
+            let Some(toplevel) = window.toplevel() else {
+                continue;
+            };
+            let surface = toplevel.wl_surface();
+            tree(surface);
+            for (popup, _) in PopupManager::popups_for_surface(surface) {
+                tree(popup.wl_surface());
+            }
+        }
+        if let Some(output) = &self.output {
+            for panel in layer_map_for_output(output).layers() {
+                tree(panel.wl_surface());
+            }
+        }
+    }
+
+    /// Takes from the surfaces a frame shows (`shown`, the damage tracker's
+    /// states, which name each element in view, changed or not) what is
+    /// told when it is on the screen: their presentation feedback and their
+    /// "frame done" callbacks. Only those of commits the frame draws: one
+    /// that arrives after drawing began keeps its own for the next frame,
+    /// as Weston takes them at repaint and answers them at its vblank –
+    /// told at the vblank before (until 0.5.104), its client drew the next
+    /// frame at once and the one not shown was discarded. The surfaces not
+    /// shown keep theirs until their next commit discards the feedback, as
+    /// the protocol asks for content never seen.
+    fn take_shown(&self, shown: &RenderElementStates) -> Shown {
+        let mut callbacks = Vec::new();
+        self.each_surface(|surface, states| {
+            if shown.element_was_presented(surface) {
+                let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+                callbacks.append(&mut attributes.current().frame_callbacks);
+            }
+        });
+        let feedback = self.output.as_ref().map(|output| {
+            let mut feedback = OutputPresentationFeedback::new(output);
+            let on = |surface: &WlSurface, _: &SurfaceData| {
+                shown.element_was_presented(surface).then(|| output.clone())
+            };
+            let flags = |surface: &WlSurface, _: &SurfaceData| {
+                surface_presentation_feedback_flags_from_states(surface, shown)
+            };
+            for window in self.space.elements() {
+                window.take_presentation_feedback(&mut feedback, on, flags);
+            }
+            for panel in layer_map_for_output(output).layers() {
+                panel.take_presentation_feedback(&mut feedback, on, flags);
+            }
+            feedback
+        });
+        Shown {
+            feedback,
+            callbacks,
+        }
+    }
+
+    /// Tells clients their content showed: that of the frame KMS just
+    /// showed, and of commits that changed nothing since, at the vblank
+    /// `time` with its `sequence`, timed by the hardware (as Smithay's
+    /// DrmCompositor reports it). Without a vblank time, none is exact.
+    fn presented(&mut self, time: Option<Duration>, sequence: u32) {
+        let kind = wp_presentation_feedback::Kind::Vsync
+            | wp_presentation_feedback::Kind::HwClock
+            | wp_presentation_feedback::Kind::HwCompletion;
+        let (at, kind) = match time {
+            Some(time) => (time, kind),
+            None => (
+                self.clock.now().into(),
+                wp_presentation_feedback::Kind::empty(),
+            ),
+        };
+        let mut shown: Vec<_> = self.presenting.take().into_iter().collect();
+        shown.append(&mut self.unchanged);
+        self.present(shown, at, u64::from(sequence), kind);
+    }
+
+    /// Commits that changed nothing on the screen, when no vblank came
+    /// since: shown now, a refresh after them, without the hardware's
+    /// flags (as niri reports them).
+    fn presented_unchanged(&mut self) {
+        let shown = std::mem::take(&mut self.unchanged);
+        let now = self.clock.now().into();
+        self.present(shown, now, 0, wp_presentation_feedback::Kind::empty());
+    }
+
+    fn present(
+        &self,
+        shown: Vec<Shown>,
+        at: Duration,
+        sequence: u64,
+        kind: wp_presentation_feedback::Kind,
+    ) {
+        let refresh = self
+            .gpu
+            .as_ref()
+            .and_then(Gpu::refresh)
+            .map_or(Refresh::Unknown, Refresh::fixed);
+        let time = smithay::utils::Time::<Monotonic>::from(at);
+        // In milliseconds, as wl_callback.done carries it.
+        let msec = at.as_millis() as u32;
+        for shown in shown {
+            if let Some(mut feedback) = shown.feedback {
+                feedback.presented(time, refresh, sequence, kind);
+            }
+            for callback in shown.callbacks {
+                callback.done(msec);
+            }
+        }
+    }
+
+    /// A frame that will not show (its screen went, or a new frame replaced
+    /// it while the session was away): its content counts as discarded, and
+    /// its clients hear "frame done" now, so none waits for it.
+    fn never_shown(&self, shown: Shown) {
+        if let Some(mut feedback) = shown.feedback {
+            feedback.discarded();
+        }
+        let now: Duration = self.clock.now().into();
+        for callback in shown.callbacks {
+            callback.done(now.as_millis() as u32);
+        }
+    }
+
+    /// "Frame done" for the surfaces the last frame did not show – off the
+    /// screen, covered, minimized, or all without a screen – at most every
+    /// HIDDEN_FRAMES, at `time` (the vblank) or now; and for the pointer's.
+    /// Those shown hear it when their frame is (`present`).
     fn frame_done(&mut self, time: Option<Duration>) {
         let Some(output) = self.output.clone() else {
             return;
         };
         let time = time.unwrap_or_else(|| self.clock.now().into());
-        let shown = self
-            .gpu
-            .as_ref()
-            .is_some_and(Gpu::shows)
-            .then(|| output.clone());
-        for window in self.space.elements() {
-            window.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| shown.clone());
+        let shows = self.gpu.as_ref().is_some_and(Gpu::shows);
+        if self
+            .hidden_done
+            .is_none_or(|last| time.saturating_sub(last) >= HIDDEN_FRAMES)
+        {
+            self.hidden_done = Some(time);
+            let drawn = shows.then_some(&self.drawn);
+            let msec = time.as_millis() as u32;
+            self.each_surface(|surface, states| {
+                if drawn.is_some_and(|d| d.element_was_presented(surface)) {
+                    return;
+                }
+                let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+                for callback in attributes.current().frame_callbacks.drain(..) {
+                    callback.done(msec);
+                }
+            });
         }
-        // Not on the screen: "frame done" at most every HIDDEN_FRAMES.
-        for window in &self.minimized {
-            window.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| None);
-        }
-        for panel in layer_map_for_output(&output).layers() {
-            panel.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| shown.clone());
-        }
+        let shown = shows.then(|| output.clone());
         if let Some(surface) = self.cursor.surface() {
             send_frames_surface_tree(surface, &output, time, Some(HIDDEN_FRAMES), |_, _| {
                 shown.clone()
@@ -1231,6 +1427,7 @@ delegate_output!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
 delegate_cursor_shape!(State);
+delegate_presentation!(State);
 
 /// cursor-shape-v1 also names tablet tools' images; Beize has no tablets
 /// yet, so nothing is needed of it.

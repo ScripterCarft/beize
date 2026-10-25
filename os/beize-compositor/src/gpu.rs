@@ -17,7 +17,7 @@ use smithay::backend::allocator::Modifier;
 use smithay::backend::allocator::dumb::DumbAllocator;
 use smithay::backend::allocator::vulkan::{ImageUsageFlags, VulkanAllocator};
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEventMetadata, DrmNode};
-use smithay::backend::renderer::element::RenderElement;
+use smithay::backend::renderer::element::{RenderElement, RenderElementStates};
 use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::udev;
@@ -366,7 +366,7 @@ impl Gpu {
             Some(screen) => {
                 each!(screen, o => o.render(renderer, elements, cursor, requested, began, parts))
             }
-            None => Ok(Frame::Unchanged),
+            None => Ok(Frame::Unchanged(RenderElementStates::default())),
         }
     }
 
