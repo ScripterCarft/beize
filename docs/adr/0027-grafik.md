@@ -148,10 +148,9 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 - **Modus:** die Auflösung des bevorzugten Modus (die des Panels) mit der höchsten Bildrate,
   die der Monitor dafür anbietet, ohne Zeilensprung; wie KWin. Der bevorzugte Modus ist bei
   schnellen Monitoren oft 60 Hz, das AW2723DF nennt 240 Hz nur im DisplayID-Block. Die
-  Konsole (fbdev) nimmt den bevorzugten Modus; weicht er ab, stellt der Compositor beim Start
-  um, und der Monitor ist schwarz, bis er einrastet (0.5.101: ~2 s; dass die Bildrate der
-  Konsole abweicht, ist erschlossen, der nächste Hardware-Test liest sie aus). Ebenso ~2 s
-  beim Start, wo nouveau den Firmware-Framebuffer vor dem GSP-Start entfernt (1,74 s gemessen).
+  Konsole (fbdev) nimmt den bevorzugten Modus (belegt: 60 Hz, `it had …` im Log); der
+  Compositor stellt beim Start um, und der Monitor ist schwarz, bis er einrastet (~2 s).
+  Ebenso beim Start, wo nouveau den Firmware-Framebuffer vor dem GSP-Start entfernt (1,74 s).
   Nur eine Umstellung, direkt auf den Modus des Desktops: wie Fedoras flicker-free boot
   (Konsole übernimmt erst bei Ausgabe, `FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER`) mit der
   grafischen Anmeldung.
@@ -210,18 +209,11 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   ohne bekannte Lage der vblanks (erstes Bild, nach einem VT-Wechsel) oder nach der Frist
   zeichnet er sofort. Die Lage kommt aus den Flip-Ereignissen; ist sie älter als 1 s, fragt
   er KMS (`drmWaitVBlank` relativ 0). Der gemeldete vblank (Ereignis am Beginn, Stempel am
-  Ende) ist nie der nächste.
-  **Warum so, gemessen auf der 3070 Ti (NVK, 2560x1440 @ 240 Hz, Testclient 20 s):** Am vblank
-  zu zeichnen (0.5.97) hielt jedes Bild einen vblank zurück (Änderung bis Bild 8,65 ms). Drei
-  Abweichungen von KWins Modell fielen je einmal durch: Vorlauf gegen das Ende des vblank ohne
-  Wartezeit bis zum Fence (0.5.98), Lernen aus sofort gezeichneten Bildern (0.5.99, eine
-  Schleife), der gemeldete vblank als nächster (0.5.100). **0.5.101:** 4 von 4797 Bildern spät
-  (1 GPU, 3 Anzeige), Compositor 3 % ausgelastet. Offen: Bei 240 Hz bleiben dem Vorlauf über
-  KWins Mindestwerte (3,46 ms) nur 0,71 ms; braucht ein Bild der letzten 120 länger als 2,7 ms
-  (GPU nach einer kurzen Pause heruntergetaktet), ist der Vorlauf ein ganzes Bild und alles
-  wird sofort gezeichnet – so in den kurzen Folgen beim Tippen (bis 3 von 20 spät, „ready“ nur
-  0,5 ms vor dem vblank). Die Zeilen `late frame` des nächsten Hardware-Tests belegen es oder
-  nicht, erst dann wird geändert. Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
+  Ende) ist nie der nächste. Jede Abweichung von KWins Modell fiel auf der 3070 Ti einmal
+  durch (0.5.97–0.5.100, Einzelheiten in Git); mit dem Modell 4 von 4797 Bildern spät.
+  Offen: Bei 240 Hz bleiben dem Vorlauf über KWins Mindestwerte (3,46 ms) nur 0,71 ms; ein
+  Bild über 2,7 ms (GPU nach einer Pause heruntergetaktet) macht den Vorlauf ein ganzes Bild.
+  Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
 
@@ -260,10 +252,8 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
   ganzes Bild 2,57 ms (GPU 1,60 ms), 80x40 Damage 0,22 ms (GPU 0,17 ms). Die GPU-Zeit
   misst der Renderer je Bild mit Timestamps, Grundlage für den Zeitplan „so spät wie möglich
   vor dem vblank“.
-- **Geprüft** von `beize-render-test` in der VM (über das Test-Medium von `bz`, nicht im
-  Image): feste Szenen offscreen, pixelgenau gegen eine Referenz der CPU. Die
-  Transformationen rechnet die Referenz mit Smithays eigener Funktion, nicht mit der des
-  Renderers.
+- **Geprüft** vom Desktop-Smoke (Pixelproben, Bildschirmfoto gegen QEMUs screendump).
+  `beize-render-test` lief in keinem Test mehr und ist entfernt (25.10.).
 - **Noch nicht:** `host_image_copy` (Upload ohne Staging, lavapipe und NVK ab Turing), Direct
   Scanout und Overlay-Ebenen (kommen in die Bildschleife vor dem Rendern), der dmabuf-Weg
   mit Modifiern (nur auf Hardware prüfbar).
@@ -291,18 +281,13 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
   dann zwei kleine Damage-Rechtecke (VM, lavapipe: 0,36 ms GPU). Das ist in VMs immer so:
   virtio-gpu zeigt seine Cursor-Ebene seit Linux 6.8 nur Clients, die den Hotspot setzen
   (`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`), und Smithays KMS-Schicht kann das nicht.
-  Vorschlag an Smithay liegt bei den anderen Berichten. Beize hat noch kein Cursor-Thema
-  (Icons kommen mit der Shell), jeder benannte Cursor ist bis dahin Beizes Pfeil. Ein
-  Client-Cursor (shm) wird kopiert.
-- **Geprüft** in der VM mit `beize-testclient` (Test-Medium, nicht im Image) und den Tasten
-  und Mausbewegungen von `bz debug`: Fenstergröße, Layout `de(nodeadkeys)` und der Wechsel
-  zu `us` per localectl, Tasten, Zeiger, Klick, VT-Wechsel hin und zurück, 0 % CPU im
-  Leerlauf. Die Cursor-Ebene selbst prüft erst der Hardware-Test.
+  Vorschlag an Smithay liegt bei den anderen Berichten. Die Zeiger kommen aus dem Thema
+  (ADR 0028 §8); ein Client-Cursor (shm) wird kopiert.
 
 ### 9. Beize UI und Terminal (Schritt 3, Entwurf 22.10.; Schriften, Start, Tasten vom Besitzer entschieden)
 
-Ziel: das erste eigene Fenster mit scharfem Text, das Terminal als erste App. Fenster bleiben
-bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
+Ziel: das erste eigene Fenster mit scharfem Text, das Terminal als erste App. Fenster,
+Titelleiste und Anordnung: ADR 0028.
 
 - **Aufbau:** `os/beize-ui` (Bibliothek: Fenster, Eingabe; Text, Szenen und Titelleiste seit
   23.10. in `os/beize-draw`, das der Compositor für die Rahmen fremder Apps mitnutzt) und
@@ -392,10 +377,9 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   Scrollen je Zeiger-Frame in Pixeln und Rastungen (`axis_value120`). Geprüft: Tests mit dem
   deutschen Layout (Buildroot), in der VM `^` + `e` = ê, `^` + Shift+`o` = Ô, Wechsel von
   `de(nodeadkeys)` zu `de` per localectl ohne Neustart des Fensters.
-- **Start** (22.10.): Strg+Alt+T öffnet jederzeit ein neues Terminal (beim Start des Desktops
-  öffnete sich übergangsweise eins, bis die Shell ein Dock hatte; seit 24.10. keins mehr, ADR
-  0028 §6) (dauerhaft, wie Ubuntu; die Taste
-  zählt wie auf einem geladenen lateinischen Layout, wie GNOME). Jedes Fenster ist eine Instanz
+- **Start** (22.10.): Strg+Alt+T öffnet jederzeit ein neues Terminal (wie Ubuntu; die Taste
+  zählt wie auf einem geladenen lateinischen Layout, wie GNOME), der Desktop startet ohne
+  (ADR 0028 §6). Jedes Fenster ist eine Instanz
   von `app-beize\x2dterminal@.service`, benannt nach systemds Desktop-Integration
   (`app-<App-ID>@<Zufall>.service`, Bindestriche maskiert), damit Werkzeuge die App eines
   Prozesses erkennen; nie ein Kind des Compositors (sonst erbte es seine Sandbox). Die Unit hängt
@@ -420,7 +404,7 @@ bildschirmfüllend und ohne Titelleiste, bis die Shell sie anordnet (Schritt 4).
   „u“ → rot, 12 Pixel. Dazu der Hardware-Test mit `pacing:` (prüft den Zeitplan).
 - **Noch nicht:** Barrierefreiheit (AccessKit mit den ersten Widgets), Eingabemethoden
   (`text-input-v3`), gebrochene Skalierung (Faktor 1 beim 27"-1440p des Besitzers; Protokoll
-  mit den Einstellungen), Titelleiste und Fensterknöpfe (ADR 0028 §2).
+  mit den Einstellungen).
 
 ## Reihenfolge
 

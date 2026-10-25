@@ -82,7 +82,7 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 - **Ränder:** Beize UI zeichnet keinen Rahmen. Darum gilt ein 5 px breiter Streifen außerhalb
   jedes Fensters als sein Rand, an dem der Compositor die Größe ändert, wie der WindowServer
   bei macOS. Apps mit eigenem Rand (GTK) behalten ihn, denn ihr Schatten liegt über dem
-  Streifen. Eigene Zeigerbilder für die Ränder kommen mit den Symbolen (d).
+  Streifen; dort zeigt der Zeiger den Doppelpfeil (siehe 8).
 - **Titelleiste von Beize UI** (Beize UI nutzt xdg-decoration nicht und zeichnet damit nach
   dem Protokoll selbst). Damit sind
   Werkzeugleisten in der Titelleiste möglich, wie bei Finder und Safari. Verschieben und
@@ -275,7 +275,7 @@ lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   eine neue Shell `ready` sagt (Neustart in der VM 0,2–0,5 s); eingefroren ändert sich ihr Glas
   nicht, Klicks gehen an die neue Shell. Der Desktop startet ohne Fenster, wie macOS (das
   Terminal öffnen Dock und Strg+Alt+T). Der flackerfreie Übergang von der Konsole (Fedoras
-  „flicker-free boot“, CLAUDE.md §11) kommt mit der grafischen Anmeldung.
+  „flicker-free boot“, ADR 0027 §6) kommt mit der grafischen Anmeldung.
 - **Animationen** sind Federn (gedämpfte Schwingung, unterbrechbar, wie SwiftUI). Sie
   laufen im Compositor im Takt der Bildwiederholung; jede hat einen Ursprung (Fenster aus
   dem Dock-Symbol). Schritt 4 legt das Gerüst und kurze Überblendungen an, die gestalteten
@@ -314,7 +314,8 @@ trennt. vello_cpu (ADR 0027 §9) bleibt außen vor, solange es eine 0.x-Version 
 experimentellem Cache ist. Fremde App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG,
 gewählt nach der Icon Theme Specification).
 
-- **Zeiger: Bibata Modern Classic** (GPL-3.0, Xcursor 16–96 px), vom Besitzer am 24.10. gewählt
+- **Zeiger: Bibata Modern Classic** (GPL-3.0, Xcursor; im Image nur 24 px und 48 px für
+  Faktor 2, das Release hat 14 Größen), vom Besitzer am 24.10. gewählt
   vor Adwaita, Breeze, Capitaine und Phinger: schwarz mit weißem Rand wie macOS' Zeiger, ohne sie
   zu kopieren; Warten animiert (54 Bilder je 40 ms), „Warten“ und „verboten“ farbig. Eingetragen
   als Thema „default“ für Apps, die Zeiger selbst laden. Der Compositor zeigt ihn mit 24 px:

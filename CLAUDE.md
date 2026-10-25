@@ -108,7 +108,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 #   · '@mouse 40 30 [click]' (QMP; PS/2-Maus, relativ;
 #   pixelgenau zieht nur der Desktop-Smoke, über ein virtio-Tablet: `console::drag`) · Testprogramme der Pakete
 #   (`usr/lib/beize/test/`, `[files] build`) liegen auf dem Test-Medium: in der VM
-#   `mount -o ro /dev/disk/by-id/virtio-beize-test /mnt`, z. B. `/mnt/beize-render-test`
+#   `mount -o ro /dev/disk/by-id/virtio-beize-test /mnt`, z. B. `/mnt/beize-testclient`
 ./bz run             # interaktiv (Ctrl-A X); VM-Disk bleibt bis zum nächsten Image
 ./bz boot-times ~/hw-logs/journal [--boot -1]   # Phasen, Kernel-Lücken, langsamste Units, Kette
 ./bz hw-check ~/hw-logs/journal   # welches PCI-Gerät des Rechners im Image einen Treiber hat
@@ -204,7 +204,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 - Pakete bauen parallel (ADR 0005): ein Jobserver für alle (512 MiB je Job, 2 GiB
   Reserve), Start nur mit Speicherprüfung, je Paket eine cgroup. Im Rezept **nur
   Bauschritte** mit `MAKEFLAGS="$JOBSERVER"` (nie `-j`), Installieren seriell.
-  Parallele VMs nach CPUs/RAM (je 4 CPUs und 3 GiB reserviert, Gast 2 GiB).
+  Parallele VMs nach CPUs/RAM (je 4 CPUs und 3 GiB reserviert, Gast 1 GiB, Desktop 1,5 GiB).
 - Werkzeuge, die zur systemd-Version im Image passen müssen (ukify, systemd-measure),
   kommen aus unserem systemd-Build (ADR 0009).
 - Host-Werkzeuge, die `bz` oder ein Bau aufruft, gehören in `ci/buildroot/packages.txt`
@@ -303,341 +303,92 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Messbau 0.5.104 beim Besitzer – JETZT: „AUFTRAG FÜR DEN NÄCHSTEN CHAT“ direkt hier darunter, in dieser Reihenfolge A → B → C)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Frühjahrsputz B erledigt – JETZT: C, die Messwerte)
 
-**AUFTRAG FÜR DEN NÄCHSTEN CHAT** (Besitzer, 25.10.). Release 0.5.104 und `D:\beize-test`
-(Skript mit 6 Teilen, Testprogramme) liegen auf dem Stick; der Besitzer testet und gibt dem Chat
-alle Ergebnisse.
+**Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
+ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
+Stick und Hardware-Test: `docs/hardware.md` (`measure/hw-test.sh`, 5 Teile, liegt auf dem
+Messzweig `measure/desktop`, je Messbau auf `main` gehoben, Version in `tools/bz/src/layout.rs`).
+Hardware-Tests nicht öfter als nötig (Besitzer). Wiederherstellung: nach F8 Leertaste halten,
+„(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC; Ergebnisse holt Claude per
+PowerShell (`Copy-Item D:\beize-test\results-… \\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\`;
+in WSL ist D: nicht eingehängt). Beize hat kein debugfs; den Modus der Konsole schreibt der
+Compositor (`screen …: … Hz, it had …`).
 
-**A. Ergebnisse von 0.5.104 auswerten, dann das Foto aus dem Test entfernen**
-1. Neuestes `D:\beize-test\results-*` nach `~/hw-logs/` kopieren (PowerShell, siehe unten).
-2. Leck belegt? Unter „Puffer des Compositors“ muss `held: … dmabufs` nach dem Ziehen (Teil 5)
-   klein bleiben; Terminal blieb offen (Besitzer). Sonst weiter suchen.
-3. `results-*/screenshots/*.png` ansehen und dem Besitzer die Kosmetik erklären (Hintergrund
-   „pixelig“, Titelleiste/Knöpfe, Leiste, Dock; Werte siehe „Bildschirmfoto“ unten) – **nicht
-   ungefragt ändern**.
-4. Dann **Teil 6 (Bildschirmfotos) aus `measure/hw-test.sh` entfernen** (Messzweig, wieder
-   „x/5“; die Kopie nach `screenshots/` und die Zeile „Bildschirmfotos:“) und Punkt 6 aus
-   `docs/hardware.md` (Besitzer: „sobald ich die Screenshots habe“). Ob Teil 5 (Resizen) bleibt
-   und ob das Kürzel Super+Shift+3 im Compositor bleibt (echte Funktion wie macOS, Smoke prüft
-   sie), den Besitzer fragen – Vorschlag: Kürzel bleibt, Teil 5 fliegt nach bestandenem Beleg.
+**Frühjahrsputz (B), 25.10.:** WSL 66 → 29 GB (`target/`, JetBrains-Cache, alte Releases, Reste
+von `bz debug`, Journal); `beize-render-test` entfernt (lief in keinem Test), der Compositor hat
+keine lib-Crate mehr; ~50 Entwickler-Werkzeuge aus dem Image (`[files] build` mit Grund); Bibata
+nur 24/48 px (27 → 1,9 MB); Test-VMs 1 GiB, Desktop 1,5 GiB statt 2 GiB fest (gemessen,
+`vm/machine.rs`); Smoke löscht seine Screendumps nach Erfolg; Terminal wartet auf POLLOUT statt
+im 10-ms-Takt; KMS bekommt die Damage des Bildes (FB_DAMAGE_CLIPS); dev-Profil ohne
+Debug-Info fremder Crates; Teil 6 (Fotos) aus `hw-test.sh`; Doku gestrafft.
+Offen beim Besitzer: Löschen auf der Windows-Seite (alte Claude-Sitzungen dieses Projekts,
+Ergebnisse auf dem Stick – Claudes Rechteprüfung verweigert es, der Besitzer führt den Befehl
+aus); vhdx verkleinern (unten); Fragen: `~/upstream/mei-src`, `nouveau-edid`, `build-usb`
+(3,6 GB, sind mei/usb erledigt?), Zweig `measure/nouveau-edid`, `~/hw-logs/journal`.
+Nicht gemacht, Vorschläge: Rust-Programme mit `cargo bloat` messen (Compositor 7,2 MB, Shell
+und Terminal je 4,5 MB, der Text-Stapel steckt in jedem), `panic = "abort"` prüfen;
+Zeile-für-Zeile-Durchsicht von `windows.rs`, `state.rs`, `input.rs`, Shell, Beize UI `app.rs`,
+`smoke/desktop.rs` (bisher nur nach Mustern gesucht). Smithay bringt `rand`, `sha2 0.10`,
+`rustix 0.38` fest mit (nicht abschaltbar).
 
-**Stand A (25.10., `~/hw-logs/results-20261025-101320`):** 1–3 erledigt. Leck belegt behoben
-(`held:` 10–20 dmabufs über den ganzen Test, Terminal blieb offen). Neuer Befund des Besitzers,
-behoben in 4b75cb0: beim Ziehen vervielfachte sich der Prompt (`bebeiz…`) – bash löscht beim
-Neuzeichnen nur so viele Zeilen, wie der Prompt vor dem Umbruch hatte; dazu der Wettlauf mit
-Größen, die bash schon überholt haben. Lösung wie Ghostty/Kitty: OSC-133-Marken im PS1/PS0
-(`/usr/lib/beize/profile`), das Terminal leert die Zeilen des Prompts statt umzubrechen und
-schickt einer Shell am Prompt eine Größe nach der anderen (`prompt.rs`, Test mit echtem bash,
-Gegenprobe rot). Auf Hardware noch ungeprüft. **Neue Maße, vom Besitzer an VM-Bildern
-abgenommen (25.10.)**, „das neue 100 %“: Knöpfe 14/23, Titelleiste 32 (schmal, mit den Knöpfen
-gewachsen), Titel 15; Menüleiste 32, Schrift 15, Datum „Mon 9 Jun 07:36“ (englisch bis zu den
-Sprachen, ADR 0017); Dock 90, Kachel 70, Symbol 56 auf ganzen Pixeln, ringsum 17 px, Punkt
-schwarz mittig darunter; gemeinsame Werte in `beize-draw` `measures` (ADR 0028 §2–4). Besitzer:
-fremde Symbole behalten vorerst ihre Form (macOS 26 zwingt sie in die Kachelform). Später:
-Skalierung je Bildschirm aus EDID (HD wirkt bei 100 % größer, wie bei Windows/macOS). Offen: 4.
+**C. JETZT – die Messwerte** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“).
+Jede erst belegen (Ursache im Quelltext und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann
+ändern, Smoke + Gegenprobe:
+a) **Konsole 60 Hz, Sitzung 240 Hz** (`it had 2560x1440 at 60 Hz`): der Moduswechsel zur Sitzung
+   lässt den Monitor neu einrasten = die schwarze Lücke. Lösung macOS-artig ohne Flackern
+   (Fedoras flicker-free boot mit grafischer Anmeldung, oder die Konsole gleich im Modus des
+   Desktops; recherchieren, wie Mutter/KWin den vorhandenen Modus übernehmen). Mit dem Besitzer
+   abstimmen, falls es die grafische Anmeldung vorzieht.
+b) **CPU-Zeit je Bild** (0.5.102 Lasttest: Median 1,44 ms, 99 % 2,88, „busy 42 %“; Ziel „der
+   Compositor langweilt sich“): `pacing:` und `late frame` (`scene/glass/frame/commit`)
+   auswerten, den größten Teil im Quelltext verfolgen (Smithay-Damage über ~40 Elemente,
+   `render_elements_from_surface_tree`, lebendiges Glas, dmabuf-Fences/`foreign`-Barrieren je
+   Fenster, KMS-Commit) und dort senken; jede Änderung mit neuem Messwert belegen.
+c) **Späte Bilder „display“** im Lasttest (479 von 542, fertig 0,1–0,7 ms vor dem vblank,
+   `lead 4.17`): hängt an b). Klären, wie viel Vorlauf nouveau braucht (`nv50_disp`,
+   KWins Sicherheitsrand) und ob `MOST_LEARNT` (`schedule.rs`) reicht.
+d) **Beim Einblenden genau alle 100 ms ein Bild „GPU“ spät** (0.5.103, fertig 0,15–0,34 ms nach
+   Beginn des vblank): eigener Takt, Ursache offen.
+Danach die Kosmetik nach den Entscheidungen des Besitzers, dann Schritt 4 (e)–(g) nach ADR 0028.
 
-**B. Frühjahrsputz – gründlich, nicht oberflächlich, vor allem anderen** (Besitzer: „erstmal
-hart optimieren“, „wirklich alles sehr professionell“, „viel kleinere Größen für alles und
-weniger RAM, aber an sinnvollen Stellen oder Bugs sparen“, „die VM kein Stress mehr“, „keine
-Tests, die 2 GB Daten brauchen“, „alte Tests und mds komplett entfernen“, „sinnlose Tests
-entfernen“, „alle Testprogramme“, „Wichtiges behalten“). Vorgehen: erst messen und eine Liste
-(was, wie groß, warum weg oder warum bleibt) dem Besitzer zeigen, nach seinem OK löschen/ändern,
-danach erneut messen. Bestand vom 25.10.:
-- **WSL**: vhdx 75 GB (`%LOCALAPPDATA%\wsl\{4cae8202-…}\ext4.vhdx`), drinnen 65 GB belegt.
-  `~/beize` 39 GB, davon `target/` **27 GB** (Cargo, mehrere Profile/alte Artefakte), `build/`
-  12 GB (`work` 3,6, `buildroot` 3,1 – nötig, `cache` 2,7, `out` 1,6 mit alten Releases 0.5,
-  0.5.101–0.5.103 je ~190 MB, `fuzz` 0,6). `~/upstream` **11 GB** (`kernel` 7,3 für die
-  gesendeten nouveau-Patches – Antworten abwarten?, `mei-src`/`nouveau-edid` je 1,8, wohl alt:
-  Besitzer fragen). `~/.cache/JetBrains` **7,9 GB** (IDE des Besitzers: fragen). `~/hw-logs`
-  72 MB bleibt. Danach vhdx verkleinern (Besitzer, Schritte unten unter Platte).
-- **VM-Stress**: je VM 2 GiB fest (`prealloc=on`, wegen INIT_ON_FREE – Kommentar in
-  `vm/machine.rs` lesen), 4 vCPUs, `parallel_vms()` nach CPUs/RAM; Smoke-Maschinen kopieren ein
-  4,7-GB-Image (sparse) je Szenario, Logs mit 16-MB-Journal-Dateien und PPM-Screendumps. Der
-  RCU-Stall (unten) spricht für Überbuchung. Ziel: weniger parallel/kleiner wo gemessen
-  ausreichend, Overlays (qcow2 mit backing file) statt Kopien, keine GB an Testdaten.
-- **Tests**: jedes Smoke-Szenario und jeden Unit-/Integrationstest auflisten: Was sichert er, ist
-  er doppelt, dauert er unnötig? Testprogramme (`beize-testclient`, `beize-ui-test`,
-  `beize-load-test`, `beize-terminal-sample`, `beize-render-test`) – nur, was Smoke oder
-  `hw-test.sh` wirklich brauchen. Sicherheitskette (Secure Boot, TPM, verity, Updates) bleibt.
-- **Doku**: 35 .md (CLAUDE.md, VISION, hardware, 28 ADRs, Rest suchen): veraltete entfernen,
-  CLAUDE.md §11 auf den Stand eindampfen (Geschichte gehört in Git), ADRs nur nach OK
-  zusammenlegen.
-- **Image und RAM**: `usr.erofs` 173 MB, `.efi` 27 MB; je Paket messen, Ballast und Bugs suchen
-  (wie das Leck), RSS von Compositor/Shell/Terminal in VM und auf Hardware messen.
-- **Claude-Dateien auf dem PC, nur Projekt code-projects**: in `C:\Users\Joe\.claude\projects\
-  F--code-projects\` (25.10.: 15 `.jsonl`, 8 Ordner, 78 MB) und den nach Sitzungs-ID benannten
-  Dateien anderswo unter `C:\Users\Joe\.claude\` (z. B. `file-history`, `todos`,
-  `shell-snapshots`, `session-env`, `debug`) alles, dessen Sitzung es nicht mehr gibt. Nie
-  `memory/`, nie andere Projekte, nie die laufende Sitzung; Liste zeigen, dann löschen.
-- **Stick**: alte Releases `D:\beize-0.5.102`, `-0.5.103`, Ergebnisse, die schon in `~/hw-logs`
-  liegen – nach OK.
+**Auf Hardware ungeprüft:** Prompt beim Ziehen (4b75cb0, OSC 133 in `/usr/lib/beize/profile`,
+`prompt.rs`), Damage-Clips, POLLOUT im Terminal, Rahmen echter Qt-/Chromium-Apps. Fehler, die nur
+echte GPUs zeigen, sind in der VM nicht nachstellbar (dort shm, kein dmabuf): früh um Foto bitten.
 
-**C. Danach** Punkt 3 unten (die drei Messwerte) samt dem 100-ms-Takt beim Einblenden, dann die
-Kosmetik nach den Entscheidungen des Besitzers.
+**Entscheidungen des Besitzers, die nur hier stehen:** Menüleiste über Vollbild wirkt dunkel
+satter, hell blasser (Material: Sättigung 1,8, Tönung 30/45 %): passt erstmal, nicht ungefragt
+ändern. Fremde App-Symbole behalten ihre Form. Hintergrund „pixelig“: nie geprüft, offen, falls er
+es wieder sieht. Apples Icons und „macOS-Look“-Sets sind tabu (VISION). Die feste Wartezeit auf
+die Shell weicht einem Konzept (#40).
 
-**Hardware-Test 0.5.103 (25.10., `~/hw-logs/results-20261025-085227`):** Besitzer bestätigt:
-Schrift, Ecken (ohne Strahlen: der erschlossene NVK-Mechanismus der Tabelle hält), Zeiger,
-Einblenden gut. Testfenster 3 von 4803 spät (0.5.102: 12), Lasttest 223 von 9381 (0.5.102: 542).
-Neu: Beim Einblenden ist **genau alle 100 ms ein Bild „GPU“ spät** (fertig 0,15–0,34 ms nach
-Beginn des vblank) – eigener Takt, Ursache offen, gehört zu 3 b/c.
-**Befund des Besitzers, behoben:** Terminal immer größer gezogen → verschwand; danach starb jedes
-neue Terminal beim ersten Resize, und zuletzt öffnete kaum noch eins. Ursache (Quelltext):
-`VkRenderer` warf importierte dmabufs der Clients nie weg (`cleanup_texture_cache` ruft Smithay nur
-in seinem `DrmCompositor`, den Beize nicht nutzt); jede neue Fenstergröße = neue Swapchain = neue
-Puffer, gehalten bis der Grafikspeicher (und die 4096 Texturplätze) voll war. Jetzt räumt jede
-Übermittlung auf (`submit`, wie Smithays GLES-Renderer je Bild). In der VM nicht prüfbar (Clients
-schicken dort shm, lavapipe exportiert ohne `/dev/udmabuf` keine dmabufs); Beleg auf Hardware: die
-neue Zeile `held: N dmabufs of clients, M textures` (geloggt, wenn es still wird und sich etwas
-änderte) muss nach dem Ziehen klein bleiben.
-**Bildschirmfoto** (Besitzer, für die kosmetischen Fragen): Super+Shift+3 (macOS ⌘⇧3) und Druck,
-Compositor liest das gezeigte Bild zurück (`Output::screenshot`, Zeiger auf seiner Ebene nicht
-dabei, wie macOS), PNG im eigenen Thread nach `$XDG_RUNTIME_DIR/screenshots` – der Compositor
-schreibt wegen seiner Sandbox (`ProtectHome=read-only`) nur dort; Ablage im Home kommt mit einer
-eigenen Bildschirmfoto-App (wie macOS' Screenshot neben dem WindowServer), Sandbox nicht
-gelockert. Smoke vergleicht das PNG pixelgenau mit QEMUs screendump (Gegenprobe R/B vertauscht:
-rot). Kosmetik: erledigt mit den neuen Maßen (siehe „Stand A“ oben); Beize zeichnet weiter
-mit Faktor 1, Skalierung je Bildschirm kommt später. Hintergrund „pixelig“: nicht geprüft,
-der Besitzer hat nicht mehr danach gefragt – offen, falls er es wieder sieht.
-**VM-Beobachtung:** im Desktop-Smoke meldet der Gast-Kernel bei ~36 s einen RCU-Stall, der bei
-~15 s beginnt (alle Smoke-VMs starten parallel): `rcu_preempt kthread starved` auf einer CPU im
-Leerlauf (`pv_native_safe_halt`) – der Weckruf an die virtuelle CPU kam nicht (verschachteltes
-KVM in WSL2), nicht der Gast. Erschlossen, nicht bewiesen; wohl dieselbe Ursache wie „libinput:
-system too slow“ und „Boot0002 not found“ früher.
+**Beobachten, Ursache offen:** RCU-Stall im Gast beim parallelen Smoke (erschlossen: der Weckruf
+an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
+„Boot0002 … Not Found“ im Update-Szenario (einmal).
 
-**Messwerte** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“; kommt in C):
-3. **Die drei Auffälligkeiten der Messwerte beheben** – jede erst belegen (Ursache im Quelltext
-   und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann ändern, Smoke + Gegenprobe:
-   a) **Konsole 60 Hz, Sitzung 240 Hz** (`screen DP-1: 2560x1440 at 240 Hz, it had 2560x1440 at
-      60 Hz`): der Moduswechsel beim Start der Sitzung lässt den Monitor neu einrasten = die
-      schwarze Lücke. Lösung finden, die macOS-artig ohne Flackern ist (Fedoras flicker-free boot:
-      grafische Anmeldung setzt den ersten Modus; oder die Konsole gleich im Modus des Desktops,
-      z. B. über den Modus, den der Kernel fbdev wählt – recherchieren, wie Mutter/KWin den
-      vorhandenen Modus übernehmen). Mit dem Besitzer abstimmen, falls es die grafische Anmeldung
-      vorzieht.
-   b) **CPU-Zeit je Bild** (0.5.102 Lasttest: Median 1,44 ms, 99 % 2,88, „busy 42 %“; Ziel „der
-      Compositor langweilt sich“): die neue Aufteilung in `pacing:` und jeder `late frame`-Zeile
-      (`drawing in parts … scene/glass/frame/commit`) auswerten, den größten Teil im Quelltext
-      verfolgen (Smithay-Damage über ~40 Elemente, `render_elements_from_surface_tree`, lebendiges
-      Glas zweimal rendern, dmabuf-Fences/`foreign`-Barrieren je Fenster, KMS-Commit) und dort
-      gezielt senken – erst messen, dann ändern; jede Änderung mit neuem Messwert belegen.
-   c) **Späte Bilder „display“** im Lasttest (0.5.102: 479 von 542, fertig nur 0,1–0,7 ms vor dem
-      vblank, Vorlauf schon ein ganzes Bild, `lead 4.17`): hängt an b) – weniger CPU-Zeit gibt
-      Spielraum. Zusätzlich klären, wie viel Vorlauf nouveau zum Programmieren braucht (Kernel-
-      Quelle `nv50_disp`/`nouveau` Commit-Pfad, KWins Sicherheitsrand) und ob der gelernte Rand
-      (`schedule.rs`, `MOST_LEARNT`) dafür reicht. Testfenster: 0.5.102 12 von 4796 spät (0.5.101: 4).
-
-**Beim Besitzer** kommt der Messbau 0.5.104 (Tag `measure/desktop-0.5.104`, auf dem Stick
-25.10.; davor 0.5.103); 0.6 von `main`
-ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
-Update vom Stick und Hardware-Test: `docs/hardware.md`. Wiederherstellung: nach F8
-Leertaste halten, „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC;
-Ergebnisse holt Claude per PowerShell (`Copy-Item D:\beize-test\results-…
-\\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\`; in WSL ist D: nicht eingehängt).
-
-**M3 ist modular** (Besitzer, 16.10.; ADR 0025): Basis (alles aus M2, ohne Oberfläche) und
-Desktop darüber, Varianten eines Baus wie Windows Server Core oder Fedoras Editionen.
-„(Basis)“ startet bis M4 mit dem Recovery-Key (eigener TPM-Schlüssel: ADR 0026, #38).
-
-**Grafik nach ADR 0027, Schritte 1–3 fertig:** NVK und lavapipe (§4), Compositor auf Smithay
-mit eigener Bildschleife und eigenem Renderer (§6–8), Beize UI und Terminal (§9). Auf der
-3070 Ti: 2560x1440 @ 240 Hz, NVK direkt in den Bildschirmpuffer, 4 von 4797 Bildern spät.
-Fenster bleiben bis Schritt 4 bildschirmfüllend, ohne Titelleiste (dem Besitzer so gesagt).
+**Offen in Schritt 4:** Die Shell liest Namen aus Desktop-Dateien nur einmal je App; fremde Apps
+ohne Unit-Vorlage startet das Dock nicht (nur `Exec=`); Direct Scanout; Titelleiste im Vollbild
+mit der Menüleiste. Die Beize-UI-Referenz entsteht offscreen in der VM: `./bz debug --machine run
+'mkdir -p /run/t && mount -o ro /dev/disk/by-id/virtio-beize-test /run/t' '/run/t/beize-ui-test
+--offscreen /run/s.ppm 800x600' 'gzip -9c /run/s.ppm | base64 -w0'`, auf dem Host zurück und nach
+PNG.
 
 **Upstream, wartet auf den Besitzer** (Entwürfe in `~/upstream`, `main` bleibt ohne fremde
-Patches, der Messzweig wendet `kernel/measure/*.patch` an):
-- nouveau EDID (240 Hz): am 21.10. gesendet (b4-Tag `sent/20261021-nouveau-edid-segment-…`);
-  Antworten leitet der Besitzer weiter.
-- nouveau GSP-Interrupts (`IRQDEST`): am 23.10. gesendet (b4-Tag
-  `sent/20261023-nouveau-gsp-irqdest-…-v1`).
-- Smithay: drei Berichte in `~/upstream/smithay/ISSUES.md`.
-- ntpd-rs #2539 (32 Warnungen je Start, offline endlos): am 23.10. kommentiert, Backoff-Patch
-  angeboten, Frage nach der Basis (upstream baut den Daemon um). Patch erst nach ihrer Antwort.
-  Keine Umgehung in Beize (ADR 0011).
+Patches, der Messzweig wendet `kernel/measure/*.patch` an): nouveau EDID (240 Hz, gesendet 21.10.,
+b4-Tag `sent/20261021-nouveau-edid-segment-…`), nouveau GSP-Interrupts (`IRQDEST`, gesendet
+23.10.); Smithay: drei Berichte in `~/upstream/smithay/ISSUES.md`; ntpd-rs #2539 (am 23.10.
+kommentiert, Backoff-Patch erst nach ihrer Antwort, keine Umgehung in Beize, ADR 0011).
 
-**(h) Aufräumen ist fertig (23.10.):** Befunde des Hardware-Tests belegt (NTS oben; schwarze
-Lücken und Zeitplan in ADR 0027 §6), je spätem Bild eine Zeile `late frame`, Doku gestrafft,
-Journal von 0.5.101 durchgesehen (alles in Issues: #22, #11, #35; growfs-Fehler kommt bei
-jedem Start, `link-volume-key=` braucht eine Sicherheitsabwägung), Messbauten 0.5.98–0.5.100,
-`~/hw-test` und `~/scratch` gelöscht. Release 0.5.101 und die Messtags bleiben, solange 0.5.101
-beim Besitzer läuft. Tests schneller machen kommt erst nach der Shell (Besitzer).
+**Grundlegende Vorschläge** (je ein ADR, noch nicht entschieden): Delta-Updates vor Updates übers
+Netz (heute lädt jedes Update das ganze Image, 185 MB; Stücke des unkomprimierten Inhalts statt
+Binär-Diff, setzt #5 voraus; zuerst das Delta zweier Bauten messen). Apps als signierte
+EROFS-Images mit verity auf der Vertrauenskette von `/usr` (vor M4). Tests: von ~11 s je
+VM-Start sind ~5,4 s der Gast, 1–2 s TPM-Emulation (#39), ~3 s unzugeordnet – messen, dann
+Szenarien ohne Startprüfung aus einem Snapshot der laufenden VM.
 
-**Schwarze Lücken (Besitzer, 23.10.)**, belegt aus dem Journal von 0.5.101:
-- Start: 1,74 s ohne Bild, weil nouveau den Firmware-Framebuffer vor dem GSP-Start entfernt
-  (`nouveau_drm_probe`: „no way to put it back“); kein Beize-Entscheid.
-- Wechsel zur Sitzung: der Compositor setzt den Modus (erstes Bild 0,13 s danach), der Rest
-  ist das Einrasten des Monitors. Erschlossen, nicht gemessen: die Konsole läuft im
-  bevorzugten Modus (fbdev), der Compositor mit 240 Hz. Lösung nach Fedoras flicker-free boot
-  (`FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER`, die grafische Anmeldung setzt den ersten Modus),
-  sinnvoll erst mit grafischer Anmeldung.
-
-**Hardware-Tests:** nicht öfter als nötig (Besitzer). Beize hat kein debugfs; den Modus der
-Konsole schreibt der Compositor (`screen …: … Hz, it had …`). `measure/hw-test.sh` liegt auf dem
-Messzweig `measure/desktop` (auf `main` gehoben je Messbau, Version in `tools/bz/src/layout.rs`).
-
-**JETZT: Schritt 4 (Shell) nach ADR 0028 (angenommen 23.10.), (a)–(c) und d1 fertig 23.10., d2, d3a, d3b 24.10.:**
-(a) `os/beize-shell` als Dienst, `trust.rs`/`layers.rs` im Compositor. (b) schwebende Fenster
-(`windows.rs`, Randstreifen 5 px, Grabs), Titelleiste wie macOS aus `beize-draw` (`titlebar::Look`,
-Windows wählbar), Rahmen für fremde Apps (`decorations.rs`, getestet nur mit dem Testprogramm;
-echte Qt-/Chromium-Apps beim nächsten Hardware-Test), runde Ecken und Schatten im Shader. (c)
-Beize UI `App` (mehrere Fenster auf einer Verbindung), Protokoll `beize-shell-v1`
-(`os/beize-protocols`, Fensterliste und Aktivieren), Minimieren (gelber Kreis, xdg, Rahmen),
-Dock (unten, angeheftet: Terminal; laufende Apps mit Punkt; Klick startet oder holt nach vorn,
-wie macOS), App-Name fett in der Menüleiste (`Name` der Desktop-Datei, sonst die ID); ein Klick
-auf eine Leiste fokussiert kein Fenster darunter. Smoke prüft Dock (Breite, runde Ecke),
-Minimieren und Zurückholen, Start aus dem Dock, App-Namen über das Journal der Shell (`dock: …`,
-`menu bar: …`). Das Dock ist bis (d) hell, deckend, Kacheln mit Anfangsbuchstaben.
-**(d1) fertig 23.10.: stetige Ecken und gemessene Werte.** Kurve (Shader `quad.frag`, Tabelle;
-`CORNER_EXTENT` in `beize-vulkan`): **belegt** aus dem Vektorpfad der Maske in Apples App Icon
-Template (iOS 27, `.ai` aus der Design-Resources-DMG): Mittelbogen r, Übergang mit von null
-steigender Krümmung, reicht 1,4874 r je Kante (nicht UIKits 1,5287 r laut PaintCode); Icon-Radius
-0,2449 der Seite. Shader-Formel in numpy nachgerechnet: ≤ 0,11 px bei 1024, ≤ 0,01 px bei r 16/22.
-Passt die Kurve nicht (Punkt, Kapsel): Kreisbögen. Fenster und Dock von macOS haben die stetige
-Kurve (Pressebilder, Anpassung an Kreis/UIKit/Maske: Restfehler halb so groß wie beim Kreis).
-**Dock gemessen** an Apples Pressebild macOS 26 „Messages“ (14″-MacBook Pro, Bildschirm
-3426,6×2225,3 px = 1512×982 pt, 2,2663 px/pt): Kachel 48 (Raster 52, Icon 38,6 = 48·824/1024),
-Abstand 4, Rand 9,7 → 10, unten 5,1 → 5, Punkt 4,0 mit Mitte 3,7 über der Unterkante, Trenner +24
-(noch nicht gebaut). **macOS 27 gemessen** an einem echten Bildschirmfoto des Besitzers (3024×1964,
-2 px/pt; Maßstab für Beize, Besitzer): Fenster 15,7 pt → 16; Dock-Ecke 20,4 pt bei 76,3 pt Höhe
-(26 rundete stärker: 22 bei 67,3), im Verhältnis übernommen → 18,2. Knöpfe: gemessen 14 pt im
-Abstand 23, aber der Besitzer hat 14 auf dem Schirm als zu groß verworfen: sie bleiben 12/20/8
-(AppKit-Standard, wie online belegt); nicht wieder anfassen. Nur die linke obere Dock-Ecke war
-sauber messbar. Farben von Dock und Punkt kommen
-mit d3. Apples Bilder liegen nicht im Repo (Lizenz); Messskripte waren Wegwerf-Arbeit.
-**d2a fertig 24.10.:** Verläufe im Shader (`GRADIENT`, wie CSS gemischt), App-Symbole von Beize
-(`beize-draw` `icon`: Form + Verlauf + Phosphor-Motiv; Terminal abgenommen, Farben und Motiv 70 %
-eigene Wahl). **d2b fertig 24.10.:** fremde Apps zeigen ihr `Icon=` aus hicolor (Icon Theme
-Spec: genaue Größe, dann SVG, dann größer, dann kleiner; dann `/usr/share/pixmaps`), Farbatlas RGBA
-sRGB in Beize UI (der Compositor braucht keinen), linear vormultipliert; Smoke prüft das Symbol des
-Test-Clients im Dock (Gegenprobe rot). **d2c fertig 24.10.:** Zeiger Bibata Modern Classic
-(`recipes/bibata-cursor.toml`, ADR 0028 §8; Besitzer: passt erstmal, eigener/besserer Satz später),
-Compositor `cursor` lädt per Crate `xcursor` (24 px), animiert Warten, cursor-shape-v1 für Apps,
-Doppelpfeil am Rand; Rand des vorderen Fensters gewinnt jetzt (vorher nur über freiem Schreibtisch,
-auch beim Ziehen). Beize UI `App::set_cursor` (Terminal: Text-Strich). `bz outdated` kennt
-`{ github = "…" }`. Smoke prüft Text-Strich und Doppelpfeil über die Journalzeile `cursor <name>: …`.
-Phosphor in der Menüleiste kommt mit ihren Einträgen in (e); Sift = Dateimanager des Besitzers und
-Papierkorb bekommen ihr Symbol mit sich. **d3a fertig 24.10.:** Hintergrund und Grundglas (ADR 0028
-§6, Motiv und Glas vom Besitzer an Python-Entwürfen und VM-Bildern abgenommen): `backdrop.frag`
-rechnet je Bildschirmgröße und Erscheinungsbild den Hintergrund und daraus das Glas (Dual Kawase,
-Sättigung, Tönung), `quad.frag` (`GLASS`) im Bild nur Korn und Lichtkante (`RIM_FOLLOWS_LIGHT`,
-Entwickler-Schalter); `beize_glass_v1` und das Ereignis `appearance` in beize-shell-v1; Shell zeichnet
-nur Inhalt. Hell/Dunkel bis zu den Einstellungen per `BEIZE_APPEARANCE=dark` in
-`~/.config/environment.d` (in der VM: Datei unter `/home/smoke/.config/environment.d/`, die
-VM-Disk von `bz debug` behält sie bis zum nächsten Image). Behoben dabei: Unter jedem Fenster fehlte
-10 px Schatten (verdeckt wurde vom verschobenen Schattenrechteck statt vom Fenster). Smoke prüft
-Leiste und Dock jetzt als weiches Glas mit Stufe an der Kante. Python-Modelle des Motivs: Wegwerf-Arbeit.
-**d3b fertig 24.10.:** lebendiges Glas fürs Dock (`backdrop::LiveGlass`, `set_material` in
-`beize_glass_v1`): die Elemente hinter dem Glas (+64 px) per `RelocateRenderElement` in ein
-eigenes Bild (`VkRenderer::sampled_target`) mit eigenem `OutputDamageTracker`, Blur nur bei
-Schaden; eigene Übermittlung an die GPU nur dann. `Rounded` und `Glass` zeichnen jetzt auch
-verschoben richtig. Smoke zieht den Test-Client hinter das Dock und verlangt, dass das Glas sich
-ändert (Gegenprobe mit Grundglas: rot). Protokoll-XML ist jetzt Cargo-Abhängigkeit (`include_str!`,
-vorher baute eine geänderte XML nicht neu).
-**d3c fertig 24.10.:** Menüleiste ohne Hintergrund wie macOS 26 (Besitzer, nach Recherche): schwacher
-Verlauf nur in der Leiste (15 %, auf null auslaufend; `scrim`, geschätzt), Schrift weiß ohne
-Schatten (Besitzer), dunkel nur auf sehr hellem Hintergrund (`backdrop::tone`: Leiste samt
-Verlauf zurückgelesen, Kontrast 2:1); Grundglas nur noch auf Anfrage. Kein
-Glas in Titelleisten (Besitzer). Smoke verlangt: keine Stufe an der Unterkante der Leiste.
-Schalter Menüleiste (24.10., Besitzer will beides): `BEIZE_MENU_BAR=glass` in
-`~/.config/environment.d` = Grundglas 1:1 wie in c93184b, sonst transparent (ADR 0028 §3; in die
-Einstellungen später). In `bz debug` wirkt die Datei erst in einem neuen Start der VM (der
-Benutzerdienst liest die Umgebung nur beim Start).
-**d4 fertig 24.10.: echtes Vollbild** (Entscheidungen des Besitzers in ADR 0028 §2): Grün bleibt
-Zoom, Alt+Grün = Vollbild (Beize UI und Rahmen des Compositors); Super+F für jedes Fenster;
-`xdg_toplevel.set_fullscreen` für fremde Apps. `windows.rs`: ganzer Bildschirm, ohne Rahmen/Ecken/
-Schatten, zurück an den alten Platz oder ins Maximiert. `layers.rs` (`reveal`): vorderstes Fenster
-Vollbild → Leisten oben versteckt (Streifen bleiben, kein Fenster rückt), Zeiger in der Randzeile
-holt die Leisten dieser Kante, bis er ihren Streifen verlässt; eine andere App vorn → Vollbild tritt
-zurück, bleibt Vollbild. Beize UI zeigt im Vollbild keine
-Titelleiste. Smoke prüft Super+F, Leiste oben, Dock unten, zurück. Dabei behoben: `drag` im Smoke
-traf Pixel 799 als 798,999 (rundet jetzt auf). Offen: Zurücktreten nur von Hand geprüft (Bild in
-der VM; `@mouse` von `bz debug` bewegt sich nach dem ersten Mal nicht zuverlässig); Direct Scanout
-(Vollbild-Puffer direkt auf die Ebene, wie KWin/Mutter) fehlt noch, gehört in den Lasttest bzw.
-die Effizienzarbeit; Titelleiste von Beize UI erscheint im Vollbild nicht mit der Menüleiste
-(macOS tut das), Verlassen per Super+F.
-**d4b fertig 24.10.: Menüleiste über Vollbild auf lebendigem Glas** (Besitzer: „soll sich an das
-darunter anpassen“; anders als macOS, einheitlich mit dem Dock): `Backdrop::plate` ist lebendiges
-Glas (`backdrop::Behind::Plate`, `LiveGlass` wie beim Dock, Blur nur bei Schaden; Video darunter =
-Blur je Bild über Leiste + 64 px, im Lasttest messen), vorn und zurückgetreten, auch statt des
-Grundglases von `BEIZE_MENU_BAR=glass`; Schrift nach Erscheinungsbild (`bar_tone`), ohne Messung.
-Smoke: über dem roten/grünen Testmuster führt links Rot, rechts Grün (Gegenprobe mit Hintergrund:
-rot). Bilder hell und dunkel gezeigt. **Besitzer 24.10.: passt erstmal, Farben vielleicht später
-verbessern.** Auffällig: dunkel wirkt die Leiste satter und dunkler als das Vollbild darunter, hell
-blasser (Material `Appearance::material`: Sättigung 1,8, Tönung hell 30 %, dunkel 45 %, für Dock
-und Leiste gleich). Möglicher Weg, wenn er es angehen will: eigenes Material für die Leiste über
-Vollbild (weniger Sättigung/Tönung), Bilder hell und dunkel vergleichen lassen. Nicht ungefragt
-ändern.
-**Start aus einem Guss fertig 24.10.** (ADR 0028 §6, `opening.rs`): Schwarz sofort beim Übernehmen
-des Bildschirms, Desktop erst nach `beize_shell_v1.ready` (Shell nach dem ersten Bild von Leiste und
-Dock), Einblenden als Feder (SwiftUI `.smooth`); ohne Shell sofort, wenn ihre Verbindung vor `ready`
-endet (calloop-Kanal aus `ClientData::disconnected`; von Hand mit absichtlich kaputter Shell belegt),
-sonst nach 10 s. Abgestürzte Shell: `State::keep_panels` hält die Bildelemente der Leisten aus dem
-letzten Bild fest (Smithay leert die Texturen beim Zerstören der Fläche, und wayland-backend zerstört
-nach aufsteigender ID, die wl_surface zuerst) samt `window_area`, bis eine neue `ready` sagt. Smoke:
-Zeile „desktop shown with the shell“, Kill mit Neustart, Stopp mit Screendump (Leisten bleiben),
-Start ersetzt sie; Gegenproben (kein `ready`; eingefroren, aber nicht gezeichnet) rot. Das Terminal
-startet nicht mehr mit dem Desktop (Besitzer). **Wartezeit (Besitzer, 24.10.): später nach Konzept
-statt fester Zeit, #40** – erst recherchieren (GNOME, KDE, macOS), Ereignisse aus dem Dienstmanager,
-die blockierende Hintergrund-Berechnung (lavapipe ~0,5 s, Shell wird so lange nicht angenommen) aus
-dem kritischen Pfad, auf Hardware messen. In 1 von ~8 Smoke-Läufen hing die VM einmal 2,2 s
-(„libinput: system too slow“, gerahmtes Fenster) – nicht ursächlich geklärt, beobachten.
-**Lasttest fertig 24.10.** (ADR 0028 §9): `beize-load-test` auf dem Test-Medium, 12 Fenster
-zeichnen jedes Bild, eins wird hinters Dock gezogen; Smoke prüft Funktion und Glas (Gegenprobe
-rot). Dabei behoben: der Smoke tippte ins zweite Terminal, bevor dessen Fenster stand (erste Tasten
-gingen ans erste Terminal, VM langsam), und Zeilen des Compositors trugen je nach Ereignis
-Smithays Span davor (`drm_atomic: pacing: …`); ab info jetzt nur die Nachricht.
-**Hardware-Test 0.5.102 (24.10., `~/hw-logs/results-20261024-194800`):** flüssig. Befunde des
-Besitzers, alle behoben (25.10.): (1) weiße Schrift der Menüleiste fett/pixelig – Beize UI schrieb
-durchsichtige Fenster durch eine sRGB-Ansicht, also encode(Farbe·α) statt encode(Farbe)·α, wie
-Wayland-Puffer es verlangen; jetzt Zwischenbild in linearem Licht, letzter Durchgang `ENCODE` in
-eine UNORM-Swapchain (in der VM: Pixel über der Hälfte 183 → 107). (2) Testfenster überall mit
-Doppelpfeil, Zeiger blieb nach dem Schließen – ein Client ohne eigenen Zeiger erbte den letzten;
-jetzt Pfeil beim Betreten bis zum `set_cursor`, und neu eingeordnet beim Öffnen/Schließen eines
-Fensters (Smoke prüft beides am Bild, Kasten unter dem Hotspot). (3) Strahlen aus allen Ecken
-(Foto) – nur im Eckquadrat, nur vom Winkel abhängig, flackernd: die Tabelle `RHO[17]` mit
-Laufzeit-Index lieferte auf NVK zeitweise Müll (Mechanismus erschlossen, kein Mesa-Bericht
-gefunden; Bestätigung erst auf der Hardware); jetzt Polynom ohne Array (Messpunkte auf 5e-5,
-Abdeckung bei r 16/18,2 ≤ 1,5/255 anders). Dazu aus dem Log: (4) das Einblenden forderte sein
-nächstes Bild beim Zeichnen an, jedes Bild galt als spät – jetzt bei „frame done“ (wie KWin).
-Belegt: die Konsole läuft mit 60 Hz (`it had 2560x1440 at 60 Hz`), der Compositor setzt 240 Hz –
-die schwarze Lücke zur Sitzung. Messwerte: Testfenster 4796 Bilder/20 s, 12 spät; Lasttest
-6568/30 s (91 %), 542 spät, davon 479 „display“ (fertig nur 0,1–0,7 ms vor dem vblank, Vorlauf
-schon ein ganzes Bild), GPU-Median 0,32 ms (Ziel < 1 ms erfüllt), CPU 1,44 ms (42 % busy). Wohin
-die CPU-Zeit geht, misst jetzt `pacing:` in Teilen (`scene/glass/frame/commit`).
-Messbau 0.5.103 mit diesen Fixes ist gebaut, im Smoke grün, getaggt, auf dem Stick (25.10.);
-weiter siehe AUFTRAG oben in §11. Einmal im Smoke des Messbaus 0.5.102 fand die
-VM-Firmware im Update-Szenario den Bootloader der Platte nicht („Boot0002 … Not Found“, vor dem
-Kernel); im zweiten Lauf grün, Ursache offen – beobachten. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
-Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
-Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
-liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
-App-Installation); fremde Apps ohne Unit-Vorlage startet das Dock noch nicht (nur `Exec=`).
-Die Beize-UI-Referenz entsteht offscreen in der VM: `./bz debug --machine run 'mkdir -p /run/t &&
-mount -o ro /dev/disk/by-id/virtio-beize-test /run/t' '/run/t/beize-ui-test --offscreen /run/s.ppm
-800x600' 'gzip -9c /run/s.ppm | base64 -w0'`, auf dem Host zurück und nach PNG. Entschieden: Shell
-als eigener Prozess wie macOS, aber aus einem Guss (Start ohne Flackern); Dock unten, Menüleiste
-oben; Titelleiste von Beize UI; Strg-Modell (Super gehört der Shell); Symbole Phosphor,
-App-Symbole eigen; gestaltete Animationen zuletzt (g). Schrift: sauber, nicht pixelig (Inter).
-Geht auf Hardware etwas schief: Logs mit `hw-test.sh logs`/`-1`, erst die Ursache im Quelltext
-(Mesa, nouveau, Smithay) suchen, dann ändern.
-
-**Grundlegende Vorschläge** (Durchsicht 23.10., je ein ADR, noch nicht entschieden):
-- **Delta-Updates** vor Updates übers Netz (M4): Heute lädt jedes Update das ganze Image
-  (0.5.101: 185 MB). macOS, Android und ChromeOS liefern Deltas. Die zstd-Komprimierung im
-  EROFS macht Binär-Diffs des Images wertlos, daher Stücke des unkomprimierten Inhalts
-  (casync/desync-artig oder je Datei), aus denen der Rechner das bitgleiche, signierte Image
-  wieder baut (setzt #5 voraus). Zuerst messen: Delta zweier aufeinanderfolgender Bauten.
-- **Apps als signierte EROFS-Images mit verity**, auf derselben Vertrauenskette wie `/usr`
-  (Vorbild: signierte .app auf macOS' versiegeltem Volume; systemd-sysext/portable services):
-  Installieren = eine Datei ablegen, Start ohne Entpacken, Integrität bei jedem Lesen. Für das
-  App-Modell vor M4.
-- **Tests (nach der Shell, Besitzer):** Von ~11 s je VM-Start sind nur ~5,4 s der Gast; 1–2 s
-  TPM-Emulation (#39) und ~3 s unzugeordnet (QEMU, swtpm, Journal-Disk). Das zuerst messen
-  und beheben, dann Szenarien ohne Startprüfung aus einem Snapshot der laufenden VM starten.
-
-**M3-Plan** (Besitzer, 17.10.): `m3-plan` sind #14 BTF (Basis), #17 Hardware (NVIDIA,
-Bluetooth und Ton im Desktop; WLAN und zweite SSD in der Basis), #34 zram/oomd und #35
-nftables (beide Basis). #36 fwupd kommt mit M4.
+**M3-Plan** (Besitzer, 17.10.): `m3-plan` sind #14 BTF (Basis), #17 Hardware (NVIDIA, Bluetooth
+und Ton im Desktop; WLAN und zweite SSD in der Basis), #34 zram/oomd und #35 nftables (beide
+Basis). #36 fwupd kommt mit M4. „(Basis)“ startet bis M4 mit dem Recovery-Key (ADR 0026, #38).
 
 **Offen, kein Hindernis für M3**
 - #5 bitgleiche Bauten: CI und lokal gleich bis auf `usr/lib/libdevmapper.so.1.02` (LVM2).
