@@ -302,6 +302,12 @@ in die Endfassung einarbeiten, keine Nachträge.
   Abstürze mit SIGABRT nachstellen.
 - Vulkan: Die `Instance` muss das Gerät überleben, sonst stürzt Mesa beim ersten Shader ab.
 - Eingaben mit echter Haltezeit nachstellen (QMP `input-send-event`), nicht mit `@keys` (20 ms).
+- **WSL-Kernel ohne Preemption** (`CONFIG_PREEMPT_NONE`): Free Page Reporting an Hyper-V
+  (`page_reporting_process`, alle 2 s) hielt eine CPU bis 141 ms, wenn VMs RAM freigaben – Gäste
+  standen still, Zeitprüfungen des Desktops scheiterten (belegt 25.10. per SCHED_FIFO-Wächter und
+  SysRq-l-Backtraces). Abhilfe `C:\Users\Joe\.wslconfig`: `[wsl2] kernelCommandLine = preempt=full`
+  (danach `wsl --shutdown`; sofort und bis zum Neustart: `echo full | sudo tee
+  /sys/kernel/debug/sched/preempt`). `bz smoke` warnt, solange die Kommandozeile es nicht setzt.
 
 ## 10. Offene Punkte
 
@@ -467,14 +473,14 @@ satter, hell blasser (Material: Sättigung 1,8, Tönung 30/45 %): passt erstmal,
 es wieder sieht. Apples Icons und „macOS-Look“-Sets sind tabu (VISION). Die feste Wartezeit auf
 die Shell weicht einem Konzept (#40).
 
-**Smoke-Aussetzer, ZUERST klären (25.10. gemessen):** ältere Desktop-Prüfungen scheitern
-zeitweise – fifo („108 of 119 a vblank apart“, 10–13 Bilder am Stück spät), Lasttest (Lauf
-zerfällt, ein Bild 284 ms), Minimieren (Klick verloren, libinput „system too slow“ 62–261 ms,
-~3 s nach dem Shell-Neustart). **Auch ohne viewporter/activation:** Basis 2 von 4 Läufen rot
-(fifo), mit ihnen 4 von 12; Einplanung und Code vor den neuen Prüfungen gleich. Muster: Hänger
-von 150–550 ms im ganzen Gast bei 5 parallelen VMs (wie #41, nicht belegt). Bei 4ad22e3 waren
-drei Läufe grün. So ist „drei grüne Läufe vor dem Commit“ Würfeln – erst Ursache finden
-(Host-Messung während des Smoke, vCPU-Wartezeit, Vergleich mit 4 VMs), dann beheben.
+**Smoke-Aussetzer: Ursache belegt 25.10. (§9).** Die Hänger ganzer Gäste (fifo, Lasttest,
+Minimieren rot in 4 von 12 Läufen) kamen vom WSL-Kernel ohne Preemption: Free Page Reporting
+hielt eine CPU bis 141 ms (SCHED_FIFO-99-Wächter je CPU, SysRq-l: alle Backtraces
+`page_reporting_process` → `hv_free_page_report`; ohne VMs 0 Lücken). Mit `preempt=full` 0 Lücken
+über 50 ms, längste 42 ms, 4 von 4 vollen Läufen grün. `.wslconfig` gesetzt (wirkt ab dem nächsten
+WSL-Start), `bz smoke` warnt sonst. Belegt sind die Lücken; dass sie die damaligen roten Läufe
+waren, ist erschlossen (Muster passt, heute auch mit `none` 9 von 9 grün). Offen: sechs VMs (#41)
+mit `preempt=full` erneut messen.
 **Beobachten, Ursache offen:** Leerlauf-Ratsche: Compositor einmal in 3 s aufgewacht (1 von 6 Smoke-Läufen 25.10., Log überschrieben; nicht zugeordnet), RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
 Issue; erschlossen: der Weckruf an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
 „Boot0002 … Not Found“ im Update-Szenario (einmal).

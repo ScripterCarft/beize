@@ -36,7 +36,7 @@ use super::console::{
     Answers, LAST_CONSOLE, RECOVERY_KEY_SAVED_PROMPT, SETUP_ANSWERS, SETUP_STARTS_OVER, SMOKE_USER,
     find_recovery_key,
 };
-use super::machine::{Machine, clear_boot_logs, parallel_vms};
+use super::machine::{Machine, clear_boot_logs, parallel_vms, preemption_warning};
 use crate::paths::Paths;
 use crate::say;
 use crate::{layout, secureboot, tree, util};
@@ -215,6 +215,9 @@ pub fn smoke(paths: &Paths, quick: bool) -> Result<()> {
     };
     let workers = parallel_vms();
     say!("  {workers} machines side by side");
+    if let Some(warning) = preemption_warning() {
+        say!("  {warning}");
+    }
     thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| smoke.work());

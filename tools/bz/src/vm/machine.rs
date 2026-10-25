@@ -205,6 +205,50 @@ pub(super) fn parallel_vms() -> usize {
     util::parallel(VM_CPUS, VM_RESERVE_MIB, 1)
 }
 
+/// A warning when the host's kernel does not preempt its own work for the
+/// VMs: without preemption (`preempt=none`, or no `preempt=` on its command
+/// line and `CONFIG_PREEMPT_NONE`) a kernel worker keeps its CPU for as long
+/// as it runs. Under WSL that is the free page reporting to Hyper-V
+/// (`page_reporting_process`, every 2 s), with much to report when VMs give
+/// their memory back: measured 25.10. it held a CPU for up to 141 ms –
+/// beside it, a guest stood still, and the desktop's timing checks failed
+/// in 4 of 12 runs; with `preempt=full` the longest was 32 ms. Without the
+/// kernel's configuration nothing is said.
+pub(super) fn preemption_warning() -> Option<String> {
+    let cmdline = fs::read_to_string("/proc/cmdline").ok()?;
+    let config = || {
+        let config = Command::new("gzip")
+            .args(["--decompress", "--stdout", "/proc/config.gz"])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        Some(String::from_utf8_lossy(&config.stdout).into_owned())
+    };
+    without_preemption(&cmdline, config)?.then(|| {
+        "warning: this machine's kernel runs without preemption: a kernel worker can stop \
+         a VM for 100 ms and more, and the desktop's timing checks fail at times. Under \
+         WSL: `kernelCommandLine = preempt=full` in `[wsl2]` of %UserProfile%\\.wslconfig, \
+         then `wsl --shutdown` (CLAUDE.md §9)"
+            .to_string()
+    })
+}
+
+/// Whether a kernel started with `cmdline` runs without preemption: its
+/// `preempt=`, or else the default of its configuration (read only then).
+fn without_preemption(cmdline: &str, config: impl FnOnce() -> Option<String>) -> Option<bool> {
+    match cmdline
+        .split_whitespace()
+        .find_map(|arg| arg.strip_prefix("preempt="))
+    {
+        Some(mode) => Some(mode == "none"),
+        None => Some(
+            config()?
+                .lines()
+                .any(|line| line == "CONFIG_PREEMPT_NONE=y"),
+        ),
+    }
+}
+
 /// The memory a VM takes on the host: the largest guest and what QEMU
 /// needs beside it. Measured 25.10. over a whole smoke test: the largest
 /// QEMU held 1.6 GB (the desktop's, 1.5 GiB guest), the others 1.1 GB, and
@@ -542,4 +586,39 @@ fn kvm_available() -> bool {
         .write(true)
         .open("/dev/kvm")
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_preemption;
+
+    const NONE: &str = "CONFIG_PREEMPT_BUILD=y\nCONFIG_PREEMPT_NONE=y\nCONFIG_PREEMPT_DYNAMIC=y\n";
+    const FULL: &str = "CONFIG_PREEMPT_BUILD=y\nCONFIG_PREEMPT=y\nCONFIG_PREEMPT_DYNAMIC=y\n";
+
+    #[test]
+    fn the_command_line_decides_before_the_configuration() {
+        let unread = || -> Option<String> { panic!("read the configuration") };
+        assert_eq!(
+            without_preemption("console=hvc0 preempt=full", unread),
+            Some(false)
+        );
+        assert_eq!(
+            without_preemption("preempt=lazy quiet", unread),
+            Some(false)
+        );
+        assert_eq!(without_preemption("preempt=none", unread), Some(true));
+    }
+
+    #[test]
+    fn without_preempt_the_configuration_decides() {
+        assert_eq!(
+            without_preemption("console=hvc0", || Some(NONE.into())),
+            Some(true)
+        );
+        assert_eq!(
+            without_preemption("console=hvc0", || Some(FULL.into())),
+            Some(false)
+        );
+        assert_eq!(without_preemption("console=hvc0", || None), None);
+    }
 }
