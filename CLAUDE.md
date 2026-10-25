@@ -315,7 +315,25 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25 abends: Smoke-Aussetzer gelöst, Compositor-Befunde A–E liegen beim Besitzer zur Entscheidung – Punkt 2 unten; danach idle-inhibit + Bildschirm aus)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 nachts: A fertig, Messbau 0.5.105 halb – JETZT zuerst den Messbau fertig machen, siehe nächster Absatz)
+
+**JETZT (Besitzer, 26.10.): Messbau 0.5.105, dann Hardware-Test, dann neuer Chat für B und E.**
+Besitzer: „alle Punkte bis E fertig vor idle“; D (Direct Scanout) kommt mit der Shell; C entfällt
+(belegt: ein Bild beginnt erst nach dem Flip des vorigen, `wait` misst es – auf NVK ≠ 0 → C bauen).
+Stand: Zweig `measure/desktop` lokal auf `main` (59bcbaf) gehoben, Commit bb9175d (Version
+0.5.105, `hw-test.sh` Teil 6/6 Bildschirm aus/an + Kabel ab/an, `docs/hardware.md` dazu) –
+**nicht gepusht, nicht gebaut** (Bau beim Ausschalten abgebrochen). Nächste Schritte: `git switch
+measure/desktop`, `./bz build` (Kernel mit `kernel/measure/*.patch`), `./bz smoke`, Skript in der VM
+(Enter gepfiffen, §WSL-Memo), Tag `measure/desktop-0.5.105`, Zweig + Tag pushen (Zweig mit
+`--force-with-lease`, er wurde gehoben), zurück auf `main`; dann Besitzer: `./bz release`, Claude
+kopiert auf den Stick (`docs/hardware.md` A). Nach WSL-Neustart gilt `.wslconfig` `preempt=full`:
+`bz smoke` darf dann **nicht** mehr warnen (die Gegenprobe der Warnung, noch offen).
+CI von 59bcbaf beim Ausschalten noch offen – zu Beginn prüfen.
+**Leerlauf-Ratsche (offen):** der Haupt-Thread des Compositors wachte in 3 von 27 Läufen einmal in
+3 s auf, ohne zu zeichnen (25.10. vor, 26.10. nach A; Häufigkeit nicht belegt verschieden). Die
+Prüfung nennt jetzt Thread und Journal des Fensters (`BEIZE-WOKE`, `BEIZE-JOURNAL`) und zählt
+stoppende Test-Units mit; beim nächsten Rot daraus die Ursache. Debug-Log taugt nicht (verlangsamt,
+Lasttest wird rot). Kandidaten ohne Beleg: ein Eingabe-Ereignis ohne Wirkung, ein später Flip.
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -378,8 +396,10 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
    wartete unsere Submission auf der GPU und `current()` ohne Zeitlimit auf der CPU – ein hängender
    Client fror die Sitzung ein; in der VM nicht prüfbar, shm); Teile je Bild aufgeschlüsselt
    (bdaefd2: damage/wait/record/sync/queue statt „frame“; VM-Lasttest damage 0,13–0,16 ms).
-   **Vorgelegt, Entscheidung des Besitzers offen:** (A) lebendiges Glas in einem Durchgang wie
-   KWins Blur (heute zweiter Damage-Lauf + zweite Submission je Bild, HW 0,77 ms); (B) explizites
+   **Besitzer 26.10.: alles freigegeben.** ~~(A) lebendiges Glas in einem Durchgang~~ erledigt
+   (a833702: das Bild selbst kopiert und blurt an der Stelle des Glases, Vergleich der Elemente
+   dahinter statt zweitem Damage-Lauf; VM-Lasttest Glas 2,6–3,5 → 0,01 ms; Smoke-Prüfung
+   „Glas kehrt zur Farbe ohne Fenster zurück“, 59bcbaf, Gegenproben rot). (B) explizites
    Sync `linux-drm-syncobj-v1` (Smithay hat es; statt 2 ioctls je Client-Puffer und Bild); (C)
    Bild-Slots ohne Blockieren (`current()` wartet unbegrenzt im Haupt-Thread); (D) Direct Scanout
    für Vollbild; (E) Knöpfe als SDF im Quad-Shader (kein SVG), Titeltext fremder Fenster von der
