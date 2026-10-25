@@ -91,7 +91,7 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
    run0 mount -o uid=$(id -u),gid=$(id -g) /dev/disk/by-label/BEIZE /run/stick
    bash /run/stick/beize-test/hw-test.sh
    ```
-7. Das Skript führt durch fünf Teile, jeweils weiter mit Enter:
+7. Das Skript führt durch sechs Teile, jeweils weiter mit Enter:
    1. **Terminal-Probe.** Erwartet, Zeile für Zeile: „Grüße aus Beize: äöü ÄÖÜ ß é ñ €
       „Zitat“ – é“; „fett“ (kräftiger), „schwach“ (grauer), „unterstrichen“,
       „durchgestrichen“, „invers“ (dunkel auf hell); die Wörter rot, grün, gelb, blau,
@@ -114,6 +114,9 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
       der rechten unteren Ecke immer wieder ganz groß und klein ziehen. Bleibt es offen?
       Bleibt der Prompt eine saubere Zeile `beize ~ $` (in 0.5.104 vervielfachte er sich)?
       Danach `exit` darin.
+   6. **Bildschirm** (ADR 0029): den Monitor am Knopf aus, 5 Sekunden, wieder an; dann das
+      DisplayPort-Kabel am Rechner ab, 5 Sekunden, wieder an. Kommt das Bild jedes Mal
+      zurück, mit Terminal und Maus? Bleibt es schwarz: 30 Sekunden warten, dann Enter.
 
    Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
    Erwartet:
@@ -127,11 +130,14 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
      `busy` nur wenige Prozent. Sind doch Bilder spät, sagt die Klammer, welcher Teil des
      Modells nicht hält, und je spätem Bild eine Zeile `late frame (…)` seine Zeiten.
    - unter „Lasttest“: die `pacing:`-Zeilen der Szene, Ziel **`0 late`** und **`GPU median`
-     unter 1 ms**; `load: 12 windows, … frames in 40 s` – flüssig sind 12 × 240 × 40 ≈
+     unter 1 ms**; `drawing in parts` sagt, wo die CPU-Zeit je Bild bleibt (`glass` des
+     lebendigen Glases nahe 0 seit 0.5.105, `wait` 0, `sync`/`queue` für B in CLAUDE.md §11); `load: 12 windows, … frames in 40 s` – flüssig sind 12 × 240 × 40 ≈
      115 000 Bilder.
    - unter „Puffer des Compositors“: `held: … dmabufs of clients, … textures` bleibt nach
      dem Ziehen so klein wie davor (in 0.5.103 wuchs es mit jeder Größe, bis der
      Grafikspeicher voll war)
+   - unter „Bildschirm aus/an“: je `screen DP-… is gone` (oder `its link broke`) und danach
+     wieder `screen DP-…: 2560x1440 at 240 Hz` – zweimal
    - `Tasten im Fenster: 7` (das Loslassen der Enter-Taste, die das Fenster startete, gehört
      ihm, wie Wayland es will), `Klicks: 2`
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
