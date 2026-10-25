@@ -166,6 +166,14 @@ impl Shared {
     pub fn max_textures(&self) -> u32 {
         self.slots.lock().map(|s| s.max).unwrap_or(0)
     }
+
+    /// Slots held by textures now (freed ones wait in `garbage` first).
+    pub fn textures_in_use(&self) -> u32 {
+        self.slots
+            .lock()
+            .map(|s| s.next.saturating_sub(s.free.len() as u32))
+            .unwrap_or(0)
+    }
 }
 
 impl Drop for Shared {

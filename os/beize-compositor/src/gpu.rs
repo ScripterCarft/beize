@@ -62,6 +62,12 @@ impl Screen {
             Screen::Cpu(o) => o.pacing_idle(),
         }
     }
+    pub fn screenshot(&mut self) -> Result<((u32, u32), Vec<u8>)> {
+        match self {
+            Screen::Gpu(o) => o.screenshot(),
+            Screen::Cpu(o) => o.screenshot(),
+        }
+    }
     pub fn vblank(&mut self, metadata: Option<DrmEventMetadata>) -> Option<Duration> {
         match self {
             Screen::Gpu(o) => o.vblank(metadata),

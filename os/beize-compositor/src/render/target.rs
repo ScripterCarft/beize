@@ -60,6 +60,14 @@ impl Target {
     pub fn texture(&self) -> Option<&VkTexture> {
         self.texture.as_ref()
     }
+
+    pub fn size(&self) -> Size<i32, Buffer> {
+        self.size
+    }
+
+    pub fn fourcc(&self) -> Fourcc {
+        self.fourcc
+    }
 }
 
 impl std::fmt::Debug for Target {

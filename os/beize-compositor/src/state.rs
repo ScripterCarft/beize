@@ -566,6 +566,17 @@ impl State {
         }
     }
 
+    /// Saves what the screen shows (`screenshot`).
+    pub fn screenshot(&mut self) {
+        let Some(screen) = &mut self.screen else {
+            return;
+        };
+        match screen.screenshot() {
+            Ok((size, rgb)) => crate::screenshot::save(size, rgb),
+            Err(e) => warn!("screenshot: {e}"),
+        }
+    }
+
     /// The screen's area.
     pub fn screen_area(&self) -> Rectangle<i32, Logical> {
         self.output

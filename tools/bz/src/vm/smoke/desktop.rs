@@ -306,6 +306,15 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     )?;
     say!("  ok: the desktop appeared with the shell's panels: {shown}");
 
+    // Super+Shift+3 saves the screen as it shows it: the PNG equals QEMU's
+    // own screendump of the still desktop.
+    let size = screenshot(&shell, &machine)?;
+    say!(
+        "  ok: Super+Shift+3 saved a screenshot, {}x{}, as the screen shows it",
+        size.0,
+        size.1
+    );
+
     // The desktop starts with no terminal, as macOS' with no window;
     // Ctrl+Alt+T opens one and another: each in a unit of its own, with the
     // owner's shell in it.
@@ -1598,6 +1607,100 @@ fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<String> {
     )
 }
 
+/// Takes a screenshot with Super+Shift+3 of the still screen and compares
+/// it with QEMU's screendump before and after (again if the clock's minute
+/// changed in between); returns its size.
+fn screenshot(shell: &Shell, machine: &Machine) -> Result<(usize, usize)> {
+    let qmp = machine.qmp();
+    park(&qmp, screen_size(machine)?)?;
+    thread::sleep(Duration::from_secs(1));
+    let dump = |name: &str| -> Result<Image> {
+        let file = machine.logs.join(format!("{name}.ppm"));
+        screendump(&qmp, &file)?;
+        Image::read_ppm(&fs::read(&file)?)
+    };
+    let wanted = "screenshot [0-9]*x[0-9]*: .*[.]png";
+    let mut last: Option<String> = None;
+    let mut taken = None;
+    for _ in 0..2 {
+        let before = dump("screenshot-before")?;
+        keys(&qmp, &["meta_l+shift+3"])?;
+        // The compositor's newest line, not the one of the last try.
+        let deadline = Instant::now() + SCREEN_TIMEOUT;
+        let said = loop {
+            let said = wait_for_compositor_line(shell, wanted)?;
+            if last.as_ref() != Some(&said) {
+                break said;
+            }
+            ensure!(Instant::now() < deadline, "no second screenshot");
+            thread::sleep(Duration::from_millis(200));
+        };
+        let after = dump("screenshot-after")?;
+        if before.pixels == after.pixels {
+            taken = Some((said, after));
+            break;
+        }
+        last = Some(said);
+    }
+    let (said, after) = taken.context("the screen changed while each screenshot was taken")?;
+    let file = said
+        .split_once(": ")
+        .map(|(_, f)| f)
+        .context("no file in the compositor's line")?;
+    let (status, lines) = shell.capture(&format!("base64 -w 76 '{file}'"))?;
+    ensure!(status == 0, "could not read {file}: {lines:?}");
+    // The kernel's console may cut into a line ("[   35.67] rcu: …"): base64
+    // has no `[`, the rest of the line is the kernel's; the PNG's checksums
+    // catch anything else.
+    let text: String = lines
+        .iter()
+        .map(|l| l.split('[').next().unwrap_or_default())
+        .collect();
+    let shot = Image::read_png(&base64(&text)?).context("reading the screenshot")?;
+    ensure!(
+        (shot.width, shot.height) == (after.width, after.height),
+        "the screenshot is {}x{}, the screen {}x{}",
+        shot.width,
+        shot.height,
+        after.width,
+        after.height
+    );
+    shot.write_png(&machine.logs.join("screenshot.png"))?;
+    compare(
+        &after,
+        |x, y| shot.pixel(x, y),
+        "the screenshot",
+        &machine.logs.join("screenshot-difference.ppm"),
+    )?;
+    Ok((shot.width, shot.height))
+}
+
+/// Decodes base64 (RFC 4648), as `base64` writes it.
+fn base64(text: &str) -> Result<Vec<u8>> {
+    let value = |c: u8| -> Result<u32> {
+        Ok(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => bail!("not base64: {:?}", char::from(c)),
+        }
+        .into())
+    };
+    let text = text.trim_end_matches('=').as_bytes();
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    for chunk in text.chunks(4) {
+        let mut n = 0;
+        for (i, &c) in chunk.iter().enumerate() {
+            n |= value(c)? << (18 - 6 * i);
+        }
+        let bytes = n.to_be_bytes();
+        out.extend_from_slice(&bytes[1..chunk.len()]);
+    }
+    Ok(out)
+}
+
 /// Waits until `window` on the screen no longer shows `shown` – the window
 /// left; if it does not, the last screen is in the logs.
 fn wait_for_gone(machine: &Machine, (at, size): Window, shown: &Image, name: &str) -> Result<()> {
@@ -2083,6 +2186,14 @@ mod tests {
             placement("window beize-testclient 640x480", "beize-testclient"),
             None
         );
+    }
+
+    #[test]
+    fn decodes_base64() {
+        assert_eq!(base64("QmVpemU=").unwrap(), b"Beize");
+        assert_eq!(base64("QmVp").unwrap(), b"Bei");
+        assert_eq!(base64("QmU=").unwrap(), b"Be");
+        assert!(base64("Qm-p").is_err());
     }
 
     #[test]

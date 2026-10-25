@@ -33,6 +33,7 @@ mod opening;
 mod output;
 mod pacing;
 mod schedule;
+mod screenshot;
 mod shell;
 mod shell_v1;
 mod state;

@@ -36,6 +36,10 @@ tracing = "0.1"
 # Smithay reports through tracing; this writes it to stderr, the journal.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
 xcursor = "0.3.11"
+# Screenshots: the local time for their names (glibc's localtime_r, as the
+# shell's clock), PNG as bz reads them.
+libc = "0.2"
+png = "0.18.1"
 
 [dev-dependencies]
 # The test of `trust` asks for its own process as a pidfd.

@@ -25,9 +25,9 @@ use smithay::backend::drm::{
     DrmDevice, DrmDeviceFd, DrmEventMetadata, DrmEventTime, DrmSurface, Framebuffer, PlaneConfig,
     PlaneState,
 };
-use smithay::backend::renderer::Bind;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::RenderElement;
+use smithay::backend::renderer::{Bind, ExportMem};
 use smithay::reexports::drm::buffer::{
     Buffer as _, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
@@ -588,6 +588,8 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     schedule: Schedule,
     pacing: Pacing,
     clock: Clock<Monotonic>,
+    /// What the renderer held when last logged (`pacing_idle`).
+    held: Option<(usize, u32)>,
 }
 
 impl<A, F> Output<A, F>
@@ -642,6 +644,7 @@ where
             schedule: Schedule::new(refresh, blank(&mode)),
             pacing: Pacing::new(refresh, blank(&mode)),
             clock: Clock::new(),
+            held: None,
         }
     }
 
@@ -890,7 +893,45 @@ where
     /// A run of frames is being measured; ends it after a while without
     /// frames (false then).
     pub fn pacing_idle(&mut self) -> bool {
-        self.pacing.idle(self.clock.now().into())
+        let running = self.pacing.idle(self.clock.now().into());
+        // What the renderer holds, once things are still, if it changed.
+        let held = self.renderer.held();
+        if !running && self.held != Some(held) {
+            self.held = Some(held);
+            info!("held: {} dmabufs of clients, {} textures", held.0, held.1);
+        }
+        running
+    }
+
+    /// What the screen shows now, read back (waiting for the GPU): its
+    /// size and its rows from the top, 8-bit RGB as encoded. The pointer
+    /// on its own plane is not in it, as in macOS' screenshots.
+    pub fn screenshot(&mut self) -> Result<((u32, u32), Vec<u8>)> {
+        let slot = self.shown.as_ref().context("nothing on the screen yet")?;
+        let image = slot
+            .userdata()
+            .get::<Image<F::Framebuffer>>()
+            .context("screen buffer data")?;
+        let mut target = image.target.borrow_mut();
+        let (size, fourcc) = (target.size(), target.fourcc());
+        let framebuffer = self.renderer.bind(&mut *target)?;
+        let mapping =
+            self.renderer
+                .copy_framebuffer(&framebuffer, Rectangle::from_size(size), fourcc)?;
+        let pixels = self.renderer.map_texture(&mapping)?;
+        // Bytes in memory: B G R X, or R G B X.
+        let order = match fourcc {
+            Fourcc::Xrgb8888 | Fourcc::Argb8888 => [2, 1, 0],
+            Fourcc::Xbgr8888 | Fourcc::Abgr8888 => [0, 1, 2],
+            other => return Err(error(format!("a screen in {other} is not read"))),
+        };
+        let rgb = pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|p| order.map(|i| p[i]))
+            .collect();
+        Ok(((size.w as u32, size.h as u32), rgb))
     }
 
     /// Another session took the screen (logind).

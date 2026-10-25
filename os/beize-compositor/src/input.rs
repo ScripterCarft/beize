@@ -4,7 +4,8 @@
 //! it. Ctrl+Alt+F1…F12 switch the VT, as on
 //! every Linux desktop – the compositor holds the keyboard, so it asks
 //! logind; Ctrl+Alt+T opens a terminal (`apps`); Super+F switches the
-//! active window's fullscreen (ADR 0028 §2).
+//! active window's fullscreen (ADR 0028 §2); Super+Shift+3 and Print take
+//! a screenshot (`screenshot`).
 //!
 //! While a fullscreen window is in front, the panels show only with the
 //! pointer at their edge of the screen (`State::reveal`).
@@ -48,6 +49,7 @@ enum Action {
     SwitchVt(u32),
     OpenTerminal,
     ToggleFullscreen,
+    Screenshot,
 }
 
 fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
@@ -96,13 +98,16 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
                 state.toggle_fullscreen(&toplevel.clone());
             }
         }
+        Some(Action::Screenshot) => state.screenshot(),
         None => {}
     }
 }
 
 /// The compositor's keys: Ctrl+Alt+F1…F12 (the layout gives them as VT
-/// keysyms), Ctrl+Alt+T for a new terminal, as on Ubuntu, and Super+F for
-/// fullscreen (Super belongs to the shell). The letter counts as a Latin
+/// keysyms), Ctrl+Alt+T for a new terminal, as on Ubuntu, Super+F for
+/// fullscreen (Super belongs to the shell), Super+Shift+3 for a screenshot
+/// (macOS' ⌘⇧3; the key's own level, whatever Shift makes of it) and Print
+/// alone (Windows, GNOME). The letter counts as a Latin
 /// layout among the loaded ones has it (Smithay), so with Russian next to
 /// US the key stays where it is, as in GNOME.
 fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Option<Action> {
@@ -112,9 +117,13 @@ fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Opt
     }
     let only_ctrl_alt = modifiers.ctrl && modifiers.alt && !modifiers.shift && !modifiers.logo;
     let only_super = modifiers.logo && !modifiers.ctrl && !modifiers.alt && !modifiers.shift;
+    let super_shift = modifiers.logo && modifiers.shift && !modifiers.ctrl && !modifiers.alt;
+    let none = !(modifiers.logo || modifiers.shift || modifiers.ctrl || modifiers.alt);
     match latin {
         Some(Keysym::t) if only_ctrl_alt => Some(Action::OpenTerminal),
         Some(Keysym::f) if only_super => Some(Action::ToggleFullscreen),
+        Some(Keysym::_3) if super_shift => Some(Action::Screenshot),
+        _ if sym == Keysym::Print && none => Some(Action::Screenshot),
         _ => None,
     }
 }
@@ -280,5 +289,25 @@ mod tests {
         );
         assert_eq!(action(&ctrl_alt, Keysym::f, Some(Keysym::f)), None);
         assert_eq!(action(&logo, Keysym::t, Some(Keysym::t)), None);
+        // Super+Shift+3: Shift makes § of the key on a German layout, # on
+        // a US one; the key's own level is 3 on both.
+        let super_shift = ModifiersState {
+            logo: true,
+            shift: true,
+            ..ModifiersState::default()
+        };
+        for shifted in [Keysym::section, Keysym::numbersign] {
+            assert_eq!(
+                action(&super_shift, shifted, Some(Keysym::_3)),
+                Some(Action::Screenshot)
+            );
+        }
+        assert_eq!(action(&logo, Keysym::_3, Some(Keysym::_3)), None);
+        let none = ModifiersState::default();
+        assert_eq!(
+            action(&none, Keysym::Print, Some(Keysym::Print)),
+            Some(Action::Screenshot)
+        );
+        assert_eq!(action(&ctrl_alt, Keysym::Print, Some(Keysym::Print)), None);
     }
 }

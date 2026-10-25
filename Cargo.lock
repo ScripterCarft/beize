@@ -172,6 +172,8 @@ dependencies = [
  "beize-protocols",
  "beize-systemd",
  "beize-vulkan",
+ "libc",
+ "png",
  "rustix 1.1.5",
  "smithay",
  "tracing",

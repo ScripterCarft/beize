@@ -192,6 +192,12 @@ impl VkRenderer {
         &self.name
     }
 
+    /// The clients' dmabufs it holds, and the textures in use: both stay
+    /// flat while windows come, go and change size (a leak shows here).
+    pub fn held(&self) -> (usize, u32) {
+        (self.dmabufs.len(), self.shared.textures_in_use())
+    }
+
     /// GPU time of the last measured frame, in milliseconds.
     pub fn gpu_ms(&self) -> Option<f64> {
         self.gpu_ms
@@ -785,6 +791,7 @@ impl Renderer for VkRenderer {
             .map_err(|e| error(format!("waiting for a fence: {e}")))
     }
 
+    // Also done by each submission (`submit`).
     fn cleanup_texture_cache(&mut self) -> Result<()> {
         self.dmabufs.retain(|weak, _| !weak.is_gone());
         self.shared.collect();
@@ -1074,6 +1081,12 @@ impl VkRenderer {
         readout: Option<&frame::Readout>,
     ) -> Result<u64> {
         let i = self.current()?;
+        // Each submission lets go of the clients' dmabufs that are gone (a
+        // window's old size, a closed app), as Smithay's GLES renderer does
+        // each frame: Smithay asks for it only in its DrmCompositor, which
+        // Beize does not use. Kept, every resize held the buffers of each
+        // size until the GPU's memory ran out (0.5.103).
+        self.dmabufs.retain(|weak, _| !weak.is_gone());
         self.shared.collect();
         let d = self.shared.device.clone();
         let commands = self.in_flight[i].commands;
