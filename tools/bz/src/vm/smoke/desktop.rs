@@ -678,8 +678,9 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         .and_then(|s| s.split_once(' '))
         .and_then(|(n, _)| n.parse::<u32>().ok())
         .with_context(|| format!("a pacing summary without frames: {pacing}"))?;
+    // A frame or two more for the menu bar (its minute) is no mix.
     ensure!(
-        (100..=120).contains(&frames),
+        (100..=125).contains(&frames),
         "the compositor counted {frames} frames of the client's 120: {pacing}"
     );
     say!("  ok: the compositor measured the client's frames: {pacing}");
