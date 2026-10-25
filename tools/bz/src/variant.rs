@@ -21,6 +21,8 @@ const USER_PRESET: &str = "user.preset";
 const RUNNING_UNITS: &str = "running-units.txt";
 /// How exposed the services are (`security.rs`).
 const SECURITY: &str = "security.toml";
+/// What the image weighs (`sizes.rs`).
+const SIZES: &str = "sizes.toml";
 
 /// `images/<variant>/variant.toml`.
 #[derive(Deserialize)]
@@ -40,6 +42,23 @@ struct Security {
     /// Services of every user's service manager.
     #[serde(default, rename = "user-exposure")]
     user_exposure: BTreeMap<String, f64>,
+}
+
+/// `images/<variant>/sizes.toml`: in KiB, the variant's /usr image and the
+/// programs the layer adds.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SizesFile {
+    usr: u64,
+    #[serde(default)]
+    programs: BTreeMap<String, u64>,
+}
+
+/// What the variant's image weighs, in KiB: its /usr image, and Beize's
+/// programs in it by their path.
+pub struct Sizes {
+    pub usr: u64,
+    pub programs: BTreeMap<String, u64>,
 }
 
 /// The measured exposure of the services, by unit.
@@ -162,12 +181,33 @@ impl Variant {
         Ok(all)
     }
 
+    /// What the variant weighs: its own /usr image (each layer states its
+    /// variant's), the programs of all layers.
+    pub fn sizes(&self) -> Result<Sizes> {
+        let mut sizes = Sizes {
+            usr: 0,
+            programs: BTreeMap::new(),
+        };
+        for layer in &self.layers {
+            let file = layer.dir.join(SIZES);
+            ensure!(
+                file.is_file(),
+                "{} is missing: each variant states what it weighs",
+                file.display()
+            );
+            let layer: SizesFile = tree::read_toml(&file)?;
+            sizes.usr = layer.usr;
+            sizes.programs.extend(layer.programs);
+        }
+        Ok(sizes)
+    }
+
     /// The files a build of the variant depends on, for fingerprints.
     pub fn definition_files(&self) -> Vec<PathBuf> {
         let mut files = Vec::new();
         for layer in &self.layers {
             files.push(layer.dir.join("variant.toml"));
-            for name in [SYSTEM_PRESET, USER_PRESET, RUNNING_UNITS, SECURITY] {
+            for name in [SYSTEM_PRESET, USER_PRESET, RUNNING_UNITS, SECURITY, SIZES] {
                 let file = layer.dir.join(name);
                 if file.is_file() {
                     files.push(file);
@@ -200,7 +240,7 @@ impl Variant {
     /// exposure entry an earlier layer has already.
     fn check(&self) -> Result<()> {
         let base = &self.layers[0];
-        for name in [SYSTEM_PRESET, USER_PRESET, RUNNING_UNITS, SECURITY] {
+        for name in [SYSTEM_PRESET, USER_PRESET, RUNNING_UNITS, SECURITY, SIZES] {
             ensure!(
                 base.dir.join(name).is_file(),
                 "variant {} extends nothing, so it needs its own {name}",
@@ -248,6 +288,13 @@ impl Variant {
                 }
                 for unit in security.user_exposure.into_keys() {
                     add("user exposure of", unit, &layer.id);
+                }
+            }
+            let file = layer.dir.join(SIZES);
+            if file.is_file() {
+                let sizes: SizesFile = tree::read_toml(&file)?;
+                for program in sizes.programs.into_keys() {
+                    add("size of", program, &layer.id);
                 }
             }
         }
@@ -342,6 +389,10 @@ mod tests {
             "[exposure]\n\"a.service\" = 1.0\n[user-exposure]\n\"u.service\" = 1.0\n",
         );
         write(
+            "base/sizes.toml",
+            "usr = 100\n[programs]\n\"usr/bin/a\" = 10\n",
+        );
+        write(
             "top/variant.toml",
             "name = \"Top\"\nextends = \"base\"\npackages = [\"mesa\"]\n",
         );
@@ -381,6 +432,11 @@ mod tests {
                 "[user-exposure]\n\"u.service\" = 9.0\n",
                 "user exposure of u.service",
             ),
+            (
+                "top/sizes.toml",
+                "usr = 200\n[programs]\n\"usr/bin/a\" = 20\n",
+                "size of usr/bin/a",
+            ),
         ] {
             write(file, text);
             let error = format!("{:#}", Variant::load(&root, "top").unwrap_err());
@@ -392,6 +448,7 @@ mod tests {
             let _ = fs::remove_file(root.join("images").join("top/system.preset"));
             let _ = fs::remove_file(root.join("images").join("top/user.preset"));
             let _ = fs::remove_file(root.join("images").join("top/security.toml"));
+            let _ = fs::remove_file(root.join("images").join("top/sizes.toml"));
         }
         write(
             "loop/variant.toml",

@@ -1,0 +1,19 @@
+# What the image weighs, in KiB (bz: sizes.rs): the variant's /usr image as
+# shipped (EROFS, compressed) and each of Beize's own programs in /usr
+# (stripped, with MiniDebugInfo). bz checks them when it assembles /usr and
+# packs it. More than 3 % larger fails: undo it, or raise the value with
+# the reason in the commit – growth is allowed, unnoticed growth is not.
+# More than 3 % smaller fails too, until the new value is written here.
+# Each variant states its own /usr; programs only in the layer that brings
+# them (ADR 0025).
+
+usr = 116676
+
+[programs]
+"usr/lib/beize/beize-tpm" = 534
+"usr/lib/beize/beize-setup" = 539
+"usr/lib/beize/beize-accountsd" = 400
+"usr/lib/beize/beize-updated" = 457
+"usr/lib/beize/beize-update-fetch" = 412
+"usr/bin/beize-account" = 416
+"usr/bin/beize-update" = 355

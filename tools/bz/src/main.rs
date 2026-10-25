@@ -32,6 +32,7 @@ mod schedule;
 mod secureboot;
 mod security;
 mod select;
+mod sizes;
 mod source;
 mod stamp;
 mod tree;

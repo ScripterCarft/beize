@@ -21,6 +21,7 @@ use crate::privileges;
 use crate::say;
 use crate::secureboot::Keys;
 use crate::security;
+use crate::sizes;
 use crate::stamp::Stamp;
 use crate::tree;
 use crate::util;
@@ -105,6 +106,7 @@ pub fn build(paths: &Paths) -> Result<PathBuf> {
     elf::check_tree(paths, &root, "/usr")?;
     privileges::check_tree(&root, "/usr")?;
     security::check(paths, &root)?;
+    sizes::check_programs(paths, &root)?;
     ensure_no_build_paths(paths, &root)?;
     write_repart_definitions(&usr)?;
     write_definitions(
@@ -191,6 +193,7 @@ pub fn pack(
     if size > layout::USR_SLOT_SIZE {
         bail!("the /usr image ({size} bytes) does not fit into a /usr slot");
     }
+    sizes::check_usr(paths, size)?;
     ensure!(
         size % layout::VERITY_BLOCK_SIZE == 0,
         "the /usr image is not a multiple of the verity block size"

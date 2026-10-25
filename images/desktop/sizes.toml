@@ -1,0 +1,10 @@
+# What the desktop weighs (see the base's sizes.toml): its whole /usr, and
+# the programs it adds.
+
+usr = 164016
+
+[programs]
+"usr/lib/beize/beize-compositor" = 7274
+"usr/lib/beize/beize-shell" = 4498
+"usr/lib/beize/beize-terminal" = 4701
+"usr/bin/beize-session" = 367
