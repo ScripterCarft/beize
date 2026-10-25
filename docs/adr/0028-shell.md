@@ -353,6 +353,10 @@ verlangt: jedes Fenster ≥ 30 Bilder in 15 s, das Glas des Docks ändert sich m
 dahinter (Gegenprobe ohne Fenster dahinter: rot), eine `pacing:`-Zeile über die Szene. In der
 VM 12 × ~33 Bilder/s, lavapipe weit über dem Budget (erwartet). Federanimationen des
 Compositors gibt es bis (g) nur beim Start; sie kommen in die Szene, sobald es sie gibt.
+Erste Messung auf der 3070 Ti (0.5.102, 24.10.): 6568 von 7200 Bildern in 30 s, 542 spät (479
+„display“: fertig nur 0,1–0,7 ms vor dem vblank), GPU-Median 0,32 ms – das Ziel unter 1 ms hält –,
+aber 1,44 ms CPU je Bild: der Compositor langweilt sich noch nicht. `pacing:` zeigt seitdem, wohin
+die CPU-Zeit geht (Szene, Glas, Bild, Commit).
 
 ## Reihenfolge
 

@@ -465,12 +465,28 @@ zeichnen jedes Bild, eins wird hinters Dock gezogen; Smoke prüft Funktion und G
 rot). Dabei behoben: der Smoke tippte ins zweite Terminal, bevor dessen Fenster stand (erste Tasten
 gingen ans erste Terminal, VM langsam), und Zeilen des Compositors trugen je nach Ereignis
 Smithays Span davor (`drm_atomic: pacing: …`); ab info jetzt nur die Nachricht.
-**Als Nächstes: Hardware-Test mit Messbau 0.5.102** (`measure/desktop`, auf `main` gehoben,
-`hw-test.sh` Teil 4/4 Lasttest, in der VM durchlaufen; Anleitung `docs/hardware.md` C, auf den
-Desktop mit Shell umgeschrieben). Wartet auf den Besitzer: `./bz release`, dann kopiert Claude
-Release, Skript und Testprogramme (jetzt auch `beize-load-test`) auf den Stick. Einmal im Smoke
-des Messbaus fand die VM-Firmware im Update-Szenario den Bootloader der Platte nicht („Boot0002 …
-Not Found“, vor dem Kernel); im zweiten Lauf grün, Ursache offen – beobachten. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
+**Hardware-Test 0.5.102 (24.10., `~/hw-logs/results-20261024-194800`):** flüssig. Befunde des
+Besitzers, alle behoben (25.10.): (1) weiße Schrift der Menüleiste fett/pixelig – Beize UI schrieb
+durchsichtige Fenster durch eine sRGB-Ansicht, also encode(Farbe·α) statt encode(Farbe)·α, wie
+Wayland-Puffer es verlangen; jetzt Zwischenbild in linearem Licht, letzter Durchgang `ENCODE` in
+eine UNORM-Swapchain (in der VM: Pixel über der Hälfte 183 → 107). (2) Testfenster überall mit
+Doppelpfeil, Zeiger blieb nach dem Schließen – ein Client ohne eigenen Zeiger erbte den letzten;
+jetzt Pfeil beim Betreten bis zum `set_cursor`, und neu eingeordnet beim Öffnen/Schließen eines
+Fensters (Smoke prüft beides am Bild, Kasten unter dem Hotspot). (3) Strahlen aus allen Ecken
+(Foto) – nur im Eckquadrat, nur vom Winkel abhängig, flackernd: die Tabelle `RHO[17]` mit
+Laufzeit-Index lieferte auf NVK zeitweise Müll (Mechanismus erschlossen, kein Mesa-Bericht
+gefunden; Bestätigung erst auf der Hardware); jetzt Polynom ohne Array (Messpunkte auf 5e-5,
+Abdeckung bei r 16/18,2 ≤ 1,5/255 anders). Dazu aus dem Log: (4) das Einblenden forderte sein
+nächstes Bild beim Zeichnen an, jedes Bild galt als spät – jetzt bei „frame done“ (wie KWin).
+Belegt: die Konsole läuft mit 60 Hz (`it had 2560x1440 at 60 Hz`), der Compositor setzt 240 Hz –
+die schwarze Lücke zur Sitzung. Messwerte: Testfenster 4796 Bilder/20 s, 12 spät; Lasttest
+6568/30 s (91 %), 542 spät, davon 479 „display“ (fertig nur 0,1–0,7 ms vor dem vblank, Vorlauf
+schon ein ganzes Bild), GPU-Median 0,32 ms (Ziel < 1 ms erfüllt), CPU 1,44 ms (42 % busy). Wohin
+die CPU-Zeit geht, misst jetzt `pacing:` in Teilen (`scene/glass/frame/commit`).
+**Als Nächstes:** Messbau 0.5.103 mit diesen Fixes; dort die Teile messen, dann gezielt die
+CPU-Zeit senken (erst messen, dann ändern). Einmal im Smoke des Messbaus 0.5.102 fand die
+VM-Firmware im Update-Szenario den Bootloader der Platte nicht („Boot0002 … Not Found“, vor dem
+Kernel); im zweiten Lauf grün, Ursache offen – beobachten. Der Besitzer will es „verdammt effizient“, ohne Abstriche am
 Aussehen. Apples Icons und „macOS-Look“-Sets sind tabu (VISION:
 Konzepte, nicht Optik). Offen dabei: Namen aus Desktop-Dateien
 liest die Shell nur einmal je App (neu installierte Apps erst nach Neustart der Shell, kommt mit
