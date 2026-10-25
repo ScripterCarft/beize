@@ -309,7 +309,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: viewporter + xdg-activation fertig – JETZT: zuerst die Smoke-Aussetzer, dann idle-inhibit + Bildschirm aus, Punkt 2 unten)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: viewporter + xdg-activation fertig – JETZT, Reihenfolge des Besitzers: 1. Smoke-Aussetzer, 2. Compositor unter die Lupe, 3. idle-inhibit + Bildschirm aus – Punkt 2 unten)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -366,8 +366,20 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
    „Monitor aus/an, Kabel ab/an“ in `measure/hw-test.sh` kommt mit dem Messbau (4.).
    Smithay-Bericht Nr. 4 (Blob 0) liegt in `~/upstream/smithay/ISSUES.md`. CI beider Commits
    grün (8039442 nach Neustart durch den Besitzer: Bootbudget war Runner-Rauschen).
-2. **Protokolle – NÄCHSTER CHAT: zuerst die Smoke-Aussetzer (unten, „Beobachten“), dann
-   idle-inhibit + Bildschirm aus bei Inaktivität** (gehören zusammen: inhibit wirkt erst mit
+2. **NÄCHSTE CHATS, Reihenfolge des Besitzers (25.10.):** (i) die Smoke-Aussetzer (unten);
+   (ii) **den Compositor unter die Lupe** (Besitzer: „kein weiterer Compositor, ein richtig
+   guter, schneller“): Größe und Arbeit je Bild. Gemessen 25.10. (a691064, gestrippt 7,68 MB,
+   `.text` 5,7 MB): Text-Stapel nur für fremde Titelleisten ~1,3 MB (harfrust 376 KiB, skrifa
+   320, read-fonts 271, zeno 187, parley 132, fontique 44), SVG für die Knopf-Symbole ~0,6 MB
+   (usvg 213, tiny-skia 248, resvg 75, roxmltree 46, svgtypes 41), Abwicklungstabellen 0,58 MB
+   (`.eh_frame` + `.gcc_except_table`, panic=unwind bleibt), PIE-Relokationen 0,38 MB
+   (Härtung bleibt); Smithay 780, wayland-server 426, eigener Code 499. Wachstum je Commit seit
+   9801fb4: ADR 0029 +69 KB, presentation +67, fifo/commit-timing +86, viewporter/activation +93.
+   Ratsche verschärfen: jedes Wachstum über ~0,5 % muss den Wert mit Grund eintragen (heute
+   rutschten vier Commits je knapp unter 3 % durch). Dann `cargo bloat`, Text/SVG im Compositor
+   (vorgerasterte Symbole? gemeinsamer Text-Dienst?), `lto = "fat"`; und vor allem CPU je Bild
+   (C b–d) – Größe auf der Platte kostet kaum Laufzeit, Arbeit je Bild schon. (iii)
+   **idle-inhibit + Bildschirm aus bei Inaktivität** (gehören zusammen: inhibit wirkt erst mit
    der Leerlauf-Erkennung; Zeiten wie macOS) – Aufteilung des Besitzers, 25.10. Je eine
    Smoke-Prüfung mit Gegenprobe (Testclient bindet sie). Bildschirm aus passt zu ADR 0029
    (Bildschleife ruhen lassen wie bei „weg“, CRTC aus per DPMS/ACTIVE=0). In der VM zählt eine
