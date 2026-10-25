@@ -49,8 +49,8 @@ Zweig `measure/desktop`: `main` + `kernel/measure/*.patch` (nouveau-Patches, die
 noch fehlen) + `measure/hw-test.sh`, Version `0.5.<n>` (`OS_VERSION` auf dem Zweig); 0.6
 von `main` ersetzt ihn. Claude baut und prüft ihn (Smoke, Skript in der VM) und taggt ihn
 als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 §6, Logs in
-`~/hw-logs/results-*`. Zuletzt 0.5.102 (24.10.): flüssig; Testfenster 12 von 4796 Bildern spät,
-Lasttest 542 von 6568; Befunde (Schrift, Zeiger, Ecken) in CLAUDE.md §11, behoben in 0.5.103.
+`~/hw-logs/results-*`. Zuletzt 0.5.103 (25.10.): Testfenster 3 von 4803 Bildern spät, Lasttest
+223 von 9381; Befund (Terminal stirbt beim Resizen) in CLAUDE.md §11, behoben in 0.5.104.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 
@@ -91,7 +91,7 @@ Lasttest 542 von 6568; Befunde (Schrift, Zeiger, Ecken) in CLAUDE.md §11, behob
    run0 mount -o uid=$(id -u),gid=$(id -g) /dev/disk/by-label/BEIZE /run/stick
    bash /run/stick/beize-test/hw-test.sh
    ```
-7. Das Skript führt durch vier Teile, jeweils weiter mit Enter:
+7. Das Skript führt durch sechs Teile, jeweils weiter mit Enter:
    1. **Terminal-Probe.** Erwartet, Zeile für Zeile: „Grüße aus Beize: äöü ÄÖÜ ß é ñ €
       „Zitat“ – é“; „fett“ (kräftiger), „schwach“ (grauer), „unterstrichen“,
       „durchgestrichen“, „invers“ (dunkel auf hell); die Wörter rot, grün, gelb, blau,
@@ -110,6 +110,12 @@ Lasttest 542 von 6568; Befunde (Schrift, Zeiger, Ecken) in CLAUDE.md §11, behob
       gleitenden Blöcken. Gleich zu Beginn das vorderste an seiner Titelleiste nach unten
       ziehen, bis es zur Hälfte hinter dem Dock liegt, dann die Maus ruhen lassen. Läuft alles
       flüssig? Scheinen die Farben verschwommen und bewegt durchs Dock?
+   5. **Fenstergröße**: mit Strg+Alt+T ein zweites Terminal öffnen und es 20 Sekunden lang an
+      der rechten unteren Ecke immer wieder ganz groß und klein ziehen. Bleibt es offen?
+      Danach `exit` darin.
+   6. **Bildschirmfotos**: mit **Super+Shift+3** (wie ⌘⇧3 auf dem Mac) oder der Druck-Taste
+      Fotos von allem, was nicht schön aussieht, so viele wie nötig. Das Skript legt sie
+      unter `screenshots/` auf den Stick.
 
    Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
    Erwartet:
@@ -125,6 +131,9 @@ Lasttest 542 von 6568; Befunde (Schrift, Zeiger, Ecken) in CLAUDE.md §11, behob
    - unter „Lasttest“: die `pacing:`-Zeilen der Szene, Ziel **`0 late`** und **`GPU median`
      unter 1 ms**; `load: 12 windows, … frames in 40 s` – flüssig sind 12 × 240 × 40 ≈
      115 000 Bilder.
+   - unter „Puffer des Compositors“: `held: … dmabufs of clients, … textures` bleibt nach
+     dem Ziehen so klein wie davor (in 0.5.103 wuchs es mit jeder Größe, bis der
+     Grafikspeicher voll war); `Bildschirmfotos: …` so viele, wie du gemacht hast
    - `Tasten im Fenster: 7` (das Loslassen der Enter-Taste, die das Fenster startete, gehört
      ihm, wie Wayland es will), `Klicks: 2`
    - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)

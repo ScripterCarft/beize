@@ -302,21 +302,40 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: M3 Schritt 4 Shell bis Lasttest fertig; Hardware-Test 0.5.103 läuft beim Besitzer – JETZT: unten „AUFTRAG FÜR DEN NÄCHSTEN CHAT“)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Hardware-Test 0.5.103 ausgewertet, Leck beim Resizen behoben, Bildschirmfoto; Messbau 0.5.104 in Arbeit – JETZT: unten „AUFTRAG“ Punkt 3)
 
-**AUFTRAG FÜR DEN NÄCHSTEN CHAT** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem
-Test“). Release 0.5.103 und `D:\beize-test` (Skript, Testprogramme samt `beize-load-test`) liegen
-auf dem Stick; der Besitzer installiert und testet nach `docs/hardware.md` C. Sagt er „Hardware-Test
-fertig“:
-1. Ergebnisse holen: neuestes `D:\beize-test\results-*` per PowerShell nach
-   `\\wsl.localhost\Ubuntu-26.04\home\joe\hw-logs\` kopieren (Befunde von 0.5.102 zum Vergleich:
-   `~/hw-logs/results-20261024-194800`). Seine Beobachtungen ernst nehmen, Fotos auswerten.
-2. Bestätigen oder widerlegen, was 0.5.103 behebt (Details weiter unten „Hardware-Test 0.5.102“):
-   Ecken ohne Strahlen (bestätigt erst den erschlossenen NVK-Mechanismus der Tabelle – bleiben
-   Strahlen, war die Ursache eine andere: weiter suchen, nicht die Formel verteidigen), Schrift der
-   Menüleiste schlank (Strichstärke beurteilt er), Pfeil über dem Testfenster und nach dem
-   Schließen, Einblenden ohne späte Bilder (`late frame` direkt nach `desktop shown` dürfen nicht
-   mehr kommen).
+**Hardware-Test 0.5.103 (25.10., `~/hw-logs/results-20261025-085227`):** Besitzer bestätigt:
+Schrift, Ecken (ohne Strahlen: der erschlossene NVK-Mechanismus der Tabelle hält), Zeiger,
+Einblenden gut. Testfenster 3 von 4803 spät (0.5.102: 12), Lasttest 223 von 9381 (0.5.102: 542).
+Neu: Beim Einblenden ist **genau alle 100 ms ein Bild „GPU“ spät** (fertig 0,15–0,34 ms nach
+Beginn des vblank) – eigener Takt, Ursache offen, gehört zu 3 b/c.
+**Befund des Besitzers, behoben:** Terminal immer größer gezogen → verschwand; danach starb jedes
+neue Terminal beim ersten Resize, und zuletzt öffnete kaum noch eins. Ursache (Quelltext):
+`VkRenderer` warf importierte dmabufs der Clients nie weg (`cleanup_texture_cache` ruft Smithay nur
+in seinem `DrmCompositor`, den Beize nicht nutzt); jede neue Fenstergröße = neue Swapchain = neue
+Puffer, gehalten bis der Grafikspeicher (und die 4096 Texturplätze) voll war. Jetzt räumt jede
+Übermittlung auf (`submit`, wie Smithays GLES-Renderer je Bild). In der VM nicht prüfbar (Clients
+schicken dort shm, lavapipe exportiert ohne `/dev/udmabuf` keine dmabufs); Beleg auf Hardware: die
+neue Zeile `held: N dmabufs of clients, M textures` (geloggt, wenn es still wird und sich etwas
+änderte) muss nach dem Ziehen klein bleiben.
+**Bildschirmfoto** (Besitzer, für die kosmetischen Fragen): Super+Shift+3 (macOS ⌘⇧3) und Druck,
+Compositor liest das gezeigte Bild zurück (`Output::screenshot`, Zeiger auf seiner Ebene nicht
+dabei, wie macOS), PNG im eigenen Thread nach `$XDG_RUNTIME_DIR/screenshots` – der Compositor
+schreibt wegen seiner Sandbox (`ProtectHome=read-only`) nur dort; Ablage im Home kommt mit einer
+eigenen Bildschirmfoto-App (wie macOS' Screenshot neben dem WindowServer), Sandbox nicht
+gelockert. Smoke vergleicht das PNG pixelgenau mit QEMUs screendump (Gegenprobe R/B vertauscht:
+rot). Kosmetik, dem Besitzer erklärt, **noch nicht ändern**: Beize läuft fest mit Faktor 1 (kein
+Skalieren; macOS auf 1440p ebenso 1×, Retina 2×); Skalierung (fractional-scale-v1) braucht seine
+Entscheidung. Titelleiste: macOS 26/27 hat bei Toolbar-Fenstern ~51 pt Kopf und ~13,6-pt-Knöpfe
+im Abstand 23 – wenn größer, dann Knöpfe und Leiste zusammen (Besitzer). Hintergrund „pixelig“:
+mit seinen Fotos von 0.5.104 klären.
+**VM-Beobachtung:** im Desktop-Smoke meldet der Gast-Kernel bei ~36 s einen RCU-Stall, der bei
+~15 s beginnt (alle Smoke-VMs starten parallel): `rcu_preempt kthread starved` auf einer CPU im
+Leerlauf (`pv_native_safe_halt`) – der Weckruf an die virtuelle CPU kam nicht (verschachteltes
+KVM in WSL2), nicht der Gast. Erschlossen, nicht bewiesen; wohl dieselbe Ursache wie „libinput:
+system too slow“ und „Boot0002 not found“ früher.
+
+**AUFTRAG** (Besitzer, 25.10.: „der nächste Chat fixt alles von meinem Test“), Punkte 1–2 erledigt:
 3. **Die drei Auffälligkeiten der Messwerte beheben** – jede erst belegen (Ursache im Quelltext
    und in den Zahlen), mit Vorbild (KWin/Mutter/macOS), dann ändern, Smoke + Gegenprobe:
    a) **Konsole 60 Hz, Sitzung 240 Hz** (`screen DP-1: 2560x1440 at 240 Hz, it had 2560x1440 at
@@ -337,9 +356,10 @@ fertig“:
       Spielraum. Zusätzlich klären, wie viel Vorlauf nouveau zum Programmieren braucht (Kernel-
       Quelle `nv50_disp`/`nouveau` Commit-Pfad, KWins Sicherheitsrand) und ob der gelernte Rand
       (`schedule.rs`, `MOST_LEARNT`) dafür reicht. Testfenster: 0.5.102 12 von 4796 spät (0.5.101: 4).
-4. Danach §11 aktualisieren, Messbau 0.5.104 nur wenn nötig (Besitzer: nicht öfter als nötig).
+4. Messbau 0.5.104 (Leck, Bildschirmfoto; `hw-test.sh` Teil 5 Resizen mit `held:`, Teil 6
+   Fotos nach `results-*/screenshots/`) geht zum Besitzer; seine Fotos auswerten.
 
-**Beim Besitzer** läuft der Messbau 0.5.102, gleich 0.5.103 (Tag `measure/desktop-0.5.103`); 0.6 von `main`
+**Beim Besitzer** läuft der Messbau 0.5.103 (Tag `measure/desktop-0.5.103`); 0.6 von `main`
 ersetzt ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`,
 Update vom Stick und Hardware-Test: `docs/hardware.md`. Wiederherstellung: nach F8
 Leertaste halten, „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC;
