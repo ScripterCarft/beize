@@ -1,6 +1,10 @@
 # System-wide shell setup for login shells.
 export PATH=/usr/bin
-export PS1='\[\e[1m\]beize\[\e[0m\] \w \$ '
+# The marks of OSC 133 tell the terminal where the shell waits at its prompt
+# (A) and where a command runs (C): it then keeps the prompt whole when the
+# window is resized (beize-terminal's prompt.rs). The console ignores them.
+export PS1='\[\e]133;A\a\]\[\e[1m\]beize\[\e[0m\] \w \$ '
+export PS0='\e]133;C\a'
 # The system's language and formats (localectl, /etc/locale.conf), for
 # logins on a console too: the desktop's apps get them from the service
 # manager, which reads the same file, a console login from nowhere else. As

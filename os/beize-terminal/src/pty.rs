@@ -30,6 +30,22 @@ pub struct Pty {
 impl Pty {
     /// Starts the user's login shell on a new PTY of `size`.
     pub fn spawn(size: Winsize) -> io::Result<Pty> {
+        // The service manager gives the app the user's SHELL and HOME (from
+        // the user record).
+        let shell = std::env::var_os("SHELL")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/bin/sh".into());
+        let home = std::env::var_os("HOME").unwrap_or_else(|| "/".into());
+        let mut command = Command::new(&shell);
+        // A login shell: its name with a dash in front (login(1)).
+        let mut name = OsString::from("-");
+        name.push(Path::new(&shell).file_name().unwrap_or(shell.as_os_str()));
+        command.arg0(name).current_dir(home);
+        Pty::start(command, size)
+    }
+
+    /// Starts `command` on a new PTY of `size`.
+    pub fn start(mut command: Command, size: Winsize) -> io::Result<Pty> {
         let master =
             rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         rustix::pty::grantpt(&master)?;
@@ -48,19 +64,7 @@ impl Pty {
         termios::tcsetattr(&slave, OptionalActions::Now, &modes)?;
         rustix::fs::fcntl_setfl(&master, OFlags::NONBLOCK)?;
 
-        // The service manager gives the app the user's SHELL and HOME (from
-        // the user record).
-        let shell = std::env::var_os("SHELL")
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "/bin/sh".into());
-        let home = std::env::var_os("HOME").unwrap_or_else(|| "/".into());
-        let mut command = Command::new(&shell);
-        // A login shell: its name with a dash in front (login(1)).
-        let mut name = OsString::from("-");
-        name.push(Path::new(&shell).file_name().unwrap_or(shell.as_os_str()));
         command
-            .arg0(name)
-            .current_dir(home)
             .envs(ENVIRONMENT)
             .stdin(Stdio::from(slave.try_clone()?))
             .stdout(Stdio::from(slave.try_clone()?))

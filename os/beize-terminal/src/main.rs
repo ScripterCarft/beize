@@ -12,6 +12,7 @@
 mod boxes;
 mod keys;
 mod mouse;
+mod prompt;
 mod pty;
 mod view;
 
@@ -31,6 +32,7 @@ use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
 
 use crate::mouse::Mouse;
+use crate::prompt::Prompt;
 use crate::pty::Pty;
 use crate::view::Fonts;
 
@@ -99,6 +101,7 @@ struct App {
     term: Term<Listener>,
     events: Listener,
     parser: Processor,
+    prompt: Prompt,
     pty: Pty,
     size: Size,
     mouse: Mouse,
@@ -159,6 +162,7 @@ fn run() -> Result<(), String> {
         term,
         events,
         parser: Processor::new(),
+        prompt: Prompt::default(),
         pty,
         size,
         mouse: Mouse::default(),
@@ -204,8 +208,12 @@ impl App {
                     .pty
                     .read(&mut output, READ_LIMIT)
                     .map_err(|e| format!("reading from the shell: {e}"))?;
+                let answered = self.prompt.output(&output);
                 self.parser.advance(&mut self.term, &output);
                 self.dirty |= !output.is_empty();
+                if answered {
+                    self.resize();
+                }
                 if !open {
                     debug!("the PTY closed");
                 }
@@ -241,16 +249,20 @@ impl App {
         }
     }
 
-    /// A new window size: a new grid, and the shell learns of it.
+    /// A new window size: a new grid, and the shell learns of it – a shell
+    /// at its prompt once it drew for the last (prompt.rs).
     fn resize(&mut self) {
         self.dirty = true;
+        if self.prompt.answering() {
+            return;
+        }
         let (columns, lines) = view::grid(self.ui.size(self.window), &self.fonts.regular);
         let size = Size { columns, lines };
         if size == self.size {
             return;
         }
         self.size = size;
-        self.term.resize(size);
+        self.prompt.resize(&mut self.term, size);
         if let Err(e) = self.pty.resize(winsize(size, &self.fonts)) {
             warn!("telling the shell the new size: {e}");
         }
