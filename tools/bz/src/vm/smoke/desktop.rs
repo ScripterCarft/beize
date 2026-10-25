@@ -954,7 +954,14 @@ fn dock_glass(
     drag(qmp, screen, by(grip, behind), grip, true)?;
     park(qmp, screen)?;
     wait_for_pattern(shell, machine, moved, grown, "back from the dock")?;
-    say!("  ok: the dock's glass showed the window dragged behind it, blurred");
+    // With the window gone again it shows what it showed before: it blurs
+    // what lies behind it, never what the screen held there – itself and
+    // the dock's icons, tinted again with each blur.
+    wait_for_glass_back(machine, glass_at, before)?;
+    say!(
+        "  ok: the dock's glass showed the window dragged behind it, blurred, and what it showed \
+         before once it was gone"
+    );
 
     Ok(())
 }
@@ -1209,10 +1216,15 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
     // switch to no other task, not one of their threads – measured off the
     // minute, when the menu bar's clock ticks, once the terminal's first
     // frames are done – and with no test program left, whose window going
-    // by itself would wake them rightly (a test client did, 25.10.).
+    // by itself would wake them rightly (a test client did, 25.10.) – nor
+    // one still stopping. Woken, each thread that switched is named
+    // (`BEIZE-WOKE`) with what the journal says meanwhile (`BEIZE-JOURNAL`):
+    // the compositor's main thread woke once in 3 s in 3 of 27 runs (25. and
+    // 26.10.), drawing nothing, unknown by what.
     let (_, left) = shell.capture(
-        "systemctl --user list-units --state=active --plain --no-legend 'beize-testclient*' \
-         'beize-ui-test*' 'beize-load-test*' | sed 's/^/BEIZE-LEFT /'",
+        "systemctl --user list-units --state=active,activating,deactivating,reloading --plain \
+         --no-legend 'beize-testclient*' 'beize-ui-test*' 'beize-load-test*' \
+         | sed 's/^/BEIZE-LEFT /'",
     )?;
     let left: Vec<&String> = left
         .iter()
@@ -1226,10 +1238,19 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
     let (_, lines) = shell.capture(&format!(
         "c() {{ cat /proc/$1/task/*/status | awk '/ctxt_switches/ {{s += $2}} END {{print s}}'; }}; \
          while [ $((10#$(date +%S))) -gt $((58 - {IDLE_SECONDS})) ]; do sleep 0.5; done; \
-         for n in beize-compositor beize-shell beize-terminal; do \
-         p=$(pgrep -f \"^/usr/lib/beize/$n\" | head -n 1); echo \"$n $p $(c $p)\"; done > /tmp/idle; \
+         : > /tmp/idle-threads; for n in beize-compositor beize-shell beize-terminal; do \
+         p=$(pgrep -f \"^/usr/lib/beize/$n\" | head -n 1); echo \"$n $p $(c $p)\"; \
+         for t in /proc/$p/task/*; do echo \"$n ${{t##*/}} $(tr ' ' _ < $t/comm) \
+         $(awk '/ctxt_switches/ {{s += $2}} END {{print s}}' $t/status)\" >> /tmp/idle-threads; \
+         done; done > /tmp/idle; since=$(date +%s.%N); \
          sleep {IDLE_SECONDS}; \
-         while read -r n p s; do echo \"BEIZE-IDLE $n $(( $(c $p) - s ))\"; done < /tmp/idle"
+         while read -r n p s; do echo \"BEIZE-IDLE $n $(( $(c $p) - s ))\"; done < /tmp/idle; \
+         while read -r n t name s; do \
+         now=$(awk '/ctxt_switches/ {{s += $2}} END {{print s}}' /proc/*/task/$t/status 2>/dev/null); \
+         [ \"${{now:-$s}}\" != \"$s\" ] && echo \"BEIZE-WOKE $n $name/$t $(( ${{now:-$s}} - s ))\"; \
+         done < /tmp/idle-threads; \
+         journalctl -b --since=@$since -o short-monotonic --no-pager -q | sed 's/^/BEIZE-JOURNAL /'; \
+         true"
     ))?;
     let woke: Vec<(&str, u64)> = lines
         .iter()
@@ -2221,6 +2242,26 @@ fn wait_for_live_glass(machine: &Machine, at: (usize, usize), before: [u8; 3]) -
                 .any(|(&a, b)| a.abs_diff(b) > GLASS_SHOWS),
             "the dock's glass shows {shown:?} at {},{} with a window behind it, as {before:?} \
              without: it is not live",
+            at.0,
+            at.1
+        );
+        Ok(())
+    })
+}
+
+/// Waits until the dock's glass at `at` shows `before` again, to the
+/// rounding (`CHANNEL_TOLERANCE`): the window gone from behind it. The
+/// screen then is in the logs as `glass-back-screen.png`.
+fn wait_for_glass_back(machine: &Machine, at: (usize, usize), before: [u8; 3]) -> Result<()> {
+    wait_until_screen(machine, "glass-back", |screen| {
+        let shown = screen.pixel(at.0, at.1);
+        ensure!(
+            shown
+                .iter()
+                .zip(before)
+                .all(|(&a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE),
+            "the dock's glass shows {shown:?} at {},{} with the window gone, not {before:?} as \
+             before it came: it blurred what the screen held there",
             at.0,
             at.1
         );
