@@ -242,141 +242,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     )?;
     let qmp = machine.qmp();
 
-    // At the keyboard, as the owner would: name, password, beize-session,
-    // each when the console has had time to ask.
-    for (typed, pause) in [(SMOKE_USER, 1), (SMOKE_PASSWORD, 2), ("beize-session", 0)] {
-        keys(&qmp, &german_presses(typed)?)?;
-        thread::sleep(Duration::from_secs(pause));
-    }
-    let (_, lines) = shell.capture(
-        "for i in $(seq 100); do systemctl --user -q is-active beize-session.target && break; \
-         sleep 0.2; done; systemctl --user is-active beize-session.target",
-    )?;
-    ensure!(
-        lines.iter().any(|l| l == "active"),
-        "the desktop did not start after the login on tty1: {lines:?}"
-    );
-
-    // The session: the login on tty1, active, of type wayland (libseat
-    // passed beize-session's XDG_SESSION_TYPE on to logind).
-    let (_, lines) = shell.capture(
-        "s=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p'); \
-         loginctl show-session \"$s\" -p TTY -p Active -p Type -p Name",
-    )?;
-    for wanted in ["TTY=tty1", "Active=yes", "Type=wayland", "Name=smoke"] {
-        ensure!(
-            lines.iter().any(|l| l == wanted),
-            "the desktop's session is not {wanted}: {lines:?}"
-        );
-    }
-    // The compositor: the owner's process, in its system call filter.
-    let (_, lines) = shell.capture(
-        "p=$(systemctl --user show -P MainPID beize-compositor.service); \
-         echo BEIZE-OWNER-$(stat -c %U /proc/$p); \
-         while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
-         done < /proc/$p/status",
-    )?;
-    ensure!(
-        lines
-            .iter()
-            .any(|l| l == &format!("BEIZE-OWNER-{SMOKE_USER}"))
-            && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
-        "the compositor does not run as the owner in its system call filter: {lines:?}"
-    );
-    say!(
-        "  ok: the login on tty1 started the desktop: a Wayland session, the compositor as the owner, sandboxed"
-    );
-    let (status, lines) = shell.capture(
-        "run0 sh -c 'mkdir -p /run/t && mount -o ro /dev/disk/by-id/virtio-beize-test /run/t'",
-    )?;
-    ensure!(
-        status == 0,
-        "could not mount the test medium (exit status {status}): {lines:?}"
-    );
-
-    // The shell: its own process in its system call filter, which the
-    // compositor knows as the shell by its unit; its menu bar on the screen.
-    let (_, lines) = shell.capture(&format!(
-        "for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 1 ] && break; sleep 0.2; done; \
-         echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
-         p=$(systemctl --user show -P MainPID beize-shell.service); \
-         while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
-         done < /proc/$p/status"
-    ))?;
-    ensure!(
-        lines.iter().any(|l| l == "BEIZE-SHELL-1") && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
-        "the shell did not connect once as the shell, in its system call filter: {lines:?}"
-    );
-    wait_for_panels(&machine)?;
-    say!(
-        "  ok: the shell runs sandboxed, the compositor knows it, its menu bar shows the time, \
-         its dock floats along the bottom with round corners"
-    );
-    // In one piece: the desktop showed once the shell said its panels were
-    // drawn, not without them after the wait (a warning, which fails).
-    let shown = wait_for_compositor_line(
-        &shell,
-        "desktop shown with the shell, [0-9]* ms after the screen",
-    )?;
-    say!("  ok: the desktop appeared with the shell's panels: {shown}");
-
-    // Super+Shift+3 saves the screen as it shows it: the PNG equals QEMU's
-    // own screendump of the still desktop.
-    let size = screenshot(&shell, &machine)?;
-    say!(
-        "  ok: Super+Shift+3 saved a screenshot, {}x{}, as the screen shows it",
-        size.0,
-        size.1
-    );
-
-    // The desktop starts with no terminal, as macOS' with no window;
-    // Ctrl+Alt+T opens one and another: each in a unit of its own, with the
-    // owner's shell in it.
-    let none = terminals(&shell)?;
-    ensure!(
-        none.is_empty(),
-        "a terminal opened with the desktop: {none:?}"
-    );
-    keys(&qmp, &["ctrl+alt+t"])?;
-    let first = wait_for_terminals(&shell, 1)?;
-    keys(&qmp, &["ctrl+alt+t"])?;
-    let both = wait_for_terminals(&shell, 2)?;
-    ensure!(
-        both.contains(&first[0]),
-        "the first terminal ended when the second opened: {both:?}"
-    );
-    wait_for_shell_line(&shell, |l| l == "dock: beize-terminal running")?;
-    wait_for_shell_line(&shell, |l| l == "menu bar: Terminal")?;
-    say!(
-        "  ok: the desktop started with no terminal, Ctrl+Alt+T opened one and another, each \
-         with its shell; the dock shows the terminal running, the menu bar names it"
-    );
-
-    // The new terminal has the keyboard: typed into once its window is on
-    // the screen (placed, it is active in the same step) and its shell
-    // reads, the sample's command runs and the screen shows what it
-    // printed. Typed before the window shows, as no one would, the first
-    // keys went to the first terminal on a slow VM.
-    let second = both
-        .iter()
-        .find(|u| **u != first[0])
-        .context("no second terminal")?;
-    let terminal = placed(&shell, "beize-terminal", 2)?;
-    wait_for_prompt(&shell, second)?;
-    keys(&qmp, &german_presses(TERMINAL_SAMPLE_COMMAND)?)?;
-    wait_for_screen(paths, &machine, terminal, TERMINAL_SAMPLE, "terminal")?;
-    say!(
-        "  ok: the typed command ran in the terminal, its window shows the sample as the \
-         reference has it"
-    );
-    // Over its text, the text cursor the terminal names.
-    let ((x, y), (w, h)) = terminal;
-    let middle = (i32::try_from(x + w / 2)?, i32::try_from(y + h / 2)?);
-    drag(&qmp, screen_size(&machine)?, middle, middle, false)?;
-    wait_for_compositor_line(&shell, "cursor text: 1 frame at 24 px")?;
-    park(&qmp, screen_size(&machine)?)?;
-    say!("  ok: over the terminal's text the pointer is the theme's text cursor");
-
+    sign_in(&shell, &machine, &qmp)?;
+    let terminal = screenshot_and_terminals(paths, &shell, &machine, &qmp)?;
     // A client started by the service manager, which knows the socket only
     // from beize-session; its desktop file names its icon.
     let (status, lines) = shell.capture(CLIENT_ICON)?;
@@ -485,14 +352,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
 
     // Dragged by its top, the window follows the pointer; dragged from just
     // outside its bottom right corner (the compositor's edge), it grows.
-    let point = |(x, y): (usize, usize), (dx, dy): (i32, i32)| -> Result<(i32, i32)> {
-        Ok((i32::try_from(x)? + dx, i32::try_from(y)? + dy))
-    };
     let grip = point(
         at,
         (i32::try_from(size.0 / 2)?, i32::try_from(CLIENT_TITLE / 2)?),
     )?;
-    let by = |(x, y): (i32, i32), (dx, dy): (i32, i32)| (x + dx, y + dy);
     drag(&qmp, screen, grip, by(grip, MOVE_BY), true)?;
     park(&qmp, screen)?;
     let moved = point(at, MOVE_BY)?;
@@ -536,160 +399,9 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          came back to its place and size"
     );
 
-    // Super+F (ADR 0028 §2): the window fills the whole screen, menu bar and
-    // dock hidden. The pointer in the middle; at the top edge it shows the
-    // menu bar on live glass (its ink dark, as on light glass), which takes
-    // on the window's red and green above – base glass would show the
-    // background –, at the bottom the dock. Super+F again, and the window
-    // is back in its place.
-    let middle = (screen.0 / 2, screen.1 / 2);
-    let to = |(x, y): (usize, usize)| -> Result<(i32, i32)> {
-        Ok((i32::try_from(x)?, i32::try_from(y)?))
-    };
-    drag(&qmp, screen, to(middle)?, to(middle)?, false)?;
-    keys(&qmp, &["meta_l+f"])?;
-    let difference = machine.logs.join("fullscreen-difference.ppm");
-    wait_until_screen(&machine, "fullscreen", |shown| {
-        // The pointer lies over the window there.
-        let pointer = |x: usize, y: usize| x.abs_diff(middle.0) < 32 && y.abs_diff(middle.1) < 32;
-        compare(
-            shown,
-            |x, y| {
-                if pointer(x, y) {
-                    shown.pixel(x, y)
-                } else {
-                    expected(x, y, screen.0, screen.1)
-                }
-            },
-            "the fullscreen window",
-            &difference,
-        )
-    })?;
-    let bar_at = (middle.0 + 100, MENU_BAR / 2);
-    // Below the bar's text, a quarter in from either side: the blur there
-    // takes in one quadrant only.
-    let red_at = (screen.0 / 4, MENU_BAR - 3);
-    let green_at = (screen.0 * 3 / 4, MENU_BAR - 3);
-    drag(&qmp, screen, to(middle)?, to((middle.0, 0))?, false)?;
-    wait_until_screen(&machine, "fullscreen-menu-bar", |shown| {
-        ensure!(
-            !same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
-            "the menu bar did not come at the top edge over the fullscreen window"
-        );
-        let (red, green) = (
-            shown.pixel(red_at.0, red_at.1),
-            shown.pixel(green_at.0, green_at.1),
-        );
-        ensure!(
-            leads(red, 0) && leads(green, 1),
-            "the menu bar's glass does not show the fullscreen window: {red:?} over its red, \
-             {green:?} over its green"
-        );
-        Ok(())
-    })?;
-    wait_for_shell_line(&shell, |l| l == "menu bar on a Light background")?;
-    let apps = last_dock(&shell)?.len();
-    let tile = dock_tile(screen, apps, 0)?;
-    let tile = (usize::try_from(tile.0)?, usize::try_from(tile.1)?);
-    drag(
-        &qmp,
-        screen,
-        to((middle.0, 0))?,
-        to((middle.0, screen.1 - 1))?,
-        false,
-    )?;
-    wait_until_screen(&machine, "fullscreen-dock", |shown| {
-        ensure!(
-            !same(
-                shown.pixel(tile.0, tile.1),
-                expected(tile.0, tile.1, screen.0, screen.1)
-            ),
-            "the dock did not come at the bottom edge over the fullscreen window"
-        );
-        ensure!(
-            same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
-            "the menu bar stayed over the fullscreen window with the pointer at the bottom"
-        );
-        Ok(())
-    })?;
-    drag(
-        &qmp,
-        screen,
-        to((middle.0, screen.1 - 1))?,
-        to(middle)?,
-        false,
-    )?;
-    keys(&qmp, &["meta_l+f"])?;
-    park(&qmp, screen)?;
-    wait_for_pattern(&shell, &machine, moved, grown, "back from fullscreen")?;
-    say!(
-        "  ok: Super+F gave the window the whole screen; the menu bar came at the top edge on \
-         live glass showing the window's colours, the dock at the bottom; again, and it was \
-         back in its place"
-    );
-
-    // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
-    // shows through, blurred – base glass would stay as it was. Then back.
-    let glass_at = (
-        screen.0 / 2,
-        screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE + 1,
-    );
-    let file = machine.logs.join("dock-glass-screen.ppm");
-    screendump(&machine.qmp(), &file)?;
-    let before = Image::read_ppm(&fs::read(&file)?)?.pixel(glass_at.0, glass_at.1);
-    let grip = point(
-        moved,
-        (
-            i32::try_from(grown.0 / 2)?,
-            i32::try_from(CLIENT_TITLE / 2)?,
-        ),
-    )?;
-    let behind = (
-        i32::try_from(screen.0 / 2)? - i32::try_from(grown.0 / 2)? - i32::try_from(moved.0)?,
-        i32::try_from(screen.1)? - i32::try_from(grown.1)? - i32::try_from(moved.1)?,
-    );
-    drag(&qmp, screen, grip, by(grip, behind), true)?;
-    park(&qmp, screen)?;
-    wait_for_live_glass(&machine, glass_at, before)?;
-    drag(&qmp, screen, by(grip, behind), grip, true)?;
-    park(&qmp, screen)?;
-    wait_for_pattern(&shell, &machine, moved, grown, "back from the dock")?;
-    say!("  ok: the dock's glass showed the window dragged behind it, blurred");
-
-    // Frames in a row: a second client draws 120, each on "frame done";
-    // once they stop, the compositor sums up how they met their vblanks –
-    // the next summary, alone: as many frames as it drew, not more. The
-    // drag's frames end their run first; a short run is summed up only for
-    // debugging, so there is nothing to wait for but its end.
-    thread::sleep(RUN_ENDED);
-    let summed = pacing_summaries(&shell)?;
-    let (status, lines) = shell.capture(&format!(
-        "systemd-run --user --unit=beize-testclient-frames /run/t/beize-testclient --frames 120 \
-         --seconds 20 && for i in $(seq 100); do [ \"$({PACING} | wc -l)\" -gt {summed} ] \
-         && break; sleep 0.2; done; {PACING} | tail -n +{}",
-        summed + 1
-    ))?;
-    let Some(pacing) = lines.iter().find(|l| l.starts_with("pacing: ")) else {
-        let said = last_said(&shell, &["beize-testclient-frames", "beize-compositor"])?;
-        bail!(
-            "no pacing summary (exit status {status}): {lines:?}; the client and the compositor \
-             last said: {said:?}"
-        );
-    };
-    let frames = pacing
-        .strip_prefix("pacing: ")
-        .and_then(|s| s.split_once(' '))
-        .and_then(|(n, _)| n.parse::<u32>().ok())
-        .with_context(|| format!("a pacing summary without frames: {pacing}"))?;
-    // A frame or two more for the menu bar (its minute) is no mix.
-    ensure!(
-        (100..=125).contains(&frames),
-        "the compositor counted {frames} frames of the client's 120: {pacing}"
-    );
-    say!("  ok: the compositor measured the client's frames: {pacing}");
-    // Its window would go by itself later, in the middle of another check.
-    shell.capture("systemctl --user stop beize-testclient-frames")?;
-
+    fullscreen(&shell, &machine, &qmp, screen, moved, grown)?;
+    dock_glass(&shell, &machine, &qmp, screen, moved, grown)?;
+    frames(&shell)?;
     // Beize UI: its window through Vulkan's WSI shows the sample as the
     // reference has it – the same renderer, glyphs and blending offscreen.
     let (_, lines) = shell.capture(
@@ -712,80 +424,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     })?;
     say!("  ok: Beize UI's window shows its sample below its title bar as the reference has it");
 
-    // Killed, the shell starts again (ADR 0028 §1): the compositor knows
-    // it once more and keeps the old one's panels until the new one is
-    // ready (§6, a warning if it is not within the wait), the bar comes
-    // back, the desktop and the window stay.
-    let (_, lines) = shell.capture(&format!(
-        "systemctl --user kill -s KILL beize-shell.service; \
-         for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 2 ] && break; sleep 0.2; done; \
-         echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
-         systemctl --user is-active beize-shell.service beize-compositor.service \
-         beize-session.target"
-    ))?;
-    ensure!(
-        lines.iter().any(|l| l == "BEIZE-SHELL-2")
-            && lines.iter().filter(|l| *l == "active").count() == 3,
-        "the shell did not come back after it was killed, or the desktop went: {lines:?}"
-    );
-    wait_for_compositor_line(
-        &shell,
-        "the shell failed: its 2 panels stay until a new one is ready",
-    )?;
-    let replaced = wait_for_compositor_line(
-        &shell,
-        "a new shell is ready [0-9]* ms after the old one failed: its panels replace the kept ones",
-    )?;
-    wait_for_panels(&machine)?;
-    wait_for_screen(
-        paths,
-        &machine,
-        content(ui),
-        UI_SAMPLE,
-        "beize-ui-after-shell",
-    )?;
-    say!(
-        "  ok: killed, the shell came back with its menu bar and dock, kept until then; the \
-         desktop and the window stayed: {replaced}"
-    );
-    // Stopped, with no new shell yet, its panels are still on the screen
-    // once the compositor has drawn without the shell – it said so, and
-    // half a second of frames followed, well within the wait of seconds –,
-    // and a shell started then replaces them.
-    let (_, lines) = shell.capture(
-        "k() { journalctl --user -b -u beize-compositor.service -o cat \
-         | grep -c '^the shell failed: '; }; systemctl --user stop beize-shell.service; \
-         for i in $(seq 50); do [ \"$(k)\" -ge 2 ] && break; sleep 0.1; done; sleep 0.5; \
-         echo BEIZE-KEPT-$(k); systemctl --user is-active beize-shell.service",
-    )?;
-    ensure!(
-        lines.iter().any(|l| l == "inactive") && lines.iter().any(|l| l == "BEIZE-KEPT-2"),
-        "the shell did not stop, or the compositor did not keep its panels: {lines:?}"
-    );
-    let file = machine.logs.join("kept-screen.ppm");
-    screendump(&qmp, &file)?;
-    let kept = Image::read_ppm(&fs::read(&file)?)?;
-    if let Err(e) = menu_bar(&kept).and_then(|()| dock(&kept).map(|_| ())) {
-        let shown = machine.logs.join("kept-screen.png");
-        kept.write_png(&shown)?;
-        return Err(e.context(format!(
-            "the stopped shell's panels did not stay; the screen is {}",
-            shown.display()
-        )));
-    }
-    let (_, lines) = shell.capture(
-        "r() { journalctl --user -b -u beize-compositor.service -o cat \
-         | grep -c '^a new shell is ready '; }; systemctl --user start beize-shell.service; \
-         for i in $(seq 50); do [ \"$(r)\" -ge 2 ] && break; sleep 0.2; done; \
-         echo BEIZE-REPLACED-$(r)",
-    )?;
-    ensure!(
-        lines.iter().any(|l| l == "BEIZE-REPLACED-2"),
-        "a shell started after one stopped did not replace its kept panels: {lines:?}"
-    );
-    wait_for_panels(&machine)?;
-    say!("  ok: stopped, the shell's panels stayed on the screen until a new one replaced them");
-
+    shell_restarts(paths, &shell, &machine, &qmp, ui)?;
     // Beize UI's title bar (ADR 0028 §2): dragged, it moves the window by
     // exactly the drag; a double click maximizes the window, another
     // brings it back; its close button ends the program.
@@ -919,6 +558,438 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     wait_for_shell_line(&shell, |l| l.starts_with("dock: beize-terminal running"))?;
     say!("  ok: with no terminal running, the dock's tile started one");
 
+    still_and_signed_out(&shell)?;
+    shell.stop()?;
+    remove_screens(&machine.logs)?;
+    machine.remove()
+}
+
+/// The owner signs in on tty1 and the desktop starts: a Wayland session, the
+/// compositor and the shell sandboxed, the shell known as such, the desktop
+/// shown in one piece with its panels; the test medium mounted.
+fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
+    // At the keyboard, as the owner would: name, password, beize-session,
+    // each when the console has had time to ask.
+    for (typed, pause) in [(SMOKE_USER, 1), (SMOKE_PASSWORD, 2), ("beize-session", 0)] {
+        keys(qmp, &german_presses(typed)?)?;
+        thread::sleep(Duration::from_secs(pause));
+    }
+    let (_, lines) = shell.capture(
+        "for i in $(seq 100); do systemctl --user -q is-active beize-session.target && break; \
+         sleep 0.2; done; systemctl --user is-active beize-session.target",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "active"),
+        "the desktop did not start after the login on tty1: {lines:?}"
+    );
+
+    // The session: the login on tty1, active, of type wayland (libseat
+    // passed beize-session's XDG_SESSION_TYPE on to logind).
+    let (_, lines) = shell.capture(
+        "s=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p'); \
+         loginctl show-session \"$s\" -p TTY -p Active -p Type -p Name",
+    )?;
+    for wanted in ["TTY=tty1", "Active=yes", "Type=wayland", "Name=smoke"] {
+        ensure!(
+            lines.iter().any(|l| l == wanted),
+            "the desktop's session is not {wanted}: {lines:?}"
+        );
+    }
+    // The compositor: the owner's process, in its system call filter.
+    let (_, lines) = shell.capture(
+        "p=$(systemctl --user show -P MainPID beize-compositor.service); \
+         echo BEIZE-OWNER-$(stat -c %U /proc/$p); \
+         while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
+         done < /proc/$p/status",
+    )?;
+    ensure!(
+        lines
+            .iter()
+            .any(|l| l == &format!("BEIZE-OWNER-{SMOKE_USER}"))
+            && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
+        "the compositor does not run as the owner in its system call filter: {lines:?}"
+    );
+    say!(
+        "  ok: the login on tty1 started the desktop: a Wayland session, the compositor as the owner, sandboxed"
+    );
+    let (status, lines) = shell.capture(
+        "run0 sh -c 'mkdir -p /run/t && mount -o ro /dev/disk/by-id/virtio-beize-test /run/t'",
+    )?;
+    ensure!(
+        status == 0,
+        "could not mount the test medium (exit status {status}): {lines:?}"
+    );
+
+    // The shell: its own process in its system call filter, which the
+    // compositor knows as the shell by its unit; its menu bar on the screen.
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 1 ] && break; sleep 0.2; done; \
+         echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
+         p=$(systemctl --user show -P MainPID beize-shell.service); \
+         while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
+         done < /proc/$p/status"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-SHELL-1") && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
+        "the shell did not connect once as the shell, in its system call filter: {lines:?}"
+    );
+    wait_for_panels(machine)?;
+    say!(
+        "  ok: the shell runs sandboxed, the compositor knows it, its menu bar shows the time, \
+         its dock floats along the bottom with round corners"
+    );
+    // In one piece: the desktop showed once the shell said its panels were
+    // drawn, not without them after the wait (a warning, which fails).
+    let shown = wait_for_compositor_line(
+        shell,
+        "desktop shown with the shell, [0-9]* ms after the screen",
+    )?;
+    say!("  ok: the desktop appeared with the shell's panels: {shown}");
+
+    Ok(())
+}
+
+/// A screenshot equals the screen; Ctrl+Alt+T opens terminals, the typed
+/// sample shows as its reference has it, the pointer over its text is the
+/// text cursor. The second terminal's window.
+fn screenshot_and_terminals(
+    paths: &Paths,
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+) -> Result<Window> {
+    // Super+Shift+3 saves the screen as it shows it: the PNG equals QEMU's
+    // own screendump of the still desktop.
+    let size = screenshot(shell, machine)?;
+    say!(
+        "  ok: Super+Shift+3 saved a screenshot, {}x{}, as the screen shows it",
+        size.0,
+        size.1
+    );
+
+    // The desktop starts with no terminal, as macOS' with no window;
+    // Ctrl+Alt+T opens one and another: each in a unit of its own, with the
+    // owner's shell in it.
+    let none = terminals(shell)?;
+    ensure!(
+        none.is_empty(),
+        "a terminal opened with the desktop: {none:?}"
+    );
+    keys(qmp, &["ctrl+alt+t"])?;
+    let first = wait_for_terminals(shell, 1)?;
+    keys(qmp, &["ctrl+alt+t"])?;
+    let both = wait_for_terminals(shell, 2)?;
+    ensure!(
+        both.contains(&first[0]),
+        "the first terminal ended when the second opened: {both:?}"
+    );
+    wait_for_shell_line(shell, |l| l == "dock: beize-terminal running")?;
+    wait_for_shell_line(shell, |l| l == "menu bar: Terminal")?;
+    say!(
+        "  ok: the desktop started with no terminal, Ctrl+Alt+T opened one and another, each \
+         with its shell; the dock shows the terminal running, the menu bar names it"
+    );
+
+    // The new terminal has the keyboard: typed into once its window is on
+    // the screen (placed, it is active in the same step) and its shell
+    // reads, the sample's command runs and the screen shows what it
+    // printed. Typed before the window shows, as no one would, the first
+    // keys went to the first terminal on a slow VM.
+    let second = both
+        .iter()
+        .find(|u| **u != first[0])
+        .context("no second terminal")?;
+    let terminal = placed(shell, "beize-terminal", 2)?;
+    wait_for_prompt(shell, second)?;
+    keys(qmp, &german_presses(TERMINAL_SAMPLE_COMMAND)?)?;
+    wait_for_screen(paths, machine, terminal, TERMINAL_SAMPLE, "terminal")?;
+    say!(
+        "  ok: the typed command ran in the terminal, its window shows the sample as the \
+         reference has it"
+    );
+    // Over its text, the text cursor the terminal names.
+    let ((x, y), (w, h)) = terminal;
+    let middle = (i32::try_from(x + w / 2)?, i32::try_from(y + h / 2)?);
+    drag(qmp, screen_size(machine)?, middle, middle, false)?;
+    wait_for_compositor_line(shell, "cursor text: 1 frame at 24 px")?;
+    park(qmp, screen_size(machine)?)?;
+    say!("  ok: over the terminal's text the pointer is the theme's text cursor");
+
+    Ok(terminal)
+}
+
+/// Super+F gives the client's window (at `moved`, `grown`) the whole screen,
+/// the panels come at its edges, and again, it is back.
+fn fullscreen(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    moved: (usize, usize),
+    grown: (usize, usize),
+) -> Result<()> {
+    // Super+F (ADR 0028 §2): the window fills the whole screen, menu bar and
+    // dock hidden. The pointer in the middle; at the top edge it shows the
+    // menu bar on live glass (its ink dark, as on light glass), which takes
+    // on the window's red and green above – base glass would show the
+    // background –, at the bottom the dock. Super+F again, and the window
+    // is back in its place.
+    let middle = (screen.0 / 2, screen.1 / 2);
+    let to = |(x, y): (usize, usize)| -> Result<(i32, i32)> {
+        Ok((i32::try_from(x)?, i32::try_from(y)?))
+    };
+    drag(qmp, screen, to(middle)?, to(middle)?, false)?;
+    keys(qmp, &["meta_l+f"])?;
+    let difference = machine.logs.join("fullscreen-difference.ppm");
+    wait_until_screen(machine, "fullscreen", |shown| {
+        // The pointer lies over the window there.
+        let pointer = |x: usize, y: usize| x.abs_diff(middle.0) < 32 && y.abs_diff(middle.1) < 32;
+        compare(
+            shown,
+            |x, y| {
+                if pointer(x, y) {
+                    shown.pixel(x, y)
+                } else {
+                    expected(x, y, screen.0, screen.1)
+                }
+            },
+            "the fullscreen window",
+            &difference,
+        )
+    })?;
+    let bar_at = (middle.0 + 100, MENU_BAR / 2);
+    // Below the bar's text, a quarter in from either side: the blur there
+    // takes in one quadrant only.
+    let red_at = (screen.0 / 4, MENU_BAR - 3);
+    let green_at = (screen.0 * 3 / 4, MENU_BAR - 3);
+    drag(qmp, screen, to(middle)?, to((middle.0, 0))?, false)?;
+    wait_until_screen(machine, "fullscreen-menu-bar", |shown| {
+        ensure!(
+            !same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
+            "the menu bar did not come at the top edge over the fullscreen window"
+        );
+        let (red, green) = (
+            shown.pixel(red_at.0, red_at.1),
+            shown.pixel(green_at.0, green_at.1),
+        );
+        ensure!(
+            leads(red, 0) && leads(green, 1),
+            "the menu bar's glass does not show the fullscreen window: {red:?} over its red, \
+             {green:?} over its green"
+        );
+        Ok(())
+    })?;
+    wait_for_shell_line(shell, |l| l == "menu bar on a Light background")?;
+    let apps = last_dock(shell)?.len();
+    let tile = dock_tile(screen, apps, 0)?;
+    let tile = (usize::try_from(tile.0)?, usize::try_from(tile.1)?);
+    drag(
+        qmp,
+        screen,
+        to((middle.0, 0))?,
+        to((middle.0, screen.1 - 1))?,
+        false,
+    )?;
+    wait_until_screen(machine, "fullscreen-dock", |shown| {
+        ensure!(
+            !same(
+                shown.pixel(tile.0, tile.1),
+                expected(tile.0, tile.1, screen.0, screen.1)
+            ),
+            "the dock did not come at the bottom edge over the fullscreen window"
+        );
+        ensure!(
+            same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
+            "the menu bar stayed over the fullscreen window with the pointer at the bottom"
+        );
+        Ok(())
+    })?;
+    drag(
+        qmp,
+        screen,
+        to((middle.0, screen.1 - 1))?,
+        to(middle)?,
+        false,
+    )?;
+    keys(qmp, &["meta_l+f"])?;
+    park(qmp, screen)?;
+    wait_for_pattern(shell, machine, moved, grown, "back from fullscreen")?;
+    say!(
+        "  ok: Super+F gave the window the whole screen; the menu bar came at the top edge on \
+         live glass showing the window's colours, the dock at the bottom; again, and it was \
+         back in its place"
+    );
+
+    Ok(())
+}
+
+/// The dock's live glass shows the client's window dragged behind it.
+fn dock_glass(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    moved: (usize, usize),
+    grown: (usize, usize),
+) -> Result<()> {
+    // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
+    // shows through, blurred – base glass would stay as it was. Then back.
+    let glass_at = (
+        screen.0 / 2,
+        screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE + 1,
+    );
+    let file = machine.logs.join("dock-glass-screen.ppm");
+    screendump(&machine.qmp(), &file)?;
+    let before = Image::read_ppm(&fs::read(&file)?)?.pixel(glass_at.0, glass_at.1);
+    let grip = point(
+        moved,
+        (
+            i32::try_from(grown.0 / 2)?,
+            i32::try_from(CLIENT_TITLE / 2)?,
+        ),
+    )?;
+    let behind = (
+        i32::try_from(screen.0 / 2)? - i32::try_from(grown.0 / 2)? - i32::try_from(moved.0)?,
+        i32::try_from(screen.1)? - i32::try_from(grown.1)? - i32::try_from(moved.1)?,
+    );
+    drag(qmp, screen, grip, by(grip, behind), true)?;
+    park(qmp, screen)?;
+    wait_for_live_glass(machine, glass_at, before)?;
+    drag(qmp, screen, by(grip, behind), grip, true)?;
+    park(qmp, screen)?;
+    wait_for_pattern(shell, machine, moved, grown, "back from the dock")?;
+    say!("  ok: the dock's glass showed the window dragged behind it, blurred");
+
+    Ok(())
+}
+
+/// The compositor sums up a client's run of frames, alone and in full.
+fn frames(shell: &Shell) -> Result<()> {
+    // Frames in a row: a second client draws 120, each on "frame done";
+    // once they stop, the compositor sums up how they met their vblanks –
+    // the next summary, alone: as many frames as it drew, not more. The
+    // drag's frames end their run first; a short run is summed up only for
+    // debugging, so there is nothing to wait for but its end.
+    thread::sleep(RUN_ENDED);
+    let summed = pacing_summaries(shell)?;
+    let (status, lines) = shell.capture(&format!(
+        "systemd-run --user --unit=beize-testclient-frames /run/t/beize-testclient --frames 120 \
+         --seconds 20 && for i in $(seq 100); do [ \"$({PACING} | wc -l)\" -gt {summed} ] \
+         && break; sleep 0.2; done; {PACING} | tail -n +{}",
+        summed + 1
+    ))?;
+    let Some(pacing) = lines.iter().find(|l| l.starts_with("pacing: ")) else {
+        let said = last_said(shell, &["beize-testclient-frames", "beize-compositor"])?;
+        bail!(
+            "no pacing summary (exit status {status}): {lines:?}; the client and the compositor \
+             last said: {said:?}"
+        );
+    };
+    let frames = pacing
+        .strip_prefix("pacing: ")
+        .and_then(|s| s.split_once(' '))
+        .and_then(|(n, _)| n.parse::<u32>().ok())
+        .with_context(|| format!("a pacing summary without frames: {pacing}"))?;
+    // A frame or two more for the menu bar (its minute) is no mix.
+    ensure!(
+        (100..=125).contains(&frames),
+        "the compositor counted {frames} frames of the client's 120: {pacing}"
+    );
+    say!("  ok: the compositor measured the client's frames: {pacing}");
+    // Its window would go by itself later, in the middle of another check.
+    shell.capture("systemctl --user stop beize-testclient-frames")?;
+
+    Ok(())
+}
+
+/// The shell killed and stopped comes back; its panels stay meanwhile and
+/// Beize UI's window `ui` with them.
+fn shell_restarts(
+    paths: &Paths,
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    ui: Window,
+) -> Result<()> {
+    // Killed, the shell starts again (ADR 0028 §1): the compositor knows
+    // it once more and keeps the old one's panels until the new one is
+    // ready (§6, a warning if it is not within the wait), the bar comes
+    // back, the desktop and the window stay.
+    let (_, lines) = shell.capture(&format!(
+        "systemctl --user kill -s KILL beize-shell.service; \
+         for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 2 ] && break; sleep 0.2; done; \
+         echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
+         systemctl --user is-active beize-shell.service beize-compositor.service \
+         beize-session.target"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-SHELL-2")
+            && lines.iter().filter(|l| *l == "active").count() == 3,
+        "the shell did not come back after it was killed, or the desktop went: {lines:?}"
+    );
+    wait_for_compositor_line(
+        shell,
+        "the shell failed: its 2 panels stay until a new one is ready",
+    )?;
+    let replaced = wait_for_compositor_line(
+        shell,
+        "a new shell is ready [0-9]* ms after the old one failed: its panels replace the kept ones",
+    )?;
+    wait_for_panels(machine)?;
+    wait_for_screen(
+        paths,
+        machine,
+        content(ui),
+        UI_SAMPLE,
+        "beize-ui-after-shell",
+    )?;
+    say!(
+        "  ok: killed, the shell came back with its menu bar and dock, kept until then; the \
+         desktop and the window stayed: {replaced}"
+    );
+    // Stopped, with no new shell yet, its panels are still on the screen
+    // once the compositor has drawn without the shell – it said so, and
+    // half a second of frames followed, well within the wait of seconds –,
+    // and a shell started then replaces them.
+    let (_, lines) = shell.capture(
+        "k() { journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -c '^the shell failed: '; }; systemctl --user stop beize-shell.service; \
+         for i in $(seq 50); do [ \"$(k)\" -ge 2 ] && break; sleep 0.1; done; sleep 0.5; \
+         echo BEIZE-KEPT-$(k); systemctl --user is-active beize-shell.service",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "inactive") && lines.iter().any(|l| l == "BEIZE-KEPT-2"),
+        "the shell did not stop, or the compositor did not keep its panels: {lines:?}"
+    );
+    let file = machine.logs.join("kept-screen.ppm");
+    screendump(qmp, &file)?;
+    let kept = Image::read_ppm(&fs::read(&file)?)?;
+    if let Err(e) = menu_bar(&kept).and_then(|()| dock(&kept).map(|_| ())) {
+        let shown = machine.logs.join("kept-screen.png");
+        kept.write_png(&shown)?;
+        return Err(e.context(format!(
+            "the stopped shell's panels did not stay; the screen is {}",
+            shown.display()
+        )));
+    }
+    let (_, lines) = shell.capture(
+        "r() { journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -c '^a new shell is ready '; }; systemctl --user start beize-shell.service; \
+         for i in $(seq 50); do [ \"$(r)\" -ge 2 ] && break; sleep 0.2; done; \
+         echo BEIZE-REPLACED-$(r)",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-REPLACED-2"),
+        "a shell started after one stopped did not replace its kept panels: {lines:?}"
+    );
+    wait_for_panels(machine)?;
+    say!("  ok: stopped, the shell's panels stayed on the screen until a new one replaced them");
+
+    Ok(())
+}
+
+/// No warnings, the still desktop does not wake, and signing out stops it.
+fn still_and_signed_out(shell: &Shell) -> Result<()> {
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
     let unexpected: Vec<&String> = lines
@@ -995,7 +1066,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
             .any(|l| l.starts_with("WAYLAND_DISPLAY=") || l.starts_with("XDG_SESSION_ID=")),
         "the session's environment stayed with the service manager: {lines:?}"
     );
-    let left = terminals(&shell)?;
+    let left = terminals(shell)?;
     ensure!(
         left.is_empty(),
         "terminals still run after signing out: {left:?}"
@@ -1004,9 +1075,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "  ok: signing out stopped the desktop, its shell and terminals and took its environment \
          back"
     );
-    shell.stop()?;
-    remove_screens(&machine.logs)?;
-    machine.remove()
+    Ok(())
 }
 
 /// The screen dumps of a passed run go (3 MB each, some 30 a run); a failed
@@ -1229,6 +1298,16 @@ fn terminals(shell: &Shell) -> Result<Vec<(String, usize)>> {
             Some((unit.to_owned(), count.parse().ok()?))
         })
         .collect())
+}
+
+/// `(x, y)` moved by `(dx, dy)`: where the pointer goes.
+fn point((x, y): (usize, usize), (dx, dy): (i32, i32)) -> Result<(i32, i32)> {
+    Ok((i32::try_from(x)? + dx, i32::try_from(y)? + dy))
+}
+
+/// The pointer's position `at` moved by `(dx, dy)`.
+fn by((x, y): (i32, i32), (dx, dy): (i32, i32)) -> (i32, i32) {
+    (x + dx, y + dy)
 }
 
 /// Waits until `count` terminals run, each with its shell; their units.
