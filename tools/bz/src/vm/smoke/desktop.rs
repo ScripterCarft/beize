@@ -241,11 +241,12 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         machine.test_medium.is_some(),
         "no test medium: the test client is missing"
     );
-    // run0 asks for the owner's password: to mount the test medium, then
-    // twice to unplug the screen and plug it in again (`screen_comes_back`).
+    // run0 asks for the owner's password: to unplug the screen before the
+    // login and plug it in after, to mount the test medium, and four times
+    // in `screen_comes_back`.
     let shell = Shell::boot(
         &machine,
-        &Answers::passwords(&[SMOKE_PASSWORD; 5]),
+        &Answers::passwords(&[SMOKE_PASSWORD; 7]),
         &OWNER_CONSOLE_CREDENTIALS,
         false,
     )?;
@@ -593,26 +594,13 @@ fn screen_comes_back(
 ) -> Result<()> {
     let restored = Image::read_ppm(&fs::read(machine.logs.join("restored-screen.ppm"))?)?;
     let shown = restored.crop(at, size)?;
-    let set = |status: &str| -> Result<()> {
-        let (code, lines) = shell.capture(&format!(
-            "run0 sh -c 'c=$(echo /sys/class/drm/card*-{VM_SCREEN}) && echo {status} > \
-             $c/status && udevadm trigger --action=change $(dirname $(readlink -f $c))'"
-        ))?;
-        ensure!(
-            code == 0,
-            "could not set the screen {status} (exit status {code}): {lines:?}"
-        );
-        Ok(())
-    };
-    // Twice: virtio-gpu offers 75 Hz first and 60 Hz once probed, so the
-    // first return changes the mode, which makes the shell draw anew; the
-    // second, in the same mode, shows that the compositor draws the screen
-    // itself, as after a monitor's sleep.
+    // Twice, the second time in the mode of the first (virtio-gpu has 75 Hz
+    // until probed): the compositor draws the returned screen itself.
     for round in ["", "-again"] {
-        set("off")?;
+        set_screen(shell, "off")?;
         wait_for_compositor_line(shell, &format!("screen {VM_SCREEN} is gone"))?;
         wait_for_gone(machine, (at, size), &shown, &format!("screen-gone{round}"))?;
-        set("detect")?;
+        set_screen(shell, "detect")?;
         wait_for_compositor_line(shell, &format!("screen {VM_SCREEN}: .*, it had none"))?;
         wait_for_pattern(shell, machine, at, size, &format!("screen-back{round}"))?;
     }
@@ -623,16 +611,45 @@ fn screen_comes_back(
     Ok(())
 }
 
+/// Unplugs the VM's screen (`off`) or plugs it in (`detect`), as root
+/// (`screen_comes_back` says how).
+fn set_screen(shell: &Shell, status: &str) -> Result<()> {
+    let (code, lines) = shell.capture(&format!(
+        "run0 sh -c 'c=$(echo /sys/class/drm/card*-{VM_SCREEN}) && echo {status} > \
+         $c/status && udevadm trigger --action=change $(dirname $(readlink -f $c))'"
+    ))?;
+    ensure!(
+        code == 0,
+        "could not set the screen {status} (exit status {code}): {lines:?}"
+    );
+    Ok(())
+}
+
 /// The owner signs in on tty1 and the desktop starts: a Wayland session, the
 /// compositor and the shell sandboxed, the shell known as such, the desktop
-/// shown in one piece with its panels; the test medium mounted.
+/// shown in one piece with its panels; the test medium mounted. Without a
+/// screen the compositor waits, and the desktop starts once one comes.
 fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
+    // With no screen connected, the compositor starts and waits for one;
+    // the desktop starts once it comes (ADR 0029).
+    set_screen(shell, "off")?;
     // At the keyboard, as the owner would: name, password, beize-session,
     // each when the console has had time to ask.
     for (typed, pause) in [(SMOKE_USER, 1), (SMOKE_PASSWORD, 2), ("beize-session", 0)] {
         keys(qmp, &german_presses(typed)?)?;
         thread::sleep(Duration::from_secs(pause));
     }
+    wait_for_compositor_line(shell, "no screen connected: the desktop starts once one is")?;
+    let (_, lines) = shell.capture(
+        "systemctl --user is-active beize-session.target beize-compositor.service \
+         beize-shell.service",
+    )?;
+    ensure!(
+        lines == ["inactive", "activating", "inactive"],
+        "without a screen, the compositor should wait and the desktop not start yet \
+         (target, compositor, shell): {lines:?}"
+    );
+    set_screen(shell, "detect")?;
     let (_, lines) = shell.capture(
         "for i in $(seq 100); do systemctl --user -q is-active beize-session.target && break; \
          sleep 0.2; done; systemctl --user is-active beize-session.target",

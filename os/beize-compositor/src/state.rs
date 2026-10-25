@@ -370,8 +370,23 @@ impl State {
             .map_err(|e| error(format!("udev events: {}", e.error)))?;
         let node = gpu.node();
         self.gpu = Some(gpu);
-        self.offer_output(&info);
         self.offer_dmabuf(node);
+        match info {
+            Some(info) => self.first_screen(&info),
+            None => {
+                info!("no screen connected: the desktop starts once one is");
+                Ok(())
+            }
+        }
+    }
+
+    /// The first screen: offered to clients, the desktop's start begins
+    /// (`opening`) and the compositor tells systemd it is ready – only now,
+    /// so that the shell and apps start when there is a screen to show
+    /// them on; without one, nothing is drawn or started, as there is
+    /// nothing to see.
+    fn first_screen(&mut self, info: &Info) -> Result<()> {
+        self.offer_output(info);
         // The desktop shows once the shell is ready, at most SHELL_WAIT
         // from now (`opening`). Black at once sets the mode: the monitor
         // locks on to it while the shell starts and the next frames draw
@@ -401,6 +416,7 @@ impl State {
         if let Some(gpu) = &mut self.gpu {
             gpu.render(&[black], None, now, now, Parts::default())?;
         }
+        crate::notify_ready();
         Ok(())
     }
 
@@ -422,6 +438,11 @@ impl State {
                 self.frame_done_later();
             }
             Ok(Change::Retrained) => self.changed(),
+            Ok(Change::New(info)) if self.output.is_none() => {
+                if let Err(e) = self.first_screen(&info) {
+                    self.fail(e);
+                }
+            }
             Ok(Change::New(info)) => {
                 self.offer_output(&info);
                 let area = self.screen_area().to_f64();

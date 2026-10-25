@@ -9,8 +9,10 @@ PartOf=beize-session.target
 [Service]
 # When it ends, the session ends with it (no restart), as macOS logs out
 # when the WindowServer dies; beize-session reports how it ended.
-# Ready once clients can connect.
+# Ready once it has a screen to show the desktop on: without one
+# connected, it waits for one, as long as it takes (no start timeout).
 Type=notify
+TimeoutStartSec=infinity
 ExecStart=/usr/lib/beize/beize-compositor
 # What the session cannot do without (systemd.special(7)).
 Slice=session.slice

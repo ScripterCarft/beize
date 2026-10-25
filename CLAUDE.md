@@ -309,7 +309,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: Phase 3 großteils erledigt – JETZT: Phase 3 abschließen, dann Shell)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: ADR 0029 fertig – JETZT: Punkt 2 Protokolle, unten)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -359,15 +359,23 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
   Problem; falls der Hardware-Test Ruckeln zeigt: `VK_EXT_swapchain_maintenance1`-Fences);
   Intel/AMD brauchen erst Kernel-Treiber, Firmware, libdrm → #17.
 **JETZT, in dieser Reihenfolge (Besitzer, 25.10., alles freigegeben):**
-1. ~~ADR 0029 Bildschirme~~ erledigt 25.10. (GPU und Bildschirm getrennt, udev, Neutraining
-   mit `link-status` GOOD, Smoke `screen_comes_back` mit Gegenproben). Offen: Start ohne
-   verbundenen Bildschirm scheitert weiter („no screen connected“; Shell ohne `wl_output`
-   wäre ein eigener Schritt), Hardware-Teil „Monitor aus/an, Kabel ab/an“ in
-   `measure/hw-test.sh` kommt mit dem Messbau (4.). Smithay-Bericht Nr. 4 (Blob 0) liegt in
-   `~/upstream/smithay/ISSUES.md`.
-2. **Protokolle** in der Reihenfolge presentation-time, fifo/commit-timing, viewporter,
-   xdg-activation, idle-inhibit, dann Bildschirm aus bei Inaktivität (Zeiten wie macOS); je eine
-   Smoke-Prüfung mit Gegenprobe (Testclient bindet sie).
+1. ~~ADR 0029 Bildschirme~~ erledigt 25.10. (8039442 + Folgecommit „starts without a
+   screen“): GPU und Bildschirm getrennt, udev, Neutraining mit `link-status` GOOD; ohne
+   Bildschirm beim Start wartet der Compositor (READY erst mit dem ersten). Smoke: Anmeldung
+   ohne Bildschirm (`sign_in`), `screen_comes_back` zweimal, je mit Gegenprobe. Hardware-Teil
+   „Monitor aus/an, Kabel ab/an“ in `measure/hw-test.sh` kommt mit dem Messbau (4.).
+   Smithay-Bericht Nr. 4 (Blob 0) liegt in `~/upstream/smithay/ISSUES.md`.
+   **CI:** der Lauf zu 8039442 scheiterte am Bootbudget („system 4.20s (budget 4.00s)“ im
+   Desktop-Start, die Basis im selben Lauf 1,98 s; der Commit ändert keine Units und nichts am
+   Boot → Runner-Rauschen). Claudes `gh`-Token darf Läufe nicht neu starten (403): der Besitzer
+   startet ihn neu („Re-run failed jobs“) oder gibt den Push frei. Erst danach pushen.
+2. **Protokolle – NÄCHSTER SCHRITT** in der Reihenfolge presentation-time, fifo/commit-timing,
+   viewporter, xdg-activation, idle-inhibit, dann Bildschirm aus bei Inaktivität (Zeiten wie
+   macOS); je eine Smoke-Prüfung mit Gegenprobe (Testclient bindet sie). Anknüpfen:
+   presentation-time an `Gpu::vblank`/`State::frame_done` (Zeit des vblank liegt dort schon
+   vor, `DrmEventTime::Monotonic`); Bildschirm aus passt zu ADR 0029 (Bildschleife ruhen
+   lassen wie bei „weg“, CRTC aus per DPMS/ACTIVE=0). In der VM zählt eine Prüfung nur mit
+   Gegenprobe, die rot wird (25.10.: eine ging grün durch, weil Clients ohnehin neu zeichneten).
 3. **Alte Tests aufräumen** (Besitzer: „alte Tests wegmachen, die mittlerweile sowieso
    funktionieren“): Prüfungen, die nur einen längst behobenen Einzelfehler nachstellten und keine
    Eigenschaft mehr absichern, sowie Testprogramme/Mess-Skripte ohne Nutzer. Zuerst die Liste mit
@@ -409,7 +417,7 @@ satter, hell blasser (Material: Sättigung 1,8, Tönung 30/45 %): passt erstmal,
 es wieder sieht. Apples Icons und „macOS-Look“-Sets sind tabu (VISION). Die feste Wartezeit auf
 die Shell weicht einem Konzept (#40).
 
-**Beobachten, Ursache offen:** RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
+**Beobachten, Ursache offen:** Leerlauf-Ratsche: Compositor einmal in 3 s aufgewacht (1 von 6 Smoke-Läufen 25.10., Log überschrieben; nicht zugeordnet), RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
 Issue; erschlossen: der Weckruf an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
 „Boot0002 … Not Found“ im Update-Szenario (einmal).
 

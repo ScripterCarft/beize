@@ -35,7 +35,10 @@ ohne Zutun wieder alles.
    hören „frame done“ im Takt verdeckter Fenster (1 s). Der `wl_output` bleibt, bis ein anderer
    ihn ersetzt (Apps sollen nicht ohne Bildschirm dastehen).
 4. **Er kommt wieder oder ein anderer:** bester Modus wie beim Start, Modus setzen, alles neu
-   zeichnen; Fenster, die nicht mehr passen, holt `windows::constrain` herein.
+   zeichnen; Fenster, die nicht mehr passen, holt `windows::constrain` herein. Ohne Bildschirm
+   beim Start (Monitor aus) wartet der Compositor: bereit (`READY=1`, dann Shell und Apps)
+   erst mit dem ersten Bildschirm, ohne Frist (`TimeoutStartSec=infinity`) – ohne Bildschirm
+   gibt es nichts zu zeigen, also wird nichts gestartet und gezeichnet.
 5. **`link-status` BAD:** denselben Modus erneut setzen (Neutraining), wie Mutter und KWin.
 6. **Später, eigener Abschnitt:** mehrere Bildschirme gleichzeitig (Fenster verteilen,
    Menüleiste je Bildschirm wie macOS, Skalierung je Bildschirm nach EDID).
@@ -51,6 +54,8 @@ ohne Zutun wieder alles.
   zweite Runde im selben Modus. Gegenproben (25.10.): ohne das Loslassen bleibt das Fenster
   sichtbar, ohne das Neu-Nehmen kommt der Bildschirm nicht wieder. Dass der Compositor nach
   der Rückkehr selbst zeichnet, ist in der VM nicht isolierbar (Clients committen laufend).
+  Die Anmeldung beginnt ohne Bildschirm: der Compositor wartet, die Sitzung ist nicht
+  bereit, nach `detect` startet der Desktop (Gegenprobe: READY sofort → alles „active“).
 - **Hardware-Test:** neuer Teil in `measure/hw-test.sh`: Monitor aus und wieder an, Kabel ab
   und an. `link-status` lässt sich nur dort prüfen.
 

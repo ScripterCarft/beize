@@ -71,6 +71,20 @@ unsafe extern "C" {
     fn sd_notify(unset_environment: c_int, state: *const c_char) -> c_int;
 }
 
+/// Tells systemd the desktop can start (Type=notify): beize-session.target
+/// becomes active, the shell starts. Once the first screen is taken
+/// (`State::first_screen`); started by hand, there is no one to tell.
+pub(crate) fn notify_ready() {
+    // SAFETY: a NUL-terminated string that sd_notify only reads.
+    let r = unsafe { sd_notify(0, c"READY=1".as_ptr()) };
+    if r < 0 {
+        warn!(
+            "telling systemd it is ready: {}",
+            std::io::Error::from_raw_os_error(-r)
+        );
+    }
+}
+
 fn main() -> ExitCode {
     log::init();
     match run() {
@@ -169,16 +183,6 @@ fn run() -> Result<()> {
         state.activate()?;
     } else {
         info!("waiting for the session to become active");
-    }
-    // Clients can connect: beize-session.target becomes active
-    // (Type=notify). Started by hand, there is no one to tell.
-    // SAFETY: a NUL-terminated string that sd_notify only reads.
-    let r = unsafe { sd_notify(0, c"READY=1".as_ptr()) };
-    if r < 0 {
-        warn!(
-            "telling systemd it is ready: {}",
-            std::io::Error::from_raw_os_error(-r)
-        );
     }
     event_loop
         .run(None, &mut state, |state| {

@@ -102,9 +102,9 @@ pub fn millihertz(mode: &Mode) -> u32 {
     u32::try_from(u64::from(mode.clock()) * 1_000_000 / total).unwrap_or(u32::MAX)
 }
 
-/// Opens the seat's GPU and takes its screen; also returns what the screen
-/// is and the GPU's events.
-pub fn open(session: &mut LibSeatSession) -> Result<(Gpu, Info, DrmDeviceNotifier)> {
+/// Opens the seat's GPU and takes its screen, if one is connected; also
+/// returns what the screen is and the GPU's events.
+pub fn open(session: &mut LibSeatSession) -> Result<(Gpu, Option<Info>, DrmDeviceNotifier)> {
     let seat = session.seat();
     let path = match udev::primary_gpu(&seat).context("udev")? {
         Some(path) => path,
@@ -129,10 +129,11 @@ pub fn open(session: &mut LibSeatSession) -> Result<(Gpu, Info, DrmDeviceNotifie
         held: None,
     };
     // The console probed the connectors already.
-    match gpu.scan(false)? {
-        Change::New(info) => Ok((gpu, info, events)),
-        _ => Err(error("no screen connected")),
-    }
+    let info = match gpu.scan(false)? {
+        Change::New(info) => Some(info),
+        _ => None,
+    };
+    Ok((gpu, info, events))
 }
 
 fn device(session: &mut LibSeatSession, path: &Path) -> Result<(DrmDevice, DrmDeviceNotifier)> {
