@@ -353,7 +353,7 @@ der GPU) öffnet 12 Fenster zu 640×400, die der Compositor kaskadiert; jedes ze
 neu (Verlauf mit wanderndem Farbton, vier durchscheinende runde Blöcke, eine Zeile Text mit der
 Bildnummer). Fenster setzt eine App nicht selbst: Unter das Dock kommt eins, wie bei macOS, nur
 durch Ziehen (Smoke über das Tablet, auf der Hardware der Besitzer). Der Smoke (volle Stufe)
-verlangt: jedes Fenster ≥ 30 Bilder in 15 s, das Glas des Docks ändert sich mit dem Fenster
+verlangt: jedes Fenster ≥ 2 Bilder/s über 6 s, das Glas des Docks ändert sich mit dem Fenster
 dahinter (Gegenprobe ohne Fenster dahinter: rot), eine `pacing:`-Zeile über die Szene. In der
 VM 12 × ~33 Bilder/s, lavapipe weit über dem Budget (erwartet). Federanimationen des
 Compositors gibt es bis (g) nur beim Start; sie kommen in die Szene, sobald es sie gibt.

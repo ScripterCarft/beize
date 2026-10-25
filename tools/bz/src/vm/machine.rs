@@ -189,17 +189,21 @@ fn copy_sparse(from: &Path, to: &Path) -> Result<()> {
 
 /// How many VMs run side by side, on any machine: each has 4 virtual CPUs
 /// and at most 1.5 GiB (`qemu`), plus room for QEMU and swtpm themselves
-/// (3 GiB reserved, unchanged when the guests shrank: more VMs would
-/// overbook the CPUs, which the guests' RCU stalls hinted at) – as many as
-/// CPUs and memory hold, at least one. Not more VMs than CPUs allow: a boot
-/// computes for most of its time (firmware with Secure Boot, the kernel
-/// clearing memory, cryptography). Measured 2026-10-17 on 4 CPUs (the CI's
-/// runner, `taskset -c 0-3`): two VMs side by side took as long as one after
-/// the other (579 s against 585 s), each scenario twice as long, and one
-/// ran into its timeout.
+/// (`VM_RESERVE_MIB`) – as many as CPUs and memory hold, at least one. Not
+/// more VMs than CPUs allow: a boot computes for most of its time (firmware
+/// with Secure Boot, the kernel clearing memory, cryptography). Measured
+/// 2026-10-17 on 4 CPUs (the CI's runner, `taskset -c 0-3`): two VMs side by
+/// side took as long as one after the other (579 s against 585 s), each
+/// scenario twice as long, and one ran into its timeout.
 pub(super) fn parallel_vms() -> usize {
-    util::parallel(VM_CPUS, 3 * 1024)
+    util::parallel(VM_CPUS, VM_RESERVE_MIB)
 }
+
+/// The memory a VM takes on the host: the largest guest and what QEMU
+/// needs beside it. Measured 25.10. over a whole smoke test: the largest
+/// QEMU held 1.6 GB (the desktop's, 1.5 GiB guest), the others 1.1 GB, and
+/// with five side by side 8.9 of 15.6 GiB stayed free.
+const VM_RESERVE_MIB: u64 = DESKTOP_MEMORY_MIB as u64 + 512;
 
 /// The virtual CPUs of a test VM.
 const VM_CPUS: usize = 4;

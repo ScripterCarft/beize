@@ -43,7 +43,7 @@
 //! same service manager as the login on tty1.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -162,6 +162,8 @@ const SHELL_CONNECTED: &str = "journalctl --user -b -u beize-compositor.service 
 /// What the shell said in this boot (os/beize-shell): `dock: …` for the
 /// apps in the dock, `menu bar: <name>` for the active app.
 const SHELL_SAID: &str = "journalctl --user -b -u beize-shell.service -o cat";
+/// The compositor's summaries of runs of frames, in this boot.
+const PACING: &str = "journalctl --user -b -u beize-compositor.service -o cat | grep '^pacing: '";
 
 /// The compositor's line for each window it places (os/beize-compositor,
 /// `windows`): `window <app id> <w>x<h> at <x>,<y>`.
@@ -199,17 +201,24 @@ const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);
 
 /// The load test's scene (os/beize-ui, `beize-load-test`): its windows, how
 /// long it runs, and how many frames each window must have drawn at least
-/// – in the VM about 30 a second, on CI's runner fewer; fewer than two a
-/// second would mean it stalls.
+/// – in the VM about 35 a second, on CI's runner fewer; fewer than two a
+/// second would mean it stalls. Long enough for the drag behind the dock
+/// and the glass's check; what it measures counts on hardware only, which
+/// runs it longer (`measure/hw-test.sh`).
 const LOAD_WINDOWS: usize = 12;
-const LOAD_SECONDS: u64 = 15;
-const LOAD_LEAST_FRAMES: usize = 30;
+const LOAD_SECONDS: u64 = 6;
+const LOAD_LEAST_FRAMES: usize = 2 * LOAD_SECONDS as usize;
 /// How far above the dock the test drags the scene's top window by its
 /// bar: the window's content then lies behind the dock.
 const LOAD_ABOVE_DOCK: usize = 150;
 
 /// How long a screen may take to become what its reference shows.
 const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// By when the compositor has ended a run of frames after its last one:
+/// 250 ms without a frame (`IDLE`, os/beize-compositor/src/pacing.rs),
+/// looked for every 500 ms (`PACING_CHECK`, state.rs), with room.
+const RUN_ENDED: Duration = Duration::from_secs(1);
 
 pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let mut machine = installed.machine.copy_as(paths, "smoke-desktop")?;
@@ -645,14 +654,18 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  ok: the dock's glass showed the window dragged behind it, blurred");
 
     // Frames in a row: a second client draws 120, each on "frame done";
-    // once they stop, the compositor sums up how they met their vblanks.
-    // Its summary is the one after those of earlier frames (the terminal's).
-    let (status, lines) = shell.capture(
-        "p() { journalctl --user -b -u beize-compositor.service -o cat | grep '^pacing: '; }; \
-         n=$(p | wc -l); systemd-run --user --unit=beize-testclient-frames \
-         /run/t/beize-testclient --frames 120 --seconds 20 && for i in $(seq 100); do \
-         [ \"$(p | wc -l)\" -gt \"$n\" ] && break; sleep 0.2; done; p | tail -n +$((n + 1))",
-    )?;
+    // once they stop, the compositor sums up how they met their vblanks –
+    // the next summary, alone: as many frames as it drew, not more. The
+    // drag's frames end their run first; a short run is summed up only for
+    // debugging, so there is nothing to wait for but its end.
+    thread::sleep(RUN_ENDED);
+    let summed = pacing_summaries(&shell)?;
+    let (status, lines) = shell.capture(&format!(
+        "systemd-run --user --unit=beize-testclient-frames /run/t/beize-testclient --frames 120 \
+         --seconds 20 && for i in $(seq 100); do [ \"$({PACING} | wc -l)\" -gt {summed} ] \
+         && break; sleep 0.2; done; {PACING} | tail -n +{}",
+        summed + 1
+    ))?;
     let Some(pacing) = lines.iter().find(|l| l.starts_with("pacing: ")) else {
         let said = last_said(&shell, &["beize-testclient-frames", "beize-compositor"])?;
         bail!(
@@ -666,7 +679,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         .and_then(|(n, _)| n.parse::<u32>().ok())
         .with_context(|| format!("a pacing summary without frames: {pacing}"))?;
     ensure!(
-        frames >= 100,
+        (100..=120).contains(&frames),
         "the compositor counted {frames} frames of the client's 120: {pacing}"
     );
     say!("  ok: the compositor measured the client's frames: {pacing}");
@@ -1034,7 +1047,7 @@ fn load(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) ->
         .and_then(|(_, rest)| rest.split_once(" s")?.0.parse::<f64>().ok())
         .with_context(|| format!("no length in {pacing:?}"))?;
     ensure!(
-        seconds >= (LOAD_SECONDS - 5) as f64,
+        seconds >= (LOAD_SECONDS - 1) as f64,
         "the compositor's last run took {seconds} s, not the load test's {LOAD_SECONDS}: \
          {pacing}"
     );
@@ -1200,6 +1213,15 @@ fn wait_for_prompt(shell: &Shell, unit: &str) -> Result<()> {
     Ok(())
 }
 
+/// How many runs of frames the compositor has summed up in this boot.
+fn pacing_summaries(shell: &Shell) -> Result<usize> {
+    let (_, lines) = shell.capture(&format!("echo BEIZE-SUMMED-$({PACING} | wc -l)"))?;
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-SUMMED-")?.parse().ok())
+        .with_context(|| format!("no count of the compositor's summaries: {lines:?}"))
+}
+
 /// Where the compositor placed the `count`th window of `app` and its size,
 /// waiting for it.
 fn placed(shell: &Shell, app: &str, count: usize) -> Result<Window> {
@@ -1293,37 +1315,57 @@ fn wait_for_pattern(
     size: (usize, usize),
     name: &str,
 ) -> Result<()> {
-    let file = machine.logs.join(format!("{name}-screen.ppm"));
     let difference = machine.logs.join(format!("{name}-difference.ppm"));
+    let looked = poll_screen(machine, name, |screen| {
+        compare(
+            &screen.crop(at, size)?,
+            |x, y| expected(x, y, size.0, size.1),
+            "the client's pattern",
+            &difference,
+        )
+    });
+    let Err((_, e)) = looked? else {
+        return Ok(());
+    };
+    let said = last_said(shell, &["beize-testclient", "beize-compositor"])?;
+    Err(e.context(format!(
+        "the client's window, {}x{} at {},{}, on {}; the client and the compositor last said: \
+         {said:?}",
+        size.0,
+        size.1,
+        at.0,
+        at.1,
+        screen_file(machine, name).display()
+    )))
+}
+
+/// How often a wait looks at the screen again.
+const SCREEN_POLL: Duration = Duration::from_millis(100);
+
+/// Where the screen a wait named `name` looked at last lies.
+fn screen_file(machine: &Machine, name: &str) -> PathBuf {
+    machine.logs.join(format!("{name}-screen.ppm"))
+}
+
+/// Looks at the screen until `check` passes on it – at once, then every
+/// `SCREEN_POLL`, for at most `SCREEN_TIMEOUT` – and returns what it gave;
+/// if it never does, the last screen and why. Each look is
+/// `<name>-screen.ppm` in the logs. Looked at at once, a check must not
+/// pass on the screen before what it waits for.
+fn poll_screen<T>(
+    machine: &Machine,
+    name: &str,
+    check: impl Fn(&Image) -> Result<T>,
+) -> Result<std::result::Result<T, (Image, anyhow::Error)>> {
+    let file = screen_file(machine, name);
     let deadline = Instant::now() + SCREEN_TIMEOUT;
     loop {
-        thread::sleep(Duration::from_millis(500));
         screendump(&machine.qmp(), &file)?;
-        let compared = Image::read_ppm(&fs::read(&file)?)?
-            .crop(at, size)
-            .and_then(|window| {
-                compare(
-                    &window,
-                    |x, y| expected(x, y, size.0, size.1),
-                    "the client's pattern",
-                    &difference,
-                )
-            });
-        match compared {
-            Ok(()) => return Ok(()),
-            Err(e) if Instant::now() >= deadline => {
-                let said = last_said(shell, &["beize-testclient", "beize-compositor"])?;
-                return Err(e.context(format!(
-                    "the client's window, {}x{} at {},{}, on {}; the client and the compositor \
-                     last said: {said:?}",
-                    size.0,
-                    size.1,
-                    at.0,
-                    at.1,
-                    file.display()
-                )));
-            }
-            Err(_) => {}
+        let screen = Image::read_ppm(&fs::read(&file)?)?;
+        match check(&screen) {
+            Ok(value) => return Ok(Ok(value)),
+            Err(e) if Instant::now() >= deadline => return Ok(Err((screen, e))),
+            Err(_) => thread::sleep(SCREEN_POLL),
         }
     }
 }
@@ -1357,33 +1399,27 @@ fn wait_for_image(
     what: &str,
     name: &str,
 ) -> Result<()> {
-    let file = machine.logs.join(format!("{name}-screen.ppm"));
     let difference = machine.logs.join(format!("{name}-difference.ppm"));
-    let deadline = Instant::now() + SCREEN_TIMEOUT;
-    let failed = loop {
-        thread::sleep(Duration::from_millis(500));
-        screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?.crop(at, size)?;
-        let compared = match wanted {
+    let looked = poll_screen(machine, name, |screen| {
+        let window = screen.crop(at, size)?;
+        match wanted {
             None => Err(anyhow!("there is no {what} yet")),
-            Some(r) if (r.width, r.height) != (screen.width, screen.height) => Err(anyhow!(
+            Some(r) if (r.width, r.height) != (window.width, window.height) => Err(anyhow!(
                 "the window is {}x{}, {what} {}x{}",
-                screen.width,
-                screen.height,
+                window.width,
+                window.height,
                 r.width,
                 r.height
             )),
-            Some(r) => compare(&screen, |x, y| r.pixel(x, y), what, &difference),
-        };
-        match compared {
-            Ok(()) => return Ok(()),
-            Err(e) if Instant::now() >= deadline => break (screen, e),
-            Err(_) => {}
+            Some(r) => compare(&window, |x, y| r.pixel(x, y), what, &difference),
         }
+    });
+    let Err((screen, e)) = looked? else {
+        return Ok(());
     };
-    let (screen, e) = failed;
+    // The window alone: to look at, and to take over as the reference.
     let shown = machine.logs.join(format!("{name}-screen.png"));
-    screen.write_png(&shown)?;
+    screen.crop(at, size)?.write_png(&shown)?;
     Err(e.context(format!("the window is {}", shown.display())))
 }
 
@@ -1391,22 +1427,9 @@ fn wait_for_image(
 /// on its right, and the dock along the bottom; if they do not, the last
 /// screen is in the logs.
 fn wait_for_panels(machine: &Machine) -> Result<()> {
-    let file = machine.logs.join("panels-screen.ppm");
-    let deadline = Instant::now() + SCREEN_TIMEOUT;
-    loop {
-        thread::sleep(Duration::from_millis(500));
-        screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?;
-        match menu_bar(&screen).and_then(|()| dock(&screen).map(|_| ())) {
-            Ok(()) => return Ok(()),
-            Err(e) if Instant::now() >= deadline => {
-                let shown = machine.logs.join("panels-screen.png");
-                screen.write_png(&shown)?;
-                return Err(e.context(format!("the screen is {}", shown.display())));
-            }
-            Err(_) => {}
-        }
-    }
+    wait_until_screen(machine, "panels", |screen| {
+        menu_bar(screen).and_then(|()| dock(screen).map(|_| ()))
+    })
 }
 
 /// Waits until the screen passes `check`; if it does not, the last screen
@@ -1416,22 +1439,12 @@ fn wait_until_screen(
     name: &str,
     check: impl Fn(&Image) -> Result<()>,
 ) -> Result<()> {
-    let file = machine.logs.join(format!("{name}-screen.ppm"));
-    let deadline = Instant::now() + SCREEN_TIMEOUT;
-    loop {
-        thread::sleep(Duration::from_millis(500));
-        screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?;
-        match check(&screen) {
-            Ok(()) => return Ok(()),
-            Err(e) if Instant::now() >= deadline => {
-                let shown = machine.logs.join(format!("{name}-screen.png"));
-                screen.write_png(&shown)?;
-                return Err(e.context(format!("the screen is {}", shown.display())));
-            }
-            Err(_) => {}
-        }
-    }
+    let Err((screen, e)) = poll_screen(machine, name, check)? else {
+        return Ok(());
+    };
+    let shown = machine.logs.join(format!("{name}-screen.png"));
+    screen.write_png(&shown)?;
+    Err(e.context(format!("the screen is {}", shown.display())))
 }
 
 /// Whether two pixels are the same but rounding.
@@ -1719,26 +1732,21 @@ fn base64(text: &str) -> Result<Vec<u8>> {
 /// Waits until `window` on the screen no longer shows `shown` – the window
 /// left; if it does not, the last screen is in the logs.
 fn wait_for_gone(machine: &Machine, (at, size): Window, shown: &Image, name: &str) -> Result<()> {
-    let file = machine.logs.join(format!("{name}-screen.ppm"));
-    let deadline = Instant::now() + SCREEN_TIMEOUT;
-    loop {
-        thread::sleep(Duration::from_millis(500));
-        screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?.crop(at, size)?;
-        if screen.pixels != shown.pixels {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            let png = machine.logs.join(format!("{name}-screen.png"));
-            screen.write_png(&png)?;
-            bail!("the window still shows: {}", png.display());
-        }
-    }
+    let looked = poll_screen(machine, name, |screen| {
+        ensure!(
+            screen.crop(at, size)?.pixels != shown.pixels,
+            "the window still shows"
+        );
+        Ok(())
+    })?;
+    let Err((screen, e)) = looked else {
+        return Ok(());
+    };
+    let png = machine.logs.join(format!("{name}-screen.png"));
+    screen.crop(at, size)?.write_png(&png)?;
+    Err(e.context(png.display().to_string()))
 }
 
-/// An RGB image.
-/// Waits until the dock shows the test client's icon in the middle of its
-/// tile at `at`; if it does not, the last screen is in the logs.
 /// How many pixels of the arrow's body (`ARROW_BODY`) show with the
 /// pointer at `at`: the screen then against the screen with the pointer
 /// parked. The pointer is drawn into the frame in the VM. Parks it.
@@ -1780,64 +1788,40 @@ fn arrow_body(
 /// `before`, by more than `GLASS_SHOWS` in a channel: a window behind it.
 /// The screen then is in the logs as `live-glass-screen.png`.
 fn wait_for_live_glass(machine: &Machine, at: (usize, usize), before: [u8; 3]) -> Result<()> {
-    let file = machine.logs.join("live-glass-screen.ppm");
-    let png = machine.logs.join("live-glass-screen.png");
-    let deadline = Instant::now() + SCREEN_TIMEOUT;
-    loop {
-        screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?;
+    wait_until_screen(machine, "live-glass", |screen| {
         let shown = screen.pixel(at.0, at.1);
-        if shown
-            .iter()
-            .zip(before)
-            .any(|(&a, b)| a.abs_diff(b) > GLASS_SHOWS)
-        {
-            screen.write_png(&png)?;
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            screen.write_png(&png)?;
-            bail!(
-                "the dock's glass shows {shown:?} at {},{} with a window behind it, as \
-                 {before:?} without: it is not live; the screen is {}",
-                at.0,
-                at.1,
-                png.display()
-            );
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
+        ensure!(
+            shown
+                .iter()
+                .zip(before)
+                .any(|(&a, b)| a.abs_diff(b) > GLASS_SHOWS),
+            "the dock's glass shows {shown:?} at {},{} with a window behind it, as {before:?} \
+             without: it is not live",
+            at.0,
+            at.1
+        );
+        Ok(())
+    })
 }
 
+/// Waits until the dock shows the test client's icon in the middle of its
+/// tile at `at`; if it does not, the last screen is in the logs.
 fn wait_for_dock_icon(machine: &Machine, at: (i32, i32)) -> Result<()> {
-    let file = machine.logs.join("dock-icon-screen.ppm");
     let (x, y) = (usize::try_from(at.0)?, usize::try_from(at.1)?);
-    let deadline = Instant::now() + SCREEN_TIMEOUT;
-    loop {
-        screendump(&machine.qmp(), &file)?;
-        let screen = Image::read_ppm(&fs::read(&file)?)?;
+    wait_until_screen(machine, "dock-icon", |screen| {
         let shown = screen.pixel(x, y);
-        let near = shown
-            .iter()
-            .zip(CLIENT_ICON_COLOR)
-            .all(|(&a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE);
-        if near {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            let png = machine.logs.join("dock-icon-screen.png");
-            screen.write_png(&png)?;
-            bail!(
-                "the dock shows {shown:?} at {x},{y}, not the test client's icon {:?}; the \
-                 screen is {}",
-                CLIENT_ICON_COLOR,
-                png.display()
-            );
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
+        ensure!(
+            shown
+                .iter()
+                .zip(CLIENT_ICON_COLOR)
+                .all(|(&a, b)| a.abs_diff(b) <= CHANNEL_TOLERANCE),
+            "the dock shows {shown:?} at {x},{y}, not the test client's icon {CLIENT_ICON_COLOR:?}"
+        );
+        Ok(())
+    })
 }
 
+/// An RGB image.
 struct Image {
     width: usize,
     height: usize,
