@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 use rustix::ioctl::{Updater, ioctl, opcode};
 
-use beize_compositor::error::{Context, Result, error};
+use crate::error::{Context, Result, error};
 
 /// The shell's unit, next to the compositor's (ADR 0028 §1).
 const SHELL_UNIT: &str = "beize-shell.service";

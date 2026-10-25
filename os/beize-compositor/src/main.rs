@@ -24,14 +24,17 @@ mod backdrop;
 mod corners;
 mod cursor;
 mod decorations;
+mod error;
 mod glass;
 mod gpu;
 mod input;
 mod keyboard;
 mod layers;
+mod log;
 mod opening;
 mod output;
 mod pacing;
+mod render;
 mod schedule;
 mod screenshot;
 mod shell;
@@ -53,8 +56,7 @@ use smithay::reexports::wayland_server::Display;
 use smithay::wayland::socket::ListeningSocketSource;
 use tracing::{error, info, warn};
 
-use beize_compositor::error::{Context, Result, error};
-use beize_compositor::log;
+use crate::error::{Context, Result, error};
 use state::State;
 
 /// The socket clients connect on: a fixed name, as mutter's and KWin's,

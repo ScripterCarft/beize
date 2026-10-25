@@ -30,8 +30,6 @@ install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-comp
   "$PKG/usr/lib/beize/beize-compositor"
 install -D -m 644 "$REPO/os/beize-compositor/beize-compositor.service" \
   "$PKG/usr/lib/systemd/user/beize-compositor.service"
-install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-render-test" \
-  "$PKG/usr/lib/beize/test/beize-render-test"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-testclient" \
   "$PKG/usr/lib/beize/test/beize-testclient"
 '''
@@ -46,6 +44,5 @@ image = [
   "usr/lib/systemd/user/beize-compositor.service",
 ]
 build = [
-  { path = "usr/lib/beize/test/beize-render-test", why = "checks the renderer in the VM, on bz's test medium; not for computers" },
   { path = "usr/lib/beize/test/beize-testclient", why = "a Wayland client that checks the compositor in the VM, on bz's test medium; not for computers" },
 ]

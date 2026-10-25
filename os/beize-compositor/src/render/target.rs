@@ -4,7 +4,7 @@
 //! into (linear, ADR 0027 §6). Where a dumb buffer is slow to read, or its
 //! row pitch is not lavapipe's, lavapipe draws into an image of its own
 //! and the frame is copied over (`Readback`). Offscreen targets are images
-//! of the renderer's own (effects, screenshots, the render test); a sampled
+//! of the renderer's own (effects, screenshots); a sampled
 //! one is a texture too, which later frames read (what lies behind live
 //! glass, ADR 0028 §6).
 

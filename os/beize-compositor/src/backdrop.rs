@@ -18,8 +18,8 @@
 //! the window's colours, as the dock's does (the owner, 24.10.; macOS
 //! shows the bar opaque there).
 
-use beize_compositor::error::{Context, Result, error};
-use beize_compositor::render::{Material, Target, VkRenderer, VkTexture};
+use crate::error::{Context, Result, error};
+use crate::render::{Material, Target, VkRenderer, VkTexture};
 use beize_draw::measures;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;

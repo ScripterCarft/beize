@@ -14,7 +14,7 @@ use rustix::fs::inotify;
 use smithay::input::keyboard::XkbConfig;
 use tracing::warn;
 
-use beize_compositor::error::{Context, Result};
+use crate::error::{Context, Result};
 
 /// Where localed keeps the layout.
 const FILE: &str = "/etc/vconsole.conf";

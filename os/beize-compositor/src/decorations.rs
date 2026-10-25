@@ -17,7 +17,7 @@
 use std::cell::RefCell;
 use std::time::Instant;
 
-use beize_compositor::render::{VkRenderer, VkTexture};
+use crate::render::{VkRenderer, VkTexture};
 use beize_draw::titlebar::{self, Button, Press};
 use beize_draw::{Glyphs, Text, TitleBar};
 use smithay::backend::renderer::element::Kind;
@@ -295,7 +295,7 @@ impl Decorations {
         renderer: &mut VkRenderer,
         window: &Window,
         width: i32,
-    ) -> beize_compositor::error::Result<Option<TextureBuffer<VkTexture>>> {
+    ) -> crate::error::Result<Option<TextureBuffer<VkTexture>>> {
         let Some(toplevel) = window.toplevel() else {
             return Ok(None);
         };
@@ -346,7 +346,7 @@ impl Decorations {
                     colour: None,
                 },
             )
-            .ok_or_else(|| beize_compositor::error::error("the bar's glyphs do not fit"))?;
+            .ok_or_else(|| crate::error::error("the bar's glyphs do not fit"))?;
         for (placed, coverage) in self.glyphs.take_uploads() {
             let rect = Rectangle::new(
                 (placed.x as i32, placed.y as i32).into(),

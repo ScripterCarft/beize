@@ -23,7 +23,7 @@ use smithay::backend::allocator::{Allocator, Buffer, Fourcc, Modifier, Slot, Swa
 use smithay::backend::drm::exporter::{ExportBuffer, ExportFramebuffer};
 use smithay::backend::drm::{
     DrmDevice, DrmDeviceFd, DrmEventMetadata, DrmEventTime, DrmSurface, Framebuffer, PlaneConfig,
-    PlaneState,
+    PlaneDamageClips, PlaneState,
 };
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::RenderElement;
@@ -40,10 +40,10 @@ use smithay::utils::{Clock, Monotonic, Physical, Point, Rectangle, Transform};
 use tracing::{debug, info, warn};
 
 use crate::cursor;
+use crate::error::{Context, Result, error};
 use crate::pacing::{Pacing, Parts, Times};
+use crate::render::{Target, VkRenderer, signalled_at};
 use crate::schedule::{Plan, Schedule};
-use beize_compositor::error::{Context, Result, error};
-use beize_compositor::render::{Target, VkRenderer, signalled_at};
 
 /// What the screen is, for clients (`wl_output`).
 #[derive(Debug, Clone)]
@@ -308,7 +308,7 @@ pub struct DumbExporter;
 
 impl ExportFramebuffer<DumbBuffer> for DumbExporter {
     type Framebuffer = DmabufFramebuffer;
-    type Error = beize_compositor::error::Error;
+    type Error = crate::error::Error;
 
     fn add_framebuffer(
         &self,
@@ -333,7 +333,7 @@ impl ExportFramebuffer<DumbBuffer> for DumbExporter {
 
 impl ExportFramebuffer<VulkanImage> for DmabufExporter {
     type Framebuffer = DmabufFramebuffer;
-    type Error = beize_compositor::error::Error;
+    type Error = crate::error::Error;
 
     fn add_framebuffer(
         &self,
@@ -759,7 +759,7 @@ where
             .get::<Image<F::Framebuffer>>()
             .context("screen buffer data")?;
         let framing: Duration = self.clock.now().into();
-        let (damaged, fence) = {
+        let (damage, fence) = {
             let mut target = image.target.borrow_mut();
             let mut framebuffer = self.renderer.bind(&mut *target)?;
             let result = self
@@ -772,8 +772,9 @@ where
                     BACKGROUND,
                 )
                 .map_err(|e| error(format!("rendering: {e:?}")))?;
-            (result.damage.is_some(), result.sync.export())
+            (result.damage.cloned(), result.sync.export())
         };
+        let damaged = damage.is_some();
         let cursor = match &mut self.cursor {
             Some(plane) => plane.update(cursor)?,
             None => None,
@@ -784,14 +785,25 @@ where
         }
 
         let size = slot.size();
+        let src = Rectangle::from_size(size).to_f64();
+        let dst = Rectangle::from_size((size.w, size.h).into());
+        // What the frame changed, for KMS (FB_DAMAGE_CLIPS), as Smithay's
+        // DrmCompositor, KWin and Mutter pass it: virtio-gpu sends only that
+        // to the host, a panel with self refresh updates only that.
+        let clips = damage.and_then(|damage| {
+            PlaneDamageClips::from_damage(self.drm.device_fd(), src, dst, damage)
+                .inspect_err(|e| debug!("no damage clips: {e}"))
+                .ok()
+                .flatten()
+        });
         let primary = damaged.then(|| PlaneState {
             handle: self.surface.plane(),
             config: Some(PlaneConfig {
-                src: Rectangle::from_size(size).to_f64(),
-                dst: Rectangle::from_size((size.w, size.h).into()),
+                src,
+                dst,
                 transform: Transform::Normal,
                 alpha: 1.0,
-                damage_clips: None,
+                damage_clips: clips.as_ref().map(PlaneDamageClips::blob),
                 fb: *image.framebuffer.as_ref(),
                 // KMS shows the frame once the GPU is done with it.
                 fence: fence.as_ref().map(|f| f.as_fd()),

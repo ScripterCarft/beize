@@ -23,10 +23,10 @@ use smithay::utils::{DeviceFd, Physical, Point};
 use tracing::{info, warn};
 
 use crate::cursor;
+use crate::error::{Context, Result, error};
 use crate::output::{DmabufExporter, DumbExporter, Frame, Info, Output};
 use crate::pacing::Parts;
-use beize_compositor::error::{Context, Result, error};
-use beize_compositor::render::VkRenderer;
+use crate::render::VkRenderer;
 
 /// The screen, by the way its images are made.
 pub enum Screen {

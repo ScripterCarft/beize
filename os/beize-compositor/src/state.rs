@@ -78,14 +78,14 @@ use crate::backdrop::{Appearance, Backdrop, LiveGlass};
 use crate::corners::{Rounded, Shadow};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
+use crate::error::{Context, Error, Result, error};
 use crate::gpu::{self, Screen};
 use crate::keyboard::Layout;
 use crate::layers::{Side, side};
 use crate::opening::{Opening, SHELL_WAIT, Veil};
 use crate::output::{Frame, Info};
 use crate::pacing::Parts;
-use beize_compositor::error::{Context, Error, Result, error};
-use beize_compositor::render::VkRenderer;
+use crate::render::VkRenderer;
 
 /// In a module of its own: the macro's code names `Result`, which here is
 /// the compositor's. Generic over the renderer, as Smithay's concrete form

@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::{info, warn};
 
-use beize_compositor::error::{Context, Result};
+use crate::error::{Context, Result};
 
 /// Saves `rgb` (rows of `size` from the top, 8-bit RGB, sRGB) on a thread
 /// of its own: encoding a 2560x1440 screen takes longer than a frame.
