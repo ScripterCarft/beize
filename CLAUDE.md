@@ -321,6 +321,17 @@ alle Ergebnisse.
    und ob das Kürzel Super+Shift+3 im Compositor bleibt (echte Funktion wie macOS, Smoke prüft
    sie), den Besitzer fragen – Vorschlag: Kürzel bleibt, Teil 5 fliegt nach bestandenem Beleg.
 
+**Stand A (25.10., `~/hw-logs/results-20261025-101320`):** 1–3 erledigt. Leck belegt behoben
+(`held:` 10–20 dmabufs über den ganzen Test, Terminal blieb offen). Neuer Befund des Besitzers,
+behoben in 4b75cb0: beim Ziehen vervielfachte sich der Prompt (`bebeiz…`) – bash löscht beim
+Neuzeichnen nur so viele Zeilen, wie der Prompt vor dem Umbruch hatte; dazu der Wettlauf mit
+Größen, die bash schon überholt haben. Lösung wie Ghostty/Kitty: OSC-133-Marken im PS1/PS0
+(`/usr/lib/beize/profile`), das Terminal leert die Zeilen des Prompts statt umzubrechen und
+schickt einer Shell am Prompt eine Größe nach der anderen (`prompt.rs`, Test mit echtem bash,
+Gegenprobe rot). Auf Hardware noch ungeprüft. Kosmetik: Besitzer findet Leiste und Knöpfe klein –
+Werte sind macOS bei Faktor 1 (109 ppi = Apples 1×-Maß); vorgeschlagen: echte Skalierung für
+alles (z. B. 125 %), **Entscheidung des Besitzers offen**. Offen: 4.
+
 **B. Frühjahrsputz – gründlich, nicht oberflächlich, vor allem anderen** (Besitzer: „erstmal
 hart optimieren“, „wirklich alles sehr professionell“, „viel kleinere Größen für alles und
 weniger RAM, aber an sinnvollen Stellen oder Bugs sparen“, „die VM kein Stress mehr“, „keine
