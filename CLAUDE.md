@@ -428,8 +428,9 @@ Basis). #36 fwupd kommt mit M4. „(Basis)“ startet bis M4 mit dem Recovery-Ke
 - #4 vmspawn bewerten, #22 Hardware-Warnungen, #11 PCIe-Retraining mit Kernel 7.3 prüfen, #10
   beobachten, #12/#13 Upstream (sendet der Besitzer); #39 Firmware-Zeit der VM (TPM-Emulation).
 - ShellCheck in die CI (Paket im Buildroot, mit der nächsten Lock-Änderung bündeln).
-- **Platz in WSL:** wächst durch `target/` (bei Bedarf `cargo clean`) und Releases in
-  `build/out/<v>/release/` (Messbauten nach dem Schritt löschen). **vhdx verkleinern** (schrumpft
+- **Platz (WSL und Linux):** `bz build` räumt selbst auf (`space.rs`): Quellen, die kein Rezept nennt,
+  ältere Releases je Variante, `target/` bei neuer Rust-Toolchain oder über 10 GB (nicht bz selbst).
+  Der Höchststand bleibt so begrenzt; die vhdx wächst nur bis dorthin. **vhdx verkleinern** (schrumpft
   nie von selbst; Sparse-VHD lehnt WSL ab, `--allow-unsafe` nicht verwenden): in WSL `sudo
   fstrim -av`, `wsl --shutdown`, dann `diskpart` als Administrator: `select vdisk
   file="C:\Users\Joe\AppData\Local\wsl\{4cae8202-1c42-41f8-840d-f8b846346de8}\ext4.vhdx"`,

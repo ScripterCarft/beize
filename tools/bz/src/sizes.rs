@@ -11,6 +11,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 
 use crate::paths::Paths;
+use crate::tree;
 
 /// How far a size may move before the file has to follow, in percent.
 const TOLERANCE: u64 = 3;
@@ -28,7 +29,9 @@ pub fn check_programs(paths: &Paths, root: &Path) -> Result<()> {
         for entry in fs::read_dir(root.join(dir))? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.starts_with(prefix) || !entry.file_type()?.is_file() || !is_elf(&entry.path())?
+            if !name.starts_with(prefix)
+                || !entry.file_type()?.is_file()
+                || !tree::is_elf(&entry.path())?
             {
                 continue;
             }
@@ -87,13 +90,6 @@ fn report(problems: Vec<String>) -> Result<()> {
         "sizes differ from the variant's sizes.toml:\n  {}",
         problems.join("\n  ")
     )
-}
-
-fn is_elf(path: &Path) -> Result<bool> {
-    use std::io::Read;
-    let mut magic = [0u8; 4];
-    let read = fs::File::open(path)?.read(&mut magic)?;
-    Ok(read == 4 && magic == *b"\x7fELF")
 }
 
 #[cfg(test)]

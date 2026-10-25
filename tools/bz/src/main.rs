@@ -34,6 +34,7 @@ mod security;
 mod select;
 mod sizes;
 mod source;
+mod space;
 mod stamp;
 mod tree;
 mod usr;
@@ -323,6 +324,7 @@ fn build_toolchain(paths: &Paths) -> Result<()> {
 }
 
 fn build_all(paths: &Paths) -> Result<()> {
+    space::tidy(paths)?;
     let image_packages = paths.variant.packages();
     // The kernel needs the toolchain, and so does every package but three
     // small data packages: little could run beside building it.

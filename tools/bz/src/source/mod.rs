@@ -303,6 +303,26 @@ impl Source {
         }
     }
 
+    /// What `fetch` keeps of the source in the cache: the archive with its
+    /// signature and its mark of verification, or the git clone with its
+    /// mark.
+    pub fn cache_entries(&self, paths: &Paths) -> Result<Vec<PathBuf>> {
+        Ok(match &self.origin {
+            Origin::Archive { .. } => {
+                let archive = paths.cache.join(self.file_name()?);
+                vec![
+                    archive.with_extension("verified"),
+                    archive.with_extension("sig"),
+                    archive,
+                ]
+            }
+            Origin::Git { .. } => {
+                let clone = paths.cache.join("git").join(self.stem()?);
+                vec![with_suffix(&clone, "verified"), clone]
+            }
+        })
+    }
+
     /// Makes sure the source is in the cache, pinned and signature-verified.
     /// With `force`, the signature is checked again even if it was before.
     /// Returns the archive file or the git clone.
