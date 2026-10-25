@@ -31,6 +31,7 @@ const uint WALLPAPER = 64u;
 const uint BLUR_DOWN = 128u;
 const uint BLUR_UP = 256u;
 const uint MATERIAL = 512u;
+const uint ENCODE = 1024u;
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Quads {
     Quad quads[];

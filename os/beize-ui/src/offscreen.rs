@@ -78,6 +78,7 @@ impl Offscreen {
             format: FORMAT,
             size: self.size,
             after: After::Read(self.readback.buffer),
+            via: None,
         };
         let submission = self.renderer.draw(scene, &target, None, None)?;
         self.renderer.gpu.shared.wait(submission)?;

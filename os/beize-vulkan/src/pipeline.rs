@@ -82,6 +82,12 @@ pub const BLUR_UP: u32 = 256;
 /// With `BLUR_UP`: the glass's colour – saturation times `bottom[0]`, then
 /// the tint `color` (linear, premultiplied) over it.
 pub const MATERIAL: u32 = 512;
+/// With `EXACT`: the texture holds premultiplied linear light; it is
+/// written as Wayland's buffers hold it, premultiplied as encoded – each
+/// channel sRGB-encoded, then times alpha – into a UNORM target. A
+/// translucent window's last pass (Beize UI): stored through an sRGB view,
+/// a half-covered white would read 0.735 instead of 0.5.
+pub const ENCODE: u32 = 1024;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.

@@ -14,7 +14,7 @@ use beize_vulkan::buffer::HostBuffer;
 use beize_vulkan::device::Garbage;
 use beize_vulkan::error::{Context, Result};
 use beize_vulkan::image::{Sampled, own_image};
-use beize_vulkan::pipeline::{Attachment, MASK, Quad};
+use beize_vulkan::pipeline::{Attachment, ENCODE, EXACT, MASK, Quad};
 use tracing::{debug, warn};
 
 use crate::gpu::Gpu;
@@ -35,13 +35,21 @@ const UNTOUCHED: Access = (
 );
 
 /// The image a frame draws into, whole.
-pub(crate) struct Target {
+pub(crate) struct Target<'a> {
     pub image: vk::Image,
     pub view: vk::ImageView,
     pub format: vk::Format,
     pub size: (u32, u32),
     pub after: After,
+    /// A translucent window's: the scene is drawn into this image in linear
+    /// light first, then written into the target as Wayland's buffers hold
+    /// it (`ENCODE`), the target's view UNORM.
+    pub via: Option<&'a Sampled>,
 }
+
+/// Where a translucent window's scene is drawn first: premultiplied linear
+/// light at 16 bits, so a faint edge keeps its steps.
+pub(crate) const VIA_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 
 /// What becomes of the drawn image.
 pub(crate) enum After {
@@ -172,14 +180,33 @@ impl Renderer {
                 None
             },
         };
-        let quads = scene
+        let mut quads = scene
             .quads(&mut self.glyphs, atlases)
             .context("the scene's glyphs and images do not fit into the atlases")?;
+        let drawn = quads.len();
+        if let Some(via) = target.via {
+            // The last pass: `via` texel for pixel into the target.
+            let (w, h) = (target.size.0 as f32, target.size.1 as f32);
+            quads.push(Quad {
+                size: [w, h],
+                uv_x: [w, 0.0],
+                uv_y: [0.0, h],
+                texel: [1.0 / w, 1.0 / h],
+                color: [1.0; 4],
+                texture: via.slot,
+                flags: EXACT | ENCODE,
+                ..Quad::default()
+            });
+        }
         let [coverage, colour] = self.stage(i)?;
         let address = self.upload_quads(i, &quads)?;
         let shared = self.gpu.shared.clone();
         let d = &shared.device;
         let pipelines = self.gpu.pipelines.get(d, target.format)?;
+        let via_pipelines = match target.via {
+            Some(_) => Some(self.gpu.pipelines.get(d, VIA_FORMAT)?),
+            None => None,
+        };
         let commands = self.in_flight[i].commands;
         let submission = self.submitted + 1;
         // SAFETY: the command buffer is this frame's and free (`next`);
@@ -198,6 +225,54 @@ impl Renderer {
             self.atlas.copy(d, commands, staging.buffer, &coverage);
             self.colour.copy(d, commands, staging.buffer, &colour);
         }
+        let mut draws = 0;
+        if let (Some(via), Some(via_pipelines)) = (target.via, via_pipelines) {
+            // Drawn whole each frame: what it held goes, once the last
+            // frame's last pass has read it.
+            barriers(
+                d,
+                commands,
+                &[barrier(
+                    via.image,
+                    vk::ImageLayout::UNDEFINED,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    SHADER_READ,
+                    COLOR_WRITE,
+                    SAME,
+                )],
+            );
+            let attachment = Attachment {
+                view: via.view,
+                size: target.size,
+                load: false,
+            };
+            // SAFETY: `via` is in COLOR_ATTACHMENT_OPTIMAL (above), the
+            // pipelines are its format's; the quad buffer and the atlas
+            // live until the submission completes.
+            draws += unsafe {
+                self.gpu.pipelines.record(
+                    d,
+                    commands,
+                    via_pipelines,
+                    &attachment,
+                    address,
+                    scene.blend(),
+                )
+            };
+            barriers(
+                d,
+                commands,
+                &[barrier(
+                    via.image,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    COLOR_WRITE,
+                    SHADER_READ,
+                    SAME,
+                )],
+            );
+            via.used(submission);
+        }
         barriers(
             d,
             commands,
@@ -215,13 +290,21 @@ impl Renderer {
             size: target.size,
             load: false,
         };
+        // The scene, or with `via` only its last pass, the quad after it.
+        let (address, blend) = match target.via {
+            Some(_) => (
+                address + (drawn * std::mem::size_of::<Quad>()) as u64,
+                &[false][..],
+            ),
+            None => (address, scene.blend()),
+        };
         // SAFETY: the target is in COLOR_ATTACHMENT_OPTIMAL (above), the
         // pipelines are its format's; the quad buffer and the atlas live
         // until the submission completes.
-        let draws = unsafe {
+        draws += unsafe {
             self.gpu
                 .pipelines
-                .record(d, commands, pipelines, &attachment, address, scene.blend())
+                .record(d, commands, pipelines, &attachment, address, blend)
         };
         debug!(
             "{} quads ({} glyphs and symbols, {} new) in {draws} draws",

@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use ash::vk;
 use beize_vulkan::error::{Context, Result, error};
-use beize_vulkan::image;
+use beize_vulkan::image::{self, Sampled, own_image};
 use tracing::debug;
 use wayland_client::QueueHandle;
 use wayland_client::protocol::{wl_compositor::WlCompositor, wl_region::WlRegion, wl_seat::WlSeat};
@@ -31,7 +31,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 use crate::app::{Events, State, Surface, WindowId};
 use crate::gpu::Gpu;
 use crate::input::{Button, Input, Pointer};
-use crate::renderer::{After, Renderer, Target};
+use crate::renderer::{After, Renderer, Target, VIA_FORMAT};
 use beize_draw::Scene;
 use beize_draw::Text;
 use beize_draw::titlebar::{self, Appearance, Press, TitleBar};
@@ -39,6 +39,13 @@ use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::
 
 /// sRGB: the GPU blends in linear light and stores sRGB (`draw`).
 const FORMAT: vk::Format = vk::Format::B8G8R8A8_SRGB;
+/// A translucent window's: its scene is drawn in linear light into an image
+/// of its own and written here premultiplied as encoded, as Wayland's
+/// buffers hold it and the compositor blends them (`renderer::Target::via`).
+/// Through an sRGB view the GPU would store encode(colour × alpha): the
+/// edges of white text on nothing came out far too bright – fat, jagged
+/// (the menu bar, hardware test 24.10.).
+const TRANSLUCENT_FORMAT: vk::Format = vk::Format::B8G8R8A8_UNORM;
 /// Until the app prefers another (`prefer_size`), the size it opens in when
 /// the compositor leaves the choice to it.
 const DEFAULT_SIZE: (u32, u32) = (800, 600);
@@ -50,6 +57,8 @@ struct Swapchain {
     views: Vec<vk::ImageView>,
     /// Per image: signalled when its frame is drawn, for presenting.
     drawn: Vec<vk::Semaphore>,
+    /// A translucent window's image in linear light (`TRANSLUCENT_FORMAT`).
+    via: Option<Sampled>,
 }
 
 /// What the window is to the compositor.
@@ -396,9 +405,10 @@ impl Window {
         let target = Target {
             image: swapchain.images[index],
             view: swapchain.views[index],
-            format: FORMAT,
+            format: self.format(),
             size: swapchain.size,
             after: After::Present,
+            via: swapchain.via.as_ref(),
         };
         let (handle, drawn) = (swapchain.handle, swapchain.drawn[index]);
         renderer.draw(scene, &target, Some(acquired), Some(drawn))?;
@@ -422,6 +432,15 @@ impl Window {
         Ok(true)
     }
 
+    /// The swapchain's format: sRGB, or UNORM for a translucent window.
+    fn format(&self) -> vk::Format {
+        if self.translucent {
+            TRANSLUCENT_FORMAT
+        } else {
+            FORMAT
+        }
+    }
+
     /// A swapchain of `size` (the surface's own size where it has one),
     /// replacing the old one.
     fn recreate(&mut self, size: (u32, u32), gpu: &Gpu) -> Result<()> {
@@ -440,11 +459,12 @@ impl Window {
         };
         let caps = caps.context("the surface's capabilities")?;
         let formats = formats.context("the surface's formats")?;
+        let format = self.format();
         if !formats
             .iter()
-            .any(|f| f.format == FORMAT && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR)
+            .any(|f| f.format == format && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR)
         {
-            return Err(error(format!("the surface does not offer {FORMAT:?}")));
+            return Err(error(format!("the surface does not offer {format:?}")));
         }
         let alpha = if self.translucent {
             vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED
@@ -475,7 +495,7 @@ impl Window {
         let info = vk::SwapchainCreateInfoKHR::default()
             .surface(self.vk_surface)
             .min_image_count(count)
-            .image_format(FORMAT)
+            .image_format(format)
             .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
             .image_extent(extent)
             .image_array_layers(1)
@@ -499,14 +519,26 @@ impl Window {
             images: Vec::new(),
             views: Vec::new(),
             drawn: Vec::new(),
+            via: None,
         };
         // On failure the half-made swapchain is destroyed like a whole one.
         let filled = (|| -> Result<()> {
             // SAFETY: the swapchain was just made by this device.
             swapchain.images = unsafe { gpu.swapchain.get_swapchain_images(handle) }
                 .context("the swapchain's images")?;
+            if self.translucent {
+                let (image, memory) = own_image(
+                    &gpu.shared,
+                    VIA_FORMAT,
+                    swapchain.size,
+                    vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+                )?;
+                let via = Sampled::new(&gpu.shared, image, memory, VIA_FORMAT, true)?;
+                gpu.pipelines.write(d, via.slot, via.view);
+                swapchain.via = Some(via);
+            }
             for &image in &swapchain.images {
-                swapchain.views.push(image::view(d, image, FORMAT, true)?);
+                swapchain.views.push(image::view(d, image, format, true)?);
                 // SAFETY: plain creation; destroyed with the swapchain.
                 swapchain.drawn.push(
                     unsafe { d.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) }

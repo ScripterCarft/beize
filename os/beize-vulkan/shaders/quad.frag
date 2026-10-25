@@ -246,6 +246,12 @@ void main() {
     } else {
         sampled = textureLod(sampler2D(textures[t], linear), uv * texel, 0.0);
     }
+    if ((flags & ENCODE) != 0u) {
+        // Premultiplied linear to premultiplied as encoded (`ENCODE`).
+        vec3 c = sampled.a > 0.0 ? clamp(sampled.rgb / sampled.a, 0.0, 1.0) : vec3(0.0);
+        result = vec4(encoded(c.r), encoded(c.g), encoded(c.b), 1.0) * sampled.a;
+        return;
+    }
     if ((flags & MASK) != 0u) {
         // A glyph: the texture's red is its coverage, the colour is the
         // text's (premultiplied).
