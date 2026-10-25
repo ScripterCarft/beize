@@ -83,17 +83,27 @@ fn best_mode(modes: &[Candidate]) -> usize {
         .map_or(0, |(i, _)| i)
 }
 
-/// A connected connector, its mode ([`best_mode`]) and a CRTC that can drive it.
-pub fn surface(drm: &mut DrmDevice) -> Result<(DrmSurface, Info)> {
+/// The connector, as the kernel names it ("DP-1").
+pub fn name(connector: &connector::Info) -> String {
+    format!(
+        "{}-{}",
+        connector.interface().as_str(),
+        connector.interface_id()
+    )
+}
+
+/// A screen is connected there and names its modes.
+pub fn connected(connector: &connector::Info) -> bool {
+    connector.state() == connector::State::Connected && !connector.modes().is_empty()
+}
+
+/// The `connector`'s mode ([`best_mode`]) and a CRTC that can drive it.
+pub fn surface(drm: &mut DrmDevice, connector: &connector::Info) -> Result<(DrmSurface, Info)> {
     let fd = drm.device_fd().clone();
     let resources = fd.resource_handles().context("DRM resources")?;
-    for &handle in resources.connectors() {
-        let connector = fd.get_connector(handle, false).context("DRM connector")?;
-        if connector.state() != connector::State::Connected || connector.modes().is_empty() {
-            continue;
-        }
-        let modes = connector.modes();
-        let mode = modes[best_mode(
+    let modes = connector.modes();
+    let mode = *modes
+        .get(best_mode(
             &modes
                 .iter()
                 .map(|m| Candidate {
@@ -103,62 +113,57 @@ pub fn surface(drm: &mut DrmDevice) -> Result<(DrmSurface, Info)> {
                     interlaced: m.flags().contains(ModeFlags::INTERLACE),
                 })
                 .collect::<Vec<_>>(),
-        )];
-        let crtc = connector
-            .encoders()
-            .iter()
-            .filter_map(|&e| fd.get_encoder(e).ok())
-            .flat_map(|e| resources.filter_crtcs(e.possible_crtcs()))
-            .next()
-            .context("no CRTC for the connector")?;
-        let (w, h) = mode.size();
-        let name = format!(
-            "{}-{}",
-            connector.interface().as_str(),
-            connector.interface_id()
-        );
-        // The mode the screen had when taken, the console's: a different
-        // one makes the monitor lock on anew (the black gap on the way to
-        // the session, CLAUDE.md §11).
-        let had = connector
-            .current_encoder()
-            .and_then(|e| fd.get_encoder(e).ok())
-            .and_then(|e| e.crtc())
-            .and_then(|c| fd.get_crtc(c).ok())
-            .and_then(|c| c.mode())
-            .map_or("none".to_string(), |m| {
-                let (w, h) = m.size();
-                format!("{w}x{h} at {} Hz", m.vrefresh())
-            });
-        info!(
-            "screen {name}: {w}x{h} at {} Hz, it had {had}",
-            mode.vrefresh()
-        );
-        let size_mm = connector.size().unwrap_or_default();
-        let info = Info {
-            name,
-            size_mm: (
-                i32::try_from(size_mm.0).unwrap_or(0),
-                i32::try_from(size_mm.1).unwrap_or(0),
-            ),
-            mode,
-        };
-        let surface = drm
-            .create_surface(crtc, mode, &[handle])
-            .context("taking the screen")?;
-        let planes = surface.planes();
-        let handles =
-            |p: &[smithay::backend::drm::PlaneInfo]| p.iter().map(|p| p.handle).collect::<Vec<_>>();
-        debug!(
-            "planes of {crtc:?}: primary {:?}, cursor {:?}, overlay {:?}; all: {:?}",
-            handles(&planes.primary),
-            handles(&planes.cursor),
-            handles(&planes.overlay),
-            fd.plane_handles().ok()
-        );
-        return Ok((surface, info));
-    }
-    Err(error("no screen connected"))
+        ))
+        .context("the screen names no mode")?;
+    let crtc = connector
+        .encoders()
+        .iter()
+        .filter_map(|&e| fd.get_encoder(e).ok())
+        .flat_map(|e| resources.filter_crtcs(e.possible_crtcs()))
+        .next()
+        .context("no CRTC for the connector")?;
+    let (w, h) = mode.size();
+    let name = name(connector);
+    // The mode the screen had when taken, the console's: a different
+    // one makes the monitor lock on anew (the black gap on the way to
+    // the session, CLAUDE.md §11).
+    let had = connector
+        .current_encoder()
+        .and_then(|e| fd.get_encoder(e).ok())
+        .and_then(|e| e.crtc())
+        .and_then(|c| fd.get_crtc(c).ok())
+        .and_then(|c| c.mode())
+        .map_or("none".to_string(), |m| {
+            let (w, h) = m.size();
+            format!("{w}x{h} at {} Hz", m.vrefresh())
+        });
+    info!(
+        "screen {name}: {w}x{h} at {} Hz, it had {had}",
+        mode.vrefresh()
+    );
+    let size_mm = connector.size().unwrap_or_default();
+    let info = Info {
+        name,
+        size_mm: (
+            i32::try_from(size_mm.0).unwrap_or(0),
+            i32::try_from(size_mm.1).unwrap_or(0),
+        ),
+        mode,
+    };
+    let surface = drm
+        .create_surface(crtc, mode, &[connector.handle()])
+        .context("taking the screen")?;
+    let planes = surface.planes();
+    let handles =
+        |p: &[smithay::backend::drm::PlaneInfo]| p.iter().map(|p| p.handle).collect::<Vec<_>>();
+    debug!(
+        "planes of {crtc:?}: primary {:?}, cursor {:?}, overlay {:?}; all: {:?}",
+        handles(&planes.primary),
+        handles(&planes.cursor),
+        handles(&planes.overlay),
+        fd.plane_handles().ok()
+    );
+    Ok((surface, info))
 }
 
 /// A framebuffer for a dmabuf from Vulkan's allocator: each plane imported
@@ -432,11 +437,8 @@ struct CursorPlane {
 }
 
 impl CursorPlane {
-    fn new(drm: &DrmDevice, surface: &DrmSurface) -> Option<CursorPlane> {
+    fn new(fd: &DrmDeviceFd, size: (u32, u32), surface: &DrmSurface) -> Option<CursorPlane> {
         let handle = surface.planes().cursor.first()?.handle;
-        let size = drm.cursor_size();
-        let size = (size.w, size.h);
-        let fd = drm.device_fd();
         match (CursorBuffer::new(fd, size), CursorBuffer::new(fd, size)) {
             (Ok(a), Ok(b)) => Some(CursorPlane {
                 handle,
@@ -561,12 +563,16 @@ pub enum Frame {
     Deferred,
 }
 
+/// One screen of the GPU (`gpu`), which lends it its renderer.
 pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
-    drm: DrmDevice,
+    /// First, so that it goes first: its CRTC is off before the
+    /// framebuffers it showed are removed.
     surface: DrmSurface,
+    fd: DrmDeviceFd,
+    connector: connector::Handle,
+    name: String,
     swapchain: Swapchain<A>,
     exporter: F,
-    renderer: VkRenderer,
     damage: OutputDamageTracker,
     cursor: Option<CursorPlane>,
     /// The renderer draws straight into the screen's buffers (always on the
@@ -589,8 +595,6 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     schedule: Schedule,
     pacing: Pacing,
     clock: Clock<Monotonic>,
-    /// What the renderer held when last logged (`pacing_idle`).
-    held: Option<(usize, u32)>,
 }
 
 impl<A, F> Output<A, F>
@@ -603,23 +607,28 @@ where
     F::Framebuffer: 'static,
     F::Error: std::fmt::Display,
 {
+    /// The screen on `surface`, driving `connector` (`name`); its images
+    /// from `allocator`, a cursor plane of up to `cursor_size`.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        drm: DrmDevice,
+        drm: &DrmDevice,
         surface: DrmSurface,
+        (connector, name): (connector::Handle, String),
         allocator: A,
         modifiers: Vec<Modifier>,
         exporter: F,
-        renderer: VkRenderer,
         direct: bool,
     ) -> Output<A, F> {
         let mode = surface.pending_mode();
         let (w, h) = mode.size();
-        let cursor = CursorPlane::new(&drm, &surface);
+        let fd = drm.device_fd().clone();
+        let cursor_size = drm.cursor_size();
+        let cursor = CursorPlane::new(&fd, (cursor_size.w, cursor_size.h), &surface);
         if cursor.is_none() {
             info!("no cursor plane: the pointer is drawn into the frame");
         }
         let refresh = period(&mode);
-        let pipe = drm
+        let pipe = fd
             .resource_handles()
             .ok()
             .and_then(|r| r.crtcs().iter().position(|&c| c == surface.crtc()))
@@ -628,10 +637,11 @@ where
         Output {
             swapchain: Swapchain::new(allocator, w.into(), h.into(), Fourcc::Xrgb8888, modifiers),
             damage: OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal),
-            drm,
             surface,
+            fd,
+            connector,
+            name,
             exporter,
-            renderer,
             cursor,
             direct,
             flipping: false,
@@ -645,8 +655,24 @@ where
             schedule: Schedule::new(refresh, blank(&mode)),
             pacing: Pacing::new(refresh, blank(&mode)),
             clock: Clock::new(),
-            held: None,
         }
+    }
+
+    /// The connector it drives.
+    pub fn connector(&self) -> connector::Handle {
+        self.connector
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn crtc(&self) -> smithay::reexports::drm::control::crtc::Handle {
+        self.surface.crtc()
+    }
+
+    pub fn mode(&self) -> Mode {
+        self.surface.pending_mode()
     }
 
     /// When to draw a change there now (`Schedule`); None while a commit
@@ -669,7 +695,7 @@ where
     /// The last vblank, from KMS: the libdrm query (a wait for none).
     /// Not every driver counts vblanks (virtio-gpu).
     fn last_vblank(&self) -> Option<Duration> {
-        match self.drm.wait_vblank(
+        match self.fd.wait_vblank(
             VblankWaitTarget::Relative(0),
             VblankWaitFlags::empty(),
             self.pipe,
@@ -683,33 +709,33 @@ where
         }
     }
 
-    pub fn renderer(&mut self) -> &mut VkRenderer {
-        &mut self.renderer
-    }
-
     /// The cursor plane can show `image`; otherwise it is drawn.
     pub fn cursor_fits(&self, image: &cursor::Image) -> bool {
         self.cursor.as_ref().is_some_and(|plane| plane.fits(image))
     }
 
-    fn image(&self, slot: &Slot<A::Buffer>) -> Result<Image<F::Framebuffer>> {
+    fn image(
+        &self,
+        renderer: &VkRenderer,
+        slot: &Slot<A::Buffer>,
+    ) -> Result<Image<F::Framebuffer>> {
         let framebuffer = self
             .exporter
-            .add_framebuffer(self.drm.device_fd(), ExportBuffer::Allocator(slot), true)
+            .add_framebuffer(&self.fd, ExportBuffer::Allocator(slot), true)
             .context("framebuffer")?
             .context("the buffer cannot be shown")?;
         let dmabuf = slot.export().context("exporting a screen buffer")?;
         let target = if self.direct {
-            self.renderer.import_target(&dmabuf)
+            renderer.import_target(&dmabuf)
         } else {
-            self.renderer.shadow_target(&dmabuf)
+            renderer.shadow_target(&dmabuf)
         };
         let target = match target {
             Ok(target) => target,
             // lavapipe without format modifiers: only a matching row pitch.
             Err(e) if self.direct => {
                 warn!("drawing into the screen buffer directly: {e}; copying instead");
-                self.renderer.shadow_target(&dmabuf)?
+                renderer.shadow_target(&dmabuf)?
             }
             Err(e) => return Err(e),
         };
@@ -725,6 +751,7 @@ where
     /// `requested`, the caller began at `began` (for `Pacing`).
     pub fn render<E: RenderElement<VkRenderer>>(
         &mut self,
+        renderer: &mut VkRenderer,
         elements: &[E],
         cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
         requested: Duration,
@@ -744,14 +771,14 @@ where
         let mut setup = self.modeset;
         if slot.userdata().get::<Image<F::Framebuffer>>().is_none() {
             setup = true;
-            let image = self.image(&slot)?;
+            let image = self.image(renderer, &slot)?;
             if self.frames == 0 {
                 let way = if image.target.borrow().copies() {
                     "into its own image, copied to the screen buffer"
                 } else {
                     "straight into the screen buffer"
                 };
-                info!("rendering with {} {way}", self.renderer.name());
+                info!("rendering with {} {way}", renderer.name());
             }
             slot.userdata().insert_if_missing(|| image);
         }
@@ -762,11 +789,11 @@ where
         let framing: Duration = self.clock.now().into();
         let (damage, fence) = {
             let mut target = image.target.borrow_mut();
-            let mut framebuffer = self.renderer.bind(&mut *target)?;
+            let mut framebuffer = renderer.bind(&mut *target)?;
             let result = self
                 .damage
                 .render_output(
-                    &mut self.renderer,
+                    renderer,
                     &mut framebuffer,
                     slot.age().into(),
                     elements,
@@ -792,7 +819,7 @@ where
         // DrmCompositor, KWin and Mutter pass it: virtio-gpu sends only that
         // to the host, a panel with self refresh updates only that.
         let clips = damage.and_then(|damage| {
-            PlaneDamageClips::from_damage(self.drm.device_fd(), src, dst, damage)
+            PlaneDamageClips::from_damage(&self.fd, src, dst, damage)
                 .inspect_err(|e| debug!("no damage clips: {e}"))
                 .ok()
                 .flatten()
@@ -844,7 +871,7 @@ where
             };
             self.pending = Some(Pending {
                 slot,
-                submission: self.renderer.submitted(),
+                submission: renderer.submitted(),
                 times,
                 fence,
                 learn: !setup,
@@ -855,7 +882,11 @@ where
     }
 
     /// The commit is on the screen; the time of its vblank, if KMS said.
-    pub fn vblank(&mut self, metadata: Option<DrmEventMetadata>) -> Option<Duration> {
+    pub fn vblank(
+        &mut self,
+        renderer: &VkRenderer,
+        metadata: Option<DrmEventMetadata>,
+    ) -> Option<Duration> {
         self.flipping = false;
         let time = match metadata.map(|m| m.time) {
             Some(DrmEventTime::Monotonic(time)) => Some(time),
@@ -878,7 +909,7 @@ where
         };
         // KMS showed it, so its fence has signalled: when, the kernel says,
         // and how long the GPU worked on it, its timestamps.
-        let gpu_ms = self.renderer.gpu_ms(submission);
+        let gpu_ms = renderer.gpu_ms(submission);
         let gpu_done = fence.as_ref().and_then(|f| signalled_at(f.as_fd()));
         if learn {
             let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
@@ -906,20 +937,13 @@ where
     /// A run of frames is being measured; ends it after a while without
     /// frames (false then).
     pub fn pacing_idle(&mut self) -> bool {
-        let running = self.pacing.idle(self.clock.now().into());
-        // What the renderer holds, once things are still, if it changed.
-        let held = self.renderer.held();
-        if !running && self.held != Some(held) {
-            self.held = Some(held);
-            info!("held: {} dmabufs of clients, {} textures", held.0, held.1);
-        }
-        running
+        self.pacing.idle(self.clock.now().into())
     }
 
     /// What the screen shows now, read back (waiting for the GPU): its
     /// size and its rows from the top, 8-bit RGB as encoded. The pointer
     /// on its own plane is not in it, as in macOS' screenshots.
-    pub fn screenshot(&mut self) -> Result<((u32, u32), Vec<u8>)> {
+    pub fn screenshot(&mut self, renderer: &mut VkRenderer) -> Result<((u32, u32), Vec<u8>)> {
         let slot = self.shown.as_ref().context("nothing on the screen yet")?;
         let image = slot
             .userdata()
@@ -927,11 +951,10 @@ where
             .context("screen buffer data")?;
         let mut target = image.target.borrow_mut();
         let (size, fourcc) = (target.size(), target.fourcc());
-        let framebuffer = self.renderer.bind(&mut *target)?;
+        let framebuffer = renderer.bind(&mut *target)?;
         let mapping =
-            self.renderer
-                .copy_framebuffer(&framebuffer, Rectangle::from_size(size), fourcc)?;
-        let pixels = self.renderer.map_texture(&mapping)?;
+            renderer.copy_framebuffer(&framebuffer, Rectangle::from_size(size), fourcc)?;
+        let pixels = renderer.map_texture(&mapping)?;
         // Bytes in memory: B G R X, or R G B X.
         let order = match fourcc {
             Fourcc::Xrgb8888 | Fourcc::Argb8888 => [2, 1, 0],
@@ -950,12 +973,16 @@ where
     /// Another session took the screen (logind).
     pub fn pause(&mut self) {
         self.pacing.pause();
-        self.drm.pause();
+    }
+
+    /// The link was trained anew (`gpu::retrain`), a modeset: the vblanks
+    /// the schedule knew are no longer the screen's.
+    pub fn retrained(&mut self) {
+        self.schedule.reset();
     }
 
     /// The screen is ours again: everything is set anew; the caller draws.
     pub fn resume(&mut self) -> Result<()> {
-        self.drm.activate(false).context("taking the screen back")?;
         self.schedule.reset();
         self.surface.reset_state().context("screen state")?;
         self.swapchain.reset_buffers();

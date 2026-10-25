@@ -570,7 +570,10 @@ impl State {
                 )
             });
             if fullscreen {
-                // The panels' strips do not concern it.
+                // The whole screen, over the panels' strips: new with a new
+                // mode (ADR 0029 §4).
+                let screen = self.screen_area().size;
+                toplevel.with_pending_state(|state| state.size = Some(screen));
             } else if maximized {
                 toplevel.with_pending_state(|state| state.size = Some(content));
             } else if let Some(geometry) = self.space.element_geometry(&window) {

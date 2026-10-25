@@ -42,10 +42,15 @@ ohne Zutun wieder alles.
 
 ## Prüfung
 
-- **Smoke (Desktop):** `echo off > /sys/class/drm/<anschluss>/status` erzwingt das Trennen
-  (der Kernel meldet einen echten Hotplug): Der Compositor meldet den Bildschirm als weg, die
-  Fenster bleiben. `echo detect`: Er ist wieder da, der Bildschirm zeigt den Desktop mit dem
-  Fenster (Pixelprobe). Gegenprobe: ohne die Behandlung bleibt das Bild nach `detect` stehen.
+- **Smoke (Desktop):** `echo off > /sys/class/drm/<anschluss>/status` trennt den Anschluss,
+  ein `change` des udev-Geräts der GPU (`udevadm trigger`) meldet es wie ein Hotplug.
+  virtio-gpu meldet das Trennen nicht selbst: der Kernel feuert beim Abfragen nur für
+  Treiber mit Polling ein Ereignis (`drm_helper_probe_single_connector_modes`). Der
+  Compositor meldet den Bildschirm als weg, das Bild ist dunkel, das Fenster bleibt;
+  `echo detect`: der Bildschirm zeigt das Fenster an seinem Platz (Pixelprobe). Zweimal, die
+  zweite Runde im selben Modus. Gegenproben (25.10.): ohne das Loslassen bleibt das Fenster
+  sichtbar, ohne das Neu-Nehmen kommt der Bildschirm nicht wieder. Dass der Compositor nach
+  der Rückkehr selbst zeichnet, ist in der VM nicht isolierbar (Clients committen laufend).
 - **Hardware-Test:** neuer Teil in `measure/hw-test.sh`: Monitor aus und wieder an, Kabel ab
   und an. `link-status` lässt sich nur dort prüfen.
 

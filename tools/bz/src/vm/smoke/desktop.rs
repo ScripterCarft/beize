@@ -11,6 +11,8 @@
 //! menu bar, shows exactly its pattern and is offered no panels; dragged by
 //! its top it moves, dragged by its corner it grows, both by exactly the
 //! drag, and maximized it fills the screen below the bar and comes back.
+//! Unplugged, the screen goes dark and the window stays; plugged in again,
+//! it shows the window in its place (ADR 0029).
 //! Beize UI's test program shows its sample – text, colours, blending –
 //! below its title bar exactly as it draws it offscreen, the reference in
 //! the repository. Killed, the shell comes back, its panels kept until the
@@ -135,9 +137,15 @@ const CLOCK_INK: usize = 20;
 const INK_FROM: u8 = 0x40;
 
 /// The compositor's warning that Smithay could not become DRM master
-/// itself: it already is, through the device logind handed over (reported
-/// to Smithay, ~/upstream/smithay/ISSUES.md). Every other warning fails.
-const KNOWN_WARNING: &str = "Unable to become drm master, assuming unprivileged mode";
+/// itself: it already is, through the device logind handed over; and that it
+/// could not remove the mode of a screen taken anew (`screen_comes_back`):
+/// with the CRTC off, it takes "no mode" for one it made and removes blob 0.
+/// Both reported to Smithay (~/upstream/smithay/ISSUES.md). Every other
+/// warning fails.
+const KNOWN_WARNINGS: [&str; 2] = [
+    "Unable to become drm master, assuming unprivileged mode",
+    "Failed to destroy old mode property blob: No such file or directory (os error 2)",
+];
 
 /// Beize UI's sample as its test program draws it offscreen at the size of
 /// its window (`beize-ui-test --offscreen FILE 800x600`, Beize UI's
@@ -233,10 +241,11 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         machine.test_medium.is_some(),
         "no test medium: the test client is missing"
     );
-    // run0 asks for the owner's password once, to mount the test medium.
+    // run0 asks for the owner's password: to mount the test medium, then
+    // twice to unplug the screen and plug it in again (`screen_comes_back`).
     let shell = Shell::boot(
         &machine,
-        &Answers::passwords(&[SMOKE_PASSWORD]),
+        &Answers::passwords(&[SMOKE_PASSWORD; 5]),
         &OWNER_CONSOLE_CREDENTIALS,
         false,
     )?;
@@ -399,6 +408,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
          came back to its place and size"
     );
 
+    screen_comes_back(&shell, &machine, moved, grown)?;
     fullscreen(&shell, &machine, &qmp, screen, moved, grown)?;
     dock_glass(&shell, &machine, &qmp, screen, moved, grown)?;
     frames(&shell)?;
@@ -562,6 +572,55 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     shell.stop()?;
     remove_screens(&machine.logs)?;
     machine.remove()
+}
+
+/// The VM's screen, as the kernel and the compositor name its connector.
+const VM_SCREEN: &str = "Virtual-1";
+
+/// The screen goes and comes back (ADR 0029): unplugged, the compositor
+/// lets it go – nothing on it, the CRTC off – and keeps the window; plugged
+/// in again, it takes the screen anew and shows the window in its place.
+/// The test unplugs it and plugs it in with `off` and `detect` on its
+/// connector's status and a change of the GPU's udev device, the event a
+/// hotplug sends: virtio-gpu sends none for that itself (the kernel's probe
+/// fires one only for drivers that poll,
+/// `drm_helper_probe_single_connector_modes`).
+fn screen_comes_back(
+    shell: &Shell,
+    machine: &Machine,
+    at: (usize, usize),
+    size: (usize, usize),
+) -> Result<()> {
+    let restored = Image::read_ppm(&fs::read(machine.logs.join("restored-screen.ppm"))?)?;
+    let shown = restored.crop(at, size)?;
+    let set = |status: &str| -> Result<()> {
+        let (code, lines) = shell.capture(&format!(
+            "run0 sh -c 'c=$(echo /sys/class/drm/card*-{VM_SCREEN}) && echo {status} > \
+             $c/status && udevadm trigger --action=change $(dirname $(readlink -f $c))'"
+        ))?;
+        ensure!(
+            code == 0,
+            "could not set the screen {status} (exit status {code}): {lines:?}"
+        );
+        Ok(())
+    };
+    // Twice: virtio-gpu offers 75 Hz first and 60 Hz once probed, so the
+    // first return changes the mode, which makes the shell draw anew; the
+    // second, in the same mode, shows that the compositor draws the screen
+    // itself, as after a monitor's sleep.
+    for round in ["", "-again"] {
+        set("off")?;
+        wait_for_compositor_line(shell, &format!("screen {VM_SCREEN} is gone"))?;
+        wait_for_gone(machine, (at, size), &shown, &format!("screen-gone{round}"))?;
+        set("detect")?;
+        wait_for_compositor_line(shell, &format!("screen {VM_SCREEN}: .*, it had none"))?;
+        wait_for_pattern(shell, machine, at, size, &format!("screen-back{round}"))?;
+    }
+    say!(
+        "  ok: unplugged, the screen went dark and the window stayed; plugged in, it came back \
+         with the window in its place, twice"
+    );
+    Ok(())
 }
 
 /// The owner signs in on tty1 and the desktop starts: a Wayland session, the
@@ -994,13 +1053,13 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
     let unexpected: Vec<&String> = lines
         .iter()
-        .filter(|l| !l.is_empty() && l.as_str() != KNOWN_WARNING)
+        .filter(|l| !l.is_empty() && !KNOWN_WARNINGS.contains(&l.as_str()))
         .collect();
     ensure!(
         unexpected.is_empty(),
         "the compositor warned: {unexpected:?}"
     );
-    say!("  ok: no warnings from the compositor (but Smithay's known one)");
+    say!("  ok: no warnings from the compositor (but Smithay's known ones)");
 
     // Still, nothing of the desktop wakes (ADR 0027 §6: events, no
     // polling): for IDLE_SECONDS the compositor, the shell and the terminal

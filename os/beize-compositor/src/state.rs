@@ -26,8 +26,9 @@ use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
+use smithay::backend::udev::{UdevBackend, UdevEvent};
 use smithay::desktop::utils::send_frames_surface_tree;
-use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
+use smithay::desktop::{LayerSurface, PopupManager, Space, Window, layer_map_for_output};
 use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatHandler, SeatState};
@@ -37,7 +38,9 @@ use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
-use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
+use smithay::reexports::wayland_server::backend::{
+    ClientData, ClientId, DisconnectReason, GlobalId,
+};
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
@@ -73,7 +76,7 @@ use crate::backdrop::{Appearance, Backdrop, LiveGlass};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
 use crate::error::{Context, Error, Result, error};
-use crate::gpu::{self, Screen};
+use crate::gpu::{self, Change, Gpu};
 use crate::keyboard::Layout;
 use crate::layers::{Side, side};
 use crate::opening::{Opening, SHELL_WAIT, Veil};
@@ -90,6 +93,10 @@ const REPEAT_RATE: i32 = 33;
 const HIDDEN_FRAMES: Duration = Duration::from_secs(1);
 /// How often a run of frames is checked for its end (`Pacing`).
 const PACING_CHECK: Duration = Duration::from_millis(500);
+/// How long the global of a replaced screen stays, hidden, before it goes:
+/// a client may bind it in that moment and must not meet a protocol error
+/// (wl_global_remove, as Mutter, wlroots and niri wait).
+const GLOBAL_GRACE: Duration = Duration::from_secs(10);
 
 pub struct State {
     pub display: DisplayHandle,
@@ -148,11 +155,14 @@ pub struct State {
     kept: Option<Kept>,
     /// The shell's connections tell their end here (`shell_ended`).
     shell_ended: Sender<bool>,
-    /// The screen: None until the session is first active, as only then
-    /// does logind hand out the GPU (a session started on a background VT
-    /// waits).
-    screen: Option<Screen>,
+    /// The GPU and its screen: None until the session is first active, as
+    /// only then does logind hand out the GPU (a session started on a
+    /// background VT waits).
+    gpu: Option<Gpu>,
+    /// The screen for clients; it stays while none is connected, until
+    /// another replaces it (ADR 0029 §3).
     pub output: Option<WlOutput>,
+    output_global: Option<GlobalId>,
     /// Where the pointer is, on the screen.
     pub pointer: Point<f64, Logical>,
     /// The panels shown over a fullscreen window in front, and whether one
@@ -267,8 +277,9 @@ impl State {
             panels_last: Vec::new(),
             kept: None,
             shell_ended,
-            screen: None,
+            gpu: None,
             output: None,
+            output_global: None,
             pointer: Point::default(),
             revealed: None,
             fullscreen_front: false,
@@ -304,8 +315,12 @@ impl State {
         if self.libinput.resume().is_err() {
             warn!("libinput could not take the input devices");
         }
-        match &mut self.screen {
-            Some(screen) => screen.resume()?,
+        match &mut self.gpu {
+            Some(gpu) => {
+                gpu.resume()?;
+                // The screens may have changed meanwhile.
+                self.rescan();
+            }
             None => self.start()?,
         }
         self.redraw = true;
@@ -316,21 +331,21 @@ impl State {
     /// Another session took the screen and the input devices.
     pub fn pause(&mut self) {
         self.libinput.suspend();
-        if let Some(screen) = &mut self.screen {
-            screen.pause();
+        if let Some(gpu) = &mut self.gpu {
+            gpu.pause();
         }
     }
 
     /// Takes the GPU and the screen, and offers the screen to clients.
     fn start(&mut self) -> Result<()> {
-        let (screen, info, events, node) = gpu::open(&mut self.session)?;
+        let (gpu, info, events) = gpu::open(&mut self.session)?;
         self.handle
             .insert_source(events, |event, metadata, state| match event {
-                DrmEvent::VBlank(_) => {
-                    let time = match &mut state.screen {
-                        Some(screen) => screen.vblank(metadata.take()),
-                        None => None,
-                    };
+                DrmEvent::VBlank(crtc) => {
+                    let time = state
+                        .gpu
+                        .as_mut()
+                        .and_then(|gpu| gpu.vblank(crtc, metadata.take()));
                     state.frame_done(time);
                     if state.redraw {
                         state.schedule_render();
@@ -340,7 +355,21 @@ impl State {
                 DrmEvent::Error(e) => error!("DRM: {e}"),
             })
             .map_err(|e| error(format!("DRM events: {}", e.error)))?;
-        self.screen = Some(screen);
+        // Screens that come and go, and links that break, are changes of
+        // the GPU's udev device (ADR 0029 §2).
+        let device = gpu.device_id();
+        let udev = UdevBackend::new(self.session.seat()).context("udev")?;
+        self.handle
+            .insert_source(udev, move |event, _, state| match event {
+                UdevEvent::Changed { device_id } if device_id == device => state.rescan(),
+                UdevEvent::Removed { device_id } if device_id == device => {
+                    warn!("the GPU is gone");
+                }
+                _ => {}
+            })
+            .map_err(|e| error(format!("udev events: {}", e.error)))?;
+        let node = gpu.node();
+        self.gpu = Some(gpu);
         self.offer_output(&info);
         self.offer_dmabuf(node);
         // The desktop shows once the shell is ready, at most SHELL_WAIT
@@ -369,10 +398,46 @@ impl State {
             self.wait_timer = Some(token);
         }
         let black = scene::veil_over(&self.veil_id, self.veil_commit, self.screen_area(), 1.0);
-        if let Some(screen) = &mut self.screen {
-            screen.render(&[black], None, now, now, Parts::default())?;
+        if let Some(gpu) = &mut self.gpu {
+            gpu.render(&[black], None, now, now, Parts::default())?;
         }
         Ok(())
+    }
+
+    /// The GPU changed (udev): its screens are looked at anew (ADR 0029).
+    /// A screen that went leaves the windows as they are and clients hear
+    /// "frame done" as hidden ones do; one that came is drawn in full.
+    fn rescan(&mut self) {
+        if !self.session.is_active() {
+            // `activate` looks.
+            return;
+        }
+        let Some(gpu) = &mut self.gpu else {
+            return;
+        };
+        match gpu.scan(true) {
+            Ok(Change::None) => {}
+            Ok(Change::Gone) => {
+                info!("no screen: windows keep their places until one comes");
+                self.frame_done_later();
+            }
+            Ok(Change::Retrained) => self.changed(),
+            Ok(Change::New(info)) => {
+                self.offer_output(&info);
+                let area = self.screen_area().to_f64();
+                self.pointer = Point::from((
+                    self.pointer
+                        .x
+                        .clamp(area.loc.x, area.loc.x + area.size.w - 1.0),
+                    self.pointer
+                        .y
+                        .clamp(area.loc.y, area.loc.y + area.size.h - 1.0),
+                ));
+                self.arrange_windows();
+                self.changed();
+            }
+            Err(e) => warn!("looking at the screens: {e}"),
+        }
     }
 
     /// The shell's panels are drawn (`beize_shell_v1.ready`): the desktop
@@ -481,7 +546,27 @@ impl State {
         });
     }
 
+    /// The screen for clients: the one they have in its new mode, or – a
+    /// different connector – a new wl_output that takes over the panels.
     fn offer_output(&mut self, info: &Info) {
+        let (w, h) = info.mode.size();
+        let mode = OutputMode {
+            size: (i32::from(w), i32::from(h)).into(),
+            refresh: i32::try_from(gpu::millihertz(&info.mode)).unwrap_or(i32::MAX),
+        };
+        if let Some(output) = &self.output
+            && output.name() == info.name
+        {
+            let before = output.current_mode();
+            output.change_current_state(Some(mode), None, None, None);
+            output.set_preferred(mode);
+            if let Some(before) = before.filter(|b| *b != mode) {
+                output.delete_mode(before);
+            }
+            // The panels hear the new size.
+            layer_map_for_output(output).arrange();
+            return;
+        }
         let output = WlOutput::new(
             info.name.clone(),
             PhysicalProperties {
@@ -491,12 +576,7 @@ impl State {
                 model: info.name.clone(),
             },
         );
-        let (w, h) = info.mode.size();
-        let mode = OutputMode {
-            size: (i32::from(w), i32::from(h)).into(),
-            refresh: i32::try_from(gpu::millihertz(&info.mode)).unwrap_or(i32::MAX),
-        };
-        output.create_global::<State>(&self.display);
+        let global = output.create_global::<State>(&self.display);
         output.change_current_state(
             Some(mode),
             Some(Transform::Normal),
@@ -505,16 +585,41 @@ impl State {
         );
         output.set_preferred(mode);
         self.space.map_output(&output, (0, 0));
-        self.output = Some(output);
+        let before = self.output.replace(output.clone());
+        let before_global = self.output_global.replace(global);
+        let (Some(before), Some(before_global)) = (before, before_global) else {
+            return;
+        };
+        info!("{} replaces {} for clients", info.name, before.name());
+        // One screen: the panels go where they went, whichever they named.
+        let panels: Vec<LayerSurface> = layer_map_for_output(&before).layers().cloned().collect();
+        for panel in panels {
+            layer_map_for_output(&before).unmap_layer(&panel);
+            if let Err(e) = layer_map_for_output(&output).map_layer(&panel) {
+                warn!("a panel: {e}");
+            }
+        }
+        layer_map_for_output(&output).arrange();
+        self.space.unmap_output(&before);
+        self.display.disable_global::<State>(before_global.clone());
+        let removed =
+            self.handle
+                .insert_source(Timer::from_duration(GLOBAL_GRACE), move |_, _, state| {
+                    state.display.remove_global::<State>(before_global.clone());
+                    TimeoutAction::Drop
+                });
+        if let Err(e) = removed {
+            warn!("the replaced screen's global stays: {}", e.error);
+        }
     }
 
     /// linux-dmabuf with the formats the renderer imports, the GPU as the
     /// main device (feedback, version 4).
     fn offer_dmabuf(&mut self, node: DrmNode) {
-        let Some(screen) = &mut self.screen else {
+        let Some(gpu) = &mut self.gpu else {
             return;
         };
-        let formats = screen.renderer().dmabuf_formats();
+        let formats = gpu.renderer().dmabuf_formats();
         match DmabufFeedbackBuilder::new(node.dev_id(), formats).build() {
             Ok(feedback) => {
                 self.dmabuf
@@ -526,10 +631,10 @@ impl State {
 
     /// Saves what the screen shows (`screenshot`).
     pub fn screenshot(&mut self) {
-        let Some(screen) = &mut self.screen else {
+        let Some(gpu) = &mut self.gpu else {
             return;
         };
-        match screen.screenshot() {
+        match gpu.screenshot() {
             Ok((size, rgb)) => crate::screenshot::save(size, rgb),
             Err(e) => warn!("screenshot: {e}"),
         }
@@ -570,12 +675,20 @@ impl State {
 
     /// Sets the timer that draws, unless one is set or a commit waits for
     /// its vblank (whose event calls again). Not while another session
-    /// has the screen: `activate` calls again.
+    /// has the screen: `activate` calls again. Without a screen, clients
+    /// hear "frame done" as hidden ones do.
     fn schedule_render(&mut self) {
         if self.draw_timer.is_some() || !self.session.is_active() {
             return;
         }
-        let Some(at) = self.screen.as_mut().and_then(Screen::draw_at) else {
+        let Some(gpu) = &mut self.gpu else {
+            return;
+        };
+        if !gpu.shows() {
+            self.frame_done_later();
+            return;
+        }
+        let Some(at) = gpu.draw_at() else {
             return;
         };
         let now: Duration = self.clock.now().into();
@@ -616,7 +729,7 @@ impl State {
             .then(|| self.band(Side::Top))
             .flatten()
             .filter(|_| !hide_upper || revealed == Some(Side::Top));
-        let (Some(screen), Some(output)) = (&mut self.screen, &self.output) else {
+        let (Some(gpu), Some(output)) = (&mut self.gpu, &self.output) else {
             return;
         };
         self.redraw = false;
@@ -631,7 +744,7 @@ impl State {
         if self.backdrop_for != Some(want) {
             self.backdrop_for = Some(want);
             self.backdrops += 1;
-            self.backdrop = match Backdrop::new(screen.renderer(), want.0, want.1, self.backdrops) {
+            self.backdrop = match Backdrop::new(gpu.renderer(), want.0, want.1, self.backdrops) {
                 Ok(backdrop) => Some(backdrop),
                 Err(e) => {
                     warn!("drawing the background: {e}; a plain colour instead");
@@ -640,10 +753,7 @@ impl State {
             };
         }
         let at = self.pointer.to_physical(1.0).to_i32_round();
-        let on_plane = self
-            .cursor
-            .image(began)
-            .is_some_and(|i| screen.cursor_fits(i));
+        let on_plane = self.cursor.image(began).is_some_and(|i| gpu.cursor_fits(i));
         // In front of all, the black the desktop fades in from.
         let veil = self.opening.veil(began);
         let mut elements: Vec<Element> = Vec::new();
@@ -666,7 +776,7 @@ impl State {
         if !on_plane && let Some((buffer, hotspot)) = self.cursor.drawn(began) {
             let location = (at - Point::from(hotspot)).to_f64();
             match MemoryRenderBufferRenderElement::from_buffer(
-                screen.renderer(),
+                gpu.renderer(),
                 location,
                 &buffer,
                 None,
@@ -681,8 +791,7 @@ impl State {
         // The panels as the shell drew them, or those kept of a shell that
         // failed; lent to this frame and taken back after it.
         if self.kept.is_none() {
-            self.panels_last =
-                scene::panels(screen.renderer(), output, self.backdrop.as_mut(), plate);
+            self.panels_last = scene::panels(gpu.renderer(), output, self.backdrop.as_mut(), plate);
         }
         let source = match &mut self.kept {
             Some(kept) => &mut kept.panels,
@@ -701,7 +810,7 @@ impl State {
         }
         // Each window with its bar above it, front to back.
         scene::windows(
-            screen.renderer(),
+            gpu.renderer(),
             &self.space,
             &mut self.decorations,
             area,
@@ -715,7 +824,7 @@ impl State {
         let scene_done: Duration = self.clock.now().into();
         self.live_glass.retain(|l| l.wanted(plated));
         scene::live_glass(
-            screen.renderer(),
+            gpu.renderer(),
             &mut self.live_glass,
             &mut elements,
             area.size.to_physical(1),
@@ -739,7 +848,7 @@ impl State {
             glass: now.saturating_sub(scene_done),
             ..Parts::default()
         };
-        let frame = screen.render(drawn, cursor, requested, began, parts);
+        let frame = gpu.render(drawn, cursor, requested, began, parts);
         scene::take_back(source, &mut elements, lower);
         scene::take_back(source, &mut elements, upper);
         if !matches!(frame, Ok(Frame::Deferred)) {
@@ -811,7 +920,7 @@ impl State {
         let token = self
             .handle
             .insert_source(Timer::from_duration(PACING_CHECK), |_, _, state| {
-                let running = state.screen.as_mut().is_some_and(Screen::pacing_idle);
+                let running = state.gpu.as_mut().is_some_and(Gpu::pacing_idle);
                 if running {
                     TimeoutAction::ToDuration(PACING_CHECK)
                 } else {
@@ -826,15 +935,15 @@ impl State {
     }
 
     /// "Frame done" one refresh from now, for clients that committed
-    /// without changing what the screen shows.
+    /// without changing what the screen shows; without a screen, as for
+    /// hidden ones.
     fn frame_done_later(&mut self) {
         if self.frame_timer.is_some() {
             return;
         }
-        let refresh = self
-            .screen
-            .as_ref()
-            .map_or(Duration::from_millis(16), Screen::refresh);
+        let refresh = self.gpu.as_ref().map_or(Duration::from_millis(16), |gpu| {
+            gpu.refresh().unwrap_or(HIDDEN_FRAMES)
+        });
         let token = self
             .handle
             .insert_source(Timer::from_duration(refresh), |_, _, state| {
@@ -849,29 +958,30 @@ impl State {
     }
 
     /// Tells the clients on the screen their frame is shown, at `time`
-    /// (the vblank) or now.
+    /// (the vblank) or now. Without a screen, all are hidden.
     fn frame_done(&mut self, time: Option<Duration>) {
         let Some(output) = self.output.clone() else {
             return;
         };
         let time = time.unwrap_or_else(|| self.clock.now().into());
+        let shown = self
+            .gpu
+            .as_ref()
+            .is_some_and(Gpu::shows)
+            .then(|| output.clone());
         for window in self.space.elements() {
-            window.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| {
-                Some(output.clone())
-            });
+            window.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| shown.clone());
         }
         // Not on the screen: "frame done" at most every HIDDEN_FRAMES.
         for window in &self.minimized {
             window.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| None);
         }
         for panel in layer_map_for_output(&output).layers() {
-            panel.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| {
-                Some(output.clone())
-            });
+            panel.send_frame(&output, time, Some(HIDDEN_FRAMES), |_, _| shown.clone());
         }
         if let Some(surface) = self.cursor.surface() {
             send_frames_surface_tree(surface, &output, time, Some(HIDDEN_FRAMES), |_, _| {
-                Some(output.clone())
+                shown.clone()
             });
         }
         self.space.refresh();
@@ -1044,9 +1154,9 @@ impl DmabufHandler for State {
         notifier: ImportNotifier,
     ) {
         let imported = self
-            .screen
+            .gpu
             .as_mut()
-            .is_some_and(|screen| screen.renderer().import_dmabuf(&dmabuf, None).is_ok());
+            .is_some_and(|gpu| gpu.renderer().import_dmabuf(&dmabuf, None).is_ok());
         if imported {
             let _ = notifier.successful::<State>();
         } else {
