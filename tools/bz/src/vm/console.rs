@@ -573,7 +573,9 @@ impl Session {
         }
         let mut child = qemu
             .args(["-display", "none", "-serial", "stdio", "-monitor", "none"])
-            // Added last, so the other devices keep their PCI slots.
+            // On a slot of its own, like the stick: in the first free one it
+            // came before the system's disk, and the firmware tried to boot
+            // from it first on every start ("Boot0002 … Not Found").
             .arg("-drive")
             .arg(format!(
                 "if=none,id=journal,format=raw,file={}",
@@ -581,7 +583,7 @@ impl Session {
             ))
             .args([
                 "-device",
-                "virtio-blk-pci,drive=journal,serial=beize-journal",
+                "virtio-blk-pci,drive=journal,serial=beize-journal,addr=0x13",
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

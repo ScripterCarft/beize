@@ -435,7 +435,10 @@ pub(super) fn qemu(machine: &Machine, tpm: &Swtpm) -> Result<Command> {
         say!("  warning: /dev/kvm not accessible, falling back to slow emulation");
         cmd.args(["-machine", "q35,smm=on,accel=tcg", "-cpu", "max"]);
     }
-    cmd.args(["-global", "driver=cfi.pflash01,property=secure,value=on"])
+    // Only the devices named here, as a PC has them: QEMU's own default CD
+    // drive took the kernel 0.25 s each boot (ata3, #39).
+    cmd.arg("-nodefaults")
+        .args(["-global", "driver=cfi.pflash01,property=secure,value=on"])
         .arg("-smp")
         .arg(VM_CPUS.to_string())
         .args(["-m", &format!("{}M", machine.memory_mib), "-no-reboot"])
