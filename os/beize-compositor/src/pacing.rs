@@ -124,9 +124,9 @@ impl Pacing {
         }
     }
 
-    /// A drawn frame is on the screen since `vblank`; `gpu_ms` if its GPU
-    /// time (or a recent frame's) was read since the last call, `gpu_done`
-    /// when its fence signalled if it had one.
+    /// A drawn frame is on the screen since `vblank`; `gpu_ms` how long
+    /// the GPU worked on it, if measured, `gpu_done` when its fence
+    /// signalled if it had one.
     pub fn shown(
         &mut self,
         times: Times,
@@ -162,7 +162,7 @@ impl Pacing {
             if self.run.logged < LOGGED_LATE {
                 self.run.logged += 1;
                 let shown = vblank.saturating_sub(self.blank);
-                info!("{}", late(who, &times, begins, ready, shown));
+                info!("{}", late(who, &times, begins, ready, shown, gpu_ms));
             }
         }
         let run = &mut self.run;
@@ -271,7 +271,14 @@ impl Pacing {
 
 /// A late frame's times, in milliseconds from where its vblank begins
 /// (negative: before); `shown` is where the vblank that showed it began.
-fn late(who: &str, times: &Times, begins: Duration, ready: Duration, shown: Duration) -> String {
+fn late(
+    who: &str,
+    times: &Times,
+    begins: Duration,
+    ready: Duration,
+    shown: Duration,
+    gpu_ms: Option<f64>,
+) -> String {
     let at = |t: Duration| ms(t) - ms(begins);
     let plan = match (times.lead, times.aimed) {
         (Some(lead), true) => format!("planned with a lead of {:.2} ms", ms(lead)),
@@ -279,10 +286,15 @@ fn late(who: &str, times: &Times, begins: Duration, ready: Duration, shown: Dura
         (None, _) => "drawn without a plan".to_string(),
     };
     let p = times.parts;
+    // Of the time from commit to ready, how long the GPU worked; the rest it
+    // waited (for a client's buffer, a busy queue).
+    let gpu = gpu_ms.map_or("GPU time unknown".to_string(), |g| {
+        format!("on the GPU {g:.2} ms")
+    });
     format!(
         "late frame ({who}), ms from its vblank's begin: change {:.2}, planned {:.2}, began \
-         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {plan}; drawing in parts, ms: scene \
-         {:.2}, glass {:.2}, frame {:.2}, commit {:.2}",
+         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {gpu}; {plan}; drawing in parts, ms: \
+         scene {:.2}, glass {:.2}, frame {:.2}, commit {:.2}",
         at(times.requested),
         at(times.planned),
         at(times.began),
@@ -424,12 +436,14 @@ mod tests {
             begins,
             times.committed,
             at(3 * vblank) - BLANK,
+            Some(0.08),
         );
         assert_eq!(
             line,
             "late frame (display), ms from its vblank's begin: change -2.54, planned -2.54, \
-             began -2.54, committed -2.34, ready -2.34, shown 4.17; planned with a lead of \
-             3.00 ms; drawing in parts, ms: scene 0.05, glass 0.02, frame 0.11, commit 0.02"
+             began -2.54, committed -2.34, ready -2.34, shown 4.17; on the GPU 0.08 ms; planned \
+             with a lead of 3.00 ms; drawing in parts, ms: scene 0.05, glass 0.02, frame 0.11, \
+             commit 0.02"
         );
         // Only the first few of a run are logged one by one.
         let mut p = Pacing::new(REFRESH, BLANK);

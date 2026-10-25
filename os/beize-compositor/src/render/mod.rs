@@ -58,7 +58,7 @@ struct InFlight {
     queries: Option<vk::QueryPool>,
     /// The submission that last used this frame's objects.
     submission: u64,
-    /// Ready for this frame: waited for, timestamps read.
+    /// Ready for this frame: its last submission waited for.
     ready: bool,
 }
 
@@ -119,10 +119,6 @@ pub struct VkRenderer {
     context: ContextId<VkTexture>,
     debug: DebugFlags,
     name: String,
-    /// GPU time of the last frame that reported one, in milliseconds.
-    gpu_ms: Option<f64>,
-    /// `gpu_ms` is new since `take_gpu_ms`.
-    gpu_unread: bool,
 }
 
 impl std::fmt::Debug for VkRenderer {
@@ -167,8 +163,6 @@ impl VkRenderer {
             context: ContextId::new(),
             debug: DebugFlags::empty(),
             name: phd.name().to_owned(),
-            gpu_ms: None,
-            gpu_unread: false,
         };
         for _ in 0..IN_FLIGHT {
             let frame = renderer.in_flight_new()?;
@@ -198,19 +192,30 @@ impl VkRenderer {
         (self.dmabufs.len(), self.shared.textures_in_use())
     }
 
-    /// GPU time of the last measured frame, in milliseconds.
-    pub fn gpu_ms(&self) -> Option<f64> {
-        self.gpu_ms
+    /// The number of the last submission: a frame's, right after it.
+    pub fn submitted(&self) -> u64 {
+        self.submitted
     }
 
-    /// The GPU time measured since the last call, if any: each frame's
-    /// once (they are read when its slot comes round again).
-    pub fn take_gpu_ms(&mut self) -> Option<f64> {
-        if std::mem::take(&mut self.gpu_unread) {
-            self.gpu_ms
-        } else {
-            None
-        }
+    /// How long the GPU worked on `submission`, in milliseconds: once it is
+    /// done (a frame on the screen is), while its frame's objects are not
+    /// yet used again. None without timestamps.
+    pub fn gpu_ms(&self, submission: u64) -> Option<f64> {
+        let frame = self.in_flight.iter().find(|f| f.submission == submission)?;
+        let (pool, period) = (frame.queries?, self.caps.timestamp_period?);
+        let mut times = [0u64; 2];
+        // SAFETY: the pool belongs to this device; without WAIT the call
+        // only reports NOT_READY for a submission still running.
+        let read = unsafe {
+            self.shared.device.get_query_pool_results(
+                pool,
+                0,
+                &mut times,
+                vk::QueryResultFlags::TYPE_64,
+            )
+        };
+        (read.is_ok() && times[1] > times[0])
+            .then(|| (times[1] - times[0]) as f64 * f64::from(period) / 1e6)
     }
 
     /// An empty 8-bit texture of `size` × `size` for coverage: the glyph
@@ -502,40 +507,16 @@ impl VkRenderer {
     }
 
     /// The frame being recorded, ready: its last submission is done (as a
-    /// rule long since – vblank paces frames), its GPU time read.
+    /// rule long since – vblank paces frames).
     fn current(&mut self) -> Result<usize> {
         let i = self.current;
         if !self.in_flight[i].ready {
             let submission = self.in_flight[i].submission;
             self.shared.wait(submission)?;
-            self.read_timestamps(i);
             self.in_flight[i].staged = 0;
             self.in_flight[i].ready = true;
         }
         Ok(i)
-    }
-
-    fn read_timestamps(&mut self, i: usize) {
-        let (Some(pool), Some(period)) = (self.in_flight[i].queries, self.caps.timestamp_period)
-        else {
-            return;
-        };
-        let mut times = [0u64; 2];
-        // SAFETY: the pool belongs to this device; its submission is done.
-        let read = unsafe {
-            self.shared.device.get_query_pool_results(
-                pool,
-                0,
-                &mut times,
-                vk::QueryResultFlags::TYPE_64,
-            )
-        };
-        if read.is_ok() && times[1] > times[0] {
-            let ms = (times[1] - times[0]) as f64 * f64::from(period) / 1e6;
-            self.gpu_ms = Some(ms);
-            self.gpu_unread = true;
-            debug!("GPU time {ms:.3} ms");
-        }
     }
 
     /// Room for `bytes` in the current frame's staging buffer.

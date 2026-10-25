@@ -538,12 +538,13 @@ fn blank_lines(vdisplay: u16, vtotal: u16, htotal: u16, khz: u32) -> Duration {
 }
 
 /// A drawn frame waiting for its vblank: its image, its times, its fence
-/// (when the GPU is done), whether the schedule learns from it (not from
-/// one that also set up a buffer or the mode) and the vblank it was planned
-/// for, if one.
+/// (when the GPU is done), its submission (for its GPU time), whether the
+/// schedule learns from it (not from one that also set up a buffer or the
+/// mode) and the vblank it was planned for, if one.
 struct Pending<B: Buffer> {
     aim: Option<Duration>,
     slot: Slot<B>,
+    submission: u64,
     times: Times,
     fence: Option<OwnedFd>,
     learn: bool,
@@ -843,6 +844,7 @@ where
             };
             self.pending = Some(Pending {
                 slot,
+                submission: self.renderer.submitted(),
                 times,
                 fence,
                 learn: !setup,
@@ -862,9 +864,9 @@ where
         if let Some(time) = time {
             self.schedule.vblank(time);
         }
-        let gpu_ms = self.renderer.take_gpu_ms();
         let Some(Pending {
             slot,
+            submission,
             times,
             fence,
             learn,
@@ -874,7 +876,9 @@ where
             debug!("cursor plane only, nothing drawn");
             return time;
         };
-        // KMS showed it, so its fence has signalled: when, the kernel says.
+        // KMS showed it, so its fence has signalled: when, the kernel says,
+        // and how long the GPU worked on it, its timestamps.
+        let gpu_ms = self.renderer.gpu_ms(submission);
         let gpu_done = fence.as_ref().and_then(|f| signalled_at(f.as_fd()));
         if learn {
             let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
@@ -889,10 +893,7 @@ where
         self.last = time.or(self.last);
         match self.frames {
             1 => info!("first frame on the screen; idle until something changes"),
-            n => debug!(
-                "frame {n}: {since:?} after the last, GPU {:?} ms",
-                self.renderer.gpu_ms()
-            ),
+            n => debug!("frame {n}: {since:?} after the last, GPU {gpu_ms:?} ms"),
         }
         time
     }
