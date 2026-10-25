@@ -44,10 +44,12 @@ cpe = ["cpe:2.3:a:redhat:lvm2", "cpe:2.3:a:heinz_mauelshagen:lvm2"]
 
 [files]
 image = [
-  "usr/bin/blkdeactivate",
   "usr/bin/dmsetup",
-  "usr/bin/dmstats",
-  "usr/bin/dmvdostats",
   "usr/lib/libdevmapper.so.*",
   "usr/lib/udev/**",
+]
+build = [
+  { path = "usr/bin/blkdeactivate", why = "deactivates LVM and device-mapper stacks at shutdown; systemd does" },
+  { path = "usr/bin/dmstats", why = "device-mapper statistics, for administrators" },
+  { path = "usr/bin/dmvdostats", why = "VDO statistics: Beize has no VDO" },
 ]

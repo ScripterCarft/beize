@@ -2,10 +2,12 @@
 # rim and round edges, as macOS draws its pointers without copying them;
 # the waiting pointer turns (54 frames, 40 ms each). Chosen by the owner
 # (2026-10-24) over Adwaita, Breeze, Capitaine and Phinger. The release's
-# Xcursor files as they are, every size from 16 to 96 px: the SVG sources
-# build only with clickgen and a headless browser (cbmp). The compositor
-# reads them (os/beize-compositor, `cursor`); "default" names the theme for
-# apps that load pointers themselves (libXcursor, wayland-cursor).
+# Xcursor files (the SVG sources build only with clickgen and a headless
+# browser, cbmp), with the sizes Beize shows: 24 px, GNOME's and KDE's
+# default, and 48 px for scale 2. The release has 14 sizes from 16 to 96 px,
+# 27 MB, of which these are 2 MB. The compositor reads them
+# (os/beize-compositor, `cursor`); "default" names the theme for apps that
+# load pointers themselves (libXcursor, wayland-cursor).
 name = "bibata-cursor"
 version = "2.0.7"
 stage = "target"
@@ -22,6 +24,37 @@ script = '''
 theme="$PKG/usr/share/icons/Bibata-Modern-Classic"
 install -d "$theme"
 cp -a "$SRC/cursors" "$theme/"
+# Each file's table of contents keeps only the images of the two sizes, as
+# the Xcursor format lays them out (libXcursor's file.c): header, table,
+# chunks; comments go too.
+python3 - "$theme/cursors" <<'PY'
+import os, struct, sys
+KEEP = {24, 48}
+IMAGE = 0xFFFD0002
+for entry in os.scandir(sys.argv[1]):
+    if entry.is_symlink():
+        continue
+    path = entry.path
+    data = open(path, "rb").read()
+    magic, header, version, count = struct.unpack_from("<4sIII", data)
+    assert magic == b"Xcur", path
+    toc = [struct.unpack_from("<III", data, header + 12 * i) for i in range(count)]
+    chunks = []
+    for kind, size, position in toc:
+        if kind != IMAGE or size not in KEEP:
+            continue
+        width, height = struct.unpack_from("<II", data, position + 16)
+        chunks.append((kind, size, data[position:position + 36 + 4 * width * height]))
+    sizes = {size for _, size, _ in chunks}
+    assert sizes == KEEP, f"{path}: sizes {sorted(sizes)}"
+    position = 16 + 12 * len(chunks)
+    out = [struct.pack("<4sIII", b"Xcur", 16, version, len(chunks))]
+    for kind, size, chunk in chunks:
+        out.append(struct.pack("<III", kind, size, position))
+        position += len(chunk)
+    out += [chunk for _, _, chunk in chunks]
+    open(path, "wb").write(b"".join(out))
+PY
 install -m644 "$SRC/index.theme" "$theme/"
 # The default theme, as the Icon Theme Specification looks it up.
 install -d "$PKG/usr/share/icons/default"

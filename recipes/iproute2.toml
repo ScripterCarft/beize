@@ -33,23 +33,23 @@ cpe = ["cpe:2.3:a:iproute2_project:iproute2"]
 [files]
 image = [
   "usr/bin/bridge",
-  "usr/bin/ctstat",
-  "usr/bin/genl",
-  "usr/bin/ifstat",
   "usr/bin/ip",
-  "usr/bin/lnstat",
-  "usr/bin/nstat",
-  "usr/bin/routel",
-  "usr/bin/rtacct",
-  "usr/bin/rtmon",
-  "usr/bin/rtstat",
   "usr/bin/ss",
   "usr/share/iproute2/**",
 ]
 build = [
+  { path = "usr/bin/ctstat", why = "kernel statistics for network developers (lnstat)" },
+  { path = "usr/bin/genl", why = "generic netlink development tool" },
+  { path = "usr/bin/ifstat", why = "network statistics tool; ip -s serves" },
+  { path = "usr/bin/lnstat", why = "kernel statistics for network developers" },
+  { path = "usr/bin/nstat", why = "kernel SNMP counters, for network developers" },
+  { path = "usr/bin/routel", why = "a script around ip route" },
+  { path = "usr/bin/rtacct", why = "a daemon of per-route counters" },
+  { path = "usr/bin/rtmon", why = "netlink monitor for developers; ip monitor serves" },
+  { path = "usr/bin/rtstat", why = "kernel statistics for network developers (lnstat)" },
   { path = "usr/bin/tc", why = "traffic control (Fedora's iproute-tc): Beize shapes no traffic" },
   { path = "usr/lib/tc/**", why = "tc's delay distributions" },
-  { path = "usr/share/bash-completion/completions/tc", why = "for tc" },
   { path = "usr/share/bash-completion/completions/devlink", why = "devlink is not built (needs libmnl)" },
   { path = "usr/share/bash-completion/completions/dpll", why = "dpll is not built (needs libmnl)" },
+  { path = "usr/share/bash-completion/completions/tc", why = "for tc" },
 ]

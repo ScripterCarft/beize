@@ -67,14 +67,9 @@ cpe = ["cpe:2.3:a:gnu:ncurses", "cpe:2.3:a:invisible-island:ncurses"]
 
 [files]
 image = [
-  "usr/bin/captoinfo",
   "usr/bin/clear",
-  "usr/bin/infocmp",
-  "usr/bin/infotocap",
   "usr/bin/reset",
   "usr/bin/tabs",
-  "usr/bin/tic",
-  "usr/bin/toe",
   "usr/bin/tput",
   "usr/bin/tset",
   "usr/lib/libformw.so.*",
@@ -86,5 +81,10 @@ image = [
   "usr/share/terminfo/**",
 ]
 build = [
+  { path = "usr/bin/captoinfo", why = "terminfo compiler (tic): the database is compiled at build time" },
+  { path = "usr/bin/infocmp", why = "terminfo development tool" },
+  { path = "usr/bin/infotocap", why = "terminfo compiler (tic)" },
   { path = "usr/bin/ncursesw6-config", why = "tells builds how to link ncurses" },
+  { path = "usr/bin/tic", why = "terminfo compiler: the database is compiled at build time" },
+  { path = "usr/bin/toe", why = "terminfo development tool" },
 ]

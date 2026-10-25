@@ -32,7 +32,9 @@ cpe = ["cpe:2.3:a:pcre:pcre2"]
 
 [files]
 image = [
-  "usr/bin/pcre2-config",
   "usr/lib/libpcre2-8.so.*",
   "usr/lib/libpcre2-posix.so.*",
+]
+build = [
+  { path = "usr/bin/pcre2-config", why = "tells builds how to link PCRE2" },
 ]

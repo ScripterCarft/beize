@@ -49,8 +49,6 @@ cpe = ["cpe:2.3:a:freedesktop:dbus"]
 
 [files]
 image = [
-  "usr/bin/dbus-cleanup-sockets",
-  "usr/bin/dbus-launch",
   "usr/bin/dbus-monitor",
   "usr/bin/dbus-run-session",
   "usr/bin/dbus-send",
@@ -63,6 +61,8 @@ image = [
   "usr/share/dbus-1/**",
 ]
 build = [
+  { path = "usr/bin/dbus-cleanup-sockets", why = "cleans up sockets of old dbus-daemon sessions" },
+  { path = "usr/bin/dbus-launch", why = "starts a session bus for X11 sessions" },
   { path = "usr/bin/dbus-test-tool", why = "a tool for testing D-Bus implementations" },
   { path = "usr/share/xml/**", why = "DTDs for validating D-Bus XML while developing" },
 ]
