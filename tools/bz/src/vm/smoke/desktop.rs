@@ -29,7 +29,8 @@
 //! The menu bar names the active app; the shell's list of windows is
 //! offered to no app. The pointer is the theme's (ADR 0028 §8): the text
 //! cursor the terminal names over its text (cursor-shape-v1), a resize
-//! arrow on a window's edge.
+//! arrow on a window's edge, the arrow over a client that names none and
+//! wherever a window closed under the pointer, without it moving.
 //! The load test's scene (ADR 0028 §9) runs: many windows of Beize UI,
 //! each drawing every frame, one of them half behind the dock, whose live
 //! glass follows what moves there; every window draws throughout, and the
@@ -103,6 +104,13 @@ const BAR_EDGE: f64 = 4.0;
 /// blurred, move a channel of the dock's glass by more than this; over the
 /// fullscreen window, its red or green leads the other channels by as much.
 const GLASS_SHOWS: u8 = 12;
+/// Where the theme's arrow has its body and its resize arrows and text
+/// cursor have nothing (Bibata Modern Classic at 24 px: all 30 pixels of
+/// the arrow, none of the others): this many pixels right of and below the
+/// pointer's hotspot. The pointer shows the arrow when most of them differ
+/// from the screen without it.
+const ARROW_BODY: (std::ops::Range<usize>, std::ops::Range<usize>) = (3..9, 12..17);
+const ARROW_SHOWS: usize = 20;
 /// The test client's icon (`CLIENT_ICON`): one colour, so the dock shows
 /// it in the middle of its tile as it is.
 const CLIENT_ICON_COLOR: [u8; 3] = [0xff, 0x80, 0x00];
@@ -425,7 +433,16 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     drag(&qmp, screen, edge, edge, false)?;
     wait_for_compositor_line(&shell, "cursor ew-resize: 1 frame at 24 px")?;
-    park(&qmp, screen)?;
+    // From the edge onto the client, which names no image: the arrow, not
+    // the resize arrow it came with.
+    let inside = (edge.0 - 60, edge.1);
+    drag(&qmp, screen, edge, inside, false)?;
+    let body = arrow_body(&machine, &qmp, screen, inside, "client-pointer")?;
+    ensure!(
+        body >= ARROW_SHOWS,
+        "over the client, which names no pointer image, the pointer is not the arrow (its \
+         body differs in {body} of 30 pixels); the screen is in the logs as client-pointer"
+    );
     // The dock shows its icon from the hicolor theme (ADR 0028 §8).
     let apps = wait_for_dock(&shell, |apps| {
         apps.iter().any(|a| a == "beize-testclient running")
@@ -841,11 +858,27 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
     load(&shell, &machine, &qmp, screen)?;
 
+    // Over the second terminal where it covers only the desktop, its text
+    // cursor; the terminals stop under the still pointer: the arrow.
+    let ((x, y), (w, h)) = terminal;
+    let over = (i32::try_from(x + w)? - 16, i32::try_from(y + h)? - 13);
+    drag(&qmp, screen, over, over, false)?;
+    thread::sleep(Duration::from_millis(500));
     // With no terminal left, the dock's first tile starts one.
     let (_, lines) = shell.capture("systemctl --user stop 'app-beize\\x2dterminal@*'")?;
     ensure!(
         terminals(&shell)?.is_empty(),
         "the terminals did not stop: {lines:?}"
+    );
+    let body = arrow_body(&machine, &qmp, screen, over, "closed-pointer")?;
+    ensure!(
+        body >= ARROW_SHOWS,
+        "the terminal closed under the pointer, which still is not the arrow (its body \
+         differs in {body} of 30 pixels); the screen is in the logs as closed-pointer"
+    );
+    say!(
+        "  ok: over a client that names no image the pointer is the arrow, and the arrow \
+         again where a window closed under it, without it moving"
     );
     let apps = wait_for_dock(&shell, |apps| {
         apps.first().is_some_and(|a| a == "beize-terminal")
@@ -1588,6 +1621,43 @@ fn wait_for_gone(machine: &Machine, (at, size): Window, shown: &Image, name: &st
 /// An RGB image.
 /// Waits until the dock shows the test client's icon in the middle of its
 /// tile at `at`; if it does not, the last screen is in the logs.
+/// How many pixels of the arrow's body (`ARROW_BODY`) show with the
+/// pointer at `at`: the screen then against the screen with the pointer
+/// parked. The pointer is drawn into the frame in the VM. Parks it.
+fn arrow_body(
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    at: (i32, i32),
+    name: &str,
+) -> Result<usize> {
+    let with = machine.logs.join(format!("{name}-screen.ppm"));
+    let without = machine.logs.join(format!("{name}-parked.ppm"));
+    // A frame for the pointer's last move.
+    thread::sleep(Duration::from_millis(300));
+    screendump(qmp, &with)?;
+    park(qmp, screen)?;
+    thread::sleep(Duration::from_millis(300));
+    screendump(qmp, &without)?;
+    let (a, b) = (
+        Image::read_ppm(&fs::read(&with)?)?,
+        Image::read_ppm(&fs::read(&without)?)?,
+    );
+    let (x, y) = (usize::try_from(at.0)?, usize::try_from(at.1)?);
+    let mut differ = 0;
+    for dy in ARROW_BODY.1.clone() {
+        for dx in ARROW_BODY.0.clone() {
+            if a.pixel(x + dx, y + dy) != b.pixel(x + dx, y + dy) {
+                differ += 1;
+            }
+        }
+    }
+    if differ < ARROW_SHOWS {
+        a.write_png(&machine.logs.join(format!("{name}-screen.png")))?;
+    }
+    Ok(differ)
+}
+
 /// Waits until the dock's glass at `at` shows something else than
 /// `before`, by more than `GLASS_SHOWS` in a channel: a window behind it.
 /// The screen then is in the logs as `live-glass-screen.png`.
