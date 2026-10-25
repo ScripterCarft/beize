@@ -55,14 +55,16 @@ use smithay::utils::{
     Transform,
 };
 use smithay::wayland::buffer::BufferHandler;
+use smithay::wayland::commit_timing::CommitTimingManagerState;
 use smithay::wayland::compositor::{
-    CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes, SurfaceData,
-    TraversalAction, get_parent, is_sync_subsurface, with_surface_tree_downward,
+    Barrier, CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes,
+    SurfaceData, TraversalAction, get_parent, is_sync_subsurface, with_surface_tree_downward,
 };
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
 };
+use smithay::wayland::fifo::{FifoBarrierCachedState, FifoManagerState};
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
 use smithay::wayland::presentation::{PresentationState, Refresh};
 use smithay::wayland::selection::SelectionHandler;
@@ -76,9 +78,9 @@ use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::{
-    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf,
-    delegate_output, delegate_presentation, delegate_seat, delegate_shm, delegate_xdg_decoration,
-    delegate_xdg_shell,
+    delegate_commit_timing, delegate_compositor, delegate_cursor_shape, delegate_data_device,
+    delegate_dmabuf, delegate_fifo, delegate_output, delegate_presentation, delegate_seat,
+    delegate_shm, delegate_xdg_decoration, delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
@@ -126,6 +128,8 @@ pub struct State {
     data_device: DataDeviceState,
     _cursor_shape: CursorShapeManagerState,
     _presentation: PresentationState,
+    _fifo: FifoManagerState,
+    _commit_timing: CommitTimingManagerState,
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
@@ -204,6 +208,11 @@ pub struct State {
     drawn: RenderElementStates,
     /// When hidden surfaces last heard "frame done".
     hidden_done: Option<Duration>,
+    /// The wake of the frame loop for a commit that waits for its time
+    /// (`timing`): its number and when.
+    pub timed_wake: Option<(u64, Duration)>,
+    /// Counts the wakes set, to know the current one by.
+    pub timed_wakes: u64,
     failure: Option<Error>,
 }
 
@@ -213,6 +222,29 @@ pub struct State {
 struct Shown {
     feedback: Option<OutputPresentationFeedback>,
     callbacks: Vec<WlCallback>,
+    /// What the next commits wait for (wp_fifo), with their client.
+    fifo: Vec<(Barrier, Option<Client>)>,
+}
+
+/// The fifo barrier of a surface's content (`timing`), with its client.
+fn take_fifo(surface: &WlSurface, states: &SurfaceData) -> Option<(Barrier, Option<Client>)> {
+    let barrier = states
+        .cached_state
+        .get::<FifoBarrierCachedState>()
+        .current()
+        .barrier
+        .take()?;
+    Some((barrier, surface.client()))
+}
+
+/// Lifts fifo barriers; the clients whose commits waited for them.
+fn lift(fifo: Vec<(Barrier, Option<Client>)>) -> Vec<Client> {
+    fifo.into_iter()
+        .filter_map(|(barrier, client)| {
+            barrier.signal();
+            client
+        })
+        .collect()
 }
 
 #[derive(Default)]
@@ -285,6 +317,10 @@ impl State {
             // When a frame showed, for video and games (Mesa's Vulkan
             // present wait, GTK, mpv), on the clock of the vblank times.
             _presentation: PresentationState::new::<State>(&display, Monotonic::ID as u32),
+            // Commits that wait for the last one to show, or for their time
+            // (`timing`).
+            _fifo: FifoManagerState::new::<State>(&display),
+            _commit_timing: CommitTimingManagerState::new::<State>(&display),
             seat_state,
             seat,
             keyboard,
@@ -327,6 +363,8 @@ impl State {
             unchanged: Vec::new(),
             drawn: RenderElementStates::default(),
             hidden_done: None,
+            timed_wake: None,
+            timed_wakes: 0,
             failure: None,
             display,
             handle,
@@ -758,6 +796,11 @@ impl State {
         let token = self.handle.insert_source(
             Timer::from_duration(at.saturating_sub(now)),
             |_, _, state| {
+                // Commits due by the vblank this frame shows at apply first
+                // (`timing`); while this timer is set, they set no other.
+                if let Some(vblank) = state.gpu.as_ref().and_then(Gpu::aim) {
+                    state.release_timed(vblank);
+                }
                 state.draw_timer = None;
                 if state.redraw {
                     state.render();
@@ -919,17 +962,19 @@ impl State {
         }
         match frame {
             Ok(Frame::Queued(shown)) => {
-                let taken = self.take_shown(&shown);
+                let (taken, hidden) = self.take_shown(&shown);
                 if let Some(old) = self.presenting.replace(taken) {
                     self.never_shown(old);
                 }
                 self.drawn = shown;
+                self.unblock(lift(hidden));
             }
             Ok(Frame::Deferred) => self.redraw = true,
             Ok(Frame::Unchanged(shown)) => {
-                let taken = self.take_shown(&shown);
+                let (taken, hidden) = self.take_shown(&shown);
                 self.unchanged.push(taken);
                 self.drawn = shown;
+                self.unblock(lift(hidden));
                 self.frame_done_later();
             }
             Err(e) => self.fail(e),
@@ -1022,6 +1067,12 @@ impl State {
             .handle
             .insert_source(Timer::from_duration(refresh), |_, _, state| {
                 state.frame_timer = None;
+                // Without a screen no frame is drawn: what is due applies
+                // now (`timing`).
+                if !state.gpu.as_ref().is_some_and(Gpu::shows) {
+                    let now = state.now();
+                    state.release_timed(now);
+                }
                 state.presented_unchanged();
                 state.frame_done(None);
                 TimeoutAction::Drop
@@ -1034,7 +1085,7 @@ impl State {
 
     /// Each surface of the windows – with their popups, minimized ones too –
     /// and of the panels.
-    fn each_surface(&self, mut f: impl FnMut(&WlSurface, &SurfaceData)) {
+    pub fn each_surface(&self, mut f: impl FnMut(&WlSurface, &SurfaceData)) {
         let mut tree = |surface: &WlSurface| {
             with_surface_tree_downward(
                 surface,
@@ -1070,13 +1121,23 @@ impl State {
     /// told at the vblank before (until 0.5.104), its client drew the next
     /// frame at once and the one not shown was discarded. The surfaces not
     /// shown keep theirs until their next commit discards the feedback, as
-    /// the protocol asks for content never seen.
-    fn take_shown(&self, shown: &RenderElementStates) -> Shown {
+    /// the protocol asks for content never seen. Their fifo barriers too
+    /// (`timing`): the next commit applies once this one showed. Those of
+    /// the surfaces not shown are returned, to be lifted now: wp_fifo lets
+    /// a compositor ignore the barrier of a surface it does not update, its
+    /// client throttles itself (Mesa by commit times); held, Mesa's FIFO
+    /// blocked a covered app in its present, events and all (25.10.).
+    fn take_shown(&self, shown: &RenderElementStates) -> (Shown, Vec<(Barrier, Option<Client>)>) {
         let mut callbacks = Vec::new();
+        let mut fifo = Vec::new();
+        let mut hidden = Vec::new();
         self.each_surface(|surface, states| {
             if shown.element_was_presented(surface) {
                 let mut attributes = states.cached_state.get::<SurfaceAttributes>();
                 callbacks.append(&mut attributes.current().frame_callbacks);
+                fifo.extend(take_fifo(surface, states));
+            } else {
+                hidden.extend(take_fifo(surface, states));
             }
         });
         let feedback = self.output.as_ref().map(|output| {
@@ -1095,10 +1156,12 @@ impl State {
             }
             feedback
         });
-        Shown {
+        let shown = Shown {
             feedback,
             callbacks,
-        }
+            fifo,
+        };
+        (shown, hidden)
     }
 
     /// Tells clients their content showed: that of the frame KMS just
@@ -1131,7 +1194,7 @@ impl State {
     }
 
     fn present(
-        &self,
+        &mut self,
         shown: Vec<Shown>,
         at: Duration,
         sequence: u64,
@@ -1145,6 +1208,7 @@ impl State {
         let time = smithay::utils::Time::<Monotonic>::from(at);
         // In milliseconds, as wl_callback.done carries it.
         let msec = at.as_millis() as u32;
+        let mut released = Vec::new();
         for shown in shown {
             if let Some(mut feedback) = shown.feedback {
                 feedback.presented(time, refresh, sequence, kind);
@@ -1152,13 +1216,15 @@ impl State {
             for callback in shown.callbacks {
                 callback.done(msec);
             }
+            released.extend(lift(shown.fifo));
         }
+        self.unblock(released);
     }
 
     /// A frame that will not show (its screen went, or a new frame replaced
     /// it while the session was away): its content counts as discarded, and
     /// its clients hear "frame done" now, so none waits for it.
-    fn never_shown(&self, shown: Shown) {
+    fn never_shown(&mut self, shown: Shown) {
         if let Some(mut feedback) = shown.feedback {
             feedback.discarded();
         }
@@ -1166,35 +1232,85 @@ impl State {
         for callback in shown.callbacks {
             callback.done(now.as_millis() as u32);
         }
+        let released = lift(shown.fifo);
+        self.unblock(released);
+    }
+
+    /// Clients whose held-back commits may apply now, a barrier lifted
+    /// (`timing`): Smithay applies them, each through `commit`.
+    pub fn unblock(&mut self, released: Vec<Client>) {
+        let mut clients: Vec<Client> = Vec::new();
+        for client in released {
+            if !clients.iter().any(|c| c.id() == client.id()) {
+                clients.push(client);
+            }
+        }
+        let display = self.display.clone();
+        for client in clients {
+            if let Some(data) = client.get_data::<ClientState>() {
+                data.compositor.blocker_cleared(self, &display);
+            }
+        }
+    }
+
+    pub fn now(&self) -> Duration {
+        self.clock.now().into()
+    }
+
+    /// The time between two vblanks; without a screen, 16 ms.
+    pub fn refresh(&self) -> Duration {
+        self.gpu
+            .as_ref()
+            .and_then(Gpu::refresh)
+            .unwrap_or(Duration::from_millis(16))
+    }
+
+    /// The first vblank at or after `time`; without a screen, `time`.
+    pub fn vblank_from(&self, time: Duration) -> Duration {
+        self.gpu
+            .as_ref()
+            .and_then(|gpu| gpu.vblank_from(time))
+            .unwrap_or(time)
     }
 
     /// "Frame done" for the surfaces the last frame did not show – off the
     /// screen, covered, minimized, or all without a screen – at most every
     /// HIDDEN_FRAMES, at `time` (the vblank) or now; and for the pointer's.
-    /// Those shown hear it when their frame is (`present`).
+    /// Those shown hear it when their frame is (`present`). Their fifo
+    /// barriers are lifted by each draw (`take_shown`), which knows what it
+    /// shows; here only without a screen. Lifted here against the last
+    /// frame, a window's first commit counted as hidden – not in that frame
+    /// yet – and its next replaced it unseen (25.10.).
     fn frame_done(&mut self, time: Option<Duration>) {
         let Some(output) = self.output.clone() else {
             return;
         };
         let time = time.unwrap_or_else(|| self.clock.now().into());
         let shows = self.gpu.as_ref().is_some_and(Gpu::shows);
-        if self
+        let callbacks = self
             .hidden_done
-            .is_none_or(|last| time.saturating_sub(last) >= HIDDEN_FRAMES)
-        {
+            .is_none_or(|last| time.saturating_sub(last) >= HIDDEN_FRAMES);
+        if callbacks {
             self.hidden_done = Some(time);
-            let drawn = shows.then_some(&self.drawn);
-            let msec = time.as_millis() as u32;
-            self.each_surface(|surface, states| {
-                if drawn.is_some_and(|d| d.element_was_presented(surface)) {
-                    return;
-                }
+        }
+        let drawn = shows.then_some(&self.drawn);
+        let msec = time.as_millis() as u32;
+        let mut fifo = Vec::new();
+        self.each_surface(|surface, states| {
+            if drawn.is_some_and(|d| d.element_was_presented(surface)) {
+                return;
+            }
+            if callbacks {
                 let mut attributes = states.cached_state.get::<SurfaceAttributes>();
                 for callback in attributes.current().frame_callbacks.drain(..) {
                     callback.done(msec);
                 }
-            });
-        }
+            }
+            if !shows {
+                fifo.extend(take_fifo(surface, states));
+            }
+        });
+        self.unblock(lift(fifo));
         let shown = shows.then(|| output.clone());
         if let Some(surface) = self.cursor.surface() {
             send_frames_surface_tree(surface, &output, time, Some(HIDDEN_FRAMES), |_, _| {
@@ -1321,6 +1437,10 @@ impl CompositorHandler for State {
         &mut self.compositor
     }
 
+    fn new_surface(&mut self, surface: &WlSurface) {
+        crate::timing::watch(surface);
+    }
+
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
         // Every client is inserted with ClientState (`insert_client`); the
         // fallback only keeps a bug from being a crash.
@@ -1428,6 +1548,8 @@ delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
 delegate_cursor_shape!(State);
 delegate_presentation!(State);
+delegate_fifo!(State);
+delegate_commit_timing!(State);
 
 /// cursor-shape-v1 also names tablet tools' images; Beize has no tablets
 /// yet, so nothing is needed of it.

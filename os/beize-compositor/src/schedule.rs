@@ -145,6 +145,16 @@ impl Schedule {
         (drawing.max(FLOOR) + self.blank + MARGIN + self.learnt).min(self.refresh)
     }
 
+    /// The next vblank after `now`; without a phase, a refresh from it.
+    pub fn next(&self, now: Duration) -> Duration {
+        self.after(now)
+    }
+
+    /// The first vblank at or after `t` (and after the last known).
+    pub fn from(&self, t: Duration) -> Duration {
+        self.after(t.saturating_sub(Duration::from_nanos(1)))
+    }
+
     /// The vblank a change there at `t` is due at: the first whose
     /// deadline is not past. Without a phase, a refresh from `t`.
     pub fn target(&self, t: Duration) -> Duration {
@@ -209,6 +219,17 @@ mod tests {
         s.vblank(at(100_000));
         s.ready(at(101_000), at(102_500), Some(at(108_000)));
         s
+    }
+
+    #[test]
+    fn a_commit_due_on_a_vblank_shows_at_that_one() {
+        // wp_commit_timing (`timing`): a time on a vblank is that vblank,
+        // a nanosecond after it the next one.
+        let s = schedule();
+        assert_eq!(s.from(at(116_000)), at(116_000));
+        assert_eq!(s.from(at(116_000) + Duration::from_nanos(1)), at(124_000));
+        assert_eq!(s.from(at(110_000)), at(116_000));
+        assert_eq!(s.next(at(108_000)), at(116_000));
     }
 
     #[test]

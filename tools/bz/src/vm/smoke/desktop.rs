@@ -227,6 +227,13 @@ const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// 250 ms without a frame (`IDLE`, os/beize-compositor/src/pacing.rs),
 /// looked for every 500 ms (`PACING_CHECK`, state.rs), with room.
 const RUN_ENDED: Duration = Duration::from_secs(1);
+/// Frames of the fifo and timed clients that may show a vblank later than
+/// due: a frame drawn late misses its vblank like any other (pacing counts
+/// those, "late (drawing …)"; in the VM lavapipe's lead is a whole refresh,
+/// so a frame drawn at once has no room – one in 120 seen, 25.10.). What
+/// the protocols promise is checked without exception: no fifo frame lost,
+/// no timed frame before its time.
+const MISSED_VBLANKS: u32 = 2;
 
 /// How long the still desktop is watched for waking.
 const IDLE_SECONDS: u64 = 3;
@@ -975,6 +982,8 @@ fn frames(shell: &Shell) -> Result<()> {
     presentation(shell)?;
     // Its window would go by itself later, in the middle of another check.
     shell.capture("systemctl --user stop beize-testclient-frames")?;
+    fifo(shell)?;
+    timed(shell)?;
 
     Ok(())
 }
@@ -1012,6 +1021,74 @@ fn presentation(shell: &Shell) -> Result<()> {
     );
     say!("  ok: the client heard when each frame showed: {line}");
     Ok(())
+}
+
+/// A client drawing as Mesa's Vulkan FIFO mode does (wp_fifo): without
+/// waiting for "frame done", each commit waits in the compositor until the
+/// one before it showed. All 120 show, none discarded, a vblank apart (but
+/// `MISSED_VBLANKS`).
+fn fifo(shell: &Shell) -> Result<()> {
+    let said = client_summary(shell, "beize-testclient-fifo", "--fifo 120", "fifo: ")?;
+    let presented = said.iter().find(|l| l.starts_with("presentation: "));
+    let apart = said.iter().find(|l| l.starts_with("fifo: "));
+    let (Some(presented), Some(apart)) = (presented, apart) else {
+        bail!("no summary of the fifo client: {said:?}");
+    };
+    ensure!(
+        presented.contains("presentation: 120 of 120 shown, 0 discarded"),
+        "frames of the fifo client were lost: {presented}"
+    );
+    let count = apart
+        .strip_prefix("fifo: ")
+        .and_then(|s| s.split_once(' '))
+        .and_then(|(n, _)| n.parse::<u32>().ok())
+        .with_context(|| format!("no count in: {apart}"))?;
+    ensure!(
+        count + MISSED_VBLANKS >= 119,
+        "more than {MISSED_VBLANKS} frames of the fifo client not a vblank after the last: \
+         {apart}"
+    );
+    say!("  ok: a fifo client's frames each showed, in turn: {apart}");
+    Ok(())
+}
+
+/// A client giving each frame a time (wp_commit_timing), 2.5 refreshes after
+/// the last one showed: each shows at the first vblank at or after it (but
+/// `MISSED_VBLANKS`) – never before, though it was ready long before.
+fn timed(shell: &Shell) -> Result<()> {
+    let said = client_summary(shell, "beize-testclient-timed", "--timed 30", "timed: ")?;
+    let timed = said
+        .iter()
+        .find(|l| l.starts_with("timed: "))
+        .with_context(|| format!("no summary of the timed client: {said:?}"))?;
+    ensure!(
+        timed.contains(" 0 before it,"),
+        "frames of the timed client showed before their time: {timed}"
+    );
+    let on_time = timed
+        .strip_prefix("timed: ")
+        .and_then(|s| s.split_once(" of 29 "))
+        .and_then(|(n, _)| n.parse::<u32>().ok())
+        .with_context(|| format!("no count of 29 in: {timed}"))?;
+    ensure!(
+        on_time + MISSED_VBLANKS >= 29,
+        "more than {MISSED_VBLANKS} frames of the timed client after the first vblank at their \
+         time: {timed}"
+    );
+    say!("  ok: a client's frames showed at their time: {timed}");
+    Ok(())
+}
+
+/// Runs the test client as `unit` with `args` until it printed a line
+/// starting with `last`, then stops it; its summary lines (`name: …`).
+fn client_summary(shell: &Shell, unit: &str, args: &str, last: &str) -> Result<Vec<String>> {
+    let (_, lines) = shell.capture(&format!(
+        "systemd-run --user --unit={unit} /run/t/beize-testclient {args} --seconds 20 \
+         && for i in $(seq 100); do journalctl --user -u {unit} -o cat | grep -q '^{last}' \
+         && break; sleep 0.2; done; journalctl --user -u {unit} -o cat \
+         | grep -E '^(presentation|fifo|timed): '; systemctl --user stop {unit}"
+    ))?;
+    Ok(lines)
 }
 
 /// The shell killed and stopped comes back; its panels stay meanwhile and
@@ -1312,9 +1389,9 @@ fn framed(
         lines.iter().any(|l| l == "decoration server_side"),
         "the client that asked for the compositor's frame was not given it: {lines:?}"
     );
-    // The test client's third window: the first moved, the second drew
-    // frames.
-    let (at, size) = placed(shell, "beize-testclient", 3)?;
+    // The test client's fifth window: the first moved, the second drew
+    // frames, the third and fourth on fifo and on time.
+    let (at, size) = placed(shell, "beize-testclient", 5)?;
     let frame_height = size.1 + TITLE_BAR;
     let centred = (
         (screen.0 - size.0) / 2,

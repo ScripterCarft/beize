@@ -676,6 +676,20 @@ where
         self.surface.pending_mode()
     }
 
+    /// The vblank the frame about to be drawn shows at: the one it is
+    /// planned for, or, drawn at once, the next.
+    pub fn aim(&self) -> Duration {
+        let now: Duration = self.clock.now().into();
+        self.planned
+            .and_then(|plan| plan.aim)
+            .unwrap_or_else(|| self.schedule.next(now))
+    }
+
+    /// The first vblank at or after `time`.
+    pub fn vblank_from(&self, time: Duration) -> Duration {
+        self.schedule.from(time)
+    }
+
     /// When to draw a change there now (`Schedule`); None while a commit
     /// waits for its vblank, which asks again.
     pub fn draw_at(&mut self) -> Option<Duration> {

@@ -374,6 +374,16 @@ impl Gpu {
         each!(self.screen.as_mut()?, o => o.draw_at())
     }
 
+    /// The vblank the frame about to be drawn shows at (`Output::aim`).
+    pub fn aim(&self) -> Option<Duration> {
+        each!(self.screen.as_ref()?, o => Some(o.aim()))
+    }
+
+    /// The screen's first vblank at or after `time`.
+    pub fn vblank_from(&self, time: Duration) -> Option<Duration> {
+        each!(self.screen.as_ref()?, o => Some(o.vblank_from(time)))
+    }
+
     /// A run of frames is being measured (`Output::pacing_idle`); once
     /// things are still, what the renderer holds, if it changed.
     pub fn pacing_idle(&mut self) -> bool {

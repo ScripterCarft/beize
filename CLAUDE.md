@@ -309,7 +309,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: presentation-time fertig – JETZT: fifo/commit-timing, Punkt 2 unten)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-25: presentation-time, fifo, commit-timing fertig – JETZT: viewporter + xdg-activation, Punkt 2 unten)
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -366,11 +366,32 @@ Ausgangswerte 25.10.: Smoke 152 s, 63 VM-Starts; Desktop im Leerlauf 0 Aufwachvo
    „Monitor aus/an, Kabel ab/an“ in `measure/hw-test.sh` kommt mit dem Messbau (4.).
    Smithay-Bericht Nr. 4 (Blob 0) liegt in `~/upstream/smithay/ISSUES.md`. CI beider Commits
    grün (8039442 nach Neustart durch den Besitzer: Bootbudget war Runner-Rauschen).
-2. **Protokolle – NÄCHSTER SCHRITT: fifo/commit-timing**, dann viewporter, xdg-activation,
-   idle-inhibit, dann Bildschirm aus bei Inaktivität (Zeiten wie macOS); je eine Smoke-Prüfung
-   mit Gegenprobe (Testclient bindet sie). Bildschirm aus passt zu ADR 0029 (Bildschleife ruhen
-   lassen wie bei „weg“, CRTC aus per DPMS/ACTIVE=0). In der VM zählt eine Prüfung nur mit
-   Gegenprobe, die rot wird (25.10.: eine ging grün durch, weil Clients ohnehin neu zeichneten).
+2. **Protokolle – NÄCHSTER CHAT: viewporter + xdg-activation**; der Chat danach:
+   **idle-inhibit + Bildschirm aus bei Inaktivität** (gehören zusammen: inhibit wirkt erst mit
+   der Leerlauf-Erkennung; Zeiten wie macOS) – Aufteilung des Besitzers, 25.10. Je eine
+   Smoke-Prüfung mit Gegenprobe (Testclient bindet sie). Bildschirm aus passt zu ADR 0029
+   (Bildschleife ruhen lassen wie bei „weg“, CRTC aus per DPMS/ACTIVE=0). In der VM zählt eine
+   Prüfung nur mit Gegenprobe, die rot wird (25.10.: eine ging grün durch, weil Clients ohnehin
+   neu zeichneten). Mehrere Testclient-Fenster: `placed(…, "beize-testclient", n)` zählt alle
+   (der Rahmen-Client ist jetzt das 5.). Vor dem Commit drei volle Smoke-Läufe: Fehler, die 1 von
+   120 Bildern treffen, zeigen sich erst so.
+   ~~fifo + commit-timing~~ erledigt 25.10. (`timing.rs`): fifo-Barriere einer gezeigten Fläche
+   fällt beim vblank ihres Bildes (`Shown.fifo`), die einer nicht gezeigten **sofort beim
+   Zeichnen** (Protokoll: „may ignore the constraint“, gedrosselt wird über die Zeitstempel des
+   Clients). Zeitstempel werden **im Zeichenlauf** gegen den vblank freigegeben, auf den das Bild
+   zielt (`Output::aim`, wie niri); ein Timer weckt eine Bildzeit vor dem vblank. Mesa 26.2.5
+   nutzt im Vulkan-FIFO beides automatisch (je Present: Zeitstempel = nächster vblank − 0,5 ms,
+   Barriere, dazu ein leerer Commit mit wait_barrier) – also **Beize UI und das Terminal**.
+   Befunde unterwegs: verdeckte Barrieren nur 1×/s → Mesa blockiert im Present, App friert samt
+   Schließen-Knopf ein; Barrieren in `frame_done` gegen das letzte Bild → das erste Bild eines
+   neuen Fensters galt als verdeckt und wurde verworfen; Timer entfernen → calloop-Warnung.
+   Smoke: fifo 120/120, 0 verworfen, vblank-Abstand (`MISSED_VBLANKS` = 2 mit Grund); timed 29/29,
+   **0 vor ihrer Zeit**. Gegenproben rot: fifo `unmanaged` (118 verworfen); Zeitstempel
+   ignoriert = sofort wecken **und** alles freigeben (29 vor ihrer Zeit, −25 ms) – nur die
+   Freigabe-Grenze weg blieb grün, weil dann der Weck-Timer allein den Zeitpunkt trägt; commit-timing
+   `unmanaged` taugt nicht (niemand nimmt den Zeitstempel ab, Mesas nächster ist ein
+   Protokollfehler, das Terminal stirbt). **Offen, erst messen:** Tipp-Latenz
+   von Beize UI im FIFO (Mesa blockiert im Present) gegenüber `FIFO_LATEST_READY`/`MAILBOX`.
    ~~presentation-time~~ erledigt 25.10.: `State::take_shown` nimmt beim Zeichnen Feedback
    **und frame-Callbacks** der gezeigten Flächen (Zustände des Damage-Trackers), `present`
    beantwortet beide beim vblank (Vsync/HwClock/HwCompletion, Sequenz) oder, bei „unverändert“,
@@ -412,7 +433,7 @@ d) **Beim Einblenden genau alle 100 ms ein Bild „GPU“ spät** (0.5.103, fert
    Beginn des vblank): eigener Takt, Ursache offen.
 Danach die Kosmetik nach den Entscheidungen des Besitzers, dann Schritt 4 (e)–(g) nach ADR 0028.
 
-**Auf Hardware ungeprüft:** „frame done“ erst für gezeichnete Commits (presentation-time, 25.10.; das Pacing echter Apps wie Terminal und Lasttest), Bildschirm weg und wieder da mit NVK (neuer Vulkan-Allokator je Bildschirm), Neutraining bei `link-status` BAD, Prompt beim Ziehen (4b75cb0, OSC 133 in `/usr/lib/beize/profile`,
+**Auf Hardware ungeprüft:** „frame done“ erst für gezeichnete Commits und fifo/commit-timing mit NVK (25.10.; Pacing von Terminal, Beize UI und Lasttest), Bildschirm weg und wieder da mit NVK (neuer Vulkan-Allokator je Bildschirm), Neutraining bei `link-status` BAD, Prompt beim Ziehen (4b75cb0, OSC 133 in `/usr/lib/beize/profile`,
 `prompt.rs`), Damage-Clips, POLLOUT im Terminal, Rahmen echter Qt-/Chromium-Apps. Fehler, die nur
 echte GPUs zeigen, sind in der VM nicht nachstellbar (dort shm, kein dmabuf): früh um Foto bitten.
 

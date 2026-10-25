@@ -23,6 +23,13 @@
 //! once all answered, prints how many showed, on which clock, with which
 //! flags, and whether times and sequence rose and each time lay before its
 //! answer arrived.
+//!
+//! `--fifo N` draws N frames as Mesa's Vulkan FIFO mode does: without
+//! waiting for "frame done", each commit waiting for the one before it to
+//! show (wp_fifo), as long as one of three buffers is free; it prints how
+//! many frames were a vblank apart. `--timed N` gives each frame after the
+//! first a time, 2.5 refreshes after the last one showed (wp_commit_timing),
+//! and prints how many showed at the first vblank at or after their time.
 
 use std::fs::File;
 use std::io::Read as _;
@@ -48,6 +55,12 @@ use wayland_client::protocol::{
     wl_surface::WlSurface,
 };
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop};
+use wayland_protocols::wp::commit_timing::v1::client::{
+    wp_commit_timer_v1::WpCommitTimerV1, wp_commit_timing_manager_v1::WpCommitTimingManagerV1,
+};
+use wayland_protocols::wp::fifo::v1::client::{
+    wp_fifo_manager_v1::WpFifoManagerV1, wp_fifo_v1::WpFifoV1,
+};
 use wayland_protocols::wp::presentation_time::client::{
     wp_presentation::{self, WpPresentation},
     wp_presentation_feedback::{self, WpPresentationFeedback},
@@ -71,6 +84,10 @@ const BAR: u32 = 0xff20_2020;
 /// The moving bar of `--frames`, and how far it moves each frame.
 const BAR_SIZE: (i32, i32) = (32, 32);
 const BAR_STEP: i32 = 8;
+/// The buffers `--fifo` draws into, as a swapchain of three.
+const SWAPCHAIN: usize = 3;
+/// How far ahead of the last frame `--timed` sets the next, in refreshes.
+const TIMED_AHEAD: f64 = 2.5;
 /// The rows at the top that act as a title bar.
 const TITLE: f64 = 32.0;
 /// The left button and the M key (linux/input-event-codes.h).
@@ -91,13 +108,26 @@ fn main() -> ExitCode {
 
 struct Options {
     frames: u32,
+    pace: Pace,
     seconds: u64,
     server_side: bool,
+}
+
+/// What the next of the frames waits for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pace {
+    /// "Frame done" (`--frames`).
+    Callbacks,
+    /// The last frame shown (`--fifo`).
+    Fifo,
+    /// Its time (`--timed`).
+    Timed,
 }
 
 fn options() -> Result<Options> {
     let mut options = Options {
         frames: 0,
+        pace: Pace::Callbacks,
         seconds: 10,
         server_side: false,
     };
@@ -109,7 +139,14 @@ fn options() -> Result<Options> {
                 .ok_or(format!("{arg} needs a number"))
         };
         match arg.as_str() {
-            "--frames" => options.frames = u32::try_from(value()?).map_err(|e| e.to_string())?,
+            "--frames" | "--fifo" | "--timed" => {
+                options.pace = match arg.as_str() {
+                    "--fifo" => Pace::Fifo,
+                    "--timed" => Pace::Timed,
+                    _ => Pace::Callbacks,
+                };
+                options.frames = u32::try_from(value()?).map_err(|e| e.to_string())?;
+            }
             "--seconds" => options.seconds = value()?,
             "--server-side" => options.server_side = true,
             other => return Err(format!("unknown argument {other}")),
@@ -146,6 +183,16 @@ struct App {
     /// The next draw damages everything (after a configure).
     full: bool,
     buffers: Vec<Buffer>,
+    pace: Pace,
+    /// `--fifo`: the surface's fifo; `--timed`: its timer, and the time for
+    /// the next frame.
+    fifo: Option<WpFifoV1>,
+    timer: Option<WpCommitTimerV1>,
+    next_due: Option<Duration>,
+    /// The time each frame was given, by its number (the first is 1).
+    dues: Vec<Option<Duration>>,
+    /// `--fifo`, `--timed`: the first frame is drawn.
+    started: bool,
     frames_left: u32,
     /// A "frame done" is on its way.
     frame_asked: bool,
@@ -170,6 +217,8 @@ struct App {
 
 /// A frame on the screen, as wp_presentation_feedback.presented says.
 struct Shown {
+    /// Its number, the first is 1.
+    frame: u32,
     time: Duration,
     refresh: u32,
     sequence: u64,
@@ -207,6 +256,24 @@ fn run() -> Result<()> {
     }
 
     let surface = compositor.create_surface(&qh, ());
+    let fifo = match options.pace {
+        Pace::Fifo => {
+            let manager: WpFifoManagerV1 = globals
+                .bind(&qh, 1..=1, ())
+                .map_err(missing("wp_fifo_manager_v1"))?;
+            Some(manager.get_fifo(&surface, &qh, ()))
+        }
+        _ => None,
+    };
+    let timer = match options.pace {
+        Pace::Timed => {
+            let manager: WpCommitTimingManagerV1 = globals
+                .bind(&qh, 1..=1, ())
+                .map_err(missing("wp_commit_timing_manager_v1"))?;
+            Some(manager.get_timer(&surface, &qh, ()))
+        }
+        _ => None,
+    };
     let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
     let toplevel = xdg_surface.get_toplevel(&qh, ());
     toplevel.set_title("beize-testclient".into());
@@ -237,6 +304,12 @@ fn run() -> Result<()> {
         size: (0, 0),
         full: true,
         buffers: Vec::new(),
+        pace: options.pace,
+        fifo,
+        timer,
+        next_due: None,
+        dues: Vec::new(),
+        started: false,
         frames_left: options.frames,
         frame_asked: false,
         frame_times: Vec::new(),
@@ -363,9 +436,31 @@ impl App {
         }
         // One "frame done" asked for at a time: a configure between frames
         // redraws without starting a second chain.
-        if self.frames_left > 0 && !self.frame_asked {
-            self.frame_asked = true;
-            self.surface.frame(qh, ());
+        let counted = self.frames_left > 0 && (self.pace != Pace::Callbacks || !self.frame_asked);
+        if counted {
+            match self.pace {
+                Pace::Callbacks => {
+                    self.frame_asked = true;
+                    self.surface.frame(qh, ());
+                }
+                // As Mesa's FIFO: wait for the last frame, be waited for.
+                Pace::Fifo => {
+                    if let Some(fifo) = &self.fifo {
+                        fifo.wait_barrier();
+                        fifo.set_barrier();
+                    }
+                    self.frames_left -= 1;
+                }
+                Pace::Timed => {
+                    if let (Some(timer), Some(due)) = (&self.timer, self.next_due.take()) {
+                        let secs = due.as_secs();
+                        timer.set_timestamp((secs >> 32) as u32, secs as u32, due.subsec_nanos());
+                        self.dues.resize(self.asked as usize, None);
+                        self.dues.push(Some(due));
+                    }
+                    self.frames_left -= 1;
+                }
+            }
             if let Some(presentation) = &self.presentation {
                 presentation.feedback(&self.surface, qh, ());
                 self.asked += 1;
@@ -377,6 +472,20 @@ impl App {
             self.draw_times.push(start.elapsed());
         }
         Ok(())
+    }
+
+    /// `--fifo`: draws while frames are left and one of the swapchain's
+    /// buffers is free; the next commit waits in the compositor.
+    fn pump(&mut self, qh: &QueueHandle<App>) {
+        while self.frames_left > 0
+            && (self.buffers.len() < SWAPCHAIN || self.buffers.iter().any(|b| !b.busy))
+        {
+            if let Err(e) = self.draw(qh) {
+                eprintln!("beize-testclient: {e}");
+                self.running = false;
+                return;
+            }
+        }
     }
 
     /// A buffer of `size` the compositor does not read, made if needed.
@@ -469,6 +578,58 @@ impl App {
             yes(rising),
             yes(before),
         );
+        match self.pace {
+            Pace::Callbacks => {}
+            Pace::Fifo => {
+                let steps = shown.windows(2).filter(|w| w[1].frame == w[0].frame + 1);
+                let apart = steps
+                    .clone()
+                    .filter(|w| w[1].sequence == w[0].sequence + 1)
+                    .count();
+                // The others: the frame and how many vblanks after the last.
+                let others: Vec<String> = steps
+                    .clone()
+                    .filter(|w| w[1].sequence != w[0].sequence + 1)
+                    .map(|w| {
+                        format!(
+                            "{}:{}",
+                            w[1].frame,
+                            w[1].sequence.wrapping_sub(w[0].sequence)
+                        )
+                    })
+                    .collect();
+                println!(
+                    "fifo: {apart} of {} a vblank apart, others [{}]",
+                    steps.count(),
+                    others.join(" ")
+                );
+            }
+            Pace::Timed => {
+                // Each at the first vblank at or after its time: not before
+                // it, and less than a refresh after.
+                let late: Vec<f64> = shown
+                    .iter()
+                    .filter_map(|s| {
+                        let due = (*self.dues.get(s.frame as usize - 1)?)?;
+                        let after = s.time.as_secs_f64() - due.as_secs_f64();
+                        Some((after, f64::from(s.refresh) / 1e9))
+                    })
+                    .map(|(after, refresh)| after / refresh)
+                    .collect();
+                let on_time = late.iter().filter(|&&r| (0.0..1.0).contains(&r)).count();
+                let early = late.iter().filter(|&&r| r < 0.0).count();
+                let ms = |r: Option<&f64>| r.map_or(0.0, |r| r * f64::from(refresh) / 1e6);
+                let mut sorted = late.clone();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "timed: {on_time} of {} at the first vblank at or after their time, {early} \
+                     before it, from {:+.2} to {:+.2} ms of it",
+                    late.len(),
+                    ms(sorted.first()),
+                    ms(sorted.last()),
+                );
+            }
+        }
     }
 
     /// The window is opaque: the compositor need not draw what is under it.
@@ -553,7 +714,14 @@ impl Dispatch<XdgSurface, ()> for App {
             println!("configure {w}x{h}");
             app.full = true;
             app.set_opaque(qh);
-            if let Err(e) = app.draw(qh) {
+            // `--fifo` and `--timed` draw on their own pace once started;
+            // their next frame acknowledges the configure.
+            if app.pace != Pace::Callbacks && std::mem::replace(&mut app.started, true) {
+                return;
+            }
+            if app.pace == Pace::Fifo {
+                app.pump(qh);
+            } else if let Err(e) = app.draw(qh) {
                 eprintln!("beize-testclient: {e}");
                 app.running = false;
             }
@@ -621,12 +789,15 @@ impl Dispatch<WlBuffer, usize> for App {
         event: wl_buffer::Event,
         index: &usize,
         _: &Connection,
-        _: &QueueHandle<App>,
+        qh: &QueueHandle<App>,
     ) {
         if let wl_buffer::Event::Release = event
             && let Some(buffer) = app.buffers.get_mut(*index)
         {
             buffer.busy = false;
+            if app.pace == Pace::Fifo && app.started {
+                app.pump(qh);
+            }
         }
     }
 }
@@ -791,7 +962,7 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
         event: wp_presentation_feedback::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<App>,
+        qh: &QueueHandle<App>,
     ) {
         match event {
             wp_presentation_feedback::Event::Presented {
@@ -806,11 +977,11 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
                 // CLOCK_MONOTONIC, as the compositor names it (clock 1);
                 // another clock fails the check by its number.
                 let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+                let time =
+                    Duration::new((u64::from(tv_sec_hi) << 32) | u64::from(tv_sec_lo), tv_nsec);
                 app.shown.push(Shown {
-                    time: Duration::new(
-                        (u64::from(tv_sec_hi) << 32) | u64::from(tv_sec_lo),
-                        tv_nsec,
-                    ),
+                    frame: app.answered() + 1,
+                    time,
                     refresh,
                     sequence: (u64::from(seq_hi) << 32) | u64::from(seq_lo),
                     flags: match flags {
@@ -822,6 +993,15 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
                         u32::try_from(now.tv_nsec).unwrap_or(0),
                     ),
                 });
+                // `--timed`: the next frame, for its time after this one.
+                if app.pace == Pace::Timed && app.frames_left > 0 {
+                    let ahead = Duration::from_nanos(u64::from(refresh)).mul_f64(TIMED_AHEAD);
+                    app.next_due = Some(time + ahead);
+                    if let Err(e) = app.draw(qh) {
+                        eprintln!("beize-testclient: {e}");
+                        app.running = false;
+                    }
+                }
                 app.report_presentation();
             }
             wp_presentation_feedback::Event::Discarded => {
@@ -835,6 +1015,10 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
 }
 
 delegate_noop!(App: ignore ZxdgDecorationManagerV1);
+delegate_noop!(App: ignore WpFifoManagerV1);
+delegate_noop!(App: ignore WpFifoV1);
+delegate_noop!(App: ignore WpCommitTimingManagerV1);
+delegate_noop!(App: ignore WpCommitTimerV1);
 delegate_noop!(App: ignore WlCompositor);
 delegate_noop!(App: ignore WlShm);
 delegate_noop!(App: ignore WlShmPool);

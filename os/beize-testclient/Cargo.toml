@@ -14,8 +14,9 @@ workspace = true
 # Wayland in pure Rust: without the client_system feature there is no
 # libwayland, so the client runs from the test medium as it is.
 wayland-client = "0.31"
-# "unstable" for xdg-decoration (`--server-side`).
-wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+# "unstable" for xdg-decoration (`--server-side`), "staging" for fifo and
+# commit timing (`--fifo`, `--timed`).
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 # memfd for the shm pool, poll for the timeout, the clock of presentation
 # times.
 rustix = { version = "1.1", default-features = false, features = ["event", "fs", "std", "time"] }
