@@ -319,7 +319,7 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 **Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
-Stick und Hardware-Test: `docs/hardware.md` (`measure/hw-test.sh`, 5 Teile, liegt auf dem
+Stick und Hardware-Test: `docs/hardware.md` (`measure/hw-test.sh`, 6 Teile, liegt auf dem
 Messzweig `measure/desktop`, je Messbau auf `main` gehoben, Version in `tools/bz/src/layout.rs`).
 Hardware-Tests nicht öfter als nötig (Besitzer). Wiederherstellung: nach F8 Leertaste halten,
 „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC; Ergebnisse holt Claude per
