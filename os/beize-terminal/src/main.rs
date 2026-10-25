@@ -20,14 +20,14 @@ use std::cell::RefCell;
 use std::os::fd::{AsFd as _, OwnedFd};
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::{ClipboardType, Config, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
-use beize_ui::{Appearance, CursorShape, Input, Key, KeyState, Keysym, WindowId};
+use beize_ui::{Appearance, CursorShape, Input, Key, KeyState, Keysym, Watch, WindowId};
 use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
 
@@ -47,9 +47,6 @@ const OPENS_WITH: (usize, usize) = (80, 24);
 /// (cat of a large file) does not wait for frames, the window still shows
 /// its progress.
 const READ_LIMIT: usize = 1 << 20;
-/// How soon to try again when the PTY takes no more input (a large paste
-/// into a busy program).
-const WRITE_RETRY: Duration = Duration::from_millis(10);
 const TITLE: &str = "Terminal";
 
 fn main() -> ExitCode {
@@ -179,16 +176,26 @@ impl App {
         let mut output = Vec::new();
         loop {
             let now = Instant::now();
-            let mut timeout = self
+            let timeout = self
                 .parser
                 .sync_timeout()
                 .sync_timeout()
                 .map(|t| t.saturating_duration_since(now));
+            // Input the PTY did not take yet (a large paste into a busy
+            // program) goes once it takes more, as poll(2) tells.
+            let mut fds = vec![
+                Watch::Read(self.pty.output()),
+                Watch::Read(self.pty.ended()),
+            ];
+            let pasting = self.paste.is_some();
+            fds.extend(
+                self.paste
+                    .as_ref()
+                    .map(|(pipe, _)| Watch::Read(pipe.as_fd())),
+            );
             if !self.outgoing.is_empty() {
-                timeout = Some(timeout.map_or(WRITE_RETRY, |t| t.min(WRITE_RETRY)));
+                fds.push(Watch::Write(self.pty.output()));
             }
-            let mut fds = vec![self.pty.output(), self.pty.ended()];
-            fds.extend(self.paste.as_ref().map(|(pipe, _)| pipe.as_fd()));
             let mut dispatched = self.ui.dispatch(timeout, &fds).map_err(|e| e.to_string())?;
             drop(fds);
             let events = dispatched.take(self.window);
@@ -228,7 +235,7 @@ impl App {
                 self.parser.stop_sync(&mut self.term);
                 self.dirty = true;
             }
-            if ready.contains(&2) {
+            if pasting && ready.contains(&2) {
                 self.receive_paste();
             }
             self.answer();

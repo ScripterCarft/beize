@@ -67,12 +67,21 @@ impl Events {
     }
 }
 
+/// One of the app's own fds that `dispatch` also waits for.
+#[derive(Clone, Copy, Debug)]
+pub enum Watch<'a> {
+    /// Until it can be read (or closed).
+    Read(BorrowedFd<'a>),
+    /// Until it takes more (a full PTY), as poll(2) says.
+    Write(BorrowedFd<'a>),
+}
+
 /// What one `dispatch` brought.
 #[derive(Debug, Default)]
 pub struct Dispatched {
     /// The windows something happened to, with what.
     pub windows: Vec<(WindowId, Events)>,
-    /// Which of the app's own fds (`dispatch`'s `also`) are readable or
+    /// Which of the app's own fds (`dispatch`'s `also`) are ready or
     /// closed, by their index there.
     pub ready: Vec<usize>,
     /// The desktop's windows changed (`watch_desktop`).
@@ -545,12 +554,12 @@ impl App {
 
     /// Handles what the compositor sent and repeats a held key, waiting
     /// at most `timeout` for either (`None`: until something comes) – or
-    /// for one of the app's own fds in `also` to become readable (a
-    /// terminal's PTY): one thread waits for all.
+    /// for one of the app's own fds in `also` (a terminal's PTY): one
+    /// thread waits for all.
     pub fn dispatch(
         &mut self,
         timeout: Option<Duration>,
-        also: &[BorrowedFd<'_>],
+        also: &[Watch<'_>],
     ) -> Result<Dispatched> {
         let queue = &mut self.queue;
         queue
@@ -580,8 +589,11 @@ impl App {
         let connection = guard.as_ref().map(|g| g.connection_fd());
         let mut fds: Vec<PollFd<'_>> = connection
             .iter()
-            .chain(also)
             .map(|fd| PollFd::new(fd, PollFlags::IN))
+            .chain(also.iter().map(|watch| match watch {
+                Watch::Read(fd) => PollFd::new(fd, PollFlags::IN),
+                Watch::Write(fd) => PollFd::new(fd, PollFlags::OUT),
+            }))
             .collect();
         let timeout = timeout
             .map(Timespec::try_from)

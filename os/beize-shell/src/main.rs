@@ -25,7 +25,8 @@ use std::process::ExitCode;
 
 use beize_ui::input::{Button, Pointer};
 use beize_ui::{
-    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text, measures,
+    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text, Watch,
+    measures,
 };
 use tracing::info;
 
@@ -119,7 +120,7 @@ fn run() -> Result<(), String> {
     info!("menu bar {look:?}");
     loop {
         let mut dispatched = app
-            .dispatch(None, &[minutes.fd()])
+            .dispatch(None, &[Watch::Read(minutes.fd())])
             .map_err(|e| e.to_string())?;
         let bar_events = dispatched.take(bar);
         let dock_events = dispatched.take(dock_panel);

@@ -14,7 +14,7 @@ pub mod offscreen;
 mod renderer;
 mod window;
 
-pub use app::{App, Dispatched, Edge, Events, Panel, WindowId};
+pub use app::{App, Dispatched, Edge, Events, Panel, Watch, WindowId};
 pub use beize_draw::{
     AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, measures, text,
 };
