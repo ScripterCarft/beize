@@ -120,9 +120,10 @@ pub fn windows(
     }
 }
 
-/// Live glass shows what lies behind it: back to front, so glass in front
-/// sees glass behind it as it is now. Each panel's keeps what it drew
-/// (`live`), for a screen of `screen_size`.
+/// Live glass shows what lies behind it, blurred by the frame where it
+/// lies; readied back to front, so glass in front sees that the glass
+/// behind it is blurred again. Each panel's keeps its blur (`live`), for a
+/// screen of `screen_size`.
 pub fn live_glass(
     renderer: &mut VkRenderer,
     live: &mut Vec<LiveGlass>,
@@ -140,17 +141,11 @@ pub fn live_glass(
         };
         let glass_of = match live.iter().position(|l| l.is_for(&below)) {
             Some(j) => &mut live[j],
-            None => match LiveGlass::new(renderer, below) {
-                Ok(made) => {
-                    live.push(made);
-                    let last = live.len() - 1;
-                    &mut live[last]
-                }
-                Err(e) => {
-                    warn!("live glass: {e}");
-                    continue;
-                }
-            },
+            None => {
+                live.push(LiveGlass::new(below));
+                let last = live.len() - 1;
+                &mut live[last]
+            }
         };
         if let Err(e) = glass_of.update(renderer, behind, glass, screen_size, appearance) {
             warn!("live glass: {e}");

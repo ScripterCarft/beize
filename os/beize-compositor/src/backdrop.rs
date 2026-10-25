@@ -19,20 +19,18 @@
 //! shows the bar opaque there).
 
 use crate::error::{Context, Result, error};
-use crate::render::{Material, Target, VkRenderer, VkTexture};
+use crate::render::{Material, VkRenderer, VkTexture};
 use beize_draw::measures;
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
-use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement};
 use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
-use smithay::backend::renderer::{Bind, ExportMem, ImportMem, RendererSuper};
+use smithay::backend::renderer::{ExportMem, ImportMem, RendererSuper};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
 use smithay::wayland::compositor::with_states;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::corners::Effects;
 use crate::glass::{GlassState, Shape};
@@ -222,6 +220,8 @@ impl Backdrop {
             texture: self.picture.clone(),
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Plate),
+            region: None,
+            blur: None,
         }
     }
 
@@ -310,6 +310,8 @@ impl Backdrop {
             texture,
             covers: Rectangle::from_size(self.size),
             live: state.live.then(|| Behind::Panel(surface.clone())),
+            region: None,
+            blur: None,
         })
     }
 }
@@ -398,6 +400,13 @@ pub struct Glass {
     covers: Rectangle<i32, Physical>,
     /// Live glass: what it lies below (`LiveGlass`).
     live: Option<Behind>,
+    /// Live glass: the glass and `LIVE_MARGIN` around (`LiveGlass::update`),
+    /// its place in the frame – what lies there is drawn again when it is
+    /// blurred.
+    region: Option<Rectangle<i32, Physical>>,
+    /// Live glass blurred again in this frame: by the frame itself, of what
+    /// it drew behind it (`Effects::blur_behind`).
+    blur: Option<Arc<Mutex<Blur>>>,
 }
 
 impl Glass {
@@ -409,6 +418,7 @@ impl Glass {
     /// Stays as it is: no longer live, its panel gone (`keep_panels`).
     pub fn freeze(&mut self) {
         self.live = None;
+        self.blur = None;
     }
 }
 
@@ -422,25 +432,30 @@ impl Element for Glass {
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        let size = self.shape.size;
+        let size = self.geometry(Scale::from(1.0)).size;
         Rectangle::from_size((f64::from(size.w), f64::from(size.h)).into())
     }
 
     fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.shape
+        self.region.unwrap_or(self.shape)
     }
 
-    /// All of it but the corners: what lies below is not drawn.
-    fn opaque_regions(&self, _scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+    /// All of the glass but its corners: what lies below is not drawn – but
+    /// when the frame blurs it again, which reads what lies below.
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        if self.blur.is_some() {
+            return OpaqueRegions::default();
+        }
         let (w, h) = (self.shape.size.w, self.shape.size.h);
         let c = corner_extent(self.radius, w as f32, h as f32).ceil() as i32;
         if 2 * c >= w || 2 * c >= h {
             return OpaqueRegions::default();
         }
+        let at = self.shape.loc - self.geometry(scale).loc;
         OpaqueRegions::from_slice(&[
-            Rectangle::new((c, 0).into(), (w - 2 * c, h).into()),
-            Rectangle::new((0, c).into(), (c, h - 2 * c).into()),
-            Rectangle::new((w - c, c).into(), (c, h - 2 * c).into()),
+            Rectangle::new((at.x + c, at.y).into(), (w - 2 * c, h).into()),
+            Rectangle::new((at.x, at.y + c).into(), (c, h - 2 * c).into()),
+            Rectangle::new((at.x + w - c, at.y + c).into(), (c, h - 2 * c).into()),
         ])
     }
 }
@@ -454,16 +469,36 @@ impl<R: Effects> RenderElement<R> for Glass {
         damage: &[Rectangle<i32, Physical>],
         _opaque_regions: &[Rectangle<i32, Physical>],
     ) -> std::result::Result<(), <R as RendererSuper>::Error> {
-        // Where it is drawn: elsewhere when relocated (behind live glass).
-        let mut covers = self.covers;
-        covers.loc += dst.loc - self.shape.loc;
+        let origin = dst.loc - self.geometry(Scale::from(1.0)).loc;
+        let shape = Rectangle::new(self.shape.loc + origin, self.shape.size);
+        let mut texture = self.texture.clone();
+        let mut covers = Rectangle::new(self.covers.loc + origin, self.covers.size);
+        if let Some(blur) = &self.blur
+            && let Ok(mut blur) = blur.lock()
+        {
+            let blur = &mut *blur;
+            match R::blur_behind(frame, dst, blur.material, &blur.chain, &mut blur.copy) {
+                Ok(glass) => {
+                    texture = glass;
+                    covers = dst;
+                    blur.drawn = true;
+                }
+                Err(e) => tracing::warn!("live glass: {e:?}"),
+            }
+        }
+        // The damage, given within `dst`, within the glass.
+        let damage: Vec<_> = damage
+            .iter()
+            .filter_map(|d| Rectangle::new(d.loc + dst.loc, d.size).intersection(shape))
+            .map(|d| Rectangle::new(d.loc - shape.loc, d.size))
+            .collect();
         R::draw_glass(
             frame,
-            dst,
-            damage,
-            dst,
+            shape,
+            &damage,
+            shape,
             self.radius,
-            &self.texture,
+            &texture,
             covers,
             GRAIN,
             self.rim,
@@ -472,46 +507,69 @@ impl<R: Effects> RenderElement<R> for Glass {
     }
 }
 
-/// Around live glass, what lies behind it is drawn this much further, so
+/// Around live glass, what lies behind it is read this much further, so
 /// the blur at its edge takes in what is beside it.
 const LIVE_MARGIN: i32 = 64;
 
+/// What live glass blurs through, kept from one change to the next: its
+/// `LiveGlass` prepares it, the frame that blurs draws it (`Glass::draw`).
+pub struct Blur {
+    material: Material,
+    /// The pictures of the blur; the last is the glass.
+    chain: Vec<VkTexture>,
+    /// What lies behind, copied from the frame (in the screen's format).
+    copy: Option<VkTexture>,
+    /// A frame blurred into `chain` as it is now: its last picture shows.
+    drawn: bool,
+}
+
+/// An element behind live glass, as a frame showed it: what is compared
+/// with the next to know whether the glass needs blurring again.
+#[derive(Clone, PartialEq)]
+struct Seen {
+    id: Id,
+    commit: CommitCounter,
+    geometry: Rectangle<i32, Physical>,
+}
+
 /// Live glass (ADR 0028 §6): what lies behind a panel or the menu bar over
-/// a fullscreen window – windows, their
-/// shadows, the background – drawn into an image of its own with a damage
-/// tracker of its own, never read back from the screen (which holds the
-/// glass itself), and blurred only when something there changed. Lifted
-/// and tinted as base glass is, so the two look the same over the
-/// background alone.
+/// a fullscreen window – windows, their shadows, the background – blurred
+/// by the frame itself, in its submission, as KWin's blur does: drawing
+/// back to front, the frame stops at the glass, copies what it drew in the
+/// glass's region and blurs it (`VkFrame::blur_behind`). That region is
+/// drawn whole then – the screen held the glass there – and only when
+/// something behind changed in it: otherwise the glass shows the last blur
+/// and costs nothing. Lifted and tinted as base glass is, so the two look
+/// the same over the background alone.
 pub struct LiveGlass {
     behind: Behind,
-    /// Where it draws, on the screen: the glass and `LIVE_MARGIN` around.
-    region: Rectangle<i32, Physical>,
-    target: Target,
-    damage: OutputDamageTracker,
-    drawn: bool,
-    glass: Option<(VkTexture, Appearance)>,
-    /// The pictures the blur draws into, drawn again at each change.
-    chain: Vec<VkTexture>,
+    /// Where it reads, on the screen: the glass and `LIVE_MARGIN` around.
+    region: Option<Rectangle<i32, Physical>>,
+    appearance: Option<Appearance>,
+    /// What lay behind it in the region at the last frame, back to front.
+    seen: Vec<Seen>,
+    blur: Arc<Mutex<Blur>>,
     id: Id,
     commit: CommitCounter,
 }
 
 impl LiveGlass {
     /// Live glass below `behind`.
-    pub fn new(renderer: &mut VkRenderer, behind: Behind) -> Result<LiveGlass> {
-        let size = (1, 1);
-        Ok(LiveGlass {
+    pub fn new(behind: Behind) -> LiveGlass {
+        LiveGlass {
             behind,
-            region: Rectangle::from_size(size.into()),
-            target: renderer.sampled_target(size.into())?,
-            damage: OutputDamageTracker::new(size, 1.0, Transform::Normal),
-            drawn: false,
-            glass: None,
-            chain: Vec::new(),
+            region: None,
+            appearance: None,
+            seen: Vec::new(),
+            blur: Arc::new(Mutex::new(Blur {
+                material: Appearance::Light.material(),
+                chain: Vec::new(),
+                copy: None,
+                drawn: false,
+            })),
             id: Id::new(),
             commit: CommitCounter::default(),
-        })
+        }
     }
 
     pub fn is_for(&self, behind: &Behind) -> bool {
@@ -527,8 +585,9 @@ impl LiveGlass {
         }
     }
 
-    /// Draws what lies `behind` (front to back) the panel's glass `glass`
-    /// on a `screen`, blurs it if it changed, and gives `glass` the result.
+    /// Readies the panel's glass `glass` on a `screen` for this frame, with
+    /// what lies `behind` it (front to back): blurred again by the frame if
+    /// something there changed since the last, else the last blur.
     pub fn update<E: RenderElement<VkRenderer>>(
         &mut self,
         renderer: &mut VkRenderer,
@@ -545,48 +604,73 @@ impl LiveGlass {
         let region = around
             .intersection(Rectangle::from_size(screen))
             .context("live glass off the screen")?;
-        if region.size != self.region.size {
-            let size = (region.size.w, region.size.h);
-            self.target = renderer.sampled_target(size.into())?;
-            self.damage = OutputDamageTracker::new(size, 1.0, Transform::Normal);
-            self.drawn = false;
-        }
-        self.region = region;
-        let origin = Point::from((-region.loc.x, -region.loc.y));
-        let relocated: Vec<_> = behind
+        let scale = Scale::from(1.0);
+        let seen: Vec<Seen> = behind
             .iter()
-            .map(|e| RelocateRenderElement::from_element(e, origin, Relocate::Relative))
+            .rev()
+            .filter(|e| e.geometry(scale).overlaps(region))
+            .map(|e| Seen {
+                id: e.id().clone(),
+                commit: e.current_commit(),
+                geometry: e.geometry(scale),
+            })
             .collect();
-        let age = usize::from(self.drawn);
-        let changed = {
-            let mut framebuffer = renderer.bind(&mut self.target)?;
-            self.damage
-                .render_output(renderer, &mut framebuffer, age, &relocated, CLEAR)
-                .map_err(|e| error(format!("drawing behind live glass: {e:?}")))?
-                .damage
-                .is_some()
-        };
-        self.drawn = true;
-        let stale = self.glass.as_ref().is_none_or(|(_, a)| *a != appearance);
-        if changed || stale {
-            let behind = self
-                .target
-                .texture()
-                .context("live glass without a texture")?;
-            let blurred = renderer.draw_glass(behind, appearance.material(), &mut self.chain)?;
-            self.glass = Some((blurred, appearance));
+        let changed = changed_in(&self.seen, &seen, behind, region);
+        self.seen = seen;
+        let mut blur = self
+            .blur
+            .lock()
+            .map_err(|_| error("live glass's blur poisoned"))?;
+        let again = changed
+            || !blur.drawn
+            || self.region != Some(region)
+            || self.appearance != Some(appearance);
+        self.region = Some(region);
+        self.appearance = Some(appearance);
+        if again {
+            blur.material = appearance.material();
+            let size = (region.size.w, region.size.h).into();
+            renderer.prepare_glass(size, blur.material, &mut blur.chain)?;
+            blur.drawn = false;
             self.commit.increment();
-        }
-        if let Some((texture, _)) = &self.glass {
-            glass.texture = texture.clone();
+            // The frame gives it the new blur (`Glass::draw`); should that
+            // fail, it shows the background it came with.
+            glass.blur = Some(self.blur.clone());
+        } else if let Some(last) = blur.chain.last() {
+            glass.texture = last.clone();
             glass.covers = region;
-            glass.id = self.id.clone();
-            glass.commit = self.commit;
         }
+        glass.region = Some(region);
+        glass.id = self.id.clone();
+        glass.commit = self.commit;
         Ok(())
     }
 }
 
-/// What nothing covers behind live glass (never on the screen: the
-/// background covers all).
-const CLEAR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+/// Whether what lies behind live glass in `region` changed from `before`
+/// to `now` (back to front, of `behind`, front to back): an element came,
+/// went, moved or changed order, or one changed within the region.
+fn changed_in<E: Element>(
+    before: &[Seen],
+    now: &[Seen],
+    behind: &[E],
+    region: Rectangle<i32, Physical>,
+) -> bool {
+    if before.len() != now.len()
+        || before
+            .iter()
+            .zip(now)
+            .any(|(b, n)| b.id != n.id || b.geometry != n.geometry)
+    {
+        return true;
+    }
+    let scale = Scale::from(1.0);
+    before.iter().zip(now).any(|(b, n)| {
+        b.commit != n.commit
+            && behind.iter().find(|e| *e.id() == n.id).is_none_or(|e| {
+                e.damage_since(scale, Some(b.commit))
+                    .iter()
+                    .any(|d| Rectangle::new(d.loc + n.geometry.loc, d.size).overlaps(region))
+            })
+    })
+}

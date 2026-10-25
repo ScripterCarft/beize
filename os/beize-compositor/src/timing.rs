@@ -7,8 +7,8 @@
 //!   (its implicit write fence), as Mutter, KWin, niri and Smithay's anvil
 //!   hold it; till then the surface shows what it showed. Applied at once,
 //!   the frame's own submission waited for the client's work on the GPU, and
-//!   the compositor waited for that frame before its next but one – a slow
-//!   or hung client held up every window, the pointer and the input.
+//!   KMS showed it only then: a slow client held up every window and the
+//!   pointer (its plane moves with the frame's commit), a hung one all.
 //! - fifo: a commit waits until the one before it was shown. Its barrier is
 //!   taken with what a frame draws and lifted at that frame's vblank
 //!   (`State::present`), for hidden surfaces with their "frame done" – as

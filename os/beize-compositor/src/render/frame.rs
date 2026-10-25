@@ -1,6 +1,8 @@
 //! A frame: Smithay's draw calls become quads (`geometry`), cut to their
 //! damage and split into opaque and blended parts; at the end they are
 //! recorded as runs of one pipeline each – usually one to three draws.
+//! Live glass stops the drawing where it lies (`Insert`): what the frame
+//! drew behind it is copied and blurred, in the same submission.
 //!
 //! Images shared with others (the screen's dmabuf, clients' dmabufs) pass
 //! between Vulkan and their owner by queue family ownership transfer from
@@ -22,8 +24,8 @@ use super::geometry::{self, Mapping, Quad, Space};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
-use super::{Pass, Upload, VkRenderer};
-use crate::error::{Error, Result};
+use super::{Material, Pass, Upload, VkRenderer};
+use crate::error::{Context, Error, Result, error};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
@@ -57,6 +59,19 @@ pub(super) struct Recorded<'a> {
     /// Fences to wait for (`Frame::wait`).
     pub waits: Vec<SyncPoint>,
     pub family: u32,
+    /// Where the frame stops drawing to blur what it drew (live glass).
+    pub inserts: Vec<Insert>,
+}
+
+/// Live glass in the frame (`VkFrame::blur_behind`): once the quads before
+/// `at` are drawn, `region` of the target – what lies behind the glass, as
+/// this frame drew it – is copied to `copy` and blurred by `passes`; then
+/// the frame draws on.
+pub(super) struct Insert {
+    pub at: usize,
+    pub region: Rectangle<i32, Physical>,
+    pub copy: VkTexture,
+    pub passes: Vec<Pass>,
 }
 
 pub struct VkFrame<'frame, 'buffer> {
@@ -92,6 +107,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
                 foreign: Vec::new(),
                 waits: Vec::new(),
                 family,
+                inserts: Vec::new(),
             },
             space,
             rounding: None,
@@ -251,6 +267,47 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         self.uses(glass);
     }
 
+    /// Live glass (ADR 0028 §6): blurs what this frame has drawn so far in
+    /// `region` (the output's space) – what lies behind the glass, the frame
+    /// drawing back to front – through `chain`, prepared for its size
+    /// (`VkRenderer::prepare_glass`), in this frame's submission. `copy`
+    /// holds the region, made or made again here to fit the target. The
+    /// glass, `chain`'s last picture, is ready for the quads drawn after.
+    pub fn blur_behind(
+        &mut self,
+        region: Rectangle<i32, Physical>,
+        material: Material,
+        chain: &[VkTexture],
+        copy: &mut Option<VkTexture>,
+    ) -> Result<VkTexture> {
+        let fb = self.space.framebuffer_rect(region);
+        let target = &*self.recorded.target;
+        let bounds = Rectangle::from_size((target.size.w, target.size.h).into());
+        if self.space.transform != Transform::Normal || !bounds.contains_rect(fb) {
+            return Err(error("live glass off its target"));
+        }
+        let size = (fb.size.w, fb.size.h).into();
+        let fits = copy
+            .as_ref()
+            .is_some_and(|c| c.0.size == size && c.0.fourcc == target.fourcc());
+        if !fits {
+            *copy = Some(self.renderer.copy_texture_for(target, size)?);
+        }
+        let copy = copy.clone().context("live glass's copy")?;
+        let passes = super::glass_passes(&copy, material, chain)?;
+        let glass = passes
+            .last()
+            .map(|p| p.texture.clone())
+            .context("live glass without passes")?;
+        self.recorded.inserts.push(Insert {
+            at: self.recorded.quads.len(),
+            region: fb,
+            copy,
+            passes,
+        });
+        Ok(glass)
+    }
+
     fn uses(&mut self, texture: &VkTexture) {
         let known = |list: &[VkTexture]| list.iter().any(|t| Arc::ptr_eq(&t.0, &texture.0));
         if !known(&self.recorded.textures) {
@@ -369,13 +426,10 @@ impl Drop for VkFrame<'_, '_> {
     }
 }
 
-/// The layout a filled target keeps between frames: a sampled one is
-/// read by later frames.
+/// The layout a filled target keeps between frames.
 pub(super) fn target_layout(target: &Target) -> vk::ImageLayout {
     if target.dmabuf.is_some() {
         vk::ImageLayout::GENERAL
-    } else if target.texture.is_some() {
-        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
     } else {
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
     }
@@ -497,13 +551,128 @@ pub(super) fn record_passes(
     }
 }
 
-/// The frame's quads, drawn into its target.
+/// Live glass in the frame (`Insert`): the target's region copied, then
+/// blurred by its passes (`pass_pipelines`, their quads at `addresses`);
+/// the target back to be drawn on.
+#[allow(clippy::too_many_arguments)]
+fn record_insert(
+    d: &ash::Device,
+    commands: vk::CommandBuffer,
+    layouts: &Pipelines,
+    pass_pipelines: [[vk::Pipeline; 2]; 2],
+    target: &Target,
+    insert: &Insert,
+    addresses: &[u64],
+    submission: u64,
+) {
+    let copy = insert.copy.0.gpu.image;
+    let copy_old = if insert.copy.0.filled.load(Ordering::Relaxed) {
+        (vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL, SHADER_READ)
+    } else {
+        (vk::ImageLayout::UNDEFINED, NONE)
+    };
+    barriers(
+        d,
+        commands,
+        &[
+            barrier(
+                target.image,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                COLOR_WRITE,
+                TRANSFER_READ,
+                SAME,
+            ),
+            // Written whole: what it held goes, once earlier reads are done.
+            barrier(
+                copy,
+                copy_old.0,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                copy_old.1,
+                TRANSFER_WRITE,
+                SAME,
+            ),
+        ],
+    );
+    let layers = vk::ImageSubresourceLayers {
+        aspect_mask: vk::ImageAspectFlags::COLOR,
+        mip_level: 0,
+        base_array_layer: 0,
+        layer_count: 1,
+    };
+    let r = insert.region;
+    let region = vk::ImageCopy::default()
+        .src_subresource(layers)
+        .src_offset(vk::Offset3D {
+            x: r.loc.x,
+            y: r.loc.y,
+            z: 0,
+        })
+        .dst_subresource(layers)
+        .extent(vk::Extent3D {
+            width: r.size.w as u32,
+            height: r.size.h as u32,
+            depth: 1,
+        });
+    // SAFETY: the region lies within the target (`blur_behind`) and is the
+    // copy's size; both are in the layouts named (barriers above); the copy
+    // has the target's format.
+    unsafe {
+        d.cmd_copy_image(
+            commands,
+            target.image,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            copy,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            &[region],
+        )
+    };
+    barriers(
+        d,
+        commands,
+        &[
+            barrier(
+                target.image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                TRANSFER_READ,
+                COLOR_WRITE,
+                SAME,
+            ),
+            barrier(
+                copy,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                TRANSFER_WRITE,
+                SHADER_READ,
+                SAME,
+            ),
+        ],
+    );
+    insert.copy.0.filled.store(true, Ordering::Relaxed);
+    insert.copy.used(submission);
+    record_passes(
+        d,
+        commands,
+        layouts,
+        pass_pipelines,
+        &insert.passes,
+        addresses,
+        submission,
+    );
+}
+
+/// The frame's quads, drawn into its target, with its live glass between
+/// (`inserts`; their passes' quads at `insert_addresses`).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn record_frame(
     d: &ash::Device,
     commands: vk::CommandBuffer,
     layouts: &Pipelines,
     pipelines: [vk::Pipeline; 2],
+    pass_pipelines: [[vk::Pipeline; 2]; 2],
     quads: u64,
+    insert_addresses: &[Vec<u64>],
     frame: &mut Recorded<'_>,
     submission: u64,
 ) {
@@ -516,18 +685,11 @@ pub(super) fn record_frame(
     } else {
         vk::ImageLayout::UNDEFINED
     };
-    let sampled = target.texture.is_some();
     let mut before = vec![barrier(
         target.image,
         old,
         vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        if shared_target {
-            NONE
-        } else if sampled {
-            SHADER_READ
-        } else {
-            COLOR_WRITE
-        },
+        if shared_target { NONE } else { COLOR_WRITE },
         COLOR_WRITE,
         if shared_target && target.filled {
             (foreign, own)
@@ -557,17 +719,57 @@ pub(super) fn record_frame(
     barriers(d, commands, &before);
 
     let (w, h) = (target.size.w as u32, target.size.h as u32);
-    let attachment = Attachment {
-        view: target.view,
-        size: (w, h),
-        load: target.filled,
-    };
-    // SAFETY: recording into this frame's command buffer, the target in
-    // COLOR_ATTACHMENT_OPTIMAL (barrier above); the pipelines are its
-    // format's, the quad buffer and textures live until the submission
-    // completes.
-    let draws = unsafe { layouts.record(d, commands, pipelines, &attachment, quads, &frame.blend) };
-    debug!("{} quads in {draws} draws", frame.quads.len());
+    let mut draws = 0;
+    let mut start = 0;
+    let quad_size = std::mem::size_of::<Quad>();
+    let ends = frame
+        .inserts
+        .iter()
+        .map(|i| (i.at, Some(i)))
+        .chain([(frame.quads.len(), None)]);
+    for (n, (end, insert)) in ends.enumerate() {
+        if end > start {
+            let attachment = Attachment {
+                view: target.view,
+                size: (w, h),
+                // After the first piece, what the frame drew so far stays.
+                load: target.filled || start > 0 || n > 0,
+            };
+            // SAFETY: recording into this frame's command buffer, the target
+            // in COLOR_ATTACHMENT_OPTIMAL (barrier above, and after each
+            // copy); the pipelines are its format's, the quad buffer and
+            // textures live until the submission completes; `start..end`
+            // lies within the frame's quads.
+            draws += unsafe {
+                layouts.record(
+                    d,
+                    commands,
+                    pipelines,
+                    &attachment,
+                    quads + (start * quad_size) as u64,
+                    &frame.blend[start..end],
+                )
+            };
+        }
+        start = end;
+        if let Some(insert) = insert {
+            record_insert(
+                d,
+                commands,
+                layouts,
+                pass_pipelines,
+                target,
+                insert,
+                &insert_addresses[n],
+                submission,
+            );
+        }
+    }
+    debug!(
+        "{} quads in {draws} draws, {} live glass",
+        frame.quads.len(),
+        frame.inserts.len()
+    );
 
     // Kept for the next frame, or handed to KMS.
     let target = &*frame.target;
@@ -622,16 +824,6 @@ pub(super) fn record_frame(
             COLOR_WRITE,
             NONE,
             (own, foreign),
-        ));
-    } else if sampled {
-        // Read by what comes after: a blur, a later frame.
-        after.push(barrier(
-            target.image,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            COLOR_WRITE,
-            SHADER_READ,
-            SAME,
         ));
     }
     barriers(d, commands, &after);

@@ -312,8 +312,13 @@ impl Gpu {
         let id = (connector.handle(), info.name.clone());
         self.screen = Some(match &self.images {
             Images::Vulkan(phd) => {
-                let allocator = VulkanAllocator::new(phd, ImageUsageFlags::COLOR_ATTACHMENT)
-                    .context("Vulkan allocator")?;
+                // Drawn into, and read from by live glass (`blur_behind`), as
+                // the renderer imports it: only modifiers that allow both.
+                let allocator = VulkanAllocator::new(
+                    phd,
+                    ImageUsageFlags::COLOR_ATTACHMENT | ImageUsageFlags::TRANSFER_SRC,
+                )
+                .context("Vulkan allocator")?;
                 // The modifiers the screen's plane takes for XRGB8888, that
                 // Vulkan can allocate.
                 let modifiers: Vec<Modifier> = surface

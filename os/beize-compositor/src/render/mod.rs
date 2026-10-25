@@ -321,52 +321,63 @@ impl VkRenderer {
         material: Material,
         chain: &mut Vec<VkTexture>,
     ) -> Result<VkTexture> {
-        use beize_vulkan::pipeline::{BLUR_DOWN, BLUR_UP, MATERIAL};
-        if material.down == 0 {
-            return Err(error("glass without blur"));
-        }
-        let mut sizes = vec![source.0.size];
-        for _ in 0..material.down {
-            let last = sizes[sizes.len() - 1];
-            sizes.push(((last.w + 1) / 2, (last.h + 1) / 2).into());
-        }
-        let up = material.up.min(material.down) as usize;
-        let mut from = source.clone();
-        let steps = material.down as usize + up;
-        for step in 0..steps {
-            let (size, flags) = if step < material.down as usize {
-                (sizes[step + 1], BLUR_DOWN)
-            } else {
-                (
-                    sizes[sizes.len() - 2 - (step - material.down as usize)],
-                    BLUR_UP,
-                )
-            };
-            let last = step + 1 == steps;
-            let texture = match chain.get(step) {
-                Some(t) if t.0.size == size && t.0.attachment.is_some() => {
-                    self.passes.retain(|p| !Arc::ptr_eq(&p.texture.0, &t.0));
-                    t.clone()
-                }
-                _ => {
-                    let texture = self.picture_texture(size)?;
-                    chain.truncate(step);
-                    chain.push(texture.clone());
-                    texture
-                }
-            };
-            let mut quad = pass_quad(size, Some(&from));
-            quad.flags = flags;
-            quad.sigma = material.offset;
-            if last {
-                quad.flags |= MATERIAL;
-                quad.color = material.tint;
-                quad.bottom = [material.saturation, 0.0, 0.0, 0.0];
+        self.prepare_glass(source.0.size, material, chain)?;
+        // Drawn again in this submission: the passes queued before for these
+        // pictures are superseded.
+        self.passes
+            .retain(|p| !chain.iter().any(|t| Arc::ptr_eq(&p.texture.0, &t.0)));
+        let passes = glass_passes(source, material, chain)?;
+        let glass = passes
+            .last()
+            .map(|p| p.texture.clone())
+            .context("glass without passes")?;
+        self.passes.extend(passes);
+        Ok(glass)
+    }
+
+    /// The pictures the glass of a `size` source is drawn through (`Material`),
+    /// in `chain`: kept where they have the step's size, else made.
+    pub fn prepare_glass(
+        &mut self,
+        size: Size<i32, Buffer>,
+        material: Material,
+        chain: &mut Vec<VkTexture>,
+    ) -> Result<()> {
+        let sizes = glass_sizes(size, material)?;
+        for (step, &size) in sizes.iter().enumerate() {
+            let fits = chain
+                .get(step)
+                .is_some_and(|t| t.0.size == size && t.0.attachment.is_some());
+            if !fits {
+                chain.truncate(step);
+                chain.push(self.picture_texture(size)?);
             }
-            self.backdrop_pass(&texture, quad, Some(from));
-            from = texture;
         }
-        Ok(from)
+        chain.truncate(sizes.len());
+        Ok(())
+    }
+
+    /// An image in the format of a frame's target, `size` large, that a
+    /// part of the frame is copied into and read from (live glass).
+    fn copy_texture_for(&mut self, target: &Target, size: Size<i32, Buffer>) -> Result<VkTexture> {
+        let (image, memory) = beize_vulkan::image::own_image(
+            &self.shared,
+            target.format,
+            (size.w as u32, size.h as u32),
+            vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+        )?;
+        let texture = texture::wrap(
+            &self.shared,
+            image,
+            memory,
+            target.fourcc(),
+            size,
+            None,
+            None,
+        )?;
+        self.pipelines
+            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
+        Ok(texture)
     }
 
     fn backdrop_pass(&mut self, texture: &VkTexture, quad: Quad, reads: Option<VkTexture>) {
@@ -691,6 +702,59 @@ impl VkRenderer {
 
 /// A quad over a whole picture of `size`, reading all of `source` (a
 /// pass of the backdrop).
+/// The sizes of the glass's steps from a `size` source (`Material`): Dual
+/// Kawase halvings, then doublings back.
+fn glass_sizes(size: Size<i32, Buffer>, material: Material) -> Result<Vec<Size<i32, Buffer>>> {
+    if material.down == 0 {
+        return Err(error("glass without blur"));
+    }
+    let mut halved = vec![size];
+    for _ in 0..material.down {
+        let last = halved[halved.len() - 1];
+        halved.push(((last.w + 1) / 2, (last.h + 1) / 2).into());
+    }
+    let up = material.up.min(material.down) as usize;
+    let mut sizes: Vec<_> = halved[1..].to_vec();
+    sizes.extend((0..up).map(|i| halved[halved.len() - 2 - i]));
+    Ok(sizes)
+}
+
+/// The passes that draw the glass of `source` through `chain`, prepared
+/// for its size (`prepare_glass`); the last pass's picture is the glass.
+fn glass_passes(source: &VkTexture, material: Material, chain: &[VkTexture]) -> Result<Vec<Pass>> {
+    use beize_vulkan::pipeline::{BLUR_DOWN, BLUR_UP, MATERIAL};
+    let sizes = glass_sizes(source.0.size, material)?;
+    if chain.len() != sizes.len() || chain.iter().zip(&sizes).any(|(t, s)| t.0.size != *s) {
+        return Err(error("the glass's pictures do not fit its source"));
+    }
+    let mut passes = Vec::with_capacity(sizes.len());
+    let mut from = source.clone();
+    for (step, texture) in chain.iter().enumerate() {
+        let size = sizes[step];
+        let mut quad = pass_quad(size, Some(&from));
+        quad.flags = if step < material.down as usize {
+            BLUR_DOWN
+        } else {
+            BLUR_UP
+        };
+        quad.sigma = material.offset;
+        if step + 1 == sizes.len() {
+            quad.flags |= MATERIAL;
+            quad.color = material.tint;
+            quad.bottom = [material.saturation, 0.0, 0.0, 0.0];
+        }
+        passes.push(Pass {
+            texture: texture.clone(),
+            quads: vec![quad],
+            blend: vec![false],
+            backdrop: true,
+            reads: Some(from),
+        });
+        from = texture.clone();
+    }
+    Ok(passes)
+}
+
 fn pass_quad(size: Size<i32, Buffer>, source: Option<&VkTexture>) -> Quad {
     let mut quad = Quad {
         size: [size.w as f32, size.h as f32],
@@ -1137,16 +1201,21 @@ impl VkRenderer {
         }
         drop(uploads);
         let passes = std::mem::take(&mut self.passes);
+        // The passes', then the frame's, then those of its live glass.
         let mut lists: Vec<&[Quad]> = passes.iter().map(|p| p.quads.as_slice()).collect();
         if let Some(frame) = &frame {
             lists.push(&frame.quads);
+            for insert in &frame.inserts {
+                lists.extend(insert.passes.iter().map(|p| p.quads.as_slice()));
+            }
         }
         let addresses = self.write_quads(i, &lists)?;
+        let pass_pipelines = [
+            self.pipelines.get(&d, PICTURE_DRAWN)?,
+            self.pipelines.get_backdrop(&d, PICTURE_DRAWN)?,
+        ];
         if !passes.is_empty() {
-            let pipelines = [
-                self.pipelines.get(&d, PICTURE_DRAWN)?,
-                self.pipelines.get_backdrop(&d, PICTURE_DRAWN)?,
-            ];
+            let pipelines = pass_pipelines;
             frame::record_passes(
                 &d,
                 commands,
@@ -1161,13 +1230,21 @@ impl VkRenderer {
         let mut synced = Duration::ZERO;
         if let Some(frame) = frame {
             let pipelines = self.pipelines.get(&d, frame.target.format)?;
-            let quads = addresses.last().copied().unwrap_or_default();
+            let quads = addresses.get(passes.len()).copied().unwrap_or_default();
+            let mut rest = addresses.iter().skip(passes.len() + 1).copied();
+            let insert_addresses: Vec<Vec<u64>> = frame
+                .inserts
+                .iter()
+                .map(|insert| rest.by_ref().take(insert.passes.len()).collect())
+                .collect();
             frame::record_frame(
                 &d,
                 commands,
                 &self.pipelines,
                 pipelines,
+                pass_pipelines,
                 quads,
+                &insert_addresses,
                 frame,
                 submission,
             );
@@ -1283,13 +1360,6 @@ impl VkRenderer {
         let target = &mut *frame.target;
         target.filled = true;
         target.last_used = submission;
-        if let Some(texture) = &target.texture {
-            texture
-                .0
-                .filled
-                .store(true, std::sync::atomic::Ordering::Relaxed);
-            texture.used(submission);
-        }
         if let Some(readback) = &target.readback {
             // lavapipe's copy: the CPU copies, so it waits.
             let waiting = Instant::now();

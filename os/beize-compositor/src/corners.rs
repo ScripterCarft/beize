@@ -9,7 +9,7 @@
 //! its window geometry for its own shadow – keep theirs, as on GNOME; a
 //! maximized window has neither, its edges are the screen's.
 
-use crate::render::{VkFrame, VkRenderer, VkTexture};
+use crate::render::{Material, VkFrame, VkRenderer, VkTexture};
 use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
@@ -80,9 +80,28 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         grain: f32,
         rim: [f32; 4],
     );
+    /// Blurs what the frame drew so far in `region` (live glass,
+    /// `VkFrame::blur_behind`); the glass, ready for what is drawn after.
+    fn blur_behind(
+        frame: &mut Self::Frame<'_, '_>,
+        region: Rectangle<i32, Physical>,
+        material: Material,
+        chain: &[VkTexture],
+        copy: &mut Option<VkTexture>,
+    ) -> Result<VkTexture, Self::Error>;
 }
 
 impl Effects for VkRenderer {
+    fn blur_behind(
+        frame: &mut VkFrame<'_, '_>,
+        region: Rectangle<i32, Physical>,
+        material: Material,
+        chain: &[VkTexture],
+        copy: &mut Option<VkTexture>,
+    ) -> Result<VkTexture, Self::Error> {
+        frame.blur_behind(region, material, chain, copy)
+    }
+
     fn set_rounding(
         frame: &mut VkFrame<'_, '_>,
         rounding: Option<(Rectangle<i32, Physical>, f32)>,
