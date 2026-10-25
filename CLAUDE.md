@@ -242,6 +242,9 @@ in die Endfassung einarbeiten, keine Nachträge.
   suchen, Homepage prüfen) und `[sbom]` mit `license` (SPDX, Fedoras Angabe) und `cpe`
   (Liste, gegen NVDs CPE-Wörterbuch geprüft; leer nur mit Begründung); Test verlangt beides.
   Die SBOM des Images: `build/out/<variante>/sbom.spdx.json`.
+- **Schichten der eigenen Crates** (`deny.toml`, `[bans]`): wer welche Crate nutzen darf (Smithay nur
+  der Compositor, Wayland-Client nur Beize UI …); ein neuer Nutzer ist eine Entscheidung mit Grund
+  dort, `cargo deny` (CI) lehnt jeden anderen ab.
 - **Eigener Rust-Code:** `unsafe` nur mit `// SAFETY:`, kein `unwrap`/`expect` außerhalb von
   Tests (Lints). Was ein unprivilegierter Aufrufer oder die Firmware schickt, läuft durch einen
   Fuzz-Einstieg (`beize_varlink::fuzz_request`, `beize_update::list::fuzz_list`, beize-tpm

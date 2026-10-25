@@ -37,6 +37,24 @@ multiple-versions = "warn"
 wildcards = "deny"
 # Beize's crates depend on each other by path, within this repository.
 allow-wildcard-paths = true
+# Beize's layers (CLAUDE.md §5): each crate may be used only by those named
+# (`wrappers`) – a new user is a decision, made here. Graphics: beize-vulkan
+# below beize-draw below Beize UI and the compositor; Wayland's client side
+# only in Beize UI and the test client, Smithay only in the compositor.
+# The system's services share beize-varlink, the desktop's beize-systemd;
+# bz uses none of them.
+deny = [
+  { crate = "smithay", wrappers = ["beize-compositor"], reason = "the compositor alone speaks Wayland's server side (ADR 0027)" },
+  { crate = "wayland-client", wrappers = ["beize-ui", "beize-testclient", "beize-protocols", "wayland-protocols", "wayland-protocols-wlr"], reason = "apps reach Wayland through Beize UI (ADR 0027 §9)" },
+  { crate = "ash", wrappers = ["beize-vulkan", "beize-ui", "smithay"], reason = "Vulkan through beize-vulkan; Beize UI loads it for its windows" },
+  { crate = "beize-vulkan", wrappers = ["beize-draw", "beize-ui", "beize-compositor"], reason = "the GPU ground of Beize UI and the compositor" },
+  { crate = "beize-draw", wrappers = ["beize-ui", "beize-compositor"], reason = "what Beize UI and the compositor draw alike (ADR 0028 §2)" },
+  { crate = "beize-ui", wrappers = ["beize-shell", "beize-terminal"], reason = "the toolkit of Beize's apps; the compositor draws without it" },
+  { crate = "beize-protocols", wrappers = ["beize-ui", "beize-compositor"], reason = "Beize's own protocols, between the shell and the compositor" },
+  { crate = "beize-systemd", wrappers = ["beize-compositor", "beize-session", "beize-shell"], reason = "the desktop's way into logind and the user's service manager" },
+  { crate = "beize-varlink", wrappers = ["beize-accounts", "beize-update"], reason = "the system services' Varlink" },
+  { crate = "beize-accounts", wrappers = ["beize-setup"], reason = "the account service's client, for the first start" },
+]
 
 # Crates only from crates.io: their versions and checksums are in Cargo.lock.
 [sources]
