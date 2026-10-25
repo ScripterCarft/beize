@@ -23,6 +23,8 @@
 //!
 //! The first late frames of a run get a line each with their times, so a
 //! hardware test shows who held up each one (a summary only says how many).
+//! Both say where the drawing (CPU) went (`Parts`): measured, so the work
+//! that makes frames late is found before anything is changed.
 //!
 //! It costs a few numbers per frame, kept until the summary.
 //!
@@ -61,6 +63,20 @@ pub struct Times {
     pub committed: Duration,
     pub lead: Option<Duration>,
     pub aimed: bool,
+    pub parts: Parts,
+}
+
+/// Where a frame's drawing (CPU) went, from when it began to its commit:
+/// the scene put together (every window's, panel's and shadow's
+/// elements), live glass drawn behind its panels, the frame itself
+/// (damage, recording, the GPU's queue, the buffers' fences) and the
+/// commit to KMS.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Parts {
+    pub scene: Duration,
+    pub glass: Duration,
+    pub frame: Duration,
+    pub commit: Duration,
 }
 
 /// The frames of one run.
@@ -85,6 +101,8 @@ struct Run {
     ahead: Vec<f64>,
     /// The schedule's lead, in milliseconds.
     lead: Vec<f64>,
+    /// The drawing's parts (`Parts`), in milliseconds.
+    parts: [Vec<f64>; 4],
 }
 
 pub struct Pacing {
@@ -154,6 +172,14 @@ impl Pacing {
         run.gpu.extend(gpu_ms);
         run.ahead.push(ms(begins) - ms(ready));
         run.lead.extend(times.lead.map(ms));
+        let p = times.parts;
+        for (all, part) in run
+            .parts
+            .iter_mut()
+            .zip([p.scene, p.glass, p.frame, p.commit])
+        {
+            all.push(ms(part));
+        }
         if vblank.saturating_sub(run.first) >= PIECE {
             self.report();
             self.run.first = vblank;
@@ -205,12 +231,20 @@ impl Pacing {
         let (cpu, gpu, latency) = (sorted(&run.cpu), sorted(&run.gpu), sorted(&run.latency));
         let (ahead, lead) = (sorted(&run.ahead), sorted(&run.lead));
         let busy = (median(&cpu) + median(&gpu)) / budget * 100.0;
+        let parts = run.parts.each_ref().map(|p| sorted(p));
+        let parts = ["scene", "glass", "frame", "commit"]
+            .iter()
+            .zip(&parts)
+            .map(|(name, p)| format!("{name} {:.2}/{:.2}", median(p), percentile(p, 0.99)))
+            .collect::<Vec<_>>()
+            .join(", ");
         Some(format!(
             "pacing: {} frames in {:.2} s at {:.0} Hz, {} late (drawing {}, GPU {}, display {}); \
              change to screen median {:.2} ms, max {:.2}; ready median {:.2} ms before the \
              vblank begins, least {:.2}; lead median {:.2} ms, max {:.2}; drawing (CPU) median \
              {:.2} ms, 99 % {:.2}, max {:.2}; \
-             GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame",
+             GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame; \
+             drawing in parts, median/99 % ms: {parts}",
             run.frames,
             length.as_secs_f64(),
             1000.0 / budget,
@@ -244,15 +278,21 @@ fn late(who: &str, times: &Times, begins: Duration, ready: Duration, shown: Dura
         (Some(lead), false) => format!("drawn at once (lead {:.2} ms)", ms(lead)),
         (None, _) => "drawn without a plan".to_string(),
     };
+    let p = times.parts;
     format!(
         "late frame ({who}), ms from its vblank's begin: change {:.2}, planned {:.2}, began \
-         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {plan}",
+         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {plan}; drawing in parts, ms: scene \
+         {:.2}, glass {:.2}, frame {:.2}, commit {:.2}",
         at(times.requested),
         at(times.planned),
         at(times.began),
         at(times.committed),
         at(ready),
         at(shown),
+        ms(p.scene),
+        ms(p.glass),
+        ms(p.frame),
+        ms(p.commit),
     )
 }
 
@@ -307,6 +347,7 @@ mod tests {
             committed: requested + at(cpu),
             lead: Some(at(3000)),
             aimed: true,
+            parts: Parts::default(),
         };
         p.shown(times, at((n + shown) * vblank), Some(0.1), None);
     }
@@ -349,6 +390,7 @@ mod tests {
             committed: at(6 * vblank - 2800),
             lead: None,
             aimed: false,
+            parts: Parts::default(),
         };
         p.shown(times, at(7 * vblank), None, Some(at(6 * vblank - 100)));
         assert_eq!(p.run.late_gpu, 1);
@@ -368,6 +410,12 @@ mod tests {
             committed: at(2 * vblank - 2800),
             lead: Some(at(3000)),
             aimed: true,
+            parts: Parts {
+                scene: at(50),
+                glass: at(20),
+                frame: at(110),
+                commit: at(20),
+            },
         };
         let begins = times.due - BLANK;
         let line = late(
@@ -381,7 +429,7 @@ mod tests {
             line,
             "late frame (display), ms from its vblank's begin: change -2.54, planned -2.54, \
              began -2.54, committed -2.34, ready -2.34, shown 4.17; planned with a lead of \
-             3.00 ms"
+             3.00 ms; drawing in parts, ms: scene 0.05, glass 0.02, frame 0.11, commit 0.02"
         );
         // Only the first few of a run are logged one by one.
         let mut p = Pacing::new(REFRESH, BLANK);

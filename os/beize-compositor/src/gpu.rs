@@ -24,6 +24,7 @@ use tracing::{info, warn};
 
 use crate::cursor;
 use crate::output::{DmabufExporter, DumbExporter, Frame, Info, Output};
+use crate::pacing::Parts;
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::VkRenderer;
 
@@ -42,10 +43,11 @@ impl Screen {
         cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
         requested: Duration,
         began: Duration,
+        parts: Parts,
     ) -> Result<Frame> {
         match self {
-            Screen::Gpu(o) => o.render(elements, cursor, requested, began),
-            Screen::Cpu(o) => o.render(elements, cursor, requested, began),
+            Screen::Gpu(o) => o.render(elements, cursor, requested, began, parts),
+            Screen::Cpu(o) => o.render(elements, cursor, requested, began, parts),
         }
     }
     pub fn draw_at(&mut self) -> Option<Duration> {

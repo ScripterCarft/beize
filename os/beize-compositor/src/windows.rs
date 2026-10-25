@@ -309,6 +309,8 @@ impl State {
             self.space.map_element(window.clone(), at, false);
             self.list_window(&window);
             self.focus(Some(window));
+            // It may have opened under the pointer.
+            crate::input::refresh_pointer(self);
             return;
         }
         let Some(location) = self.space.element_location(window) else {
@@ -354,12 +356,19 @@ impl State {
 
     /// A window that is gone, placed, minimized or not yet placed.
     pub fn window_destroyed(&mut self, surface: &WlSurface) {
-        if let Some(window) = self.window_for(surface) {
-            self.unlist_window(&window);
+        let window = self.window_for(surface);
+        if let Some(window) = &window {
+            self.unlist_window(window);
+            self.space.unmap_elem(window);
         }
         let other = |w: &Window| w.toplevel().is_some_and(|t| t.wl_surface() != surface);
         self.unmapped.retain(other);
         self.minimized.retain(other);
+        // The pointer may have been over it: what lies there now has it,
+        // with its image, without waiting for the pointer to move.
+        if window.is_some() {
+            crate::input::refresh_pointer(self);
+        }
     }
 
     /// Takes `window` off the screen; the one below it becomes active.

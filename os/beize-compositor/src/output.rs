@@ -40,7 +40,7 @@ use smithay::utils::{Clock, Monotonic, Physical, Point, Rectangle, Transform};
 use tracing::{debug, info, warn};
 
 use crate::cursor;
-use crate::pacing::{Pacing, Times};
+use crate::pacing::{Pacing, Parts, Times};
 use crate::schedule::{Plan, Schedule};
 use beize_compositor::error::{Context, Result, error};
 use beize_compositor::render::{Target, VkRenderer, signalled_at};
@@ -725,6 +725,7 @@ where
         cursor: Option<(&cursor::Image, Point<i32, Physical>)>,
         requested: Duration,
         began: Duration,
+        mut parts: Parts,
     ) -> Result<Frame> {
         if self.flipping {
             return Ok(Frame::Deferred);
@@ -754,6 +755,7 @@ where
             .userdata()
             .get::<Image<F::Framebuffer>>()
             .context("screen buffer data")?;
+        let framing: Duration = self.clock.now().into();
         let (damaged, fence) = {
             let mut target = image.target.borrow_mut();
             let mut framebuffer = self.renderer.bind(&mut *target)?;
@@ -793,6 +795,8 @@ where
             }),
         });
         let planes = primary.into_iter().chain(cursor);
+        let committing: Duration = self.clock.now().into();
+        parts.frame = committing.saturating_sub(framing);
         if self.modeset {
             self.surface
                 .commit(planes, true)
@@ -806,6 +810,7 @@ where
         }
         self.flipping = true;
         let committed: Duration = self.clock.now().into();
+        parts.commit = committed.saturating_sub(committing);
         // Planned by the timer; a frame drawn without it (after a pause)
         // from when it began, for no vblank.
         let plan = self.planned.take();
@@ -819,6 +824,7 @@ where
                 committed,
                 lead: plan.map(|p| p.lead),
                 aimed: plan.is_some_and(|p| p.aim.is_some()),
+                parts,
             };
             self.pending = Some(Pending {
                 slot,

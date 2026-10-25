@@ -143,7 +143,10 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
         state.surface_under(to)
     };
     let own = under.is_none();
+    let entered = under.as_ref().map(|(surface, _)| surface.clone());
+    let mut new_surface = false;
     if let Some(pointer) = state.seat.get_pointer() {
+        new_surface = entered.is_some() && pointer.current_focus() != entered;
         pointer.motion(
             state,
             under,
@@ -157,6 +160,12 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
     }
     if own {
         state.own_cursor();
+    } else if new_surface {
+        // A surface newly under the pointer shows the arrow until its app
+        // names an image (set_cursor, its answer to the enter just sent),
+        // as a window without a cursor of its own on macOS – not the last
+        // one, a resize arrow from the edge the pointer came over.
+        state.default_cursor();
     }
     // Only the cursor plane moves; nothing is drawn.
     state.changed();

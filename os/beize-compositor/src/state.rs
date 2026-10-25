@@ -83,6 +83,7 @@ use crate::keyboard::Layout;
 use crate::layers::{Side, side};
 use crate::opening::{Opening, SHELL_WAIT, Veil};
 use crate::output::{Frame, Info};
+use crate::pacing::Parts;
 use beize_compositor::error::{Context, Error, Result, error};
 use beize_compositor::render::VkRenderer;
 
@@ -411,7 +412,7 @@ impl State {
         }
         let black = veil_over(&self.veil_id, self.veil_commit, self.screen_area(), 1.0);
         if let Some(screen) = &mut self.screen {
-            screen.render(&[black], None, now, now)?;
+            screen.render(&[black], None, now, now, Parts::default())?;
         }
         Ok(())
     }
@@ -779,6 +780,7 @@ impl State {
             elements.push(Element::Wallpaper(backdrop.scrim()));
             elements.push(Element::Wallpaper(backdrop.wallpaper()));
         }
+        let scene_done: Duration = self.clock.now().into();
         // Live glass shows what lies behind it: back to front, so glass in
         // front sees glass behind it as it is now.
         self.live_glass.retain(|l| l.wanted(plated));
@@ -827,7 +829,13 @@ impl State {
         } else {
             &elements[..]
         };
-        let frame = screen.render(drawn, cursor, requested, began);
+        let now: Duration = self.clock.now().into();
+        let parts = Parts {
+            scene: scene_done.saturating_sub(began),
+            glass: now.saturating_sub(scene_done),
+            ..Parts::default()
+        };
+        let frame = screen.render(drawn, cursor, requested, began, parts);
         take_back(source, &mut elements, lower);
         take_back(source, &mut elements, upper);
         if !matches!(frame, Ok(Frame::Deferred)) {
@@ -840,10 +848,6 @@ impl State {
             Err(e) => self.fail(e),
         }
         self.animate_cursor(began);
-        // The fade draws each frame until it ends.
-        if matches!(self.opening, Opening::Fading { .. }) {
-            self.changed();
-        }
     }
 
     /// An animated pointer (`cursor`): draws again when its next frame is
@@ -885,6 +889,13 @@ impl State {
         };
         let now = self.clock.now().into();
         self.cursor.set(CursorImageStatus::Named(icon), now);
+    }
+
+    /// The arrow, until a client names another image.
+    pub fn default_cursor(&mut self) {
+        let now = self.clock.now().into();
+        self.cursor
+            .set(CursorImageStatus::Named(CursorIcon::Default), now);
     }
 
     /// While frames come in a row, checks twice a second whether they
@@ -961,6 +972,15 @@ impl State {
         }
         self.space.refresh();
         self.popups.cleanup();
+        // The compositor's own animation (the fade) asks for its next frame
+        // here, as a client does on "frame done": the change dates from
+        // this vblank and is drawn at the next one's deadline. Asked for
+        // while drawing (until 0.5.102), its frame was dated before the
+        // last one was shown, could only be drawn at that one's vblank, at
+        // once – every frame of the fade late (hardware test 24.10.).
+        if matches!(self.opening, Opening::Fading { .. }) {
+            self.changed();
+        }
     }
 
     /// The topmost surface under `at` – a panel above the windows, a
