@@ -6,6 +6,7 @@
 //!   the Vulkan renderer (`render`, §7); it draws only what changed, just
 //!   before the vblank (`schedule`), and measures itself (`pacing`).
 //! - `state`: the Wayland protocols and when the screen is drawn;
+//!   `scene` what a frame shows, front to back, and its live glass;
 //!   `shell`: windows (xdg-shell), `windows` their places, `decorations`
 //!   the frames of other apps' windows (xdg-decoration), `corners` round
 //!   corners and shadows of all; `layers`: the
@@ -35,6 +36,7 @@ mod opening;
 mod output;
 mod pacing;
 mod render;
+mod scene;
 mod schedule;
 mod screenshot;
 mod shell;

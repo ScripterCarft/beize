@@ -13,7 +13,6 @@
 //! it one refresh later.
 
 use std::collections::HashSet;
-use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -22,11 +21,7 @@ use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::drm::{DrmEvent, DrmNode};
 use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
-use smithay::backend::renderer::element::solid::SolidColorRenderElement;
-use smithay::backend::renderer::element::surface::{
-    WaylandSurfaceRenderElement, render_elements_from_surface_tree,
-};
-use smithay::backend::renderer::element::{AsRenderElements, Id, Kind};
+use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::backend::session::Session;
@@ -47,7 +42,7 @@ use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::utils::{
-    Clock, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Scale, Size, Transform,
+    Clock, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Size, Transform,
 };
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
@@ -75,7 +70,6 @@ use smithay::{
 use tracing::{error, info, warn};
 
 use crate::backdrop::{Appearance, Backdrop, LiveGlass};
-use crate::corners::{Rounded, Shadow};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
 use crate::error::{Context, Error, Result, error};
@@ -85,43 +79,7 @@ use crate::layers::{Side, side};
 use crate::opening::{Opening, SHELL_WAIT, Veil};
 use crate::output::{Frame, Info};
 use crate::pacing::Parts;
-use crate::render::VkRenderer;
-
-/// In a module of its own: the macro's code names `Result`, which here is
-/// the compositor's. Generic over the renderer, as Smithay's concrete form
-/// cannot express a frame with two lifetimes (`VkFrame`).
-mod scene {
-    use smithay::backend::renderer::ImportAll;
-    use smithay::backend::renderer::ImportMem;
-    use smithay::backend::renderer::RendererSuper;
-    use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
-    use smithay::backend::renderer::element::solid::SolidColorRenderElement;
-    use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
-    use smithay::backend::renderer::element::texture::TextureRenderElement;
-    use smithay::render_elements;
-
-    use crate::backdrop::Glass;
-    use crate::corners::{Effects, Rounded, Shadow};
-
-    render_elements! {
-        /// What a frame draws, front to back: the black the desktop fades
-        /// in from (`opening`), the pointer where no cursor plane shows
-        /// it, then the surfaces – panels above the windows,
-        /// each with its glass, windows each with its popups, title bar,
-        /// round corners and shadow, panels below them – and the background
-        /// behind all.
-        pub Element<R> where R: ImportAll + ImportMem + Effects;
-        Veil=SolidColorRenderElement,
-        Cursor=MemoryRenderBufferRenderElement<R>,
-        Surface=WaylandSurfaceRenderElement<R>,
-        Window=Rounded<WaylandSurfaceRenderElement<R>>,
-        Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
-        Shadow=Shadow,
-        Glass=Glass,
-        Wallpaper=TextureRenderElement<<R as RendererSuper>::TextureId>,
-    }
-}
-type Element = scene::Element<VkRenderer>;
+use crate::scene::{self, Element};
 
 /// Key repeat: GNOME's defaults (500 ms, then every 30 ms) until Beize's
 /// settings offer a choice.
@@ -186,7 +144,7 @@ pub struct State {
     veil_alpha: f32,
     /// The panels as the last frame drew them, and those of a shell that
     /// failed, kept until a new one is ready (`keep_panels`).
-    panels_last: Vec<PanelFrame>,
+    panels_last: Vec<scene::PanelFrame>,
     kept: Option<Kept>,
     /// The shell's connections tell their end here (`shell_ended`).
     shell_ended: Sender<bool>,
@@ -410,7 +368,7 @@ impl State {
                 .map_err(|e| error(format!("waiting for the shell: {}", e.error)))?;
             self.wait_timer = Some(token);
         }
-        let black = veil_over(&self.veil_id, self.veil_commit, self.screen_area(), 1.0);
+        let black = scene::veil_over(&self.veil_id, self.veil_commit, self.screen_area(), 1.0);
         if let Some(screen) = &mut self.screen {
             screen.render(&[black], None, now, now, Parts::default())?;
         }
@@ -698,7 +656,12 @@ impl State {
                 self.veil_alpha = alpha;
                 self.veil_commit.increment();
             }
-            elements.push(veil_over(&self.veil_id, self.veil_commit, area, alpha));
+            elements.push(scene::veil_over(
+                &self.veil_id,
+                self.veil_commit,
+                area,
+                alpha,
+            ));
         }
         if !on_plane && let Some((buffer, hotspot)) = self.cursor.drawn(began) {
             let location = (at - Point::from(hotspot)).to_f64();
@@ -718,16 +681,17 @@ impl State {
         // The panels as the shell drew them, or those kept of a shell that
         // failed; lent to this frame and taken back after it.
         if self.kept.is_none() {
-            self.panels_last = panels(screen.renderer(), output, self.backdrop.as_mut(), plate);
+            self.panels_last =
+                scene::panels(screen.renderer(), output, self.backdrop.as_mut(), plate);
         }
         let source = match &mut self.kept {
             Some(kept) => &mut kept.panels,
             None => &mut self.panels_last,
         };
-        let shown = |panel: &PanelFrame| {
+        let shown = |panel: &scene::PanelFrame| {
             !panel.upper || !hide_upper || revealed == Some(side(area, panel.place))
         };
-        let upper = lend(source, true, shown, &mut elements);
+        let upper = scene::lend(source, true, shown, &mut elements);
         let mut plated = false;
         if let Some(backdrop) = &mut self.backdrop {
             let glass = plate.map(|band| backdrop.plate(band));
@@ -736,98 +700,27 @@ impl State {
             elements.extend(glass.map(Element::Glass));
         }
         // Each window with its bar above it, front to back.
-        let windows: Vec<_> = self
-            .space
-            .elements()
-            .rev()
-            .filter_map(|w| Some((w.clone(), self.space.element_geometry(w)?)))
-            .filter(|(_, geometry)| geometry.overlaps(area))
-            .collect();
-        let mut bars = self.decorations.elements(screen.renderer(), &windows);
-        for (window, geometry) in &windows {
-            let Some(toplevel) = window.toplevel() else {
-                continue;
-            };
-            let frame = crate::decorations::frame(window, *geometry);
-            let rounded = crate::corners::rounded(window, frame).then_some(frame);
-            let origin = geometry.loc - window.geometry().loc;
-            // Popups in front, never cut by the corners (as Smithay's
-            // `Window` places them).
-            for (popup, offset) in PopupManager::popups_for_surface(toplevel.wl_surface()) {
-                let at = origin + window.geometry().loc + offset - popup.geometry().loc;
-                let surfaces = render_elements_from_surface_tree(
-                    screen.renderer(),
-                    popup.wl_surface(),
-                    at.to_physical(1),
-                    Scale::from(1.0),
-                    1.0,
-                    Kind::Unspecified,
-                );
-                elements.extend(surfaces.into_iter().map(Element::Surface));
-            }
-            let surfaces: Vec<WaylandSurfaceRenderElement<_>> = render_elements_from_surface_tree(
-                screen.renderer(),
-                toplevel.wl_surface(),
-                origin.to_physical(1),
-                Scale::from(1.0),
-                1.0,
-                Kind::Unspecified,
-            );
-            elements.extend(
-                surfaces
-                    .into_iter()
-                    .map(|s| Element::Window(Rounded::new(s, rounded))),
-            );
-            if let Some(i) = bars.iter().position(|(w, _)| w == window) {
-                let bar = bars.swap_remove(i).1;
-                elements.push(Element::Bar(Rounded::new(bar, rounded)));
-            }
-            if let Some(frame) = rounded {
-                elements.push(Element::Shadow(Shadow::new(window, frame)));
-            }
-        }
-        let lower = lend(source, false, shown, &mut elements);
+        scene::windows(
+            screen.renderer(),
+            &self.space,
+            &mut self.decorations,
+            area,
+            &mut elements,
+        );
+        let lower = scene::lend(source, false, shown, &mut elements);
         if let Some(backdrop) = &self.backdrop {
             elements.push(Element::Wallpaper(backdrop.scrim()));
             elements.push(Element::Wallpaper(backdrop.wallpaper()));
         }
         let scene_done: Duration = self.clock.now().into();
-        // Live glass shows what lies behind it: back to front, so glass in
-        // front sees glass behind it as it is now.
         self.live_glass.retain(|l| l.wanted(plated));
-        let screen_size = area.size.to_physical(1);
-        for i in (0..elements.len()).rev() {
-            let (front, behind) = elements.split_at_mut(i + 1);
-            let Element::Glass(glass) = &mut front[i] else {
-                continue;
-            };
-            let Some(below) = glass.live().cloned() else {
-                continue;
-            };
-            let live = match self.live_glass.iter().position(|l| l.is_for(&below)) {
-                Some(j) => &mut self.live_glass[j],
-                None => match LiveGlass::new(screen.renderer(), below) {
-                    Ok(live) => {
-                        self.live_glass.push(live);
-                        let last = self.live_glass.len() - 1;
-                        &mut self.live_glass[last]
-                    }
-                    Err(e) => {
-                        warn!("live glass: {e}");
-                        continue;
-                    }
-                },
-            };
-            if let Err(e) = live.update(
-                screen.renderer(),
-                behind,
-                glass,
-                screen_size,
-                self.appearance,
-            ) {
-                warn!("live glass: {e}");
-            }
-        }
+        scene::live_glass(
+            screen.renderer(),
+            &mut self.live_glass,
+            &mut elements,
+            area.size.to_physical(1),
+            self.appearance,
+        );
         // The pointer shows with the desktop.
         let cursor = self
             .cursor
@@ -847,8 +740,8 @@ impl State {
             ..Parts::default()
         };
         let frame = screen.render(drawn, cursor, requested, began, parts);
-        take_back(source, &mut elements, lower);
-        take_back(source, &mut elements, upper);
+        scene::take_back(source, &mut elements, lower);
+        scene::take_back(source, &mut elements, upper);
         if !matches!(frame, Ok(Frame::Deferred)) {
             self.changed_at = None;
         }
@@ -1212,102 +1105,13 @@ delegate_cursor_shape!(State);
 /// yet, so nothing is needed of it.
 impl TabletSeatHandler for State {}
 
-/// The black over all of `area` the desktop fades in from (`opening`), of
-/// opacity `alpha`.
-fn veil_over(id: &Id, commit: CommitCounter, area: Rectangle<i32, Logical>, alpha: f32) -> Element {
-    Element::Veil(SolidColorRenderElement::new(
-        id.clone(),
-        Rectangle::from_size(area.size.to_physical(1)),
-        commit,
-        [0.0, 0.0, 0.0, alpha],
-        Kind::Unspecified,
-    ))
-}
-
-/// A panel as a frame draws it: its place, whether it lies above the
-/// windows, its surfaces front to back and the glass below them.
-struct PanelFrame {
-    place: Rectangle<i32, Logical>,
-    upper: bool,
-    elements: Vec<Element>,
-}
-
 /// The panels of a shell that failed, as the last frame drew them, and the
 /// room they left for windows (`State::keep_panels`).
 struct Kept {
-    panels: Vec<PanelFrame>,
+    panels: Vec<scene::PanelFrame>,
     area: Rectangle<i32, Logical>,
     since: Duration,
     timer: RegistrationToken,
-}
-
-/// The panels, front to back, each with the glass it asked for below it
-/// (with a `backdrop`; the menu bar's gives way to the `plate`).
-fn panels(
-    renderer: &mut VkRenderer,
-    output: &WlOutput,
-    mut backdrop: Option<&mut Backdrop>,
-    plate: Option<Rectangle<i32, Logical>>,
-) -> Vec<PanelFrame> {
-    let map = layer_map_for_output(output);
-    let mut drawn = Vec::new();
-    // The map lists them back to front.
-    for panel in map.layers().rev() {
-        let Some(place) = map.layer_geometry(panel) else {
-            continue;
-        };
-        let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> =
-            AsRenderElements::<VkRenderer>::render_elements(
-                panel,
-                renderer,
-                place.loc.to_physical(1),
-                Scale::from(1.0),
-                1.0,
-            );
-        // The menu bar's own glass gives way to the plate over a fullscreen
-        // window.
-        let glass = backdrop
-            .as_deref_mut()
-            .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)))
-            .and_then(|b| b.glass(renderer, panel.wl_surface(), place.loc));
-        let mut elements: Vec<Element> = surfaces.into_iter().map(Element::Surface).collect();
-        elements.extend(glass.map(Element::Glass));
-        drawn.push(PanelFrame {
-            place,
-            upper: matches!(panel.layer(), Layer::Overlay | Layer::Top),
-            elements,
-        });
-    }
-    drawn
-}
-
-/// Moves the elements of the panels above the windows (`upper`) or below
-/// them that are `shown` to the end of `list`; where each went, for
-/// `take_back`.
-fn lend(
-    panels: &mut [PanelFrame],
-    upper: bool,
-    shown: impl Fn(&PanelFrame) -> bool,
-    list: &mut Vec<Element>,
-) -> Vec<(usize, Range<usize>)> {
-    let mut lent = Vec::new();
-    for (i, panel) in panels.iter_mut().enumerate() {
-        if panel.upper != upper || !shown(panel) {
-            continue;
-        }
-        let start = list.len();
-        list.append(&mut panel.elements);
-        lent.push((i, start..list.len()));
-    }
-    lent
-}
-
-/// Gives the panels back what `lend` moved to `list`, the last lent first
-/// (so the places of the others stay); what lies after is left.
-fn take_back(panels: &mut [PanelFrame], list: &mut Vec<Element>, lent: Vec<(usize, Range<usize>)>) {
-    for (i, range) in lent.into_iter().rev() {
-        panels[i].elements = list.drain(range).collect();
-    }
 }
 
 /// Inserts a client that connected to the socket, knowing whether it is
