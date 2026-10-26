@@ -9,8 +9,9 @@ license.workspace = true
 
 [dependencies]
 beize-vulkan = { path = "../beize-vulkan" }
-# Text, symbols, scenes and the title bar, shared with the compositor.
-beize-draw = { path = "../beize-draw" }
+# Text, symbols, scenes and the title bar, shared with the compositor;
+# symbols and icons only here (`icons`).
+beize-draw = { path = "../beize-draw", features = ["icons"] }
 # ash loads libvulkan.so.1 at run time (loaded), as Smithay does for the
 # compositor; debug names Vulkan's values in errors.
 ash = { version = "0.38", default-features = false, features = ["debug", "loaded", "std"] }

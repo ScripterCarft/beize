@@ -4,7 +4,7 @@
 usr = 164016
 
 [programs]
-"usr/lib/beize/beize-compositor" = 7569
+"usr/lib/beize/beize-compositor" = 6517
 "usr/lib/beize/beize-shell" = 4498
 "usr/lib/beize/beize-terminal" = 4701
 "usr/bin/beize-session" = 367

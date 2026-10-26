@@ -99,7 +99,11 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Leiste wie Beize UI durch eine sRGB-Ansicht in ein eigenes Bild (Mischen in linearem Licht,
   ADR 0027 §9) und zeigt es 1:1, sonst sähe die Kantenglättung des Titels anders aus als in
   Beize UI. Neu gezeichnet wird sie nur, wenn sie sich ändert (Titel, Breite, aktiv,
-  maximiert, Zeiger auf einem Knopf), wie KWin seine Rahmen als Texturen hält. Die Leiste liegt
+  maximiert, Zeiger auf einem Knopf), wie KWin seine Rahmen als Texturen hält. Den Titeltext
+  zeichnet der Compositor selbst, wie Weston (`xwayland/window-manager.c`, cairo/pango; im
+  Quelltext geprüft); die Shell zu fragen (wie GNOMEs `mutter-x11-frames`) wurde am 26.10. verworfen: jede
+  fremde Leiste hinge an einem zweiten Prozess, gewonnen wären ~1,3 MB. Der Text-Stapel ist
+  kleiner als Westons (pango, harfbuzz, freetype, fontconfig, fribidi: ~3 MB). Die Leiste liegt
   über dem Inhalt. Platziert, maximiert und unter der Menüleiste gehalten wird der ganze
   Rahmen. GTK mit libadwaita zeichnet immer selbst. Das lässt sich nicht ändern und ist bei
   GNOME genauso.
@@ -315,7 +319,9 @@ Werkzeugen verwendet), einmal je Größe, und landen im Atlas wie die Glyphen; f
 (App-Symbole) in einem eigenen RGBA-Atlas, wie Skia farbige Glyphen von den 8-Bit-Glyphen
 trennt. vello_cpu (ADR 0027 §9) bleibt außen vor, solange es eine 0.x-Version mit
 experimentellem Cache ist. Fremde App-Symbole kommen aus dem hicolor-Thema (PNG oder SVG,
-gewählt nach der Icon Theme Specification).
+gewählt nach der Icon Theme Specification). Beides nur in Beize UI und seinen Apps
+(`beize-draw`, Feature `icons`): Der Compositor zeichnet weder Symbole noch App-Symbole und
+wird ohne resvg gebaut (26.10.: 7569 → 6517 KiB).
 
 - **Zeiger: Bibata Modern Classic** (GPL-3.0, Xcursor; im Image nur 24 px und 48 px für
   Faktor 2, das Release hat 14 Größen), vom Besitzer am 24.10. gewählt

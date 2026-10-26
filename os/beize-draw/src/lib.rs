@@ -9,6 +9,7 @@
 
 pub mod draw;
 pub mod glyphs;
+#[cfg(feature = "icons")]
 pub mod icon;
 pub mod measures;
 pub mod text;
@@ -16,6 +17,7 @@ pub mod titlebar;
 
 pub use draw::{Atlases, Cap, Color, Rect, Scene};
 pub use glyphs::Glyphs;
+#[cfg(feature = "icons")]
 pub use icon::AppIcon;
 pub use text::{Cells, Family, Style, Text};
 pub use titlebar::{Appearance, TitleBar};
