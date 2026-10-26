@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Messbau 0.5.105 gemessen – JETZT die zwei Befunde unten beheben, dann B und E)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben – JETZT Compositor-Härtung (Texturfeld), dann Befund 2, dann B und E)
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
@@ -332,15 +332,17 @@ Terminal/Ziehen (Verdacht, unbelegt: `shared.collect()`/`dmabufs.retain` am Anfa
 zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
 
 **ZUERST beheben (Besitzer: der neue Chat fixt, „fix directly“):**
-1. **Regression: Ziehen eines Terminals staut sich und lässt es abstürzen.** Besitzer: die ersten
-   0,1 s gut, dann immer verzögerter, zieht nach dem Loslassen „von allein“ weiter, folgt der Maus
-   verzögert, bis es abstürzt; neue Terminals gehen. Belegt: `held: 967/968 dmabufs of clients`
-   beim Ziehen (0.5.104: höchstens 20), dreimal `create_immed failed and produced an invalid
-   wl_buffer` (Import scheitert, Speicher voll) → Protokollfehler, Terminal tot. Erschlossen: der
-   dmabuf-Blocker (711b5a6) – die einzige Änderung daran, wann Commits gelten; zurückgehaltene
-   Commits stauen sich, ihre Puffer werden nie freigegeben. Erst belegen (z. B. zurückgehaltene
-   Commits/Blocker im `held:`-Log zählen; wann die `DmabufSource` feuert; Vergleich mit anvil/niri,
-   die dasselbe tun), dann beheben; in der VM nicht nachstellbar (shm) → nächster Messbau.
+1. ~~Resize staut das Terminal, bis es abstürzt~~ **behoben 26.10. (e067f10), Hardware offen.**
+   Ursache (nicht der Blocker): Beize UI zeichnete jedes Configure sofort, jede Größe eine neue
+   Swapchain mit frischen Puffern (Mesas FIFO bremst da nicht); seit wp_fifo gilt ein Commit je
+   Bild → die Größen einer 1000-Hz-Maus stauten sich, jeder Commit hielt seinen Puffer, bis die
+   Texturplätze (~977) voll waren. Dazu ack beim Empfang → das letzte ack mit Puffer alter Größe.
+   Fix wie GTKs Frame-Clock: Frame-Callback je Present, Configure wartet darauf, ack bei Übergabe.
+   Smoke `fast_resize` (1-ms-Schritte): vorher 988 statt 800 px, jetzt 20 ms. Hardware-Test liest
+   `resized … ms after the button was released`. **Folgeauftrag Besitzer (26.10.):** Compositor
+   gegen Clients härten, die GPU-Ressourcen binden – das Texturfeld ist global und fest, ein Client
+   leerte es für alle (Import beim Anlegen, nicht beim Zeigen); Vergleich Weston/niri/anvil im
+   Quelltext, Vorschlag mit Vorbild vor der Umsetzung.
 2. **Monitor aus/an: Bild bleibt schwarz.** Belegt: `screen DP-1 is gone` (377,25 s), zurück
    `2560x1440 at 240 Hz, it had none` (384,66), Smithay-Warnung `Failed to destroy old mode
    property blob` (Bericht Nr. 4 in `~/upstream/smithay/ISSUES.md`), „first frame on the screen“
