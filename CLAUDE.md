@@ -317,7 +317,7 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 nachts: E fertig, Messbau 0.5.109 bereit)
 
-**JETZT: Messbau 0.5.109 gebaut und geprüft** (Zweig `measure/desktop` cd0db36 auf f11ffcf,
+**JETZT: Messbau 0.5.109 auf dem Stick** (Prüfsummen geprüft; Zweig `measure/desktop` cd0db36 auf f11ffcf,
 Tag `measure/desktop-0.5.109`, Smoke grün). Besitzer: `docs/hardware.md` A–C, dann „Release
 fertig“ → Claude kopiert `build/out/desktop/release/0.5.109` als `D:\beize-0.5.109` und das
 Skript samt Testprogrammen nach `D:\beize-test`. Der nächste Chat wertet aus: wie 0.5.108,
