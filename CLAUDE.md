@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben, Befund 2 Messpunkte drin – JETZT B, dann Messbau (Befund 1+2, B), dann E; späte Bilder: anderer Chat)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben, Befund 2 Messpunkte, B zurückgestellt – JETZT Messbau 0.5.106 bauen/prüfen/taggen, dann Befund 2, E; späte Bilder: anderer Chat)
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
@@ -366,7 +366,20 @@ zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
    VM-Smoke `screen_comes_back` ist grün
    (virtio-gpu) – Hardware-Fehler, Kandidaten: nouveau-Event nach Modeset aus „aus“, Smithays
    Blob-Zustand.
-Danach B und E (Besitzer: „alle Punkte bis E vor idle“; D mit der Shell), dann idle-inhibit.
+**B (linux-drm-syncobj) zurückgestellt, Besitzer 26.10.:** seine Bedingung („wenn es sauberer
+macht“) ist nicht erfüllt – zweiter Weg neben der impliziten Synchronisation (die bleibt für
+Clients ohne das Protokoll), Smithay gibt den Release-Punkt auf der CPU beim Ersetzen frei (unser
+Renderer müsste ihn an seinen GPU-Fence koppeln wie Mutter/KWin), Nutzen 0,07 ms. Heute korrekt:
+jedes Bild hängt seinen Fence an die gelesenen Client-Puffer (`render/sync.rs`). Wieder aufnehmen,
+wenn ein Treiber ohne implizite Synchronisation kommt.
+**Messbau 0.5.106 vorbereitet (26.10.):** Zweig `measure/desktop` im Worktree `~/scratch/measure`
+auf `main` gehoben (aeac4a2, **lokal, nicht gepusht, nicht gebaut**): Teil 5 schnell ziehen +
+`resized …`, Teil 6 mit Beobachtung und Konsolenwechsel (Strg+Alt+F2/F1) + Spur. **Nächster
+Chat zuerst:** `main` gepusht? (Hintergrund-Job wartete auf CI-Lauf 40304913614), dann Messzweig
+pushen, in `~/beize` (wenn kein anderer Chat baut) bauen, Smoke + Skript in der VM, taggen
+`measure/desktop-0.5.106`, dem Besitzer die Schritte (docs/hardware.md A–C) geben; mit dem
+anderen Chat (späte Bilder) abstimmen, ob dessen Änderungen mit hinein. Danach: Befund 2 mit
+den Daten beheben, E, dann idle-inhibit; D mit der Shell.
 `.wslconfig` `preempt=full` wirkt (Kommandozeile), `bz smoke` warnt nicht mehr (Gegenfall belegt).
 **Leerlauf-Ratsche (offen):** der Haupt-Thread des Compositors wachte in 3 von 27 Läufen einmal in
 3 s auf, ohne zu zeichnen (25.10. vor, 26.10. nach A; Häufigkeit nicht belegt verschieden). Die
