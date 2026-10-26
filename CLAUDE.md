@@ -349,7 +349,7 @@ obigen): eigene Kernel-Konfiguration (`kernel/beize.config`), neuester Stable-Ke
 nouveau-Patches des Messzweigs (`kernel/measure/*.patch`), nouveau mit GSP auf Ampere. Vergleich
 mit Fedora (gleiche Hardware) zuerst auswerten; gleichen Kernel/Konfiguration gegenüberstellen.
 **Nicht gepusht:** `main` (9 Commits seit fa629f0) und Tag `measure/desktop-0.5.106` – CI-Lauf
-40304913614 lief noch; erst nach Grün pushen. Messzweig braucht Force-Push (Besitzer).
+40304913614 scheiterte am Job „Known vulnerabilities“ (neue Meldung, nicht unsere Commits) – erst klären, dann pushen. Messzweig braucht Force-Push (Besitzer).
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
