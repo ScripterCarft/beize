@@ -315,29 +315,50 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 nachts: A fertig, Messbau 0.5.105 halb – JETZT zuerst den Messbau fertig machen, siehe nächster Absatz)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Messbau 0.5.105 gemessen – JETZT die zwei Befunde unten beheben, dann B und E)
 
-**JETZT (Besitzer, 26.10.): Messbau 0.5.105, dann Hardware-Test, dann neuer Chat für B und E.**
-Besitzer: „alle Punkte bis E fertig vor idle“; D (Direct Scanout) kommt mit der Shell; C entfällt
-(belegt: ein Bild beginnt erst nach dem Flip des vorigen, `wait` misst es – auf NVK ≠ 0 → C bauen).
-Stand: Zweig `measure/desktop` lokal auf `main` (59bcbaf) gehoben, Commit bb9175d (Version
-0.5.105, `hw-test.sh` Teil 6/6 Bildschirm aus/an + Kabel ab/an, `docs/hardware.md` dazu) –
-**nicht gepusht, nicht gebaut** (Bau beim Ausschalten abgebrochen). Nächste Schritte: `git switch
-measure/desktop`, `./bz build` (Kernel mit `kernel/measure/*.patch`), `./bz smoke`, Skript in der VM
-(Enter gepfiffen, §WSL-Memo), Tag `measure/desktop-0.5.105`, Zweig + Tag pushen (Zweig mit
-`--force-with-lease`, er wurde gehoben), zurück auf `main`; dann Besitzer: `./bz release`, Claude
-kopiert auf den Stick (`docs/hardware.md` A). Nach WSL-Neustart gilt `.wslconfig` `preempt=full`:
-`bz smoke` darf dann **nicht** mehr warnen (die Gegenprobe der Warnung, noch offen).
-CI von 59bcbaf beim Ausschalten noch offen – zu Beginn prüfen.
+**Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
+`measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
+1,48 → **0,70 ms** (busy 43 → 27 %), Glas 0,77 → **0,00**, 112 032 von ~115 200 Bildern; Teile
+(Median/99 %): damage 0,34/0,66, record 0,18/0,34, sync 0,07, queue 0,05, scene 0,05, wait 0,00.
+Testfenster 4805 Bilder, 2 spät. Spät im Lasttest 193 von 6977, fast alle „display“ (C c).
+Folgerungen: **C endgültig unnötig** (`wait` 0,00 auf NVK); **B kein CPU-Hebel** (sync 0,07 ms) –
+Wert nur noch Korrektheit/Moderne, mit dem Besitzer klären, ob jetzt; größter Rest ist `damage`
+(Smithays Damage-Tracker über die Elemente). Auffällig: `record` 0,35–0,46 ms in den Läufen mit
+Terminal/Ziehen (Verdacht, unbelegt: `shared.collect()`/`dmabufs.retain` am Anfang von `submit`
+zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
+
+**ZUERST beheben (Besitzer: der neue Chat fixt, „fix directly“):**
+1. **Regression: Ziehen eines Terminals staut sich und lässt es abstürzen.** Besitzer: die ersten
+   0,1 s gut, dann immer verzögerter, zieht nach dem Loslassen „von allein“ weiter, folgt der Maus
+   verzögert, bis es abstürzt; neue Terminals gehen. Belegt: `held: 967/968 dmabufs of clients`
+   beim Ziehen (0.5.104: höchstens 20), dreimal `create_immed failed and produced an invalid
+   wl_buffer` (Import scheitert, Speicher voll) → Protokollfehler, Terminal tot. Erschlossen: der
+   dmabuf-Blocker (711b5a6) – die einzige Änderung daran, wann Commits gelten; zurückgehaltene
+   Commits stauen sich, ihre Puffer werden nie freigegeben. Erst belegen (z. B. zurückgehaltene
+   Commits/Blocker im `held:`-Log zählen; wann die `DmabufSource` feuert; Vergleich mit anvil/niri,
+   die dasselbe tun), dann beheben; in der VM nicht nachstellbar (shm) → nächster Messbau.
+2. **Monitor aus/an: Bild bleibt schwarz.** Belegt: `screen DP-1 is gone` (377,25 s), zurück
+   `2560x1440 at 240 Hz, it had none` (384,66), Smithay-Warnung `Failed to destroy old mode
+   property blob` (Bericht Nr. 4 in `~/upstream/smithay/ISSUES.md`), „first frame on the screen“
+   (Modus-Commit 81 ms) – **danach kein einziges Bild mehr** (keine `pacing:`), obwohl der Besitzer
+   blind Maus und Tastatur nutzte (Eingaben kamen an). Erschlossen: das Flip-Ereignis des ersten
+   Bildes kam nie, `flipping` blieb gesetzt, jedes Bild „Deferred“. Kabel ab/an nicht gemacht.
+   Kernel-Journal fehlt (run0 am Ende „Access denied“): beim Besitzer `hw-test.sh -1` nach dem
+   nächsten Start erbitten oder im nächsten Messbau. VM-Smoke `screen_comes_back` ist grün
+   (virtio-gpu) – Hardware-Fehler, Kandidaten: nouveau-Event nach Modeset aus „aus“, Smithays
+   Blob-Zustand.
+Danach B und E (Besitzer: „alle Punkte bis E vor idle“; D mit der Shell), dann idle-inhibit.
+`.wslconfig` `preempt=full` wirkt (Kommandozeile), `bz smoke` warnt nicht mehr (Gegenfall belegt).
 **Leerlauf-Ratsche (offen):** der Haupt-Thread des Compositors wachte in 3 von 27 Läufen einmal in
 3 s auf, ohne zu zeichnen (25.10. vor, 26.10. nach A; Häufigkeit nicht belegt verschieden). Die
 Prüfung nennt jetzt Thread und Journal des Fensters (`BEIZE-WOKE`, `BEIZE-JOURNAL`) und zählt
 stoppende Test-Units mit; beim nächsten Rot daraus die Ursache. Debug-Log taugt nicht (verlangsamt,
 Lasttest wird rot). Kandidaten ohne Beleg: ein Eingabe-Ereignis ohne Wirkung, ein später Flip.
 
-**Beim Besitzer:** Messbau 0.5.104 (Tag `measure/desktop-0.5.104`); `main` ist 0.6 und ersetzt
+**Beim Besitzer:** Messbau 0.5.105 (Tag `measure/desktop-0.5.105`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
-Stick und Hardware-Test: `docs/hardware.md` (`measure/hw-test.sh`, 5 Teile, liegt auf dem
+Stick und Hardware-Test: `docs/hardware.md` (`measure/hw-test.sh`, 6 Teile, liegt auf dem
 Messzweig `measure/desktop`, je Messbau auf `main` gehoben, Version in `tools/bz/src/layout.rs`).
 Hardware-Tests nicht öfter als nötig (Besitzer). Wiederherstellung: nach F8 Leertaste halten,
 „(Recovery)“, Recovery-Key, `s`. Der Stick **BEIZE** bleibt am PC; Ergebnisse holt Claude per
