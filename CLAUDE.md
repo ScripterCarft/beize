@@ -315,16 +315,32 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 spät: Prüfung umgesetzt, Messbau 0.5.107 bereit – Besitzer baut Release, dann Hardware-Test)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 spät: Messbau 0.5.107 auf dem Stick – Besitzer testet, der nächste Chat wertet aus)
 
-**JETZT (26.10. spät):** Messbau **0.5.107** (Tag `measure/desktop-0.5.107`, a3463e4, Smoke grün,
-nicht gepusht; Messzweig braucht Force-Push durch den Besitzer). Enthält alles unten: Takt
-(21b33a6), Compositor-Aufräumen (4d70e81..8133532), Kernel (5d4af80, 76a0bee), systemd 262.1
-(fe877d1), Schlüssel löschen + MOR zurücknehmen beim Herunterfahren (d7016f8). `hw-test.sh` hat 5
-Teile (Monitor aus/an entfernt; Teil 5 zusätzlich Tippen/Pfeil-hoch). **Beim Besitzer:** `git
-switch measure/desktop && ./bz build && ./bz release && git switch main`, dann „Release fertig“ →
-Claude kopiert nach D: (docs/hardware.md A.3). Auswerten: Resize-Nachziehen weg? Tasten sofort?
-„at most … on their way“ im Lasttest, späte Bilder (anderer Chat). **Offen:** seltener Smoke-Fehler
+**JETZT:** Messbau **0.5.107** liegt auf dem Stick (`D:\beize-0.5.107`, Prüfsummen geprüft;
+`D:\beize-test` mit `hw-test.sh` aus `measure/desktop` und den Testprogrammen des Release-Baus).
+Tag `measure/desktop-0.5.107` (a3463e4), Smoke grün, nichts gepusht. Enthält: Takt (21b33a6),
+Compositor-Aufräumen (4d70e81..8133532), Kernel (5d4af80, 76a0bee), systemd 262.1 (fe877d1),
+Schlüssel löschen + MOR zurücknehmen beim Herunterfahren (d7016f8). Der Besitzer installiert und
+testet nach docs/hardware.md B–C (5 Teile; Teil 5 Resize + Tippen/Pfeil-hoch).
+
+**Auftrag an den nächsten Chat (Besitzer, 26.10.: „sauber weiterarbeiten, nicht wieder Symptome
+bearbeiten“):**
+1. Ergebnisse von D: holen (`results-*`) und **gegen die Erwartung aus dem Mechanismus** auswerten:
+   Resize steht beim Loslassen sofort still, Tasten im Terminal sofort, Lasttest „at most 1 on
+   their way“, `held:` flach, Herunterfahren ohne Fehler (Hook-Zeile steht nur auf dem Bildschirm).
+2. **Weicht etwas ab: erst den Mechanismus belegen, dann ändern.** Keine Messzeile, kein Timer,
+   kein Sonderfall „damit es geht“. Fragen in dieser Reihenfolge: Welche Annahme ist falsch? Was
+   machen Weston/Mutter/KWin/niri/GTK genau dort (Quelltext lesen, Besitzer mag Weston als
+   Vorbild)? Lässt sich dafür Code entfernen? Jede Änderung mit Smoke-Prüfung **und** Gegenprobe,
+   die rot wird. Ein Messgerüst nur befristet und im selben Schritt wieder entfernen.
+3. Ordnung: CI-Lauf 40304913614 („Known vulnerabilities“) klären, dann `main` pushen; der
+   Besitzer force-pusht `measure/desktop` und die Tags.
+4. Danach nach Plan: E (Knöpfe als SDF, Titeltext von der Shell, Symbole als Schrift), idle-inhibit
+   + Bildschirm aus, D mit der Shell. nouveau-Patch für das still scheiternde Link-Training
+   (Befund 2, unten) schreiben – senden tut der Besitzer.
+**Offen:** späte Bilder „display“ (anderer Chat); Leerlauf-Ratsche (Hinweis ntp-daemon, unten);
+seltener Smoke-Fehler
 „close button of the compositor's frame did not end the client“ (1 von ~20 Läufen 26.10., nach
 systemd 262.1; in 4 Folgeläufen nicht wieder, Logs überschrieben) – beim nächsten Auftreten Logs
 sichern (`build/work/logs/boot`). `main` nicht gepusht (CI-Lauf 40304913614, Job „Known
