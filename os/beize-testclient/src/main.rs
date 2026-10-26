@@ -238,9 +238,10 @@ struct App {
     frames_left: u32,
     /// A "frame done" is on its way.
     frame_asked: bool,
-    /// "Frame done" times, in milliseconds, and when each arrived.
+    /// "Frame done" times, in milliseconds, and how many frames had been
+    /// answered as shown or discarded when each arrived.
     frame_times: Vec<u32>,
-    done_arrived: Vec<Duration>,
+    done_answered: Vec<u32>,
     /// How long each frame took to draw.
     draw_times: Vec<Duration>,
     /// When the frames showed, if the compositor tells.
@@ -452,7 +453,7 @@ fn run() -> Result<()> {
         frames_left: options.frames,
         frame_asked: false,
         frame_times: Vec::new(),
-        done_arrived: Vec::new(),
+        done_answered: Vec::new(),
         draw_times: Vec::new(),
         presentation,
         clock: None,
@@ -756,16 +757,19 @@ impl App {
             yes(before),
         );
         match self.pace {
-            // Its "frame done" once the compositor drew it, before it showed
-            // at the vblank: a frame's time to draw the next (Weston answers
-            // at repaint; at the vblank, a 240 Hz screen left a client
-            // ~1 ms, 26.10.).
+            // Its "frame done" once the compositor drew it, ahead of the
+            // answer that it showed at the vblank: a frame's time to draw
+            // the next (Weston answers at repaint; at the vblank, a 240 Hz
+            // screen left a client ~1 ms, 26.10.). Told by the order the
+            // events came in, which the connection keeps: when the client
+            // read them depends on when it ran (timed so, a smoke run with
+            // five machines once had 119 of 120).
             Pace::Callbacks => {
                 let ahead = shown
                     .iter()
                     .filter(|s| {
-                        let done = self.done_arrived.get(s.frame as usize - 1);
-                        done.is_some_and(|d| *d < s.time)
+                        let done = self.done_answered.get(s.frame as usize - 1);
+                        done.is_some_and(|answered| *answered < s.frame)
                     })
                     .count();
                 println!("frame done: {ahead} of {} before they showed", shown.len());
@@ -1102,7 +1106,8 @@ impl Dispatch<WlCallback, ()> for App {
         if let wl_callback::Event::Done { callback_data } = event {
             app.frame_asked = false;
             app.frame_times.push(callback_data);
-            app.done_arrived.push(monotonic());
+            let answered = app.answered();
+            app.done_answered.push(answered);
             app.frames_left = app.frames_left.saturating_sub(1);
             app.report_presentation();
             if (app.frames_left > 0 || app.full)
