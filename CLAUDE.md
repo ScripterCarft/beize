@@ -315,20 +315,26 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 spät: Messbau 0.5.107 auf dem Stick – Besitzer testet, der nächste Chat wertet aus)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.107 ausgewertet, zwei Befunde behoben)
 
-**JETZT:** Messbau **0.5.107** liegt auf dem Stick (`D:\beize-0.5.107`, Prüfsummen geprüft;
-`D:\beize-test` mit `hw-test.sh` aus `measure/desktop` und den Testprogrammen des Release-Baus).
-Tag `measure/desktop-0.5.107` (a3463e4), Smoke grün, nichts gepusht. Enthält: Takt (21b33a6),
-Compositor-Aufräumen (4d70e81..8133532), Kernel (5d4af80, 76a0bee), systemd 262.1 (fe877d1),
-Schlüssel löschen + MOR zurücknehmen beim Herunterfahren (d7016f8). Der Besitzer installiert und
-testet nach docs/hardware.md B–C (5 Teile; Teil 5 Resize + Tippen/Pfeil-hoch).
+**JETZT: 0.5.107 getestet (26.10., `~/hw-logs/results-20261026-160606`), Besitzer: „alles gut“.**
+Gegen die Erwartung: Resize steht beim Loslassen still (0–9 ms, vorher bis 5 s), `held:` flach
+(8–16), Lasttest „at most 1 on their way“, spät 12 statt 186. Herunterfahren ohne Befund. Zwei
+Abweichungen, Mechanismus belegt und behoben (je 3 Smoke-Läufe grün, Hardware offen):
+- **Lasttest 90 025 statt 112 032 Bilder**, Fenster 4–12 bei ~165/s: wir beantworteten „frame
+  done“ am vblank, Weston direkt nach dem Zeichnen (`weston_output_repaint`, anvil `post_repaint`)
+  → bei 240 Hz blieb einem Client ~1 ms. Jetzt nach dem Zeichnen (99776cf); Feedback und fifo
+  bleiben am vblank. Smoke: „frame done: 120 of 120 before they showed“, Gegenprobe 0 von 120 rot.
+- **Testclient 11,2 GB beim Resize** (Besitzer zog ihn im Klick-Teil; 4193 von 4800 Bildern, Lücke
+  171 ms): ersetzte Puffer nie zerstört, Release-Index verschob sich (f2444c0; Configure wartet
+  jetzt auf „frame done“ wie GTK). Nur Testprogramm; ohne Smoke-Prüfung (Speicher nur auf
+  Hardware groß), der nächste Hardware-Test zeigt es (`memory peak` im Journal).
+Erwartung nächster Messbau: Lasttest alle 12 Fenster nahe 240/s (~115 000 Bilder).
+Achtung: `bz smoke` baut nicht – nach einem Messbau erst `./bz build` (sonst prüft er das alte
+Abbild, Fehler „missing: /usr A“).
 
-**Auftrag an den nächsten Chat (Besitzer, 26.10.: „sauber weiterarbeiten, nicht wieder Symptome
-bearbeiten“):**
-1. Ergebnisse von D: holen (`results-*`) und **gegen die Erwartung aus dem Mechanismus** auswerten:
-   Resize steht beim Loslassen sofort still, Tasten im Terminal sofort, Lasttest „at most 1 on
-   their way“, `held:` flach, Herunterfahren ohne Fehler (Hook-Zeile steht nur auf dem Bildschirm).
+**Auftrag (Besitzer, 26.10.: „sauber weiterarbeiten, nicht wieder Symptome bearbeiten“):**
+1. ~~0.5.107 auswerten~~ erledigt (oben).
 2. **Weicht etwas ab: erst den Mechanismus belegen, dann ändern.** Keine Messzeile, kein Timer,
    kein Sonderfall „damit es geht“. Fragen in dieser Reihenfolge: Welche Annahme ist falsch? Was
    machen Weston/Mutter/KWin/niri/GTK genau dort (Quelltext lesen, Besitzer mag Weston als
