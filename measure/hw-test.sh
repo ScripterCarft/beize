@@ -81,16 +81,19 @@ if [ "$mode" = test ]; then
     wait_for hw-test-load.service
 
     echo "  5/6 Fenstergröße: Öffne mit Strg+Alt+T ein zweites Terminal und zieh es an der"
-    echo "  rechten unteren Ecke 20 Sekunden lang immer wieder ganz groß und klein, wie beim"
-    echo "  Absturz in 0.5.103. Bleibt es offen, der Prompt eine saubere Zeile? Danach darin"
-    echo "  exit, dann hier Enter."
+    echo "  rechten unteren Ecke 20 Sekunden lang schnell immer wieder ganz groß und klein,"
+    echo "  wie beim Absturz in 0.5.105. Folgt es der Maus ohne Nachziehen, bleibt es offen,"
+    echo "  der Prompt eine saubere Zeile? Danach darin exit, dann hier Enter."
     date '+%F %T' > "$out/resize-start.txt"
     read -r
 
-    echo "  6/6 Bildschirm: Schalte den Monitor an seinem Knopf aus, warte 5 Sekunden, schalte"
-    echo "  ihn wieder an. Dann zieh das DisplayPort-Kabel am Rechner ab, warte 5 Sekunden,"
-    echo "  steck es wieder an. Kommt das Bild jedes Mal zurück, mit dem Terminal und der Maus?"
-    echo "  Bleibt es schwarz: 30 Sekunden warten, dann trotzdem Enter. Danach hier Enter."
+    echo "  6/6 Bildschirm, ERST LESEN (bei schwarzem Bild siehst du das hier nicht):"
+    echo "  a) Monitor an seinem Knopf aus, 5 Sekunden warten, wieder an."
+    echo "  b) Bild wieder da: weiter mit c). Bleibt es schwarz: 30 Sekunden warten und merken,"
+    echo "     was der Monitor zeigt (\"kein Signal\", schwarz aber beleuchtet, oder Standby)."
+    echo "     Dann Strg+Alt+F2, 5 Sekunden warten, Strg+Alt+F1. Merken: Bild wieder da?"
+    echo "  c) DisplayPort-Kabel am Rechner ab, 5 Sekunden warten, wieder an; wie b)."
+    echo "  d) Enter drücken, auch wenn es noch schwarz ist."
     date '+%F %T' > "$out/screen-start.txt"
     read -r
 
@@ -141,6 +144,9 @@ fi
 if [ -s "$out/resize-start.txt" ]; then
     # Logged when things are still, if it changed: flat after the resize
     # unless something leaks.
+    echo "Größe nach dem Loslassen, vom Compositor:"
+    journalctl --user -u beize-compositor.service --since "$(cat "$out/resize-start.txt")" \
+        -o cat | grep '^resized ' | tail -n 5
     echo "Puffer des Compositors, vor und nach dem Ziehen:"
     journalctl --user -u beize-compositor.service --until "$(cat "$out/resize-start.txt")" \
         -o cat | grep '^held: ' | tail -n 1
@@ -153,7 +159,8 @@ if [ -s "$out/screen-start.txt" ]; then
     # What the compositor said of its screen: gone, back, the link trained.
     echo "Bildschirm aus/an und Kabel ab/an, vom Compositor:"
     journalctl --user -u beize-compositor.service --since "$(cat "$out/screen-start.txt")" \
-        -o cat | grep -E -i 'screen|link|connector|replaces' | grep -v '^pacing: '
+        -o cat | grep -E -i 'screen|link|connector|replaces|vblank|session' \
+        | grep -v '^pacing: '
 fi
 echo "Tasten im Fenster: $(grep -c ' key ' "$out/client.log"), Klicks: $(grep -c 'button ' "$out/client.log")"
 echo "Warnungen des Compositors:"
