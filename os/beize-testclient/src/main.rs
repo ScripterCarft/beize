@@ -195,6 +195,8 @@ fn options() -> Result<Options> {
 
 /// One shm buffer: its own memfd and pool, so it can be replaced alone.
 struct Buffer {
+    /// What its release names: an index changes as buffers go.
+    id: u32,
     file: File,
     buffer: WlBuffer,
     size: (i32, i32),
@@ -221,6 +223,8 @@ struct App {
     /// The next draw damages everything (after a configure).
     full: bool,
     buffers: Vec<Buffer>,
+    /// The buffers made so far, for the next one's `id`.
+    made: u32,
     pace: Pace,
     /// `--fifo`: the surface's fifo; `--timed`: its timer, and the time for
     /// the next frame.
@@ -234,8 +238,9 @@ struct App {
     frames_left: u32,
     /// A "frame done" is on its way.
     frame_asked: bool,
-    /// "Frame done" times, in milliseconds.
+    /// "Frame done" times, in milliseconds, and when each arrived.
     frame_times: Vec<u32>,
+    done_arrived: Vec<Duration>,
     /// How long each frame took to draw.
     draw_times: Vec<Duration>,
     /// When the frames showed, if the compositor tells.
@@ -437,6 +442,7 @@ fn run() -> Result<()> {
         size: (0, 0),
         full: true,
         buffers: Vec::new(),
+        made: 0,
         pace: options.pace,
         fifo,
         timer,
@@ -446,6 +452,7 @@ fn run() -> Result<()> {
         frames_left: options.frames,
         frame_asked: false,
         frame_times: Vec::new(),
+        done_arrived: Vec::new(),
         draw_times: Vec::new(),
         presentation,
         clock: None,
@@ -504,6 +511,15 @@ fn dispatch(queue: &mut EventQueue<App>, app: &mut App, timeout: Duration) -> Re
         .dispatch_pending(app)
         .map_err(|e| format!("dispatching: {e}"))?;
     Ok(())
+}
+
+/// Now on CLOCK_MONOTONIC, the compositor's clock (wp_presentation).
+fn monotonic() -> Duration {
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    Duration::new(
+        u64::try_from(now.tv_sec).unwrap_or(0),
+        u32::try_from(now.tv_nsec).unwrap_or(0),
+    )
 }
 
 fn report_frames(times: &[u32], wanted: u32) {
@@ -571,8 +587,8 @@ impl App {
             // Only the strip the bar moves in changed.
             self.surface.damage_buffer(0, 0, size.0, BAR_SIZE.1);
         }
-        // One "frame done" asked for at a time: a configure between frames
-        // redraws without starting a second chain.
+        // One "frame done" asked for at a time: the first frame drawn for a
+        // configure starts no second chain.
         let counted = self.frames_left > 0 && (self.pace != Pace::Callbacks || !self.frame_asked);
         if counted {
             match self.pace {
@@ -604,12 +620,7 @@ impl App {
                         // yet. Not counted, the frames after it are timed
                         // against their last one's showing.
                         (Some(timer), None) if self.asked == 0 => {
-                            let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-                            let now = Duration::new(
-                                u64::try_from(now.tv_sec).unwrap_or(0),
-                                u32::try_from(now.tv_nsec).unwrap_or(0),
-                            );
-                            set(timer, now + TIMED_FIRST);
+                            set(timer, monotonic() + TIMED_FIRST);
                         }
                         _ => {}
                     }
@@ -644,8 +655,17 @@ impl App {
     }
 
     /// A buffer of `size` the compositor does not read, made if needed.
+    /// Free ones of another size are destroyed: only dropped, the
+    /// compositor kept them and their memory (a resize on the owner's PC
+    /// grew the client to 11 GB, 26.10.).
     fn free_buffer(&mut self, qh: &QueueHandle<App>, size: (i32, i32)) -> Result<usize> {
-        self.buffers.retain(|b| b.busy || b.size == size);
+        self.buffers.retain(|b| {
+            let keep = b.busy || b.size == size;
+            if !keep {
+                b.buffer.destroy();
+            }
+            keep
+        });
         if let Some(index) = self.buffers.iter().position(|b| !b.busy) {
             return Ok(index);
         }
@@ -656,7 +676,8 @@ impl App {
         file.set_len(u64::try_from(bytes).map_err(|e| e.to_string())?)
             .map_err(|e| format!("sizing the buffer: {e}"))?;
         let pool: WlShmPool = self.shm.create_pool(file.as_fd(), bytes, qh, ());
-        let index = self.buffers.len();
+        let id = self.made;
+        self.made += 1;
         let buffer = pool.create_buffer(
             0,
             size.0,
@@ -664,17 +685,18 @@ impl App {
             size.0 * 4,
             wl_shm::Format::Xrgb8888,
             qh,
-            index,
+            id,
         );
         pool.destroy();
         self.buffers.push(Buffer {
+            id,
             file,
             buffer,
             size,
             busy: false,
             filled: false,
         });
-        Ok(index)
+        Ok(self.buffers.len() - 1)
     }
 
     /// How many frames were answered, shown or discarded; the answers come
@@ -734,7 +756,20 @@ impl App {
             yes(before),
         );
         match self.pace {
-            Pace::Callbacks => {}
+            // Its "frame done" once the compositor drew it, before it showed
+            // at the vblank: a frame's time to draw the next (Weston answers
+            // at repaint; at the vblank, a 240 Hz screen left a client
+            // ~1 ms, 26.10.).
+            Pace::Callbacks => {
+                let ahead = shown
+                    .iter()
+                    .filter(|s| {
+                        let done = self.done_arrived.get(s.frame as usize - 1);
+                        done.is_some_and(|d| *d < s.time)
+                    })
+                    .count();
+                println!("frame done: {ahead} of {} before they showed", shown.len());
+            }
             Pace::Fifo => {
                 let steps = shown.windows(2).filter(|w| w[1].frame == w[0].frame + 1);
                 let apart = steps
@@ -1010,6 +1045,12 @@ impl Dispatch<XdgSurface, ()> for App {
             if app.pace != Pace::Callbacks && std::mem::replace(&mut app.started, true) {
                 return;
             }
+            // With a "frame done" on its way, that draws the new size, as
+            // GTK's frame clock does: drawn at once, a 1000 Hz mouse's
+            // configures came faster than frames.
+            if app.frame_asked {
+                return;
+            }
             if app.pace == Pace::Fifo {
                 app.pump(qh);
             } else if let Err(e) = app.draw(qh) {
@@ -1061,9 +1102,10 @@ impl Dispatch<WlCallback, ()> for App {
         if let wl_callback::Event::Done { callback_data } = event {
             app.frame_asked = false;
             app.frame_times.push(callback_data);
+            app.done_arrived.push(monotonic());
             app.frames_left = app.frames_left.saturating_sub(1);
             app.report_presentation();
-            if app.frames_left > 0
+            if (app.frames_left > 0 || app.full)
                 && let Err(e) = app.draw(qh)
             {
                 eprintln!("beize-testclient: {e}");
@@ -1073,17 +1115,17 @@ impl Dispatch<WlCallback, ()> for App {
     }
 }
 
-impl Dispatch<WlBuffer, usize> for App {
+impl Dispatch<WlBuffer, u32> for App {
     fn event(
         app: &mut App,
         _: &WlBuffer,
         event: wl_buffer::Event,
-        index: &usize,
+        id: &u32,
         _: &Connection,
         qh: &QueueHandle<App>,
     ) {
         if let wl_buffer::Event::Release = event
-            && let Some(buffer) = app.buffers.get_mut(*index)
+            && let Some(buffer) = app.buffers.iter_mut().find(|b| b.id == *id)
         {
             buffer.busy = false;
             if app.pace == Pace::Fifo && app.started {
@@ -1281,7 +1323,6 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
             } => {
                 // CLOCK_MONOTONIC, as the compositor names it (clock 1);
                 // another clock fails the check by its number.
-                let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
                 let time =
                     Duration::new((u64::from(tv_sec_hi) << 32) | u64::from(tv_sec_lo), tv_nsec);
                 app.shown.push(Shown {
@@ -1293,10 +1334,7 @@ impl Dispatch<WpPresentationFeedback, ()> for App {
                         WEnum::Value(kind) => kind.bits(),
                         WEnum::Unknown(bits) => bits,
                     },
-                    arrived: Duration::new(
-                        u64::try_from(now.tv_sec).unwrap_or(0),
-                        u32::try_from(now.tv_nsec).unwrap_or(0),
-                    ),
+                    arrived: monotonic(),
                 });
                 // `--timed`: the next frame, for its time after this one.
                 if app.pace == Pace::Timed && app.frames_left > 0 {
