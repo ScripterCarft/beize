@@ -1002,6 +1002,25 @@ impl ImportDma for VkRenderer {
         if let Some(texture) = self.dmabufs.get(&dmabuf.weak()) {
             return Ok(texture.clone());
         }
+        let texture = self.import_new(dmabuf)?;
+        self.pipelines
+            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
+        self.dmabufs.insert(dmabuf.weak(), texture.clone());
+        Ok(texture)
+    }
+}
+
+impl VkRenderer {
+    /// Whether a client's new dmabuf can be shown: imported, then let go.
+    /// It keeps a texture once a frame draws it (`import_dmabuf`), as
+    /// Weston makes its texture at the first attach: buffers a client
+    /// only made, or that wait behind others, hold none – kept since
+    /// they were made, one terminal's held all it ever had (0.5.105).
+    pub fn check_dmabuf(&mut self, dmabuf: &Dmabuf) -> Result<()> {
+        self.import_new(dmabuf).map(drop)
+    }
+
+    fn import_new(&self, dmabuf: &Dmabuf) -> Result<VkTexture> {
         let fourcc = dmabuf.format().code;
         let (format, _) =
             texture::vk_format(fourcc).context(format!("dmabuf format {fourcc} is not taken"))?;
@@ -1014,7 +1033,7 @@ impl ImportDma for VkRenderer {
             vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_SRC,
         )?;
         let size = (dmabuf.width() as i32, dmabuf.height() as i32).into();
-        let texture = texture::wrap(
+        texture::wrap(
             &self.shared,
             image,
             memory,
@@ -1022,11 +1041,7 @@ impl ImportDma for VkRenderer {
             size,
             Some(dmabuf.weak()),
             None,
-        )?;
-        self.pipelines
-            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
-        self.dmabufs.insert(dmabuf.weak(), texture.clone());
-        Ok(texture)
+        )
     }
 }
 

@@ -399,7 +399,13 @@ impl Gpu {
         let held = self.renderer.held();
         if !running && self.held != Some(held) {
             self.held = Some(held);
-            info!("held: {} dmabufs of clients, {} textures", held.0, held.1);
+            // Each dmabuf a client sent is an open file of the compositor:
+            // their limit is the one all its clients share.
+            let files = std::fs::read_dir("/proc/self/fd").map_or(0, |dir| dir.count());
+            info!(
+                "held: {} dmabufs of clients, {} textures, {files} open files",
+                held.0, held.1
+            );
         }
         running
     }

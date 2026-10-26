@@ -699,12 +699,14 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
             "the desktop's session is not {wanted}: {lines:?}"
         );
     }
-    // The compositor: the owner's process, in its system call filter.
+    // The compositor: the owner's process, in its system call filter, with
+    // room for its clients' buffers (open files; 1024 ran out, 0.5.105).
     let (_, lines) = shell.capture(
         "p=$(systemctl --user show -P MainPID beize-compositor.service); \
          echo BEIZE-OWNER-$(stat -c %U /proc/$p); \
          while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
-         done < /proc/$p/status",
+         done < /proc/$p/status; \
+         echo BEIZE-FILES-$(awk '/^Max open files/ {print $4}' /proc/$p/limits)",
     )?;
     ensure!(
         lines
@@ -713,8 +715,13 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
             && lines.iter().any(|l| l == "BEIZE-SECCOMP-2"),
         "the compositor does not run as the owner in its system call filter: {lines:?}"
     );
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-FILES-524288"),
+        "the compositor may not open 524288 files (its clients' buffers): {lines:?}"
+    );
     say!(
-        "  ok: the login on tty1 started the desktop: a Wayland session, the compositor as the owner, sandboxed"
+        "  ok: the login on tty1 started the desktop: a Wayland session, the compositor as the \
+         owner, sandboxed, with room for 524288 open files"
     );
     let (status, lines) = shell.capture(
         "run0 sh -c 'mkdir -p /run/t && mount -o ro /dev/disk/by-id/virtio-beize-test /run/t'",

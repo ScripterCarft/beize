@@ -1499,14 +1499,19 @@ impl DmabufHandler for State {
         dmabuf: Dmabuf,
         notifier: ImportNotifier,
     ) {
-        let imported = self
-            .gpu
-            .as_mut()
-            .is_some_and(|gpu| gpu.renderer().import_dmabuf(&dmabuf, None).is_ok());
-        if imported {
-            let _ = notifier.successful::<State>();
-        } else {
-            notifier.failed();
+        let checked = match self.gpu.as_mut() {
+            Some(gpu) => gpu.renderer().check_dmabuf(&dmabuf),
+            None => Err(error("no GPU")),
+        };
+        match checked {
+            Ok(()) => {
+                let _ = notifier.successful::<State>();
+            }
+            // Said, or the client's protocol error is all that shows (0.5.105).
+            Err(e) => {
+                warn!("a client's dmabuf cannot be shown: {e}");
+                notifier.failed();
+            }
         }
     }
 }

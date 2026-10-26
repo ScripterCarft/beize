@@ -14,6 +14,13 @@ PartOf=beize-session.target
 Type=notify
 TimeoutStartSec=infinity
 ExecStart=/usr/lib/beize/beize-compositor
+# Each buffer a client shares (dmabuf) and each client's connection is an
+# open file: systemd's soft limit of 1024 (select(2)'s) ran out with one
+# terminal's buffers (0.5.105), and every client failed with it. The hard
+# limit for both, as Mutter, KWin and Sway raise theirs; the sandbox
+# forbids setrlimit(2) (@resources), so the unit sets it. Apps are units
+# of their own and keep 1024.
+LimitNOFILE=524288
 # What the session cannot do without (systemd.special(7)).
 Slice=session.slice
 # Sandbox (images/desktop/security.toml). The devices come from logind as
