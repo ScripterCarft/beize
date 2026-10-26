@@ -1111,7 +1111,14 @@ impl State {
                 |_, _, &()| true,
             );
         };
-        for window in self.space.elements().chain(&self.minimized) {
+        // With windows not shown yet: a first commit held back for its time
+        // (wp_commit_timing) has to be let go, or the window never maps.
+        for window in self
+            .space
+            .elements()
+            .chain(&self.minimized)
+            .chain(&self.unmapped)
+        {
             let Some(toplevel) = window.toplevel() else {
                 continue;
             };

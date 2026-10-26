@@ -29,7 +29,8 @@
 //! show (wp_fifo), as long as one of three buffers is free; it prints how
 //! many frames were a vblank apart. `--timed N` gives each frame after the
 //! first a time, 2.5 refreshes after the last one showed (wp_commit_timing),
-//! and prints how many showed at the first vblank at or after their time.
+//! and prints how many showed at the first vblank at or after their time;
+//! the first, which maps the window, gets one 100 ms ahead.
 //!
 //! `--viewport` shows the pattern through wp_viewporter: the part from
 //! `VIEWPORT_SOURCE` – off centre, so its quadrants split at three
@@ -116,6 +117,9 @@ const SECOND_SIZE: (i32, i32) = (320, 240);
 const SWAPCHAIN: usize = 3;
 /// How far ahead of the last frame `--timed` sets the next, in refreshes.
 const TIMED_AHEAD: f64 = 2.5;
+/// How far ahead `--timed` sets its first frame, the one that maps the
+/// window: held back until then, as a window not shown yet.
+const TIMED_FIRST: Duration = Duration::from_millis(100);
 /// The rows at the top that act as a title bar.
 const TITLE: f64 = 32.0;
 /// The left button and the M key (linux/input-event-codes.h).
@@ -585,11 +589,29 @@ impl App {
                     self.frames_left -= 1;
                 }
                 Pace::Timed => {
-                    if let (Some(timer), Some(due)) = (&self.timer, self.next_due.take()) {
+                    let set = |timer: &WpCommitTimerV1, due: Duration| {
                         let secs = due.as_secs();
                         timer.set_timestamp((secs >> 32) as u32, secs as u32, due.subsec_nanos());
-                        self.dues.resize(self.asked as usize, None);
-                        self.dues.push(Some(due));
+                    };
+                    match (&self.timer, self.next_due.take()) {
+                        (Some(timer), Some(due)) => {
+                            set(timer, due);
+                            self.dues.resize(self.asked as usize, None);
+                            self.dues.push(Some(due));
+                        }
+                        // The first, which maps the window, a moment ahead:
+                        // the compositor lets it go though nothing shows it
+                        // yet. Not counted, the frames after it are timed
+                        // against their last one's showing.
+                        (Some(timer), None) if self.asked == 0 => {
+                            let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+                            let now = Duration::new(
+                                u64::try_from(now.tv_sec).unwrap_or(0),
+                                u32::try_from(now.tv_nsec).unwrap_or(0),
+                            );
+                            set(timer, now + TIMED_FIRST);
+                        }
+                        _ => {}
                     }
                     self.frames_left -= 1;
                 }
