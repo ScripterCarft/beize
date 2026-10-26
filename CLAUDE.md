@@ -315,7 +315,20 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.106 getestet, Bild fehlt auch ohne Sitzung – JETZT grundlegende Ursache suchen, vor E; Fedora-Vergleich erfragen)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 spät: Prüfung umgesetzt, Messbau 0.5.107 bereit – Besitzer baut Release, dann Hardware-Test)
+
+**JETZT (26.10. spät):** Messbau **0.5.107** (Tag `measure/desktop-0.5.107`, a3463e4, Smoke grün,
+nicht gepusht; Messzweig braucht Force-Push durch den Besitzer). Enthält alles unten: Takt
+(21b33a6), Compositor-Aufräumen (4d70e81..8133532), Kernel (5d4af80, 76a0bee), systemd 262.1
+(fe877d1), Schlüssel löschen + MOR zurücknehmen beim Herunterfahren (d7016f8). `hw-test.sh` hat 5
+Teile (Monitor aus/an entfernt; Teil 5 zusätzlich Tippen/Pfeil-hoch). **Beim Besitzer:** `git
+switch measure/desktop && ./bz build && ./bz release && git switch main`, dann „Release fertig“ →
+Claude kopiert nach D: (docs/hardware.md A.3). Auswerten: Resize-Nachziehen weg? Tasten sofort?
+„at most … on their way“ im Lasttest, späte Bilder (anderer Chat). **Offen:** seltener Smoke-Fehler
+„close button of the compositor's frame did not end the client“ (1 von ~20 Läufen 26.10., nach
+systemd 262.1; in 4 Folgeläufen nicht wieder, Logs überschrieben) – beim nächsten Auftreten Logs
+sichern (`build/work/logs/boot`). `main` nicht gepusht (CI-Lauf 40304913614, Job „Known
+vulnerabilities“, erst klären).
 
 **0.5.106 getestet (26.10., `~/hw-logs/results-20261026-123053`). Besitzer: „Fixes haben so gut
 wie nichts gebracht“ – den gemeinsamen Grund suchen, was bei uns merkwürdig ist; lieber alten
