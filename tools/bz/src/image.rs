@@ -99,7 +99,7 @@ pub enum Target {
 /// boot disk (and created there on first boot). Both are mounted `nosuid`
 /// and `nodev`: no file on them grants privileges or opens a device, not
 /// even one placed there later (ADR 0018). The last `console=` becomes
-/// /dev/console; kernel messages go to both.
+/// /dev/console; kernel messages go to every one named.
 ///
 /// In the VM the console is a serial port, which cannot tell its size: PID 1
 /// would ask the terminal at its other end (CSI 18 t) and wait 333 ms for an
@@ -118,9 +118,10 @@ fn kernel_cmdline(root_hash: &str, target: Target) -> String {
              systemd.tty.columns.console=80 systemd.tty.rows.console=24 \
              systemd.tty.columns.ttyS0=80 systemd.tty.rows.ttyS0=24"
         ),
-        Target::Hardware => {
-            format!("{common} console=ttyS0,115200 console=tty0 systemd.import_credentials=no")
-        }
+        // The screen alone (ADR 0010): a serial console printed every kernel
+        // message synchronously to a COM port nothing listens on, and
+        // systemd started a login prompt there (0.5.106's journal).
+        Target::Hardware => format!("{common} console=tty0 systemd.import_credentials=no"),
     }
 }
 
@@ -528,17 +529,18 @@ mod tests {
             w
         };
         assert_eq!(strip(words(&vm)), strip(words(&hardware)));
-        // The last console= is /dev/console: the serial port in the VM, the screen on hardware.
+        // The last console= is /dev/console: the serial port in the VM; on
+        // hardware the screen alone.
         fn consoles(line: &str) -> Vec<&str> {
             line.split(' ')
                 .filter(|w| w.starts_with("console="))
                 .collect()
         }
         assert_eq!(consoles(&vm), ["console=tty0", "console=ttyS0,115200"]);
+        assert_eq!(consoles(&hardware), ["console=tty0"]);
         // Only the VM's serial console gets its size from the command line.
         assert!(vm.contains(" systemd.tty.columns.console=80 systemd.tty.rows.console=24 "));
         assert!(!hardware.contains("systemd.tty."));
-        assert!(hardware.contains("console=ttyS0,115200 console=tty0 "));
         assert!(hardware.ends_with("systemd.import_credentials=no"));
         assert!(!vm.contains("import_credentials"));
     }
