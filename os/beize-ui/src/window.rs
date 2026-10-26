@@ -2,7 +2,7 @@
 //! shell along an edge of the screen (wlr-layer-shell, ADR 0028 §1), shown
 //! through a Vulkan swapchain on the app's libwayland display (Mesa's WSI:
 //! dmabufs on a GPU, shm on lavapipe; FIFO paces it to the compositor's
-//! frames). Opaque – a translucent panel premultiplied –, in the size the
+//! frames, each frame's callback the sizes it takes). Opaque – a translucent panel premultiplied –, in the size the
 //! compositor asks for. The app's renderer draws into the swapchain's
 //! images.
 //!
@@ -373,7 +373,7 @@ impl Window {
                 self.recreate(size, &renderer.gpu)?;
                 self.set_opaque(surface, compositor, qh);
             }
-            if self.draw_once(scene, renderer)? {
+            if self.draw_once(scene, renderer, surface, qh)? {
                 return Ok(());
             }
             // Out of date before drawing: once more with a new one.
@@ -383,7 +383,13 @@ impl Window {
     }
 
     /// One frame; false if the swapchain was out of date to begin with.
-    fn draw_once(&mut self, scene: &Scene, renderer: &mut Renderer) -> Result<bool> {
+    fn draw_once(
+        &mut self,
+        scene: &Scene,
+        renderer: &mut Renderer,
+        surface: &Surface,
+        qh: &QueueHandle<State>,
+    ) -> Result<bool> {
         let acquired = renderer.next()?;
         let swapchain = self.swapchain.as_ref().context("no swapchain")?;
         let gpu = &renderer.gpu;
@@ -420,6 +426,10 @@ impl Window {
             .wait_semaphores(&wait)
             .swapchains(&swapchains)
             .image_indices(&indices);
+        // With the present's commit: the compositor's answer that it showed
+        // the frame lets the next configure in (`State::apply_configures`).
+        surface.wl.frame(qh, surface.id);
+        surface.frame_pending.set(true);
         let gpu = &renderer.gpu;
         // SAFETY: the image was acquired above and is drawn when `drawn`
         // is signalled.

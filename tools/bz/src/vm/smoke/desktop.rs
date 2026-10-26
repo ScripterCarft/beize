@@ -59,7 +59,7 @@ use crate::paths::Paths;
 use crate::say;
 use crate::vm::console::{
     Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, click, drag, german_presses,
-    keys, screendump,
+    keys, screendump, swipe,
 };
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
@@ -200,6 +200,13 @@ const RESIZE_BY: (i32, i32) = (60, 30);
 /// Beize UI's title bar along the top of its windows (os/beize-ui,
 /// `titlebar`), and how far the test drags a window by it.
 const TITLE_BAR: usize = 32;
+/// How far the fast resize drags Beize UI's window out (`fast_resize`), a
+/// pixel a millisecond, and how soon it has to settle after the button is
+/// up: 20 ms measured (about a frame at the VM's 60 Hz); the bound leaves
+/// room for a loaded host. Drawing every size, the window was still
+/// hundreds of sizes behind (988 instead of 800 px wide) when it ended.
+const FAST_RESIZE_BY: i32 = 240;
+const FAST_RESIZE_SETTLES: Duration = Duration::from_millis(250);
 // Its 800x632 window stays clear of the dock (`MOVE_BY`).
 const UI_MOVE_BY: (i32, i32) = (-100, 10);
 /// The bar's circles at its left end, 23 px apart from 9 px on, close
@@ -501,6 +508,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         (moved.0 + BUTTONS.0, moved.1),
         (BUTTONS.1 - BUTTONS.0, TITLE_BAR),
     )?;
+    fast_resize(&shell, &qmp, screen, (moved, (w, h)))?;
     // The yellow circle minimizes it: off the screen; its app's tile in the
     // dock brings it back to its place.
     let minimize = (
@@ -2060,6 +2068,45 @@ fn wait_for_dock(shell: &Shell, wanted: impl Fn(&[String]) -> bool) -> Result<Ve
 /// Waits until the compositor said `line` (a basic regular expression for
 /// the whole line), in this boot; the last line it took. If it does not,
 /// the error has what the compositor and the shell said last.
+/// Resizes Beize UI's window by its right edge as fast as a 1000 Hz mouse
+/// reports, out by `FAST_RESIZE_BY` and back: it has to settle in its size
+/// at once after the button is up, not draw the hundreds of sizes in
+/// between one frame after another (0.5.105 on the owner's PC: the window
+/// trailed the pointer ever more, until its buffers filled the GPU).
+fn fast_resize(shell: &Shell, qmp: &Path, screen: (usize, usize), window: Window) -> Result<()> {
+    let ((x, y), (w, h)) = window;
+    let edge = (i32::try_from(x + w + 2)?, i32::try_from(y + h / 2)?);
+    let out = (edge.0 + FAST_RESIZE_BY, edge.1);
+    swipe(qmp, screen, &[edge, out, edge], Duration::from_millis(1))?;
+    park(qmp, screen)?;
+    let wanted = format!("resized beize-ui-test to {w}x{h}, ");
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 50); do journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -q '^{wanted}' && break; sleep 0.2; done; \
+         journalctl --user -b -u beize-compositor.service -o cat | grep '^resized ' | tail -n 1"
+    ))?;
+    let said = lines
+        .iter()
+        .find(|l| l.starts_with("resized "))
+        .with_context(|| format!("the compositor ended no resize: {lines:?}"))?;
+    let ms: u64 = said
+        .strip_prefix(&wanted)
+        .and_then(|rest| rest.split_once(" ms"))
+        .and_then(|(ms, _)| ms.parse().ok())
+        .with_context(|| format!("the window did not settle in {w}x{h}: \"{said}\""))?;
+    ensure!(
+        ms <= FAST_RESIZE_SETTLES.as_millis() as u64,
+        "resized fast, the window settled {ms} ms after the button was released, more than \
+         {} ms: it drew the sizes it was dragged through one by one",
+        FAST_RESIZE_SETTLES.as_millis()
+    );
+    say!(
+        "  ok: resized as fast as a 1000 Hz mouse, out by {FAST_RESIZE_BY} px and back, the \
+         window settled {ms} ms after the button was released"
+    );
+    Ok(())
+}
+
 fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<String> {
     let (_, lines) = shell.capture(&format!(
         "for i in $(seq 50); do journalctl --user -b -u beize-compositor.service -o cat \

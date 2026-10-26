@@ -33,6 +33,7 @@
 //! in the space below the bar.
 
 use std::cell::RefCell;
+use std::time::Instant;
 
 use smithay::desktop::Window;
 use smithay::input::SeatHandler;
@@ -90,8 +91,8 @@ struct Place {
 struct Resize {
     edges: ResizeEdge,
     initial: Rectangle<i32, Logical>,
-    /// The button is up: the last commit for the drag ends it.
-    released: bool,
+    /// When the button went up: the last commit for the drag ends it.
+    released: Option<Instant>,
 }
 
 fn with_place<T>(window: &Window, f: impl FnOnce(&mut Place) -> T) -> T {
@@ -334,8 +335,19 @@ impl State {
                 return Some(at);
             }
             let resize = place.resize?;
-            if resize.released && !resizing {
+            if let Some(released) = resize.released
+                && !resizing
+            {
                 place.resize = None;
+                // How long the window took to settle: a client that
+                // drew each size the pointer asked for lags behind it.
+                info!(
+                    "resized {} to {}x{}, {} ms after the button was released",
+                    app_id(window),
+                    size.w,
+                    size.h,
+                    released.elapsed().as_millis()
+                );
             }
             // The edges opposite those dragged stay where they were.
             let mut at = location;
@@ -729,7 +741,7 @@ impl State {
             place.resize = Some(Resize {
                 edges,
                 initial,
-                released: false,
+                released: None,
             });
         });
         toplevel.with_pending_state(|state| state.states.set(XdgState::Resizing));
@@ -875,7 +887,7 @@ impl ResizeGrab {
         };
         with_place(&self.window, |place| {
             if let Some(resize) = &mut place.resize {
-                resize.released = true;
+                resize.released = Some(Instant::now());
             }
         });
         toplevel.with_pending_state(|state| state.states.unset(XdgState::Resizing));

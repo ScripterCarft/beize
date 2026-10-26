@@ -5,6 +5,7 @@
 //! windows of one app. Input goes to the window that has the pointer or the
 //! keyboard; `dispatch` hands each window its own events.
 
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::os::fd::{BorrowedFd, OwnedFd};
 use std::time::{Duration, Instant};
@@ -15,6 +16,7 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use tracing::warn;
 use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
+    wl_callback::{self, WlCallback},
     wl_compositor::WlCompositor,
     wl_keyboard::{self, WlKeyboard},
     wl_pointer::{self, WlPointer},
@@ -135,6 +137,28 @@ pub(crate) struct Surface {
     pub(crate) maximized: bool,
     pub(crate) fullscreen: bool,
     pub(crate) events: Events,
+    /// The compositor's latest configure, held while a frame is on its way
+    /// (`State::apply_configures`).
+    next: Next,
+    /// A frame was presented that the compositor has not shown yet: its
+    /// wl_surface.frame callback has not come.
+    pub(crate) frame_pending: Cell<bool>,
+}
+
+/// A configure not yet handed to the app: its size and states, and the
+/// serial its acknowledgement names.
+#[derive(Default)]
+struct Next {
+    asked: (i32, i32),
+    activated: bool,
+    maximized: bool,
+    fullscreen: bool,
+    ack: Option<Ack>,
+}
+
+enum Ack {
+    Toplevel(XdgSurface, u32),
+    Panel(ZwlrLayerSurfaceV1, u32),
 }
 
 pub(crate) struct State {
@@ -174,6 +198,37 @@ impl State {
 
     fn id_of(&self, wl: &WlSurface) -> Option<WindowId> {
         self.surfaces.iter().find(|s| &s.wl == wl).map(|s| s.id)
+    }
+
+    /// Hands each window the compositor's latest configure once the frame
+    /// it presented last is shown, as GTK's frame clock takes a new size
+    /// with the next frame: the app draws at most one size a frame, and
+    /// only the configure it draws for is acknowledged. Each new size is a
+    /// new swapchain with fresh buffers, which Mesa's FIFO does not hold
+    /// back; drawn as fast as a 1000 Hz mouse asked for them, they queued
+    /// behind the compositor's frames (wp_fifo), the window trailed the
+    /// pointer ever more, and their buffers filled the GPU (0.5.105).
+    /// Acknowledged when it came, the last configure went with a buffer of
+    /// an older size, and the compositor took the resize as ended there.
+    fn apply_configures(&mut self) {
+        for surface in &mut self.surfaces {
+            if surface.frame_pending.get() {
+                continue;
+            }
+            let Some(ack) = surface.next.ack.take() else {
+                continue;
+            };
+            match ack {
+                Ack::Toplevel(xdg_surface, serial) => xdg_surface.ack_configure(serial),
+                Ack::Panel(layer, serial) => layer.ack_configure(serial),
+            }
+            let next = &surface.next;
+            surface.asked = next.asked;
+            surface.activated = next.activated;
+            surface.maximized = next.maximized;
+            surface.fullscreen = next.fullscreen;
+            surface.events.configured = true;
+        }
     }
 
     /// Input for `window`; none for no window.
@@ -353,6 +408,8 @@ impl App {
             maximized: false,
             fullscreen: false,
             events: Events::default(),
+            next: Next::default(),
+            frame_pending: Cell::new(false),
         });
         Ok(id)
     }
@@ -565,6 +622,7 @@ impl App {
         queue
             .dispatch_pending(&mut self.state)
             .context("dispatching")?;
+        self.state.apply_configures();
         queue.flush().context("sending to the compositor")?;
         // Mesa's WSI reads the same socket and may have queued events
         // already: then only a look, no waiting.
@@ -618,6 +676,7 @@ impl App {
         queue
             .dispatch_pending(&mut self.state)
             .context("dispatching")?;
+        self.state.apply_configures();
         let state = &mut self.state;
         if let Some(repeat) = state.keyboard.repeat_due(Instant::now()) {
             state.deliver(state.keyboard_on, vec![repeat]);
@@ -715,6 +774,25 @@ impl Dispatch<XdgWmBase, ()> for State {
     }
 }
 
+/// A window's frame is shown (`Window::draw_once` asked): its next
+/// configure may go to the app.
+impl Dispatch<WlCallback, WindowId> for State {
+    fn event(
+        state: &mut State,
+        _: &WlCallback,
+        event: wl_callback::Event,
+        id: &WindowId,
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        if let wl_callback::Event::Done { .. } = event
+            && let Some(surface) = state.surface(*id)
+        {
+            surface.frame_pending.set(false);
+        }
+    }
+}
+
 impl Dispatch<XdgSurface, WindowId> for State {
     fn event(
         state: &mut State,
@@ -724,13 +802,12 @@ impl Dispatch<XdgSurface, WindowId> for State {
         _: &Connection,
         _: &QueueHandle<State>,
     ) {
-        if let xdg_surface::Event::Configure { serial } = event {
-            // Acknowledged before the frame for it is presented (the
-            // present commits).
-            xdg_surface.ack_configure(serial);
-            if let Some(surface) = state.surface_mut(*id) {
-                surface.events.configured = true;
-            }
+        // Acknowledged when the app takes it, before the frame for it is
+        // presented (`State::apply_configures`).
+        if let xdg_surface::Event::Configure { serial } = event
+            && let Some(surface) = state.surface_mut(*id)
+        {
+            surface.next.ack = Some(Ack::Toplevel(xdg_surface.clone(), serial));
         }
     }
 }
@@ -753,7 +830,6 @@ impl Dispatch<XdgToplevel, WindowId> for State {
                 height,
                 states,
             } => {
-                surface.asked = (width, height);
                 let has = |wanted: xdg_toplevel::State| {
                     states
                         .as_chunks::<4>()
@@ -761,9 +837,11 @@ impl Dispatch<XdgToplevel, WindowId> for State {
                         .iter()
                         .any(|s| u32::from_ne_bytes(*s) == u32::from(wanted))
                 };
-                surface.activated = has(xdg_toplevel::State::Activated);
-                surface.maximized = has(xdg_toplevel::State::Maximized);
-                surface.fullscreen = has(xdg_toplevel::State::Fullscreen);
+                // Taken with the xdg_surface's configure that follows.
+                surface.next.asked = (width, height);
+                surface.next.activated = has(xdg_toplevel::State::Activated);
+                surface.next.maximized = has(xdg_toplevel::State::Maximized);
+                surface.next.fullscreen = has(xdg_toplevel::State::Fullscreen);
             }
             xdg_toplevel::Event::Close => surface.events.closed = true,
             _ => {}
@@ -789,12 +867,11 @@ impl Dispatch<ZwlrLayerSurfaceV1, WindowId> for State {
                 width,
                 height,
             } => {
-                // As for a toplevel (`XdgSurface`): acknowledged before the
-                // frame for it is presented.
-                layer.ack_configure(serial);
+                // As for a toplevel (`XdgSurface`): acknowledged when the
+                // app takes it.
                 let size = |n: u32| i32::try_from(n).unwrap_or(i32::MAX);
-                surface.asked = (size(width), size(height));
-                surface.events.configured = true;
+                surface.next.asked = (size(width), size(height));
+                surface.next.ack = Some(Ack::Panel(layer.clone(), serial));
             }
             // The compositor took the panel away (its screen went).
             zwlr_layer_surface_v1::Event::Closed => surface.events.closed = true,

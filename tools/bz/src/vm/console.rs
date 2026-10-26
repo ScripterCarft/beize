@@ -345,6 +345,36 @@ pub(super) fn drag(
     Ok(())
 }
 
+/// Drags with the left button along `path`, a pixel each `every`, as a
+/// fast mouse reports (1 ms: 1000 Hz, a gaming mouse's rate) – far more
+/// often than the screen shows frames.
+pub(super) fn swipe(
+    socket: &Path,
+    screen: (usize, usize),
+    path: &[(i32, i32)],
+    every: Duration,
+) -> Result<()> {
+    let Some(&start) = path.first() else {
+        return Ok(());
+    };
+    let mut tablet = Tablet::connect(socket, screen)?;
+    tablet.to(start)?;
+    thread::sleep(Duration::from_millis(40));
+    tablet.button(true)?;
+    for pair in path.windows(2) {
+        let (from, to) = (pair[0], pair[1]);
+        let steps = (to.0 - from.0).abs().max((to.1 - from.1).abs()).max(1);
+        for step in 1..=steps {
+            thread::sleep(every);
+            let between = |a: i32, b: i32| a + (b - a) * step / steps;
+            tablet.to((between(from.0, to.0), between(from.1, to.1)))?;
+        }
+    }
+    thread::sleep(Duration::from_millis(40));
+    tablet.button(false)?;
+    Ok(())
+}
+
 /// Clicks the tablet's left button `times` at `at`, 60 ms down and up each:
 /// two are a double click (400 ms at most from press to press, GNOME's).
 pub(super) fn click(
