@@ -165,14 +165,6 @@ impl Glyphs {
         self.place_svg(name.to_owned(), size, || read_symbol(name))
     }
 
-    /// A shape of Beize's own (`Scene::shape`), `svg`, as `symbol` places
-    /// one; `name` keeps it apart from the symbols.
-    pub fn shape(&mut self, name: &str, svg: &str, size: u32) -> Result<Placed, Full> {
-        self.place_svg(format!("shape:{name}"), size, || {
-            Ok(svg.as_bytes().to_vec())
-        })
-    }
-
     fn place_svg(
         &mut self,
         name: String,

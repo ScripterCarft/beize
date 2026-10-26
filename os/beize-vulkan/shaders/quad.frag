@@ -107,6 +107,45 @@ float inside(vec2 p, vec4 box, float radius) {
     return clamp(0.5 - edge_distance(p, box, radius), 0.0, 1.0);
 }
 
+// The window buttons' marks (`STROKE`, `TRIANGLE`): computed per pixel, as
+// the corners are, sharp at any size. Points are in the quad's pixels
+// (`uv`).
+
+// The signed distance of `p` to a stroke from `a` to `b`, `half_width` to
+// each side: running `past` its ends (0 butt, half the width square, as
+// SVG's caps), or with round ends.
+float stroke_distance(vec2 p, vec2 a, vec2 b, float half_width, float past, bool round_ends) {
+    float len = length(b - a);
+    vec2 along = len > 0.0 ? (b - a) / len : vec2(1.0, 0.0);
+    vec2 pa = p - a;
+    float t = dot(pa, along);
+    if (round_ends) {
+        return length(pa - along * clamp(t, 0.0, len)) - half_width;
+    }
+    vec2 q = vec2(abs(t - 0.5 * len) - (0.5 * len + past),
+                  abs(dot(pa, vec2(-along.y, along.x))) - half_width);
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
+// The signed distance of `p` to the triangle `p0`, `p1`, `p2`: Inigo
+// Quilez's ("2D distance functions", sdTriangle).
+float triangle_distance(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
+    vec2 e0 = p1 - p0;
+    vec2 e1 = p2 - p1;
+    vec2 e2 = p0 - p2;
+    vec2 v0 = p - p0;
+    vec2 v1 = p - p1;
+    vec2 v2 = p - p2;
+    vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+    vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+    vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+    float s = sign(e0.x * e2.y - e0.y * e2.x);
+    vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                     vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                 vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+    return -sqrt(d.x) * sign(d.y);
+}
+
 // The shadow of a rounded rectangle, blurred by a Gaussian: Evan Wallace's
 // closed form ("Fast rounded rectangle shadows", as Zed and Figma draw
 // theirs). Across, the blur of each row is exact (erf); down, four samples.
@@ -229,6 +268,14 @@ void main() {
         vec4 sampled = textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
                                   uv * texel, 0.0);
         result = glass(sampled) * inside(gl_FragCoord.xy, clip, rounding.x);
+        return;
+    }
+    if ((flags & (STROKE | TRIANGLE)) != 0u) {
+        float d = (flags & TRIANGLE) != 0u
+            ? triangle_distance(uv, bottom.xy, bottom.zw, texel)
+            : stroke_distance(uv, bottom.xy, bottom.zw, rounding.x, rounding.y,
+                              (flags & ROUND) != 0u);
+        result = color * clamp(0.5 - d, 0.0, 1.0);
         return;
     }
     // Round corners (rounding.x > 0): only what lies inside the window.

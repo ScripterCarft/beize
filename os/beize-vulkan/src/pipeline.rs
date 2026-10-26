@@ -88,6 +88,17 @@ pub const MATERIAL: u32 = 512;
 /// translucent window's last pass (Beize UI): stored through an sRGB view,
 /// a half-covered white would read 0.735 instead of 0.5.
 pub const ENCODE: u32 = 1024;
+/// A stroke in `color` (ADR 0028 §2, the window buttons' marks): from
+/// `bottom[0..2]` to `bottom[2..4]`, `radius` to each side, running `sigma`
+/// past its ends – computed per pixel, no texture. Points are in the
+/// quad's pixels: `uv` runs over them (0 at its top left, `uv_x` and
+/// `uv_y` its size), so a moved quad takes its shape along.
+pub const STROKE: u32 = 2048;
+/// With `STROKE`: round ends instead.
+pub const ROUND: u32 = 4096;
+/// A triangle in `color`, as `STROKE`: its corners `bottom[0..2]`,
+/// `bottom[2..4]` and `texel`.
+pub const TRIANGLE: u32 = 8192;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.

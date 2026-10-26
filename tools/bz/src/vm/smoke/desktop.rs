@@ -215,6 +215,33 @@ const UI_MOVE_BY: (i32, i32) = (-100, 10);
 const BUTTONS: (usize, usize) = (CORNER, 77);
 const CLOSE_X: usize = 16;
 const CIRCLE_STEP: usize = 23;
+/// With the pointer over the circles, a pixel of each that its mark covers
+/// (os/beize-draw, `titlebar`, the GPU computes them): where close's
+/// strokes cross, on minimize's line (which covers 0.7 of it), in zoom's
+/// upper triangle – with the circle's fill and the mark's colour.
+const MARKS: [Mark; 3] = [
+    Mark {
+        at: (15, 15),
+        fill: [0xff, 0x5f, 0x57],
+        ink: [0x4d, 0x00, 0x00],
+    },
+    Mark {
+        at: (39, 15),
+        fill: [0xfe, 0xbc, 0x2e],
+        ink: [0x99, 0x57, 0x00],
+    },
+    Mark {
+        at: (60, 14),
+        fill: [0x28, 0xc8, 0x40],
+        ink: [0x00, 0x65, 0x00],
+    },
+];
+
+struct Mark {
+    at: (usize, usize),
+    fill: [u8; 3],
+    ink: [u8; 3],
+}
 /// A place on a bar away from its circles.
 const BAR_GRIP_X: usize = 120;
 /// The windows' round corners (os/beize-compositor, `corners`): the
@@ -508,6 +535,14 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         (moved.0 + BUTTONS.0, moved.1),
         (BUTTONS.1 - BUTTONS.0, TITLE_BAR),
     )?;
+    // With the pointer over the circles they show their marks.
+    let over = (
+        i32::try_from(moved.0 + CLOSE_X + CIRCLE_STEP)?,
+        i32::try_from(moved.1 + TITLE_BAR / 2)?,
+    );
+    drag(&qmp, screen, over, over, false)?;
+    wait_until_screen(&machine, "beize-ui-marks", |shown| marks(shown, moved))?;
+    park(&qmp, screen)?;
     fast_resize(&shell, &qmp, screen, (moved, (w, h)))?;
     // The yellow circle minimizes it: off the screen; its app's tile in the
     // dock brings it back to its place.
@@ -557,8 +592,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
     say!(
         "  ok: Beize UI's title bar moved the window by exactly the drag, a double click \
-         maximized it and back, the yellow circle minimized it and the dock brought it back, \
-         its close button closed it"
+         maximized it and back, its circles showed their marks under the pointer, the yellow \
+         circle minimized it and the dock brought it back, its close button closed it"
     );
 
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
@@ -1937,6 +1972,32 @@ fn wait_until_screen(
     let shown = machine.logs.join(format!("{name}-screen.png"));
     screen.write_png(&shown)?;
     Err(e.context(format!("the screen is {}", shown.display())))
+}
+
+/// Whether the bar of the window at `window` shows its circles' marks
+/// (`MARKS`): each pixel nearer the mark's colour than the fill's.
+fn marks(screen: &Image, window: (usize, usize)) -> Result<()> {
+    for Mark {
+        at: (x, y),
+        fill,
+        ink,
+    } in MARKS
+    {
+        let pixel = screen.pixel(window.0 + x, window.1 + y);
+        let from = |c: [u8; 3]| -> u32 {
+            pixel
+                .iter()
+                .zip(c)
+                .map(|(p, c)| u32::from(p.abs_diff(c)))
+                .sum()
+        };
+        ensure!(
+            from(ink) < from(fill),
+            "the circle's pixel {x},{y} on the bar shows {pixel:?}, not its mark {ink:?} \
+             (the fill is {fill:?})"
+        );
+    }
+    Ok(())
 }
 
 /// Whether two pixels are the same but rounding.

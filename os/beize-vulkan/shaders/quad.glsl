@@ -32,6 +32,9 @@ const uint BLUR_DOWN = 128u;
 const uint BLUR_UP = 256u;
 const uint MATERIAL = 512u;
 const uint ENCODE = 1024u;
+const uint STROKE = 2048u;
+const uint ROUND = 4096u;
+const uint TRIANGLE = 8192u;
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Quads {
     Quad quads[];

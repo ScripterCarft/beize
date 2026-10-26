@@ -145,7 +145,10 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   - **Windows:** Die Leiste ist 32 px hoch, rechts flache Knöpfe 46 × 32, Schließen rot unter
     dem Zeiger.
   - Die Zeichen sind eigene Formen, für ihre Größe auf das Pixelraster gezeichnet, wie bei
-    AppKit und Windows. Aus Phosphor wäre das Quadrat größer als das X.
+    AppKit und Windows. Aus Phosphor wäre das Quadrat größer als das X. Kreise und Zeichen
+    rechnet der Quad-Shader je Pixel als Abstandsfelder (Kreis, Strich, Dreieck; 26.10.), wie
+    schon die runden Ecken: scharf in jeder Größe, ohne SVG und ohne Platz im Atlas. Zoom
+    bleibt zwei Dreiecke im 45°-Winkel (Besitzer).
   - Gelb minimiert: Das Fenster verlässt den Bildschirm, das darunter wird aktiv, und das Dock
     holt es an seinen Platz zurück. Grün maximiert (Zoom), mit Alt (der Wahltaste) schaltet es
     Vollbild (Besitzer, 24.10.: umgekehrt zu macOS).

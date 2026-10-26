@@ -14,7 +14,7 @@ pub mod measures;
 pub mod text;
 pub mod titlebar;
 
-pub use draw::{Atlases, Color, Rect, Scene};
+pub use draw::{Atlases, Cap, Color, Rect, Scene};
 pub use glyphs::Glyphs;
 pub use icon::AppIcon;
 pub use text::{Cells, Family, Style, Text};

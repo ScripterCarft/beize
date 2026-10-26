@@ -11,16 +11,17 @@
 //! all three show their marks. Windows 11: flat buttons 46 px wide at the
 //! right, close red under the pointer. The title is centred in both.
 //!
-//! The buttons' marks are shapes of their own, drawn for their size on the
-//! pixel grid (`Scene::shape`), as AppKit's and Windows' are: a set of
-//! symbols draws a square larger than an X, which looks wrong at this size.
+//! The buttons' circles and marks are shapes of their own, drawn for their
+//! size (`Scene::rounded`, `stroke`, `triangle`), as AppKit's and Windows'
+//! are: a set of symbols draws a square larger than an X, which looks
+//! wrong at this size. The GPU computes them per pixel, sharp at any size.
 //!
 //! Minimizing takes the window off the screen; the dock brings it back
 //! (ADR 0028 §4).
 
 use std::time::{Duration, Instant};
 
-use crate::draw::{Color, Rect, Scene};
+use crate::draw::{Cap, Color, Rect, Scene};
 use crate::text::{Family, Style, Text};
 
 /// How the bar looks.
@@ -153,18 +154,47 @@ const GREEN: Circle = Circle {
     mark: 0x006500,
 };
 
-/// The marks, each on its own grid: macOS' on a 12 grid scaled to the
-/// circle, Windows'
-/// in a 16 px box with a 10 px mark, one pixel wide, on the pixel grid.
-const DISC: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="6"/></svg>"#;
-const RIM: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5.75" fill="none" stroke="#000" stroke-width="0.5"/></svg>"##;
-const MAC_CLOSE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5" stroke="#000" stroke-width="1.2" stroke-linecap="round"/></svg>"##;
-const MAC_MINIMIZE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M3 6h6" stroke="#000" stroke-width="1.2" stroke-linecap="round"/></svg>"##;
-const MAC_ZOOM: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M3.5 3.5h4.2l-4.2 4.2zM8.5 8.5H4.3l4.2-4.2z"/></svg>"#;
-const WIN_CLOSE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 3l10 10M13 3L3 13" stroke="#000" stroke-width="1"/></svg>"##;
-const WIN_MINIMIZE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 8.5h10" stroke="#000" stroke-width="1"/></svg>"##;
-const WIN_MAXIMIZE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" fill="none" stroke="#000" stroke-width="1"/></svg>"##;
-const WIN_RESTORE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.5 5.5h7v7h-7zM5.5 5.5v-2h7v7h-2" fill="none" stroke="#000" stroke-width="1"/></svg>"##;
+/// macOS' circles and marks on a 12 grid scaled to the circle: the rim
+/// half a unit wide inside its edge; close and minimize strokes 1.2 wide
+/// with round ends, zoom two triangles pointing apart at 45 degrees.
+const GRID: f32 = 12.0;
+const RIM: f32 = 0.5;
+const MAC_STROKE: f32 = 1.2;
+const MAC_CLOSE: [[[f32; 2]; 2]; 2] = [[[3.5, 3.5], [8.5, 8.5]], [[8.5, 3.5], [3.5, 8.5]]];
+const MAC_MINIMIZE: [[f32; 2]; 2] = [[3.0, 6.0], [9.0, 6.0]];
+const MAC_ZOOM: [[[f32; 2]; 3]; 2] = [
+    [[3.5, 3.5], [7.7, 3.5], [3.5, 7.7]],
+    [[8.5, 8.5], [4.3, 8.5], [8.5, 4.3]],
+];
+/// Windows' marks in their 16 px box, 10 px, one pixel wide on the pixel
+/// grid; the boxes' sides run half a pixel past their corners, so they
+/// meet without a gap.
+const WIN_CLOSE: [[[f32; 2]; 2]; 2] = [[[3.0, 3.0], [13.0, 13.0]], [[13.0, 3.0], [3.0, 13.0]]];
+const WIN_MINIMIZE: [[f32; 2]; 2] = [[3.0, 8.5], [13.0, 8.5]];
+const WIN_MAXIMIZE: [[f32; 2]; 5] = [
+    [3.5, 3.5],
+    [12.5, 3.5],
+    [12.5, 12.5],
+    [3.5, 12.5],
+    [3.5, 3.5],
+];
+/// The window in front, then the one behind it, as far as it shows.
+const WIN_RESTORE: [&[[f32; 2]]; 2] = [
+    &[
+        [3.5, 5.5],
+        [10.5, 5.5],
+        [10.5, 12.5],
+        [3.5, 12.5],
+        [3.5, 5.5],
+    ],
+    &[
+        [5.5, 5.5],
+        [5.5, 3.5],
+        [12.5, 3.5],
+        [12.5, 10.5],
+        [10.5, 10.5],
+    ],
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {
@@ -375,15 +405,32 @@ impl TitleBar {
             } else {
                 (Color::rgb(circle.fill), Color::rgb(circle.rim))
             };
-            scene.shape("disc", DISC, x, y, CIRCLE, fill);
-            scene.shape("rim", RIM, x, y, CIRCLE, rim);
+            // The rim, and the fill inside it.
+            let unit = CIRCLE as f32 / GRID;
+            let radius = CIRCLE as f32 / 2.0;
+            let centre = [x + radius, y + radius];
+            scene.circle(centre, radius, rim);
+            scene.circle(centre, radius - RIM * unit, fill);
             if self.over_buttons {
-                let (name, svg) = match button {
-                    Button::Close => ("mac-close", MAC_CLOSE),
-                    Button::Minimize => ("mac-minimize", MAC_MINIMIZE),
-                    Button::Maximize => ("mac-zoom", MAC_ZOOM),
-                };
-                scene.shape(name, svg, x, y, CIRCLE, Color::rgb(circle.mark));
+                let at = |[px, py]: [f32; 2]| [x + px * unit, y + py * unit];
+                let ink = Color::rgb(circle.mark);
+                let width = MAC_STROKE * unit;
+                match button {
+                    Button::Close => {
+                        for [a, b] in MAC_CLOSE {
+                            scene.stroke(at(a), at(b), width, Cap::Round, ink);
+                        }
+                    }
+                    Button::Minimize => {
+                        let [a, b] = MAC_MINIMIZE;
+                        scene.stroke(at(a), at(b), width, Cap::Round, ink);
+                    }
+                    Button::Maximize => {
+                        for corners in MAC_ZOOM {
+                            scene.triangle(corners.map(at), ink);
+                        }
+                    }
+                }
             }
         }
     }
@@ -401,21 +448,34 @@ impl TitleBar {
             } else if hovered {
                 scene.fill(rect, colors.hover);
             }
-            let (name, svg) = match button {
-                Button::Close => ("win-close", WIN_CLOSE),
-                Button::Maximize if self.maximized => ("win-restore", WIN_RESTORE),
-                Button::Maximize => ("win-maximize", WIN_MAXIMIZE),
-                Button::Minimize => ("win-minimize", WIN_MINIMIZE),
-            };
             let size = MARK as f32;
-            scene.shape(
-                name,
-                svg,
-                (rect.x + (rect.w - size) / 2.0).round(),
-                (rect.y + (rect.h - size) / 2.0).round(),
-                MARK,
-                mark_ink,
-            );
+            let x = (rect.x + (rect.w - size) / 2.0).round();
+            let y = (rect.y + (rect.h - size) / 2.0).round();
+            let at = |[px, py]: [f32; 2]| [x + px, y + py];
+            let mut line = |a, b, cap| scene.stroke(at(a), at(b), 1.0, cap, mark_ink);
+            match button {
+                Button::Close => {
+                    for [a, b] in WIN_CLOSE {
+                        line(a, b, Cap::Butt);
+                    }
+                }
+                Button::Minimize => {
+                    let [a, b] = WIN_MINIMIZE;
+                    line(a, b, Cap::Butt);
+                }
+                Button::Maximize => {
+                    let paths: &[&[[f32; 2]]] = if self.maximized {
+                        &WIN_RESTORE
+                    } else {
+                        &[&WIN_MAXIMIZE]
+                    };
+                    for path in paths {
+                        for pair in path.windows(2) {
+                            line(pair[0], pair[1], Cap::Square);
+                        }
+                    }
+                }
+            }
         }
     }
 }

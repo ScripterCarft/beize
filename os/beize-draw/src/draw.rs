@@ -6,7 +6,7 @@
 //! A scene is data only: text adds its glyph runs, and `quads` turns each
 //! glyph into a quad when it is drawn (`glyphs`, the atlas).
 
-use beize_vulkan::pipeline::{EXACT, GRADIENT, MASK, Quad, SOLID};
+use beize_vulkan::pipeline::{EXACT, GRADIENT, MASK, Quad, ROUND, SOLID, STROKE, TRIANGLE};
 use parley::{FontData, Layout, PositionedLayoutItem, Run};
 use tracing::debug;
 
@@ -72,6 +72,17 @@ pub(crate) fn decode(channel: u8) -> f32 {
     }
 }
 
+/// How a stroke ends (`Scene::stroke`), as SVG's line caps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cap {
+    /// At its end.
+    Butt,
+    /// Half its width past its end, square.
+    Square,
+    /// In a half circle.
+    Round,
+}
+
 /// A rectangle in the window's pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
@@ -121,8 +132,6 @@ struct Image {
 struct Symbol {
     pub quad: usize,
     pub name: String,
-    /// A shape of Beize's own (`Scene::shape`), else Phosphor's file.
-    pub svg: Option<&'static str>,
     pub size: u32,
     pub x: f32,
     pub y: f32,
@@ -219,38 +228,9 @@ impl Scene {
     /// The symbol `name` (Phosphor's, ADR 0028 §8) in `color`, a square of
     /// `size` pixels with its top left at `x`, `y`, on whole pixels.
     pub fn symbol(&mut self, name: &str, x: f32, y: f32, size: u32, color: Color) {
-        self.push_symbol(name, None, x, y, size, color);
-    }
-
-    /// A shape of Beize's own, `svg` (its view box scaled to the square),
-    /// drawn like a symbol: the window buttons' marks, which are drawn for
-    /// their size on the pixel grid, as AppKit and Windows draw theirs –
-    /// not taken from a set of symbols. `name` tells it apart in the atlas.
-    pub fn shape(
-        &mut self,
-        name: &'static str,
-        svg: &'static str,
-        x: f32,
-        y: f32,
-        size: u32,
-        color: Color,
-    ) {
-        self.push_symbol(name, Some(svg), x, y, size, color);
-    }
-
-    fn push_symbol(
-        &mut self,
-        name: &str,
-        svg: Option<&'static str>,
-        x: f32,
-        y: f32,
-        size: u32,
-        color: Color,
-    ) {
         self.symbols.push(Symbol {
             quad: self.quads.len(),
             name: name.to_owned(),
-            svg,
             size,
             x: x.round(),
             y: y.round(),
@@ -261,6 +241,79 @@ impl Scene {
             ..Quad::default()
         });
         self.blend.push(true);
+    }
+
+    /// A stroke from `a` to `b`, `width` wide, its ends `cap`, in `color`:
+    /// the window buttons' marks, drawn for their size as AppKit and
+    /// Windows draw theirs – computed per pixel, sharp at any size, no atlas.
+    pub fn stroke(&mut self, a: [f32; 2], b: [f32; 2], width: f32, cap: Cap, color: Color) {
+        let half = width / 2.0;
+        let (flags, past) = match cap {
+            Cap::Butt => (STROKE, 0.0),
+            Cap::Square => (STROKE, half),
+            Cap::Round => (STROKE | ROUND, 0.0),
+        };
+        let mut quad = self.shape_quad(&[a, b], half + past, color);
+        let [x, y] = quad.pos;
+        quad.flags = flags;
+        quad.bottom = [a[0] - x, a[1] - y, b[0] - x, b[1] - y];
+        quad.radius = half;
+        quad.sigma = past;
+        self.quads.push(quad);
+        self.blend.push(true);
+    }
+
+    /// A disc of `radius` around `centre`, in `color`: a rounded rectangle
+    /// as round as it can be, its quad on whole pixels around it, so the
+    /// antialiased edge is drawn where the disc does not start on one.
+    pub fn circle(&mut self, centre: [f32; 2], radius: f32, color: Color) {
+        let mut quad = self.shape_quad(&[centre], radius, color);
+        quad.flags = SOLID;
+        quad.clip = [
+            centre[0] - radius,
+            centre[1] - radius,
+            2.0 * radius,
+            2.0 * radius,
+        ];
+        quad.radius = radius;
+        self.quads.push(quad);
+        self.blend.push(true);
+    }
+
+    /// The triangle with `corners`, in `color`, as `stroke` draws.
+    pub fn triangle(&mut self, corners: [[f32; 2]; 3], color: Color) {
+        let mut quad = self.shape_quad(&corners, 0.0, color);
+        let [x, y] = quad.pos;
+        let [a, b, c] = corners;
+        quad.flags = TRIANGLE;
+        quad.bottom = [a[0] - x, a[1] - y, b[0] - x, b[1] - y];
+        quad.texel = [c[0] - x, c[1] - y];
+        self.quads.push(quad);
+        self.blend.push(true);
+    }
+
+    /// The quad around `points`, `reach` beyond them and a pixel more for
+    /// the antialiased edge, on whole pixels; `uv` runs over its pixels.
+    fn shape_quad(&self, points: &[[f32; 2]], reach: f32, color: Color) -> Quad {
+        let (mut low, mut high) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for p in points {
+            for i in 0..2 {
+                low[i] = low[i].min(p[i]);
+                high[i] = high[i].max(p[i]);
+            }
+        }
+        let x = (low[0] - reach - 1.0).floor();
+        let y = (low[1] - reach - 1.0).floor();
+        let w = (high[0] + reach + 1.0).ceil() - x;
+        let h = (high[1] + reach + 1.0).ceil() - y;
+        Quad {
+            pos: [x, y],
+            size: [w, h],
+            uv_x: [w, 0.0],
+            uv_y: [0.0, h],
+            color: color.linear(),
+            ..Quad::default()
+        }
     }
 
     /// The image file `path` – an app's icon, PNG or SVG – scaled into a
@@ -339,7 +392,6 @@ impl Scene {
         self.symbols.extend(other.symbols.iter().map(|s| Symbol {
             quad: s.quad + quads,
             name: s.name.clone(),
-            svg: s.svg,
             size: s.size,
             x: s.x,
             y: s.y + dy,
@@ -412,10 +464,7 @@ impl Scene {
             quad.texture = slot;
         }
         for symbol in &self.symbols {
-            let placed = match symbol.svg {
-                Some(svg) => glyphs.shape(&symbol.name, svg, symbol.size)?,
-                None => glyphs.symbol(&symbol.name, symbol.size)?,
-            };
+            let placed = glyphs.symbol(&symbol.name, symbol.size)?;
             let quad = &mut quads[symbol.quad];
             let (w, h) = (placed.w as f32, placed.h as f32);
             quad.pos = [symbol.x, symbol.y];
@@ -495,6 +544,48 @@ mod tests {
         assert_eq!(scene.blend, [false, false, true]);
         let symbol = &scene.symbols[0];
         assert_eq!((symbol.quad, symbol.x, symbol.y), (2, 5.0, 38.0));
+    }
+
+    #[test]
+    fn a_shape_lies_in_its_quads_pixels_and_moves_with_it() {
+        let mut marks = Scene::new();
+        marks.stroke([10.5, 20.0], [16.5, 20.0], 1.0, Cap::Square, Color::rgb(0));
+        marks.triangle([[3.0, 3.0], [8.0, 3.0], [3.0, 8.0]], Color::rgb(0));
+        let stroke = marks.quads[0];
+        // Half a pixel past each end and a pixel for the edge, on whole
+        // pixels; its ends counted from the quad's top left.
+        assert_eq!((stroke.pos, stroke.size), ([8.0, 18.0], [11.0, 4.0]));
+        assert_eq!(
+            (stroke.uv, stroke.uv_x, stroke.uv_y),
+            ([0.0; 2], [11.0, 0.0], [0.0, 4.0])
+        );
+        assert_eq!(stroke.bottom, [2.5, 2.0, 8.5, 2.0]);
+        assert_eq!(
+            (stroke.flags, stroke.radius, stroke.sigma),
+            (STROKE, 0.5, 0.5)
+        );
+        let triangle = marks.quads[1];
+        assert_eq!((triangle.pos, triangle.size), ([2.0, 2.0], [7.0, 7.0]));
+        assert_eq!(
+            (triangle.bottom, triangle.texel),
+            ([1.0, 1.0, 6.0, 1.0], [1.0, 6.0])
+        );
+        assert_eq!(marks.blend, [true, true]);
+        let mut scene = Scene::new();
+        scene.append(&marks, 32.0);
+        assert_eq!(scene.quads[0].pos, [8.0, 50.0]);
+        assert_eq!(scene.quads[0].bottom, stroke.bottom);
+    }
+
+    #[test]
+    fn a_circle_off_the_pixel_grid_keeps_its_edge_in_its_quad() {
+        let mut scene = Scene::new();
+        scene.circle([16.0, 16.0], 6.25, Color::rgb(0));
+        let quad = scene.quads[0];
+        // The pixel from 9 to 10 is partly covered: in the quad.
+        assert_eq!((quad.pos, quad.size), ([8.0, 8.0], [16.0, 16.0]));
+        assert_eq!(quad.clip, [9.75, 9.75, 12.5, 12.5]);
+        assert_eq!((quad.flags, quad.radius), (SOLID, 6.25));
     }
 
     #[test]
