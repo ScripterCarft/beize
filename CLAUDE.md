@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben – JETZT Compositor-Härtung (Texturfeld), dann Befund 2, dann B und E)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben, Härtung 1–3 erledigt – Besitzer entscheidet A/B, dann Befund 2, dann B und E)
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
@@ -339,10 +339,15 @@ zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
    Texturplätze (~977) voll waren. Dazu ack beim Empfang → das letzte ack mit Puffer alter Größe.
    Fix wie GTKs Frame-Clock: Frame-Callback je Present, Configure wartet darauf, ack bei Übergabe.
    Smoke `fast_resize` (1-ms-Schritte): vorher 988 statt 800 px, jetzt 20 ms. Hardware-Test liest
-   `resized … ms after the button was released`. **Folgeauftrag Besitzer (26.10.):** Compositor
-   gegen Clients härten, die GPU-Ressourcen binden – das Texturfeld ist global und fest, ein Client
-   leerte es für alle (Import beim Anlegen, nicht beim Zeigen); Vergleich Weston/niri/anvil im
-   Quelltext, Vorschlag mit Vorbild vor der Umsetzung.
+   `resized … ms after the button was released`. Erschlossen (nicht belegt): gescheitert ist der
+   Compositor an **offenen Dateien** (Soft-Limit 1024; je dmabuf ein fd), nicht am Texturfeld
+   (4096). **Härtung 26.10. (ab8987e, freigegeben):** `LimitNOFILE=524288` (Mutter/KWin/Sway;
+   Smoke prüft, Gegenprobe 1024 rot), `held:` zählt offene Dateien (Hardware-Test belegt die
+   Ursache), Texturplatz erst beim ersten Zeigen (Weston). **Offen, Entscheidung Besitzer:** ein
+   Client kann den Compositor weiter erschöpfen (Smithays Warteschlange je Surface unbegrenzt,
+   commit-timing in ferne Zukunft hält jeden Folge-Commit samt Puffer-fd; liegengelassene
+   Puffer/shm-Pools). Kein großer Desktop begrenzt das. Vorschlag A: Puffer-Budget je Client
+   (darüber Ablehnung); B: Obergrenze wartender Commits je Surface (darüber Protokollfehler).
 2. **Monitor aus/an: Bild bleibt schwarz.** Belegt: `screen DP-1 is gone` (377,25 s), zurück
    `2560x1440 at 240 Hz, it had none` (384,66), Smithay-Warnung `Failed to destroy old mode
    property blob` (Bericht Nr. 4 in `~/upstream/smithay/ISSUES.md`), „first frame on the screen“
