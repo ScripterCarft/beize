@@ -315,7 +315,31 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Messbau 0.5.106 getaggt – Besitzer testet; danach Befund 2 beheben, Befund 1 bestätigen, E)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.106 getestet – JETZT Ursachensuche statt Symptome, Plan unten)
+
+**0.5.106 getestet (26.10., `~/hw-logs/results-20261026-123053`). Besitzer: „Fixes haben so gut
+wie nichts gebracht“ – den gemeinsamen Grund suchen, was bei uns merkwürdig ist; lieber alten
+Code entfernen und einmal sauber lösen als mehr Code („Jungle-Pflanzen weg, eine schöne holen –
+aber erst prüfen“).** Befunde:
+- **Bildschirm:** Monitor zeigt „Kein DP Signal von Ihrem Gerät“, auch auf Strg+Alt+F2 (die
+  Konsole des **Kernels**). Compositor: Modus-Commit + vblank, `connector Connected, link good`,
+  danach keine Commits mehr (auch nach dem VT-Wechsel: Modus, ein Bild, Stille); Kernel-Journal
+  schweigt. Spricht für nouveau/GSP-Anzeigeweg, nicht belegt.
+- **Resize:** stürzt nicht mehr ab, zieht aber nach dem Loslassen bis zu 5 s weiter; der
+  Compositor misst ab dem *verarbeiteten* Loslassen 1–14 ms (`resized …`) → die 5 s liegen davor
+  (Eingaben verspätet verarbeitet?) oder im Inhalt des Terminals. Pfeil-hoch im Terminal fühlt
+  sich verzögert an. `held:` flach (9–13 dmabufs, 55–65 offene Dateien).
+- **Späte Bilder:** Lasttest 186 von 6976 spät, fast alle „display“; Testfenster 2 von 4805.
+**Plan (nächster Chat, Besitzer stimmt zu):** (1) Besitzer: Konsolentest **vor** `beize-session`
+– Monitor aus/an, Kabel ab/an: kommt die Konsole zurück? Nein → Kernel/Treiber (upstream), ja →
+unser Wiederkommen-Pfad. (2) Referenz auf derselben Hardware: Fedora-Live mit GNOME (nouveau):
+Monitor aus/an, Gleichmaß. (3) Messbau: Alter jeder Eingabe beim Verarbeiten (libinput-Zeit vs.
+jetzt), wartende Commits je Surface, im Terminal Configure→Bild. Dann erst entscheiden, was
+rausfliegt; Kandidaten des Ungewöhnlichen: eigene Bildschleife (`output.rs`/`schedule.rs`) statt
+Smithays `DrmCompositor` (niri), fifo/commit-timing (seit 0.5.105 stauen sich Commits), Beize UIs
+neue Swapchain + `device_wait_idle` je Größe; nouveau-GSP-Anzeige als seltenster Teil.
+**Nicht gepusht:** `main` (9 Commits seit fa629f0) und Tag `measure/desktop-0.5.106` – CI-Lauf
+40304913614 lief noch; erst nach Grün pushen. Messzweig braucht Force-Push (Besitzer).
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
