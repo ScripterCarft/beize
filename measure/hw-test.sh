@@ -4,7 +4,8 @@
 # Beize's terminal: the terminal's sample, Beize UI's sample, the frame
 # schedule with the test client, the load test's scene (ADR 0028 §9), a
 # window resized by hand and typed in (what the compositor holds, the
-# prompt, how soon keys show). The screen off and on is not tested any more:
+# prompt, how soon keys show), the window buttons' marks and a screenshot of
+# the background. The screen off and on is not tested any more:
 # it stays black with Fedora too, below Beize (CLAUDE.md §11).
 # Steps: docs/hardware.md.
 #
@@ -50,18 +51,18 @@ if [ "$mode" = test ]; then
     clear
     "$rt/beize-terminal-sample"
     echo
-    echo "  1/5 Terminal: die Probe des Terminals. Schrift scharf, Farben und Rahmen wie in"
+    echo "  1/6 Terminal: die Probe des Terminals. Schrift scharf, Farben und Rahmen wie in"
     echo "  der Anleitung? Weiter mit Enter."
     read -r
 
-    echo "  2/5 Beize UI: Gleich zeigt ein Fenster 30 Sekunden lang Text hell auf dunkel und"
+    echo "  2/6 Beize UI: Gleich zeigt ein Fenster 30 Sekunden lang Text hell auf dunkel und"
     echo "  dunkel auf hell. Wirkt der helle Text kräftiger als der dunkle? Danach kommt das"
     echo "  Terminal von selbst zurück. Start mit Enter."
     read -r
     systemd-run --user --quiet --unit=hw-test-ui "$rt/beize-ui-test" --seconds 30 || exit 1
     wait_for hw-test-ui.service
 
-    echo "  3/5 Bildtakt: Gleich zeigt das Testfenster 20 Sekunden lang rot, grün, blau und"
+    echo "  3/6 Bildtakt: Gleich zeigt das Testfenster 20 Sekunden lang rot, grün, blau und"
     echo "  weiß, oben läuft ein dunkler Balken. Dabei a s d tippen, die Maus über das Fenster"
     echo "  bewegen und einmal links klicken. Danach schließt es sich von selbst. Start mit Enter."
     read -r
@@ -70,7 +71,7 @@ if [ "$mode" = test ]; then
         "$rt/beize-testclient" --frames 4800 --seconds 20 || exit 1
     wait_for hw-test-client.service
 
-    echo "  4/5 Last: Gleich öffnen sich 12 Fenster mit laufenden Farbverläufen, 40 Sekunden"
+    echo "  4/6 Last: Gleich öffnen sich 12 Fenster mit laufenden Farbverläufen, 40 Sekunden"
     echo "  lang. Zieh gleich zu Beginn das vorderste an seiner Titelleiste nach unten, bis es"
     echo "  zur Hälfte hinter dem Dock liegt, dann die Maus nicht mehr bewegen. Läuft alles"
     echo "  flüssig? Scheint das Fenster bewegt durchs Dock? Danach schließen sie sich von selbst."
@@ -81,13 +82,27 @@ if [ "$mode" = test ]; then
         "$rt/beize-load-test" --windows 12 --seconds 40 || exit 1
     wait_for hw-test-load.service
 
-    echo "  5/5 Fenstergröße und Tasten: Öffne mit Strg+Alt+T ein zweites Terminal und zieh"
+    echo "  5/6 Fenstergröße und Tasten: Öffne mit Strg+Alt+T ein zweites Terminal und zieh"
     echo "  es an der rechten unteren Ecke 20 Sekunden lang schnell immer wieder ganz groß und"
     echo "  klein. Folgt es der Maus und steht es beim Loslassen sofort still? Bleibt der"
     echo "  Prompt eine saubere Zeile? Dann darin ls, pwd, date tippen und mit Pfeil hoch und"
     echo "  runter durchblättern: kommt jede Taste sofort? Danach darin exit, dann hier Enter."
     date '+%F %T' > "$out/resize-start.txt"
     read -r
+
+    echo "  6/6 Knöpfe und Hintergrund: Fahr mit dem Zeiger über die drei Kreise oben links"
+    echo "  in diesem Terminal. Zeigen sie scharf ein X, einen Strich und zwei Dreiecke? Dann"
+    echo "  schieb das Terminal so, dass die Stelle des Hintergrunds frei liegt, die pixelig"
+    echo "  wirkt, und drück Super+Shift+3 (Bildschirmfoto). Merk dir die Stelle für den Chat."
+    echo "  Dann hier Enter."
+    date '+%F %T' > "$out/shots-start.txt"
+    read -r
+    # The compositor names each screenshot it wrote; they go with the logs.
+    journalctl --user -u beize-compositor.service --since "$(cat "$out/shots-start.txt")" -o cat |
+        sed -n 's/^screenshot [0-9]*x[0-9]*: //p' | while read -r shot; do
+            cp "$shot" "$out/" || echo "  Das Bildschirmfoto $shot ließ sich nicht kopieren."
+        done
+    ls "$out"/*.png > /dev/null 2>&1 || echo "  Kein Bildschirmfoto gefunden: Super+Shift+3 vergessen?"
 
     # The compositor sums the frames up once they stopped for a quarter
     # second; it looks twice a second.
