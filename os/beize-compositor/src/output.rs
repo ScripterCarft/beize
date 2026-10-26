@@ -521,13 +521,6 @@ struct Image<F> {
 /// the background (`backdrop`) is, or if it cannot be.
 const BACKGROUND: [f32; 4] = [0.08, 0.10, 0.14, 1.0];
 
-/// After a mode is set, how many commits and vblanks the log says, with
-/// the connector's state: at the start, for comparison, and when a screen
-/// comes back.
-const TRACED: u8 = 4;
-/// A commit's vblank this late is said (only said: nothing waits for it).
-const NO_VBLANK: Duration = Duration::from_secs(1);
-
 /// The time between two vblanks of `mode`.
 fn period(mode: &Mode) -> Duration {
     let millihertz = crate::gpu::millihertz(mode).max(1);
@@ -596,13 +589,6 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     /// On the screen.
     shown: Option<Slot<A::Buffer>>,
     modeset: bool,
-    /// How many commits and vblanks after a mode was set are still said
-    /// (`TRACED`), and when the last commit went, to say a vblank that
-    /// does not come: a screen that came back stayed black although KMS
-    /// showed its first frame (0.5.105), and the log said nothing more.
-    traced: u8,
-    committed_at: Option<Duration>,
-    no_vblank_said: bool,
     frames: u64,
     last: Option<Duration>,
     /// The CRTC's index, for asking KMS its last vblank.
@@ -664,9 +650,6 @@ where
             planned: None,
             shown: None,
             modeset: true,
-            traced: 0,
-            committed_at: None,
-            no_vblank_said: false,
             frames: 0,
             last: None,
             pipe,
@@ -791,19 +774,6 @@ where
         mut parts: Parts,
     ) -> Result<Frame> {
         if self.flipping {
-            let now: Duration = self.clock.now().into();
-            if let Some(at) = self.committed_at
-                && !self.no_vblank_said
-                && now.saturating_sub(at) >= NO_VBLANK
-            {
-                self.no_vblank_said = true;
-                warn!(
-                    "screen {}: no vblank {} ms after its last commit; {}",
-                    self.name,
-                    now.saturating_sub(at).as_millis(),
-                    self.link()
-                );
-            }
             return Ok(Frame::Deferred);
         }
         let slot = self
@@ -894,27 +864,19 @@ where
         parts.damage = committing
             .saturating_sub(framing)
             .saturating_sub(spent.wait + spent.record + spent.sync + spent.queue);
-        let what = if self.modeset {
+        if self.modeset {
             self.surface
                 .commit(planes, true)
                 .context("setting the mode")?;
             self.modeset = false;
-            self.traced = TRACED;
-            "the mode with a frame"
         } else {
             self.surface.page_flip(planes, true).context("page flip")?;
-            if damaged { "a frame" } else { "the pointer" }
-        };
+        }
         if let Some(plane) = &mut self.cursor {
             plane.committed();
         }
         self.flipping = true;
         let committed: Duration = self.clock.now().into();
-        self.committed_at = Some(committed);
-        self.no_vblank_said = false;
-        if self.traced > 0 {
-            info!("screen {}: committed {what}; {}", self.name, self.link());
-        }
         parts.commit = committed.saturating_sub(committing);
         // Planned by the timer; a frame drawn without it (after a pause)
         // from when it began, for no vblank.
@@ -950,15 +912,6 @@ where
         metadata: Option<DrmEventMetadata>,
     ) -> Option<Duration> {
         self.flipping = false;
-        if self.traced > 0 {
-            self.traced -= 1;
-            info!(
-                "screen {}: vblank {:?}; {}",
-                self.name,
-                metadata.as_ref().map(|m| m.sequence),
-                self.link()
-            );
-        }
         let time = match metadata.map(|m| m.time) {
             Some(DrmEventTime::Monotonic(time)) => Some(time),
             _ => None,
@@ -1048,20 +1001,6 @@ where
 
     /// The link was trained anew (`gpu::retrain`), a modeset: the vblanks
     /// the schedule knew are no longer the screen's.
-    /// The connector as KMS sees it now, for the log.
-    fn link(&self) -> String {
-        let state = self
-            .fd
-            .get_connector(self.connector, false)
-            .map_or_else(|e| format!("unknown ({e})"), |c| format!("{:?}", c.state()));
-        let link = if crate::gpu::link_bad(&self.fd, self.connector).is_some() {
-            "BAD"
-        } else {
-            "good"
-        };
-        format!("connector {state}, link {link}")
-    }
-
     pub fn retrained(&mut self) {
         self.schedule.reset();
     }

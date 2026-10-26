@@ -202,7 +202,7 @@ fn vulkan(drm: &DrmDevice, node: DrmNode) -> Result<(VkRenderer, Images)> {
 /// not keep the link (DisplayPort after the monitor slept, a KVM switch)
 /// and waits for a modeset that sets it GOOD (kernel, *Standard Connector
 /// Properties*).
-pub fn link_bad(fd: &DrmDeviceFd, connector: connector::Handle) -> Option<property::Handle> {
+fn link_bad(fd: &DrmDeviceFd, connector: connector::Handle) -> Option<property::Handle> {
     // DRM_MODE_LINK_STATUS_BAD in the uapi's drm_mode.h.
     const BAD: u64 = 1;
     let props = fd.get_properties(connector).ok()?;
