@@ -223,7 +223,8 @@ pub struct State {
 
 /// What a frame drew of clients, told them once it is on the screen: when
 /// (wp_presentation), and that they may draw their next frame ("frame
-/// done").
+/// done") – a drawn frame's at once (`take_shown`), only a frame that
+/// changed nothing keeps them for then.
 struct Shown {
     feedback: Option<OutputPresentationFeedback>,
     callbacks: Vec<WlCallback>,
@@ -971,7 +972,13 @@ impl State {
         }
         match frame {
             Ok(Frame::Queued(shown)) => {
-                let (taken, hidden) = self.take_shown(&shown);
+                let (mut taken, hidden) = self.take_shown(&shown);
+                // Drawn: their clients may draw the next frame now, a
+                // refresh ahead of the next drawing (`take_shown`).
+                let msec = Duration::from(self.clock.now()).as_millis() as u32;
+                for callback in taken.callbacks.drain(..) {
+                    callback.done(msec);
+                }
                 if let Some(old) = self.presenting.replace(taken) {
                     self.never_shown(old);
                 }
@@ -1137,12 +1144,18 @@ impl State {
 
     /// Takes from the surfaces a frame shows (`shown`, the damage tracker's
     /// states, which name each element in view, changed or not) what is
-    /// told when it is on the screen: their presentation feedback and their
-    /// "frame done" callbacks. Only those of commits the frame draws: one
-    /// that arrives after drawing began keeps its own for the next frame,
-    /// as Weston takes them at repaint and answers them at its vblank –
-    /// told at the vblank before (until 0.5.104), its client drew the next
-    /// frame at once and the one not shown was discarded. The surfaces not
+    /// told of them: their "frame done" callbacks, answered once the frame
+    /// is drawn, and their presentation feedback, told when it is on the
+    /// screen. Only those of commits the frame draws: one that arrives
+    /// after drawing began keeps its own for the next frame, as Weston
+    /// takes them at repaint and answers them right after it
+    /// (`weston_output_repaint`; anvil's `post_repaint` too) – told at the
+    /// vblank before (until 0.5.104), its client drew the next frame at
+    /// once and the one not shown was discarded; told at the frame's own
+    /// vblank (until 0.5.107), a client had only what was left of the
+    /// refresh before the next drawing, ~1 ms at 240 Hz (hardware test
+    /// 26.10.: 9 of the load test's 12 windows at 165 frames a second,
+    /// not 240). The surfaces not
     /// shown keep theirs until their next commit discards the feedback, as
     /// the protocol asks for content never seen. Their fifo barriers too
     /// (`timing`): the next commit applies once this one showed. Those of
@@ -1299,7 +1312,7 @@ impl State {
     /// "Frame done" for the surfaces the last frame did not show – off the
     /// screen, covered, minimized, or all without a screen – at most every
     /// HIDDEN_FRAMES, at `time` (the vblank) or now; and for the pointer's.
-    /// Those shown hear it when their frame is (`present`). Their fifo
+    /// Those shown hear it once their frame is drawn (`render`). Their fifo
     /// barriers are lifted by each draw (`take_shown`), which knows what it
     /// shows; here only without a screen. Lifted here against the last
     /// frame, a window's first commit counted as hidden – not in that frame

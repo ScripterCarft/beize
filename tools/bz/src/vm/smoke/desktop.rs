@@ -1030,12 +1030,15 @@ fn frames(shell: &Shell) -> Result<()> {
 /// And none was discarded: a client drawing on "frame done" hears it only
 /// once its last frame is drawn, so it never replaces one not yet shown
 /// (until 0.5.104 one in 120 was, when its commit came after drawing
-/// began; three runs of three).
+/// began; three runs of three). And it hears it then, each before its frame
+/// showed, as Weston answers at repaint: answered at the vblank (until
+/// 0.5.107), a client at 240 Hz had ~1 ms left to draw its next.
 fn presentation(shell: &Shell) -> Result<()> {
     let (_, lines) = shell.capture(
         "for i in $(seq 25); do journalctl --user -u beize-testclient-frames -o cat \
          | grep -q '^presentation: ' && break; sleep 0.2; done; \
-         journalctl --user -u beize-testclient-frames -o cat | grep '^presentation: '",
+         journalctl --user -u beize-testclient-frames -o cat \
+         | grep -e '^presentation: ' -e '^frame done: '",
     )?;
     let line = lines
         .iter()
@@ -1054,7 +1057,15 @@ fn presentation(shell: &Shell) -> Result<()> {
         !line.contains("refresh 0 ns"),
         "no refresh with the frames: {line}"
     );
-    say!("  ok: the client heard when each frame showed: {line}");
+    let done = lines
+        .iter()
+        .find(|l| l.starts_with("frame done: "))
+        .context("the client said nothing of when it heard \"frame done\"")?;
+    ensure!(
+        done == "frame done: 120 of 120 before they showed",
+        "\"frame done\" not as soon as each frame was drawn, before it showed: {done}"
+    );
+    say!("  ok: the client heard when each frame showed: {line}; {done}");
     Ok(())
 }
 

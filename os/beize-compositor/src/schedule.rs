@@ -1,7 +1,7 @@
 //! When a frame is drawn (ADR 0027 §6 "Zeitplan"): late enough before its
-//! vblank that a client drawing after its "frame done" (sent at the vblank)
-//! is on the screen at the very next one, early enough that the frame is
-//! ready in time. KWin's model (`RenderLoop`, `DrmCommitThread`), each part
+//! vblank that a client drawing after its "frame done" (sent once the frame
+//! before is drawn, a refresh earlier) is on the screen at the very next
+//! one, early enough that the frame is ready in time. KWin's model (`RenderLoop`, `DrmCommitThread`), each part
 //! measured or taken from the mode:
 //!
 //! - The display takes a new frame where the vblank begins; KMS stamps the
@@ -25,12 +25,12 @@
 //! - After an idle stretch (100 refreshes, KWin) the GPU clocks down: the
 //!   next frame is drawn at once.
 //! - The next vblank is one after the last known: KMS reports a vblank
-//!   (and clients hear "frame done") where it begins, stamped where it
-//!   ends, so until then the reported one lies ahead and is not the next
-//!   (KWin counts from its last presentation). Taking it for the next
-//!   (0.5.100) drew at its event, its deadline long past, at once – before
-//!   the clients that heard "frame done" there committed: every frame a
-//!   vblank behind.
+//!   where it begins, stamped where it ends, so until then the reported
+//!   one lies ahead and is not the next (KWin counts from its last
+//!   presentation). Taking it for the next (0.5.100, "frame done" then at
+//!   the vblank) drew at its event, its deadline long past, at once –
+//!   before the clients that heard "frame done" there committed: every
+//!   frame a vblank behind.
 //!
 //! A change drawn after its vblank's deadline is drawn at once and may
 //! still make it. Until 0.5.98 the lead was the drawing and GPU time alone
