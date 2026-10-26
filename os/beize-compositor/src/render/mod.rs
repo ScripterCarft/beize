@@ -1011,15 +1011,6 @@ impl ImportDma for VkRenderer {
 }
 
 impl VkRenderer {
-    /// Whether a client's new dmabuf can be shown: imported, then let go.
-    /// It keeps a texture once a frame draws it (`import_dmabuf`), as
-    /// Weston makes its texture at the first attach: buffers a client
-    /// only made, or that wait behind others, hold none – kept since
-    /// they were made, one terminal's held all it ever had (0.5.105).
-    pub fn check_dmabuf(&mut self, dmabuf: &Dmabuf) -> Result<()> {
-        self.import_new(dmabuf).map(drop)
-    }
-
     fn import_new(&self, dmabuf: &Dmabuf) -> Result<VkTexture> {
         let fourcc = dmabuf.format().code;
         let (format, _) =

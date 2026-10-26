@@ -1499,11 +1499,13 @@ impl DmabufHandler for State {
         dmabuf: Dmabuf,
         notifier: ImportNotifier,
     ) {
-        let checked = match self.gpu.as_mut() {
-            Some(gpu) => gpu.renderer().check_dmabuf(&dmabuf),
+        // Imported once, when the client makes it, and kept with it (Smithay's
+        // anvil; Weston imports at creation too): its first frame finds it.
+        let imported = match self.gpu.as_mut() {
+            Some(gpu) => gpu.renderer().import_dmabuf(&dmabuf, None).map(drop),
             None => Err(error("no GPU")),
         };
-        match checked {
+        match imported {
             Ok(()) => {
                 let _ = notifier.successful::<State>();
             }
