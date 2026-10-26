@@ -1,9 +1,11 @@
 //! Crates a recipe moves on from its source's Cargo.lock (`[cargo.update]`),
 //! as distributions build Rust programs against crates they keep fixed
 //! (Fedora's rust-* packages): to a semver-compatible release that fixes
-//! an advisory, until the project releases with it. The source stays as
-//! pinned and verified; a copy of it gets the new Cargo.lock, for the build
-//! and for `bz cve` alike.
+//! an advisory, until the project releases with it. Of a crate the lock
+//! has in several versions, the one compatible with the update moves
+//! (`cargo update -p name@version`). The source stays as pinned and
+//! verified; a copy of it gets the new Cargo.lock, for the build and for
+//! `bz cve` alike.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -27,19 +29,25 @@ pub fn source(paths: &Paths, recipe: &Recipe, src: &Path) -> Result<PathBuf> {
     }
     let lock = src.join("Cargo.lock");
     let pinned = versions(&lock)?;
+    let mut moved = BTreeMap::new();
     for (name, update) in &recipe.cargo.update {
-        let Some(versions) = pinned.get(name) else {
+        let Some(old) = pinned
+            .get(name)
+            .and_then(|versions| compatible(versions, &update.version))
+        else {
             bail!(
-                "{}: [cargo.update] {name}: no such crate in its Cargo.lock",
-                recipe.name
+                "{}: [cargo.update] {name}: no version compatible with {} in its Cargo.lock",
+                recipe.name,
+                update.version
             );
         };
-        if let Some(newer) = obsolete(versions, &update.version) {
+        if compare_versions(&old, &update.version) != Ordering::Less {
             bail!(
-                "{}: [cargo.update] {name} is obsolete: its source has {newer} now; remove it",
+                "{}: [cargo.update] {name} is obsolete: its source has {old} now; remove it",
                 recipe.name
             );
         }
+        moved.insert(name, old);
     }
 
     let copy = paths.work.join("cargo-src").join(&recipe.name);
@@ -53,20 +61,31 @@ pub fn source(paths: &Paths, recipe: &Recipe, src: &Path) -> Result<PathBuf> {
                 .env("CARGO_HOME", paths.cache.join("cargo"))
                 .args(["update", "--quiet", "--manifest-path"])
                 .arg(copy.join("Cargo.toml"))
-                .args(["--package", name, "--precise", &update.version]),
+                .args(["--package", &format!("{name}@{}", moved[name])])
+                .args(["--precise", &update.version]),
         )
         .with_context(|| format!("{}: updating {name} to {}", recipe.name, update.version))?;
         say!(
             "  {}: {name} {} instead of {} ({})",
             recipe.name,
             update.version,
-            pinned[name].join(", "),
+            moved[name],
             update.why
         );
     }
     let updated = versions(&copy.join("Cargo.lock"))?;
     for (name, update) in &recipe.cargo.update {
-        if updated.get(name) != Some(&vec![update.version.clone()]) {
+        // The update in, the version it replaced gone, the others kept.
+        let mut wanted: Vec<String> = pinned[name]
+            .iter()
+            .filter(|v| **v != moved[name])
+            .cloned()
+            .chain([update.version.clone()])
+            .collect();
+        wanted.sort();
+        let mut has = updated.get(name).cloned().unwrap_or_default();
+        has.sort();
+        if has != wanted {
             bail!(
                 "{}: Cargo.lock has {name} {:?}, not {}",
                 recipe.name,
@@ -78,13 +97,21 @@ pub fn source(paths: &Paths, recipe: &Recipe, src: &Path) -> Result<PathBuf> {
     Ok(copy)
 }
 
-/// A version the source's Cargo.lock has of a crate that is at least the
-/// one a recipe asks for: then the update is no longer needed.
-fn obsolete(versions: &[String], wanted: &str) -> Option<String> {
-    versions
-        .iter()
-        .find(|v| compare_versions(v, wanted) != Ordering::Less)
-        .cloned()
+/// The version of a crate in a Cargo.lock that an update to `wanted` moves
+/// on: the one semver-compatible with it (same major version, or same minor
+/// below 1.0), as Cargo resolves a requirement.
+fn compatible(versions: &[String], wanted: &str) -> Option<String> {
+    let line = |v: &str| {
+        let mut parts = v.split('.');
+        let major = parts.next().unwrap_or_default().to_owned();
+        let minor = parts.next().unwrap_or_default().to_owned();
+        if major == "0" {
+            (major, minor)
+        } else {
+            (major, String::new())
+        }
+    };
+    versions.iter().find(|v| line(v) == line(wanted)).cloned()
 }
 
 /// Crate name → its versions in a Cargo.lock.
@@ -113,12 +140,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_update_the_source_caught_up_with_is_obsolete() {
+    fn an_update_moves_the_compatible_version() {
         let pinned = vec!["0.23.40".to_owned()];
-        assert_eq!(obsolete(&pinned, "0.23.46"), None);
-        let caught_up = vec!["0.23.46".to_owned()];
-        assert_eq!(obsolete(&caught_up, "0.23.46").as_deref(), Some("0.23.46"));
+        assert_eq!(compatible(&pinned, "0.23.46").as_deref(), Some("0.23.40"));
+        // webpki-root-certs in ntpd-rs 1.9.0: the 0.26 wrapper stays.
+        let two = vec!["0.26.11".to_owned(), "1.0.1".to_owned()];
+        assert_eq!(compatible(&two, "1.0.10").as_deref(), Some("1.0.1"));
+        // Another line is no update of it.
         let beyond = vec!["0.21.12".to_owned(), "0.24.0".to_owned()];
-        assert_eq!(obsolete(&beyond, "0.23.46").as_deref(), Some("0.24.0"));
+        assert_eq!(compatible(&beyond, "0.23.46"), None);
     }
 }

@@ -21,6 +21,7 @@ keyring = "ntpd-rs"
 [cargo.update]
 rustls = { version = "0.23.46", why = "RUSTSEC-2026-0285, -0346, -0348, -0349" }
 crossbeam-epoch = { version = "0.9.20", why = "RUSTSEC-2026-0204" }
+webpki-root-certs = { version = "1.0.10", why = "RUSTSEC-2026-0383 (in the lock only, not linked with --features openssl)" }
 
 [build]
 script = '''
