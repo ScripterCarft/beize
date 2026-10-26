@@ -3,8 +3,9 @@
 # test of Beize's desktop (ADR 0027, step 3 g), run from the USB stick in
 # Beize's terminal: the terminal's sample, Beize UI's sample, the frame
 # schedule with the test client, the load test's scene (ADR 0028 §9), a
-# window resized by hand (what the compositor holds, the prompt), the screen
-# switched off and on and its cable out and in (ADR 0029).
+# window resized by hand and typed in (what the compositor holds, the
+# prompt, how soon keys show). The screen off and on is not tested any more:
+# it stays black with Fedora too, below Beize (CLAUDE.md §11).
 # Steps: docs/hardware.md.
 #
 #   bash /run/stick/beize-test/hw-test.sh        the test, then the logs
@@ -49,18 +50,18 @@ if [ "$mode" = test ]; then
     clear
     "$rt/beize-terminal-sample"
     echo
-    echo "  1/6 Terminal: die Probe des Terminals. Schrift scharf, Farben und Rahmen wie in"
+    echo "  1/5 Terminal: die Probe des Terminals. Schrift scharf, Farben und Rahmen wie in"
     echo "  der Anleitung? Weiter mit Enter."
     read -r
 
-    echo "  2/6 Beize UI: Gleich zeigt ein Fenster 30 Sekunden lang Text hell auf dunkel und"
+    echo "  2/5 Beize UI: Gleich zeigt ein Fenster 30 Sekunden lang Text hell auf dunkel und"
     echo "  dunkel auf hell. Wirkt der helle Text kräftiger als der dunkle? Danach kommt das"
     echo "  Terminal von selbst zurück. Start mit Enter."
     read -r
     systemd-run --user --quiet --unit=hw-test-ui "$rt/beize-ui-test" --seconds 30 || exit 1
     wait_for hw-test-ui.service
 
-    echo "  3/6 Bildtakt: Gleich zeigt das Testfenster 20 Sekunden lang rot, grün, blau und"
+    echo "  3/5 Bildtakt: Gleich zeigt das Testfenster 20 Sekunden lang rot, grün, blau und"
     echo "  weiß, oben läuft ein dunkler Balken. Dabei a s d tippen, die Maus über das Fenster"
     echo "  bewegen und einmal links klicken. Danach schließt es sich von selbst. Start mit Enter."
     read -r
@@ -69,7 +70,7 @@ if [ "$mode" = test ]; then
         "$rt/beize-testclient" --frames 4800 --seconds 20 || exit 1
     wait_for hw-test-client.service
 
-    echo "  4/6 Last: Gleich öffnen sich 12 Fenster mit laufenden Farbverläufen, 40 Sekunden"
+    echo "  4/5 Last: Gleich öffnen sich 12 Fenster mit laufenden Farbverläufen, 40 Sekunden"
     echo "  lang. Zieh gleich zu Beginn das vorderste an seiner Titelleiste nach unten, bis es"
     echo "  zur Hälfte hinter dem Dock liegt, dann die Maus nicht mehr bewegen. Läuft alles"
     echo "  flüssig? Scheint das Fenster bewegt durchs Dock? Danach schließen sie sich von selbst."
@@ -80,21 +81,12 @@ if [ "$mode" = test ]; then
         "$rt/beize-load-test" --windows 12 --seconds 40 || exit 1
     wait_for hw-test-load.service
 
-    echo "  5/6 Fenstergröße: Öffne mit Strg+Alt+T ein zweites Terminal und zieh es an der"
-    echo "  rechten unteren Ecke 20 Sekunden lang schnell immer wieder ganz groß und klein,"
-    echo "  wie beim Absturz in 0.5.105. Folgt es der Maus ohne Nachziehen, bleibt es offen,"
-    echo "  der Prompt eine saubere Zeile? Danach darin exit, dann hier Enter."
+    echo "  5/5 Fenstergröße und Tasten: Öffne mit Strg+Alt+T ein zweites Terminal und zieh"
+    echo "  es an der rechten unteren Ecke 20 Sekunden lang schnell immer wieder ganz groß und"
+    echo "  klein. Folgt es der Maus und steht es beim Loslassen sofort still? Bleibt der"
+    echo "  Prompt eine saubere Zeile? Dann darin ls, pwd, date tippen und mit Pfeil hoch und"
+    echo "  runter durchblättern: kommt jede Taste sofort? Danach darin exit, dann hier Enter."
     date '+%F %T' > "$out/resize-start.txt"
-    read -r
-
-    echo "  6/6 Bildschirm, ERST LESEN (bei schwarzem Bild siehst du das hier nicht):"
-    echo "  a) Monitor an seinem Knopf aus, 5 Sekunden warten, wieder an."
-    echo "  b) Bild wieder da: weiter mit c). Bleibt es schwarz: 30 Sekunden warten und merken,"
-    echo "     was der Monitor zeigt (\"kein Signal\", schwarz aber beleuchtet, oder Standby)."
-    echo "     Dann Strg+Alt+F2, 5 Sekunden warten, Strg+Alt+F1. Merken: Bild wieder da?"
-    echo "  c) DisplayPort-Kabel am Rechner ab, 5 Sekunden warten, wieder an; wie b)."
-    echo "  d) Enter drücken, auch wenn es noch schwarz ist."
-    date '+%F %T' > "$out/screen-start.txt"
     read -r
 
     # The compositor sums the frames up once they stopped for a quarter
@@ -150,17 +142,8 @@ if [ -s "$out/resize-start.txt" ]; then
     echo "Puffer des Compositors, vor und nach dem Ziehen:"
     journalctl --user -u beize-compositor.service --until "$(cat "$out/resize-start.txt")" \
         -o cat | grep '^held: ' | tail -n 1
-    until=()
-    [ -s "$out/screen-start.txt" ] && until=(--until "$(cat "$out/screen-start.txt")")
     journalctl --user -u beize-compositor.service --since "$(cat "$out/resize-start.txt")" \
-        "${until[@]}" -o cat | grep '^held: ' | tail -n 3
-fi
-if [ -s "$out/screen-start.txt" ]; then
-    # What the compositor said of its screen: gone, back, the link trained.
-    echo "Bildschirm aus/an und Kabel ab/an, vom Compositor:"
-    journalctl --user -u beize-compositor.service --since "$(cat "$out/screen-start.txt")" \
-        -o cat | grep -E -i 'screen|link|connector|replaces|vblank|session' \
-        | grep -v '^pacing: '
+        -o cat | grep '^held: ' | tail -n 3
 fi
 echo "Tasten im Fenster: $(grep -c ' key ' "$out/client.log"), Klicks: $(grep -c 'button ' "$out/client.log")"
 echo "Warnungen des Compositors:"
