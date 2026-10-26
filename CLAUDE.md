@@ -390,8 +390,18 @@ Testclient `--timed` mit Zeit im ersten Commit, Gegenprobe rot). **Geprüft und 
 Configure je Mausbewegung (anvil macht es genauso, Beize UI nimmt nur das neueste); Resize-Ende
 über `current_state` (anvil ebenso); `pending_writes` je Bild (Vulkan hat keine implizite
 Synchronisation, Sicherheitsnetz, µs); `schedule.rs`-Lernen (Bildtakt/späte Bilder = anderer
-Chat); `told`-Sperre (s. o.). Als Nächstes: Kernel-Punkte einzeln belegen (Besitzer: nicht blind
-wie Fedora), dann Messbau für die Hardware.
+Chat); `told`-Sperre (s. o.).
+**3. Kernel geprüft 26.10.:** Hardware ohne serielle Konsole/Getty (5d4af80); Lockup-/Hung-Task-
+Erkennung, DRM_PANIC, iTCO-Watchdog (76a0bee; DEBUG_KERNELs Eigenes aus). **Bleibt
+bewusst** (Upstream-Härtungsvorlage, kein Problem belegt): UBSAN_TRAP+BOUNDS (Trap statt stiller
+Speicherverletzung), PAGE_TABLE_CHECK, IOMMU an+strict (DMA-Schutz; Kosten unbelegt, erst
+messen), EFI_DISABLE_PCI_DMA, INIT_ON_FREE (Besitzer). ITMT/P-Kerne aktiv (ACPI_CPPC_LIB).
+**Offen, Entscheidung Besitzer:** `RESET_ATTACK_MITIGATION` – Kconfig: nur sinnvoll, wenn das
+System MOR beim sauberen Herunterfahren löscht; Beize tut das nicht → Firmware löscht den RAM
+vermutlich bei jedem Start (Kosten unbekannt). Prüfen auf dem PC: `od -An -tx1
+/sys/firmware/efi/efivars/MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829`
+(Datei fehlt → wirkungslos). Leerlauf-Ratsche: neuer Hinweis, im roten Lauf stand im Fenster
+nur ntp-daemon („No consensus on current time“). Als Nächstes: Messbau für die Hardware.
 **Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
 Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
 geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
