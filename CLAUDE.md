@@ -315,14 +315,21 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.107 ausgewertet, zwei Befunde behoben)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 spät: 0.5.108 ausgewertet, beide Befunde bestätigt)
 
-**JETZT: Messbau 0.5.108 auf dem Stick** (`D:eize-0.5.108`, Prüfsummen geprüft; Tag
-`measure/desktop-0.5.108` a35b878, Zweig und Tags gepusht). Besitzer testet nach docs/hardware.md
-B–C; der nächste Chat wertet aus: Lasttest alle 12 Fenster nahe 240/s, Testclient `memory peak`
-klein auch mit Resize, Resize/Tasten wie 0.5.107.
+**JETZT: 0.5.108 getestet (26.10., `~/hw-logs/results-20261026-205934`, Tag
+`measure/desktop-0.5.108`).** Beide Korrekturen auf Hardware bestätigt:
+- **Lasttest 111 749 Bilder** (vorher 90 025), alle 12 Fenster Median 4,17–4,19 ms (9055–9380
+  Bilder je Fenster), „at most 1 on their way“, CPU je Bild Median 0,76 ms, busy 28–31 %.
+- **Testclient beim Resize klein:** 4764 von 4800 Bildern, Abstand höchstens 9 ms (vorher 171);
+  keine `Consumed … memory peak`-Zeile mehr – systemd 262.1 schreibt sie nur über 1 s CPU bzw.
+  64 MB (`unit.c` `MENTIONWORTHY_*`, sonst LOG_DEBUG), also < 64 MB statt 11,2 GB.
+- Resize 0–1 ms nach dem Loslassen, `held:` flach (8–16 dmabufs).
+Unverändert offen (anderer Chat): späte Bilder. Mit Clients wieder voll bei 240/s steigen sie auf
+214 von 9390 im Lasttest (0.5.107 bei ~165/s: 12), fast alle „display“ (fertig 0,1–0,8 ms vor
+dem vblank und doch verpasst) – passt zu einem Vorlauf, den nouveau braucht; nicht belegt.
 
-**JETZT: 0.5.107 getestet (26.10., `~/hw-logs/results-20261026-160606`), Besitzer: „alles gut“.**
+**0.5.107 getestet (26.10., `~/hw-logs/results-20261026-160606`), Besitzer: „alles gut“.**
 Gegen die Erwartung: Resize steht beim Loslassen still (0–9 ms, vorher bis 5 s), `held:` flach
 (8–16), Lasttest „at most 1 on their way“, spät 12 statt 186. Herunterfahren ohne Befund. Zwei
 Abweichungen, Mechanismus belegt und behoben (je 3 Smoke-Läufe grün, Hardware offen):
@@ -335,12 +342,11 @@ Abweichungen, Mechanismus belegt und behoben (je 3 Smoke-Läufe grün, Hardware 
   171 ms): ersetzte Puffer nie zerstört, Release-Index verschob sich (f2444c0; Configure wartet
   jetzt auf „frame done“ wie GTK). Nur Testprogramm; ohne Smoke-Prüfung (Speicher nur auf
   Hardware groß), der nächste Hardware-Test zeigt es (`memory peak` im Journal).
-Erwartung nächster Messbau: Lasttest alle 12 Fenster nahe 240/s (~115 000 Bilder).
 Achtung: `bz smoke` baut nicht – nach einem Messbau erst `./bz build` (sonst prüft er das alte
 Abbild, Fehler „missing: /usr A“).
 
 **Auftrag (Besitzer, 26.10.: „sauber weiterarbeiten, nicht wieder Symptome bearbeiten“):**
-1. ~~0.5.107 auswerten~~ erledigt (oben).
+1. ~~0.5.107 und 0.5.108 auswerten~~ erledigt (oben).
 2. **Weicht etwas ab: erst den Mechanismus belegen, dann ändern.** Keine Messzeile, kein Timer,
    kein Sonderfall „damit es geht“. Fragen in dieser Reihenfolge: Welche Annahme ist falsch? Was
    machen Weston/Mutter/KWin/niri/GTK genau dort (Quelltext lesen, Besitzer mag Weston als
