@@ -322,8 +322,11 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 1,48 → **0,70 ms** (busy 43 → 27 %), Glas 0,77 → **0,00**, 112 032 von ~115 200 Bildern; Teile
 (Median/99 %): damage 0,34/0,66, record 0,18/0,34, sync 0,07, queue 0,05, scene 0,05, wait 0,00.
 Testfenster 4805 Bilder, 2 spät. Spät im Lasttest 193 von 6977, fast alle „display“ (C c).
+Besitzer 26.10.: 112 032 von 115 200 ist „erstmal schlecht“ – Ziel **0 späte Bilder** im Lasttest
+(jedes späte steht 8,3 statt 4,2 ms, ein Ruckler): die „display“-Späten (C c, fertig vor dem vblank
+und doch zu spät; nouveau-Vorlauf, `MOST_LEARNT`) kommen gleich nach den zwei Befunden unten.
 Folgerungen: **C endgültig unnötig** (`wait` 0,00 auf NVK); **B kein CPU-Hebel** (sync 0,07 ms) –
-Wert nur noch Korrektheit/Moderne, mit dem Besitzer klären, ob jetzt; größter Rest ist `damage`
+Besitzer: trotzdem umsetzen, wenn es die Umsetzung sauberer macht; größter Rest ist `damage`
 (Smithays Damage-Tracker über die Elemente). Auffällig: `record` 0,35–0,46 ms in den Läufen mit
 Terminal/Ziehen (Verdacht, unbelegt: `shared.collect()`/`dmabufs.retain` am Anfang von `submit`
 zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
