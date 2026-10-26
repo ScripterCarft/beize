@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben, Befund 2 Messpunkte, B zurückgestellt – JETZT Messbau 0.5.106 bauen/prüfen/taggen, dann Befund 2, E; späte Bilder: anderer Chat)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Messbau 0.5.106 getaggt – Besitzer testet; danach Befund 2 beheben, Befund 1 bestätigen, E)
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
@@ -372,14 +372,14 @@ Clients ohne das Protokoll), Smithay gibt den Release-Punkt auf der CPU beim Ers
 Renderer müsste ihn an seinen GPU-Fence koppeln wie Mutter/KWin), Nutzen 0,07 ms. Heute korrekt:
 jedes Bild hängt seinen Fence an die gelesenen Client-Puffer (`render/sync.rs`). Wieder aufnehmen,
 wenn ein Treiber ohne implizite Synchronisation kommt.
-**Messbau 0.5.106 vorbereitet (26.10.):** Zweig `measure/desktop` im Worktree `~/scratch/measure`
-auf `main` gehoben (aeac4a2, **lokal, nicht gepusht, nicht gebaut**): Teil 5 schnell ziehen +
-`resized …`, Teil 6 mit Beobachtung und Konsolenwechsel (Strg+Alt+F2/F1) + Spur. **Nächster
-Chat zuerst:** `main` gepusht? (Hintergrund-Job wartete auf CI-Lauf 40304913614), dann Messzweig
-pushen, in `~/beize` (wenn kein anderer Chat baut) bauen, Smoke + Skript in der VM, taggen
-`measure/desktop-0.5.106`, dem Besitzer die Schritte (docs/hardware.md A–C) geben; mit dem
-anderen Chat (späte Bilder) abstimmen, ob dessen Änderungen mit hinein. Danach: Befund 2 mit
-den Daten beheben, E, dann idle-inhibit; D mit der Shell.
+**Messbau 0.5.106 gebaut und geprüft (26.10.):** `measure/desktop` auf `main` gehoben (aeac4a2,
+Tag `measure/desktop-0.5.106`, Smoke grün, Skript in der VM ganz durchgelaufen: Spur nach dem
+Moduswechsel da, `held: … 41 open files` = Grundzahl der VM). Teil 5 schnell ziehen + `resized …`,
+Teil 6 mit Beobachtung und Konsolenwechsel (Strg+Alt+F2/F1). Gepusht werden `main` und der Tag,
+sobald CI-Lauf 40304913614 grün ist (Hintergrund-Job); der Messzweig braucht Force-Push
+(Rechteprüfung verweigert) → Besitzer: `git push --force-with-lease origin measure/desktop`.
+**Beim Besitzer:** Release bauen/signieren, dann Stick → Test (docs/hardware.md A–C).
+Danach: Befund 2 mit den Daten beheben, Befund 1 bestätigen, E, dann idle-inhibit; D mit der Shell.
 `.wslconfig` `preempt=full` wirkt (Kommandozeile), `bz smoke` warnt nicht mehr (Gegenfall belegt).
 **Leerlauf-Ratsche (offen):** der Haupt-Thread des Compositors wachte in 3 von 27 Läufen einmal in
 3 s auf, ohne zu zeichnen (25.10. vor, 26.10. nach A; Häufigkeit nicht belegt verschieden). Die
