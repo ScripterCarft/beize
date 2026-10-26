@@ -125,6 +125,14 @@ pub(super) fn boot_healthy(
         run.powered_off,
         "the system did not power off cleanly after reporting"
     );
+    // The orderly power-off wiped the root partition's key from memory, then
+    // withdrew the request that the firmware clear memory (beize-tpm
+    // wipe-keys, CONFIG_RESET_ATTACK_MITIGATION): OVMF has the variable.
+    ensure!(
+        run.console.iter().any(|line| line.contains(KEYS_WIPED)),
+        "the power-off did not say \"{KEYS_WIPED}\": the keys may still be in memory, or the \
+         firmware clears it at every start"
+    );
     ensure!(
         report.boot == expected_boot,
         "expected boot #{expected_boot}, the system reports boot #{}",
@@ -180,7 +188,8 @@ pub(super) fn boot_healthy(
     say!(
         "  ok: boot #{} running under Secure Boot after {} guest uptime \
          ({:.1}s including firmware; kernel {} + initrd {} + system {}), network via DHCP, \
-         no failed units, clean power-off (NTS key exchange with {} time servers; \
+         no failed units, clean power-off with the keys wiped (NTS key exchange with {} time \
+         servers; \
          shadow stack {}; lockdown, only signed modules, every device driven)",
         report.boot,
         report.uptime,
@@ -206,6 +215,10 @@ pub(super) fn boot_healthy(
         journal,
     })
 }
+
+/// What `beize-tpm wipe-keys` says at the end of an orderly shutdown once the
+/// keys are wiped and the request to clear memory is withdrawn.
+const KEYS_WIPED: &str = "encrypted volume(s); withdrew the request to clear memory.";
 
 /// The most each phase of an ordinary boot (not the first, nothing typed)
 /// may take in the VM, in µs: about 1.5 times what it takes on the slower

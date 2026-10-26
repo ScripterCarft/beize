@@ -13,16 +13,14 @@
 //! digits, `.`, `_`, `-`); anything else leaves the kernel's US keymap. The
 //! worst a forged value does is a keyboard that types wrong characters.
 
-use std::ffi::c_int;
-use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write};
-use std::os::fd::AsRawFd;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
+
+use crate::efivars;
 
 /// BeizeKeymap under Beize's own vendor GUID.
 const VARIABLE: &str = "/sys/firmware/efi/efivars/BeizeKeymap-e6e221d0-db73-4fa8-99da-ba41e1b78888";
-/// Non-volatile, readable at boot and from the running system.
-const ATTRIBUTES: u32 = 0x1 | 0x2 | 0x4;
 const VCONSOLE_CONF: &str = "/etc/vconsole.conf";
 const KEYMAPS: &str = "/usr/share/keymaps";
 
@@ -124,61 +122,16 @@ fn read_variable() -> Result<Option<String>, String> {
     }
 }
 
-/// efivarfs takes attributes and value in a single write.
 fn write_variable(name: &str) -> Result<(), String> {
-    if Path::new(VARIABLE).exists() {
-        make_mutable(VARIABLE)?;
-    }
-    let mut value = ATTRIBUTES.to_le_bytes().to_vec();
-    value.extend_from_slice(name.as_bytes());
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(VARIABLE)
-        .and_then(|mut file| file.write_all(&value))
-        .map_err(|e| format!("writing {VARIABLE}: {e}"))
+    efivars::write(VARIABLE, name.as_bytes())
 }
 
 fn remove_variable() -> Result<(), String> {
     if !Path::new(VARIABLE).exists() {
         return Ok(());
     }
-    make_mutable(VARIABLE)?;
+    efivars::make_mutable(VARIABLE)?;
     fs::remove_file(VARIABLE).map_err(|e| format!("removing {VARIABLE}: {e}"))
-}
-
-/// efivarfs marks existing variables immutable, so that `rm -rf` cannot
-/// delete firmware settings by accident; changing one takes clearing that
-/// flag first (as systemd and efivar do).
-fn make_mutable(path: &str) -> Result<(), String> {
-    const FS_IOC_GETFLAGS: u64 = 0x8008_6601;
-    const FS_IOC_SETFLAGS: u64 = 0x4008_6602;
-    const FS_IMMUTABLE_FL: c_int = 0x10;
-    unsafe extern "C" {
-        fn ioctl(fd: c_int, request: u64, ...) -> c_int;
-    }
-    let file = File::open(path).map_err(|e| format!("opening {path}: {e}"))?;
-    let mut flags: c_int = 0;
-    // SAFETY: both requests read or write one int through a valid pointer.
-    unsafe {
-        if ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &raw mut flags) != 0 {
-            return Err(format!(
-                "reading the flags of {path}: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-        if flags & FS_IMMUTABLE_FL != 0 {
-            flags &= !FS_IMMUTABLE_FL;
-            if ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &raw const flags) != 0 {
-                return Err(format!(
-                    "making {path} writable: {}",
-                    std::io::Error::last_os_error()
-                ));
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

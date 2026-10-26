@@ -22,14 +22,20 @@
 //! variable for the initrd, where the recovery key is typed (see `keymap`,
 //! ADR 0017).
 //!
+//! `beize-tpm wipe-keys VERB` runs last in an orderly shutdown: it wipes the
+//! encrypted volumes' keys from memory and then withdraws the request that
+//! the firmware clear memory (see `memory`).
+//!
 //! Everything it prints goes to the console; the recovery key never does.
 
 mod efi;
+mod efivars;
 mod emergency;
 mod eventlog;
 mod keymap;
 mod keyring;
 mod luks;
+mod memory;
 mod policy;
 mod trial;
 
@@ -58,7 +64,11 @@ fn main() -> ExitCode {
         Some("check-boot") => check_boot(),
         Some("emergency") => emergency::run(),
         Some("keymap") => keymap::run(std::env::args().nth(2).as_deref()),
-        _ => Err("usage: beize-tpm reseal | check-boot | emergency | keymap save|load".into()),
+        Some("wipe-keys") => memory::run(std::env::args().nth(2).as_deref()),
+        _ => Err(
+            "usage: beize-tpm reseal | check-boot | emergency | keymap save|load | wipe-keys VERB"
+                .into(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

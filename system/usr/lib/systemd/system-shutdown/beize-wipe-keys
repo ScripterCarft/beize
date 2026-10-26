@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+# Last step of an orderly shutdown (systemd-shutdown runs it once file systems
+# are unmounted or read-only, with reboot, poweroff, halt or kexec): wipes the
+# encrypted volumes' keys from memory, then withdraws the request that the
+# firmware clear memory at the next start (beize-tpm, `memory`).
+exec /usr/lib/beize/beize-tpm wipe-keys "$1" >/dev/console 2>&1
