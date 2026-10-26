@@ -347,8 +347,11 @@ zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
    (Modus-Commit 81 ms) – **danach kein einziges Bild mehr** (keine `pacing:`), obwohl der Besitzer
    blind Maus und Tastatur nutzte (Eingaben kamen an). Erschlossen: das Flip-Ereignis des ersten
    Bildes kam nie, `flipping` blieb gesetzt, jedes Bild „Deferred“. Kabel ab/an nicht gemacht.
-   Kernel-Journal fehlt (run0 am Ende „Access denied“): beim Besitzer `hw-test.sh -1` nach dem
-   nächsten Start erbitten oder im nächsten Messbau. VM-Smoke `screen_comes_back` ist grün
+   Kernel-Journal nachgeholt (`~/hw-logs/results-20261026-111003`, `hw-test.sh -1`; im Test
+   selbst scheiterte run0 mit „Access denied“): **der Kernel meldet von 370–420 s nichts** – kein
+   nouveau-/DRM-Fehler, keine Zeitüberschreitung; spricht für die Seite des Compositors
+   (Smithays Zustand nach dem Modeset, ein nicht behandeltes Flip-Ereignis), belegt ist es nicht.
+   VM-Smoke `screen_comes_back` ist grün
    (virtio-gpu) – Hardware-Fehler, Kandidaten: nouveau-Event nach Modeset aus „aus“, Smithays
    Blob-Zustand.
 Danach B und E (Besitzer: „alle Punkte bis E vor idle“; D mit der Shell), dann idle-inhibit.
