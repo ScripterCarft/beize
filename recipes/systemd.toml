@@ -8,7 +8,7 @@
 # network did not name. LLMNR is off (spoofable, superseded by mDNS).
 # No timesyncd: time comes from ntpd-rs with NTS (ADR 0012).
 name = "systemd"
-version = "262"
+version = "262.1"
 stage = "target"
 # linux-pam: user sessions (pam_systemd, user@.service). kmod: udev loads
 # drivers (ADR 0015). acl: device access for the logged-in user (uaccess),
@@ -36,7 +36,7 @@ deps = ["gcc", "glibc", "libcap", "util-linux", "cryptsetup", "openssl", "tpm2-t
 latest = { release-monitoring = 5440 }
 git = "https://github.com/systemd/systemd.git"
 tag = "v{version}"
-commit = "8cc40e0c5e9234bf45084751ac53b1fbfe70b492"
+commit = "73612ea502d53baf9b0df4336cfc296a7ee0d524"
 keyring = "systemd"
 
 [build]
