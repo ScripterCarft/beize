@@ -317,6 +317,11 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.107 ausgewertet, zwei Befunde behoben)
 
+**JETZT: Messbau 0.5.108 auf dem Stick** (`D:eize-0.5.108`, Prüfsummen geprüft; Tag
+`measure/desktop-0.5.108` a35b878, Zweig und Tags gepusht). Besitzer testet nach docs/hardware.md
+B–C; der nächste Chat wertet aus: Lasttest alle 12 Fenster nahe 240/s, Testclient `memory peak`
+klein auch mit Resize, Resize/Tasten wie 0.5.107.
+
 **JETZT: 0.5.107 getestet (26.10., `~/hw-logs/results-20261026-160606`), Besitzer: „alles gut“.**
 Gegen die Erwartung: Resize steht beim Loslassen still (0–9 ms, vorher bis 5 s), `held:` flach
 (8–16), Lasttest „at most 1 on their way“, spät 12 statt 186. Herunterfahren ohne Befund. Zwei
