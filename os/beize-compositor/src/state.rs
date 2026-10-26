@@ -986,7 +986,14 @@ impl State {
                 self.unblock(lift(hidden));
                 self.frame_done_later();
             }
-            Err(e) => self.fail(e),
+            // One frame lost, not the session with its windows: said, and
+            // drawn again at the next vblank, as Mutter, KWin and niri go on
+            // after a frame that failed. What it would have shown waits
+            // for that frame, its clients' callbacks with it.
+            Err(e) => {
+                warn!("a frame failed: {e:#}");
+                self.changed();
+            }
         }
         self.animate_cursor(began);
     }
