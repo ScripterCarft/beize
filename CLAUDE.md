@@ -355,6 +355,27 @@ Gleiches Muster in Berichten: nouveau GP108 (Arch 2020, DPMS aus/an half), NVIDI
 Monitormodell, gilt es bei 60 Hz, hilft Kabel ab/an, Windows ok? Dann Patch an nouveau (Fehler
 melden, `link-status` BAD wie i915 → Compositor modesettet neu). Wechsel zum NVIDIA-Treiber
 besprochen: nicht als erster Schritt (geschlossener Userspace statt NVK, ADR 0027).
+**Prüfung 26.10. (Besitzer: alles Grundfalsche finden und belegen; 4 Prüfer + Nachprüfung). Plan
+vorgelegt, NICHTS geändert – auf Freigabe warten.** Kern (belegt): Beize UI zeichnet bei jedem Anlass
+sofort (`window.rs` `draw_once`, Terminal je PTY-Lesen/Taste), nur Configures warten auf den
+Frame-Callback; FIFO mit 4 Bildern. Mesa 26.2.5 drosselt FIFO **nur ohne** wp_fifo über den
+Frame-Callback (wsi_common_wayland.c ~3424); seit unserem wp_fifo (4ad22e3, 25.10.) blockiert
+Present nicht mehr, Mesas Kommentar nennt 4 Bilder „deeply problematic due to excessive latency“.
+Unsere fifo-Umsetzung hat Beize UI also unbemerkt ungedrosselt – der Resize-Rückfall kam mit
+0.5.105, dem ersten Bau mit wp_fifo; `window.rs:4-5` behauptet das Gegenteil. Neue Swapchain je
+Größe hebt die Bildgrenze auf. Pfeil-hoch-Verzögerung damit erklärt; die 5 s Nachziehen: Mechanismus
+belegt, Größe nicht (flache `held:` spricht gegen eine tiefe Schlange). Weitere Befunde (belegt):
+`resized … ms` hängt am Ack, nicht am angewandten Commit (Smithay setzt current = last_acked im
+Post-Commit-Hook); Configure je Mausereignis (~1000/s, Mutter/KWin: eins offen); dmabuf doppelt
+importiert (`check_dmabuf`); jeder Flip-/Zeichenfehler beendet Compositor und Apps; Vorlauf bei
+240 Hz immer 4,17 ms (`schedule.rs`-Lernen wirkungslos); `each_surface` ohne `unmapped`;
+Terminal-`told`-Sperre ohne Vorbild; Kernel: `RESET_ATTACK_MITIGATION=y` (setzt MOR bei jedem
+Start, niemand löscht es; Fedora aus), `UBSAN_TRAP`, `PAGE_TABLE_CHECK_ENFORCED`, IOMMU an+strict
+(Fedora aus/lazy), serielle Konsole auf Hardware, keine Diagnose (DEBUG_KERNEL/Lockup, WATCHDOG,
+DRM_PANIC, DP_AUX_CHARDEV aus), Strg+Alt+Entf in der Sitzung ohne Wirkung (VT im K_OFF,
+keyboard.c), Compositor ohne Echtzeit (`RestrictRealtime=yes`). Widerlegt: `nouveau.atomic=1`
+(Upstream schaltet es ab 7.4 ein), 7 s Kernel durch init_on_free (gemessen: 5 s PCIe + 1,9 s).
+Fedora-Vergleich gilt nur bis 144 Hz (ohne unseren EDID-Patch kein 240 Hz) und legacy KMS.
 **Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
 Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
 geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
