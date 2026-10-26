@@ -340,7 +340,21 @@ Smithays `DrmCompositor` (niri), fifo/commit-timing (seit 0.5.105 stauen sich Co
 neue Swapchain + `device_wait_idle` je Größe; nouveau-GSP-Anzeige als seltenster Teil.
 **(1) erledigt 26.10.: auch OHNE Sitzung (Konsole, kein Compositor) kein Bild nach Monitor
 aus/an** → Befund 2 liegt unter dem Compositor (Kernel/Treiber/unsere Kernel-Konfiguration oder
--Patches). (2) Fedora-Live testet der Besitzer gerade – Ergebnis erfragen.
+-Patches). **(2) erledigt 26.10.: Fedora-Live (GNOME, nouveau, gleiche HW) hat denselben Fehler
+(kein Bild nach Monitor aus/an); Resize dort einwandfrei, Zeiger bleibt Resize bis zum Loslassen**
+→ Befund 2 ist upstream (nouveau/GSP oder Monitor), nicht Beize; Resize-Nachziehen ist **unseres**.
+Quelltext (v7.3-rc6, gleich in 7.2): `nv50_sor_atomic_enable` ignoriert die Rückgabe von
+`nouveau_dp_train()`; `r535_dp_train_target` macht aus `ctrl->err` bzw. EAGAIN ohne `retryTimeMs`
+still einen Fehler (ctrl.c loggt EAGAIN/EBUSY nicht, Rest nur `NV_DEBUG`); nouveau setzt die
+Eigenschaft `link-status` nie → unser „link good“ sagt nichts; der Kopf läuft weiter, vblanks
+kommen. **Erschlossen, nicht belegt:** Link-Training nach dem Aufwachen scheitert still (warum
+auch spätere Modesets/VT-Wechsel scheitern, offen: veraltete DPCD-Fähigkeiten aus dem Aufwachen?).
+Gleiches Muster in Berichten: nouveau GP108 (Arch 2020, DPMS aus/an half), NVIDIA-Treiber mit
+1440p/240-Hz-Samsung (NVIDIA-Forum 346806). Nächster Schritt (Besitzer): Fedora-Live mit
+`drm.debug=0x106 nouveau.debug=disp=debug log_buf_len=16M`, Kernel-Log auf den Stick; dazu
+Monitormodell, gilt es bei 60 Hz, hilft Kabel ab/an, Windows ok? Dann Patch an nouveau (Fehler
+melden, `link-status` BAD wie i915 → Compositor modesettet neu). Wechsel zum NVIDIA-Treiber
+besprochen: nicht als erster Schritt (geschlossener Userspace statt NVK, ADR 0027).
 **Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
 Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
 geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
