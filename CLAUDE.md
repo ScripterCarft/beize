@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.106 getestet – JETZT Ursachensuche statt Symptome, Plan unten)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 abends: 0.5.106 getestet, Bild fehlt auch ohne Sitzung – JETZT grundlegende Ursache suchen, vor E; Fedora-Vergleich erfragen)
 
 **0.5.106 getestet (26.10., `~/hw-logs/results-20261026-123053`). Besitzer: „Fixes haben so gut
 wie nichts gebracht“ – den gemeinsamen Grund suchen, was bei uns merkwürdig ist; lieber alten
@@ -338,6 +338,16 @@ jetzt), wartende Commits je Surface, im Terminal Configure→Bild. Dann erst ent
 rausfliegt; Kandidaten des Ungewöhnlichen: eigene Bildschleife (`output.rs`/`schedule.rs`) statt
 Smithays `DrmCompositor` (niri), fifo/commit-timing (seit 0.5.105 stauen sich Commits), Beize UIs
 neue Swapchain + `device_wait_idle` je Größe; nouveau-GSP-Anzeige als seltenster Teil.
+**(1) erledigt 26.10.: auch OHNE Sitzung (Konsole, kein Compositor) kein Bild nach Monitor
+aus/an** → Befund 2 liegt unter dem Compositor (Kernel/Treiber/unsere Kernel-Konfiguration oder
+-Patches). (2) Fedora-Live testet der Besitzer gerade – Ergebnis erfragen.
+**Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
+Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
+geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
+bleibt aber selten hängen**, zweites Drücken nötig. Ungewöhnlich bei uns und zu prüfen (neben den
+obigen): eigene Kernel-Konfiguration (`kernel/beize.config`), neuester Stable-Kernel, eigene
+nouveau-Patches des Messzweigs (`kernel/measure/*.patch`), nouveau mit GSP auf Ampere. Vergleich
+mit Fedora (gleiche Hardware) zuerst auswerten; gleichen Kernel/Konfiguration gegenüberstellen.
 **Nicht gepusht:** `main` (9 Commits seit fa629f0) und Tag `measure/desktop-0.5.106` – CI-Lauf
 40304913614 lief noch; erst nach Grün pushen. Messzweig braucht Force-Push (Besitzer).
 
