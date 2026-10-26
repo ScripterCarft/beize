@@ -324,7 +324,8 @@ Abweichungen, Mechanismus belegt und behoben (je 3 Smoke-Läufe grün, Hardware 
 - **Lasttest 90 025 statt 112 032 Bilder**, Fenster 4–12 bei ~165/s: wir beantworteten „frame
   done“ am vblank, Weston direkt nach dem Zeichnen (`weston_output_repaint`, anvil `post_repaint`)
   → bei 240 Hz blieb einem Client ~1 ms. Jetzt nach dem Zeichnen (99776cf); Feedback und fifo
-  bleiben am vblank. Smoke: „frame done: 120 of 120 before they showed“, Gegenprobe 0 von 120 rot.
+  bleiben am vblank. Smoke: „frame done: 120 of 120 before they showed“ – nach der Reihenfolge der
+  Ereignisse (5481dd8; nach Zeit gemessen einmal 119/120, Client spät eingeplant), Gegenprobe 0/120.
 - **Testclient 11,2 GB beim Resize** (Besitzer zog ihn im Klick-Teil; 4193 von 4800 Bildern, Lücke
   171 ms): ersetzte Puffer nie zerstört, Release-Index verschob sich (f2444c0; Configure wartet
   jetzt auf „frame done“ wie GTK). Nur Testprogramm; ohne Smoke-Prüfung (Speicher nur auf
@@ -340,8 +341,10 @@ Abbild, Fehler „missing: /usr A“).
    machen Weston/Mutter/KWin/niri/GTK genau dort (Quelltext lesen, Besitzer mag Weston als
    Vorbild)? Lässt sich dafür Code entfernen? Jede Änderung mit Smoke-Prüfung **und** Gegenprobe,
    die rot wird. Ein Messgerüst nur befristet und im selben Schritt wieder entfernen.
-3. Ordnung: CI-Lauf 40304913614 („Known vulnerabilities“) klären, dann `main` pushen; der
-   Besitzer force-pusht `measure/desktop` und die Tags.
+3. ~~CI-Lauf 40304913614~~ erledigt: RUSTSEC-2026-0383 (webpki-root-certs, nur im Lock von
+   ntpd-rs, nicht gelinkt) → `[cargo.update]` 1.0.10; `bz` hebt jetzt die kompatible von mehreren
+   Versionen an (f8c6ecf). `main` gepusht 26.10. Offen beim Besitzer: Force-Push `measure/desktop`
+   und Tags. Nächster Messbau 0.5.108 (Lasttest-Erwartung oben).
 4. Danach nach Plan: E (Knöpfe als SDF, Titeltext von der Shell, Symbole als Schrift), idle-inhibit
    + Bildschirm aus, D mit der Shell. nouveau-Patch für das still scheiternde Link-Training
    (Befund 2, unten) schreiben – senden tut der Besitzer.
@@ -349,8 +352,7 @@ Abbild, Fehler „missing: /usr A“).
 seltener Smoke-Fehler
 „close button of the compositor's frame did not end the client“ (1 von ~20 Läufen 26.10., nach
 systemd 262.1; in 4 Folgeläufen nicht wieder, Logs überschrieben) – beim nächsten Auftreten Logs
-sichern (`build/work/logs/boot`). `main` nicht gepusht (CI-Lauf 40304913614, Job „Known
-vulnerabilities“, erst klären).
+sichern (`build/work/logs/boot`).
 
 **0.5.106 getestet (26.10., `~/hw-logs/results-20261026-123053`). Besitzer: „Fixes haben so gut
 wie nichts gebracht“ – den gemeinsamen Grund suchen, was bei uns merkwürdig ist; lieber alten
