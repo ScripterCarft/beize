@@ -376,6 +376,15 @@ DRM_PANIC, DP_AUX_CHARDEV aus), Strg+Alt+Entf in der Sitzung ohne Wirkung (VT im
 keyboard.c), Compositor ohne Echtzeit (`RestrictRealtime=yes`). Widerlegt: `nouveau.atomic=1`
 (Upstream schaltet es ab 7.4 ein), 7 s Kernel durch init_on_free (gemessen: 5 s PCIe + 1,9 s).
 Fedora-Vergleich gilt nur bis 144 Hz (ohne unseren EDID-Patch kein 240 Hz) und legacy KMS.
+**Besitzer 26.10.: Plan ja, aber Kernel nicht blind wie Fedora (erst belegen, ob Problem),
+Strg+Alt+Entf egal (Rauschen). Reihenfolge: 1. Takt.** ~~1. Takt~~ **erledigt (21b33a6)**: Beize
+UI zeichnet nur, wenn das letzte Bild gezeigt ist (`App::ready`, nummerierte Frame-Callbacks),
+MAILBOX wie GTK, kleinste Bildanzahl; Terminal/Shell/Lasttest zeichnen bei `ready`. `told`-Sperre
+des Terminals bleibt (ohne sie belegt „beizbeize $“ im Prompt-Test). Smoke: Lasttest „at most 1 on
+its way“, Gegenprobe altes Verhalten = 4, rot; 3 Läufe grün. Hardware offen (nächster Messbau).
+Als Nächstes (Besitzer fragen): 2. Compositor (Configure je Fenster eins offen, Resize-Ende am
+angewandten Commit statt Ack, doppelter dmabuf-Import, Fehler nicht tödlich, Messgerüst/
+`schedule.rs`-Lernen raus), dann Kernel-Punkte einzeln belegen.
 **Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
 Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
 geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
