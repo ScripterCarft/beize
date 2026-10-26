@@ -91,7 +91,7 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
    run0 mount -o uid=$(id -u),gid=$(id -g) /dev/disk/by-label/BEIZE /run/stick
    bash /run/stick/beize-test/hw-test.sh
    ```
-7. Das Skript führt durch fünf Teile, jeweils weiter mit Enter:
+7. Das Skript führt durch sechs Teile, jeweils weiter mit Enter:
    1. **Terminal-Probe.** Erwartet, Zeile für Zeile: „Grüße aus Beize: äöü ÄÖÜ ß é ñ €
       „Zitat“ – é“; „fett“ (kräftiger), „schwach“ (grauer), „unterstrichen“,
       „durchgestrichen“, „invers“ (dunkel auf hell); die Wörter rot, grün, gelb, blau,
@@ -114,6 +114,10 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
       der rechten unteren Ecke immer wieder ganz groß und klein ziehen. Bleibt es offen?
       Bleibt der Prompt eine saubere Zeile `beize ~ $` (in 0.5.104 vervielfachte er sich)?
       Danach `exit` darin.
+   6. **Knöpfe und Hintergrund**: mit dem Zeiger über die drei Kreise des Terminals fahren –
+      scharf ein X, ein Strich und zwei Dreiecke (seit 0.5.109 vom Shader gerechnet)? Dann
+      das Terminal so schieben, dass die pixelig wirkende Stelle des Hintergrunds frei liegt,
+      Super+Shift+3; das Skript legt das Bildschirmfoto zu den Ergebnissen.
 
    Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
    Erwartet:
