@@ -382,9 +382,16 @@ UI zeichnet nur, wenn das letzte Bild gezeigt ist (`App::ready`, nummerierte Fra
 MAILBOX wie GTK, kleinste Bildanzahl; Terminal/Shell/Lasttest zeichnen bei `ready`. `told`-Sperre
 des Terminals bleibt (ohne sie belegt „beizbeize $“ im Prompt-Test). Smoke: Lasttest „at most 1 on
 its way“, Gegenprobe altes Verhalten = 4, rot; 3 Läufe grün. Hardware offen (nächster Messbau).
-Als Nächstes (Besitzer fragen): 2. Compositor (Configure je Fenster eins offen, Resize-Ende am
-angewandten Commit statt Ack, doppelter dmabuf-Import, Fehler nicht tödlich, Messgerüst/
-`schedule.rs`-Lernen raus), dann Kernel-Punkte einzeln belegen.
+**2. Compositor erledigt 26.10.** (je 3 Smoke-Läufe grün): Messgerüst 64142a6 zurückgenommen
+(4d70e81); dmabuf einmal beim Anlegen importiert wie anvil/Weston, `held:` ohne offene Dateien
+(8980ec7; LimitNOFILE bleibt); Bildfehler beendet die Sitzung nicht mehr (76ada72, ohne
+Gegenprobe – Fehler in der VM nicht auslösbar); ungezeigte Fenster in `each_surface` (8133532,
+Testclient `--timed` mit Zeit im ersten Commit, Gegenprobe rot). **Geprüft und bewusst gelassen:**
+Configure je Mausbewegung (anvil macht es genauso, Beize UI nimmt nur das neueste); Resize-Ende
+über `current_state` (anvil ebenso); `pending_writes` je Bild (Vulkan hat keine implizite
+Synchronisation, Sicherheitsnetz, µs); `schedule.rs`-Lernen (Bildtakt/späte Bilder = anderer
+Chat); `told`-Sperre (s. o.). Als Nächstes: Kernel-Punkte einzeln belegen (Besitzer: nicht blind
+wie Fedora), dann Messbau für die Hardware.
 **Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
 Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
 geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
