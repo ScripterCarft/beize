@@ -315,33 +315,44 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 spät: 0.5.108 ausgewertet, beide Befunde bestätigt)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 nachts: E fertig, Messbau 0.5.109 bereit)
 
-**JETZT: 0.5.108 getestet (26.10., `~/hw-logs/results-20261026-205934`, Tag
-`measure/desktop-0.5.108`).** Beide Korrekturen auf Hardware bestätigt:
-- **Lasttest 111 749 Bilder** (vorher 90 025), alle 12 Fenster Median 4,17–4,19 ms (9055–9380
-  Bilder je Fenster), „at most 1 on their way“, CPU je Bild Median 0,76 ms, busy 28–31 %.
-- **Testclient beim Resize klein:** 4764 von 4800 Bildern, Abstand höchstens 9 ms (vorher 171);
-  keine `Consumed … memory peak`-Zeile mehr – systemd 262.1 schreibt sie nur über 1 s CPU bzw.
-  64 MB (`unit.c` `MENTIONWORTHY_*`, sonst LOG_DEBUG), also < 64 MB statt 11,2 GB.
-- Resize 0–1 ms nach dem Loslassen, `held:` flach (8–16 dmabufs).
-Unverändert offen (anderer Chat): späte Bilder. Mit Clients wieder voll bei 240/s steigen sie auf
-214 von 9390 im Lasttest (0.5.107 bei ~165/s: 12), fast alle „display“ (fertig 0,1–0,8 ms vor
-dem vblank und doch verpasst) – passt zu einem Vorlauf, den nouveau braucht; nicht belegt.
+**JETZT: Messbau 0.5.109 gebaut und geprüft** (Zweig `measure/desktop` cd0db36 auf f11ffcf,
+Tag `measure/desktop-0.5.109`, Smoke grün). Besitzer: `docs/hardware.md` A–C, dann „Release
+fertig“ → Claude kopiert `build/out/desktop/release/0.5.109` als `D:\beize-0.5.109` und das
+Skript samt Testprogrammen nach `D:\beize-test`. Der nächste Chat wertet aus: wie 0.5.108,
+dazu Teil 6 (neu): Zeichen der Kreise unter dem Zeiger scharf? und das **Bildschirmfoto vom
+Hintergrund**, das der Besitzer pixelig findet (liegt in `results-*/`). Der Hintergrund ist kein
+SVG: `backdrop.frag` rechnet ihn einmal in voller Auflösung, gedithert, 1:1 gezeigt – im Code kein
+Grund für Pixel gefunden; erst am Foto den Mechanismus belegen (Banding? Kanten der Bänder? das
+kleiner gerechnete Glas?), das Design bleibt 1:1 (Besitzer). Teil 6 nur mit `bash -n` und der
+Journal-Zeile `screenshot WxH: <Pfad>` aus dem Smoke geprüft, nicht in der VM durchgespielt.
 
-**0.5.107 getestet (26.10., `~/hw-logs/results-20261026-160606`), Besitzer: „alles gut“.**
-Gegen die Erwartung: Resize steht beim Loslassen still (0–9 ms, vorher bis 5 s), `held:` flach
-(8–16), Lasttest „at most 1 on their way“, spät 12 statt 186. Herunterfahren ohne Befund. Zwei
-Abweichungen, Mechanismus belegt und behoben (je 3 Smoke-Läufe grün, Hardware offen):
-- **Lasttest 90 025 statt 112 032 Bilder**, Fenster 4–12 bei ~165/s: wir beantworteten „frame
-  done“ am vblank, Weston direkt nach dem Zeichnen (`weston_output_repaint`, anvil `post_repaint`)
-  → bei 240 Hz blieb einem Client ~1 ms. Jetzt nach dem Zeichnen (99776cf); Feedback und fifo
-  bleiben am vblank. Smoke: „frame done: 120 of 120 before they showed“ – nach der Reihenfolge der
-  Ereignisse (5481dd8; nach Zeit gemessen einmal 119/120, Client spät eingeplant), Gegenprobe 0/120.
-- **Testclient 11,2 GB beim Resize** (Besitzer zog ihn im Klick-Teil; 4193 von 4800 Bildern, Lücke
-  171 ms): ersetzte Puffer nie zerstört, Release-Index verschob sich (f2444c0; Configure wartet
-  jetzt auf „frame done“ wie GTK). Nur Testprogramm; ohne Smoke-Prüfung (Speicher nur auf
-  Hardware groß), der nächste Hardware-Test zeigt es (`memory peak` im Journal).
+**E erledigt (26.10.):**
+- (a) Knöpfe als SDF (c7035c4): Kreise (`Scene::circle`), Striche und Dreiecke rechnet der
+  Quad-Shader je Pixel (`STROKE`, `ROUND`, `TRIANGLE`); entfernt: 9 SVG-Konstanten,
+  `Scene::shape`, `Glyphs::shape`. Zoom bleibt zwei Dreiecke (Besitzer). resvg zeichnete den
+  Rand ungleichmäßig, die Terminal-Referenz änderte sich nur an den Kreiskanten (Besitzer sah
+  den Vergleich). Smoke: Zeichen unter dem Zeiger, Gegenprobe rot, 3 Läufe grün.
+- SVG raus aus dem Compositor (f11ffcf): Symbole und App-Symbole in `beize-draw` hinter dem
+  Feature `icons` (`glyphs/icons.rs`), nur Beize UI schaltet es ein. Compositor 7569 → 6517 KiB,
+  0 resvg-Zeichenketten (vorher 71). CI prüft den Compositor auch allein. Features nur
+  hinzufügend: `Atlases::colour` bleibt ohne Feature.
+- (c) Titeltext von der Shell **verworfen** (Besitzer einverstanden): bleibt im Compositor wie
+  Weston (`xwayland/window-manager.c`, cairo/pango); unser Text-Stapel ~1,3 MB < Westons ~3 MB
+  (pango, harfbuzz, freetype, fontconfig, fribidi, gemessen). ADR 0028 §2.
+- (b) Symbole als Phosphor-Schrift: **nicht jetzt** (bringt nach f11ffcf keine Größe; resvg bleibt
+  für App-Symbole in der Shell). Erst wenn Menüs/Kontrollzentrum viele Symbole neben Text zeigen.
+- Gemessen, Rest des Compositors: ~3 MB nicht aufgeschlüsselt – bei Gelegenheit `cargo bloat`
+  je Crate (Besitzer fragte; fest eingebaut statt geteilt ist für Beize richtig: ganzes
+  `/usr`-Abbild je Update, nur der Compositor nutzt Smithay; Teilen erst prüfen, wenn viele
+  Beize-Apps laufen).
+
+**0.5.108 getestet (26.10., `~/hw-logs/results-20261026-205934`).** Lasttest 111 749 Bilder
+(vorher 90 025), alle 12 Fenster bei 240/s; Testclient beim Resize < 64 MB statt 11,2 GB (systemd
+262.1 schreibt `Consumed … memory peak` nur über 1 s CPU bzw. 64 MB, `unit.c` `MENTIONWORTHY_*`);
+Resize 0–1 ms, `held:` flach. Besitzer: alles gut, Lasttest flüssig. Späte Bilder wieder 214 von
+9390 bei vollen 240/s (0.5.107 bei ~165/s: 12), fast alle „display“ – Auftrag unten.
 Achtung: `bz smoke` baut nicht – nach einem Messbau erst `./bz build` (sonst prüft er das alte
 Abbild, Fehler „missing: /usr A“).
 
@@ -356,10 +367,17 @@ Abbild, Fehler „missing: /usr A“).
    ntpd-rs, nicht gelinkt) → `[cargo.update]` 1.0.10; `bz` hebt jetzt die kompatible von mehreren
    Versionen an (f8c6ecf). `main` gepusht 26.10. Offen beim Besitzer: Force-Push `measure/desktop`
    und Tags. Nächster Messbau 0.5.108 (Lasttest-Erwartung oben).
-4. Danach nach Plan: E (Knöpfe als SDF, Titeltext von der Shell, Symbole als Schrift), idle-inhibit
-   + Bildschirm aus, D mit der Shell. nouveau-Patch für das still scheiternde Link-Training
+4. ~~E~~ erledigt (oben). Nach dem Messbau: idle-inhibit + Bildschirm aus, D mit der Shell.
+   nouveau-Patch für das still scheiternde Link-Training
    (Befund 2, unten) schreiben – senden tut der Besitzer.
-**Offen:** späte Bilder „display“ (anderer Chat); Leerlauf-Ratsche (Hinweis ntp-daemon, unten);
+**Auftrag des Besitzers (26.10.) für einen Chat nach der Shell, am besten nach idle:** (1) warum
+die späten Bilder (Lasttest 0.5.108: 214, je eines kostet jedem Fenster ein Bild – Fenster 1 hat
+9380 von 9600); (2) warum der Compositor 28–31 % je Bild braucht (`damage` 0,37, `record` 0,21 ms
+Median) – wie Glas 0,77 → 0,00 ms, den Rest ebenso angehen; (3) warum Fenster 2–12 stufenweise
+weniger Bilder haben (9380 → 9055; Vermutung: der Lasttest zeichnet nacheinander, späte Commits
+verpassen das Bild – unbelegt).
+**Offen:** späte Bilder „display“ (anderer Chat); Leerlauf-Ratsche (Hinweis ntp-daemon, unten;
+26.10. einmal mehr rot, 1 von 7 Läufen, Journal-Fenster leer, Log in `~/hw-logs/smoke-idle-red-20261026`);
 seltener Smoke-Fehler
 „close button of the compositor's frame did not end the client“ (1 von ~20 Läufen 26.10., nach
 systemd 262.1; in 4 Folgeläufen nicht wieder, Logs überschrieben) – beim nächsten Auftreten Logs
