@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben, Härtung erledigt – JETZT Befund 2, dann B und E; späte Bilder: anderer Chat)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26: Befund 1 behoben, Befund 2 Messpunkte drin – JETZT B, dann Messbau (Befund 1+2, B), dann E; späte Bilder: anderer Chat)
 
 **Messbau 0.5.105 gemessen (26.10., `~/hw-logs/results-20261026-105219`, Tag
 `measure/desktop-0.5.105`, Zweig gepusht).** Lasttest (12 Fenster, 240 Hz): CPU je Bild Median
@@ -351,9 +351,14 @@ zählt zu record – mit dem Befund 1 unten zerstörte er hunderte Bilder).
 2. **Monitor aus/an: Bild bleibt schwarz.** Belegt: `screen DP-1 is gone` (377,25 s), zurück
    `2560x1440 at 240 Hz, it had none` (384,66), Smithay-Warnung `Failed to destroy old mode
    property blob` (Bericht Nr. 4 in `~/upstream/smithay/ISSUES.md`), „first frame on the screen“
-   (Modus-Commit 81 ms) – **danach kein einziges Bild mehr** (keine `pacing:`), obwohl der Besitzer
-   blind Maus und Tastatur nutzte (Eingaben kamen an). Erschlossen: das Flip-Ereignis des ersten
-   Bildes kam nie, `flipping` blieb gesetzt, jedes Bild „Deferred“. Kabel ab/an nicht gemacht.
+   (Modus-Commit 81 ms), danach keine `pacing:` (Mausbewegungen allein machen keine), obwohl der
+   Besitzer blind Maus und Tastatur nutzte. **Widerlegt (26.10.):** „first frame“ steht im
+   vblank-Handler – KMS zeigte das erste Bild, das Ereignis kam; was danach kam, ist unbekannt.
+   **Messpunkte 64142a6:** nach jedem Moduswechsel 4 Commits/vblanks mit Anschluss- und
+   Link-Zustand, Warnung „no vblank … after its last commit“. Nächster Hardware-Test (mit B):
+   Besitzer notiert, was der Monitor zeigt (kein Signal / schwarz beleuchtet / Standby), und
+   wechselt bei Schwarz auf eine Textkonsole und zurück (`resume()` = anderer Modeset-Weg; Bild
+   wieder da → Fehler in unserem Wiederkommen-Pfad). Kabel ab/an nicht gemacht.
    Kernel-Journal nachgeholt (`~/hw-logs/results-20261026-111003`, `hw-test.sh -1`; im Test
    selbst scheiterte run0 mit „Access denied“): **der Kernel meldet von 370–420 s nichts** – kein
    nouveau-/DRM-Fehler, keine Zeitüberschreitung; spricht für die Seite des Compositors
