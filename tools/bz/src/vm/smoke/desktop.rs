@@ -1388,6 +1388,26 @@ fn load(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) ->
         "the load test's {LOAD_WINDOWS} windows did not each draw {LOAD_LEAST_FRAMES} frames \
          in {LOAD_SECONDS} s: {lines:?}"
     );
+    // Drawing all the time, each window waited for its last frame to show
+    // before the next (Beize UI's clock): never two on their way. Drawing
+    // ahead, they queue behind the compositor's frames – what made resizing
+    // trail and keys come late on hardware (0.5.105, Vulkan FIFO with
+    // wp_fifo).
+    let ahead = lines
+        .iter()
+        .find_map(|l| {
+            l.strip_prefix("load: ")?
+                .split_once("at most ")?
+                .1
+                .split_once(' ')
+        })
+        .and_then(|(n, _)| n.parse::<u32>().ok())
+        .with_context(|| format!("the load test said nothing of frames on their way: {lines:?}"))?;
+    ensure!(
+        ahead <= 1,
+        "a window of the load test had {ahead} frames on their way at once, more than one: it \
+         drew ahead of the compositor"
+    );
     // The compositor sums a run up a quarter second after its last frame.
     let (_, lines) = shell.capture(
         "sleep 1; journalctl --user -b -u beize-compositor.service -o cat \
@@ -1410,7 +1430,8 @@ fn load(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) ->
     let least = drawn.iter().min().copied().unwrap_or(0);
     say!(
         "  ok: the load test's {LOAD_WINDOWS} windows each drew {least} frames or more in \
-         {LOAD_SECONDS} s, the dock's live glass followed the one behind it; {pacing}"
+         {LOAD_SECONDS} s, at most {ahead} on its way, the dock's live glass followed the one \
+         behind it; {pacing}"
     );
     Ok(())
 }

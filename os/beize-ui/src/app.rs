@@ -11,7 +11,7 @@ use std::os::fd::{BorrowedFd, OwnedFd};
 use std::time::{Duration, Instant};
 
 use ash::vk;
-use beize_vulkan::error::{Context, Result};
+use beize_vulkan::error::{Context, Result, error};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use tracing::warn;
 use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
@@ -61,11 +61,14 @@ pub struct Events {
     /// The user closed the window (a panel: the compositor took it away).
     pub closed: bool,
     pub input: Vec<Input>,
+    /// Its last frame is shown: what changed since can be drawn
+    /// (`App::ready`).
+    pub ready: bool,
 }
 
 impl Events {
     fn any(&self) -> bool {
-        self.configured || self.closed || !self.input.is_empty()
+        self.configured || self.closed || self.ready || !self.input.is_empty()
     }
 }
 
@@ -140,9 +143,21 @@ pub(crate) struct Surface {
     /// The compositor's latest configure, held while a frame is on its way
     /// (`State::apply_configures`).
     next: Next,
-    /// A frame was presented that the compositor has not shown yet: its
-    /// wl_surface.frame callback has not come.
-    pub(crate) frame_pending: Cell<bool>,
+    /// The frame on its way: presented, its wl_surface.frame callback not
+    /// come yet. Numbered, so a callback of a frame given up (a present
+    /// that failed) does not free the next one.
+    pub(crate) on_its_way: Cell<Option<u32>>,
+    /// The number the next frame gets: how many were drawn.
+    pub(crate) frames: Cell<u32>,
+    /// How many the compositor showed (their callbacks came).
+    shown: Cell<u32>,
+}
+
+impl Surface {
+    /// The window takes a frame now: none is on its way (`App::ready`).
+    pub(crate) fn ready(&self) -> bool {
+        self.on_its_way.get().is_none()
+    }
 }
 
 /// A configure not yet handed to the app: its size and states, and the
@@ -200,19 +215,13 @@ impl State {
         self.surfaces.iter().find(|s| &s.wl == wl).map(|s| s.id)
     }
 
-    /// Hands each window the compositor's latest configure once the frame
-    /// it presented last is shown, as GTK's frame clock takes a new size
-    /// with the next frame: the app draws at most one size a frame, and
-    /// only the configure it draws for is acknowledged. Each new size is a
-    /// new swapchain with fresh buffers, which Mesa's FIFO does not hold
-    /// back; drawn as fast as a 1000 Hz mouse asked for them, they queued
-    /// behind the compositor's frames (wp_fifo), the window trailed the
-    /// pointer ever more, and their buffers filled the GPU (0.5.105).
-    /// Acknowledged when it came, the last configure went with a buffer of
-    /// an older size, and the compositor took the resize as ended there.
+    /// Hands each window that takes a frame (`App::ready`) the compositor's
+    /// latest configure, as GTK's frame clock takes a new size with the
+    /// next frame: only the configure the frame is drawn for is
+    /// acknowledged, sizes in between are passed over.
     fn apply_configures(&mut self) {
         for surface in &mut self.surfaces {
-            if surface.frame_pending.get() {
+            if !surface.ready() {
                 continue;
             }
             let Some(ack) = surface.next.ack.take() else {
@@ -409,7 +418,9 @@ impl App {
             fullscreen: false,
             events: Events::default(),
             next: Next::default(),
-            frame_pending: Cell::new(false),
+            on_its_way: Cell::new(None),
+            frames: Cell::new(0),
+            shown: Cell::new(0),
         });
         Ok(id)
     }
@@ -582,9 +593,27 @@ impl App {
         }
     }
 
-    /// Draws `scene` and shows it with the compositor's next frame. The
-    /// scene covers the whole content (`size`): what it leaves is
-    /// undefined.
+    /// Whether `id` takes a frame now: its last one is shown. The app's
+    /// clock, as GTK's frame clock and macOS' display link are: an app
+    /// draws what changed once its window is ready – never before, as a
+    /// frame drawn ahead waits in line behind the one on its way, and
+    /// everything after it later still. `dispatch` returns when a window
+    /// becomes ready.
+    pub fn ready(&self, id: WindowId) -> bool {
+        self.state.surface(id).is_some_and(Surface::ready)
+    }
+
+    /// How many frames `id` drew, and how many of them the compositor
+    /// showed: the difference is on its way, at most one (`ready`).
+    pub fn frames(&self, id: WindowId) -> (u32, u32) {
+        self.state
+            .surface(id)
+            .map_or((0, 0), |s| (s.frames.get(), s.shown.get()))
+    }
+
+    /// Draws `scene` and shows it with the compositor's next frame; only
+    /// when the window is `ready`. The scene covers the whole content
+    /// (`size`): what it leaves is undefined.
     pub fn draw(&mut self, id: WindowId, scene: &Scene) -> Result<()> {
         let App {
             windows,
@@ -599,6 +628,9 @@ impl App {
             .find(|w| w.id == id)
             .context("no such window")?;
         let surface = state.surface(id).context("no such window")?;
+        if !surface.ready() {
+            return Err(error("drawn while the window's last frame is on its way"));
+        }
         window.draw(
             scene,
             renderer,
@@ -696,8 +728,11 @@ impl App {
             ) else {
                 continue;
             };
+            // A bar that changed while a frame was on its way stays changed
+            // until the window is ready.
             if window.title_bar(events, surface, self.seat.as_ref(), state.serial, alt)
                 && !events.configured
+                && surface.ready()
             {
                 window.present(
                     &mut self.renderer,
@@ -774,21 +809,27 @@ impl Dispatch<XdgWmBase, ()> for State {
     }
 }
 
-/// A window's frame is shown (`Window::draw_once` asked): its next
-/// configure may go to the app.
-impl Dispatch<WlCallback, WindowId> for State {
+/// A window's frame is shown (`Window::draw_once` asked): the window is
+/// ready for the next, with the latest configure.
+impl Dispatch<WlCallback, (WindowId, u32)> for State {
     fn event(
         state: &mut State,
         _: &WlCallback,
         event: wl_callback::Event,
-        id: &WindowId,
+        (id, frame): &(WindowId, u32),
         _: &Connection,
         _: &QueueHandle<State>,
     ) {
-        if let wl_callback::Event::Done { .. } = event
-            && let Some(surface) = state.surface(*id)
-        {
-            surface.frame_pending.set(false);
+        let wl_callback::Event::Done { .. } = event else {
+            return;
+        };
+        let Some(surface) = state.surface_mut(*id) else {
+            return;
+        };
+        surface.shown.set(surface.shown.get().wrapping_add(1));
+        if surface.on_its_way.get() == Some(*frame) {
+            surface.on_its_way.set(None);
+            surface.events.ready = true;
         }
     }
 }

@@ -12,7 +12,8 @@
 //! `--windows N` (default 12), `--size WxH` the content of each (default
 //! 640x400; the compositor cascades them), `--seconds S` (default 20).
 //! At the end one line per window, `window I: F frames, between frames
-//! median M ms, max X ms`, then `load: N windows, F frames in S s`.
+//! median M ms, max X ms`, then `load: N windows, F frames in S s, at most
+//! A on their way` – a window's frames drawn and not yet shown at once.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -98,16 +99,13 @@ fn run() -> Result<(), String> {
     }
     let start = Instant::now();
     let deadline = start + Duration::from_secs(options.seconds);
-    while Instant::now() < deadline {
-        // Once a window draws only a look: the windows' presents wait for
-        // the compositor's frames (FIFO), which paces the loop. Before,
-        // waiting for their first configure.
-        let wait = if windows.iter().any(|w| w.configured) {
-            Duration::ZERO
-        } else {
-            Duration::from_millis(10)
-        };
-        let mut dispatched = app.dispatch(Some(wait), &[]).map_err(|e| e.to_string())?;
+    // The most frames of a window on their way at once, drawn and not yet
+    // shown: one, as Beize UI paces its windows.
+    let mut ahead = 0;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        // Each window draws as soon as its last frame is shown (`ready`):
+        // the compositor's frames pace the loop.
+        let mut dispatched = app.dispatch(Some(left), &[]).map_err(|e| e.to_string())?;
         for window in &mut windows {
             let events = dispatched.take(window.id);
             if events.closed {
@@ -116,12 +114,17 @@ fn run() -> Result<(), String> {
             window.configured |= events.configured;
         }
         let t = start.elapsed().as_secs_f32();
-        for window in windows.iter_mut().filter(|w| w.configured) {
+        for window in &mut windows {
+            if !(window.configured && app.ready(window.id)) {
+                continue;
+            }
             let (w, h) = app.size(window.id);
             let frame = window.drawn.len() + 1;
             let scene = scene(app.text(), w, h, window.index, frame, t);
             app.draw(window.id, &scene).map_err(|e| e.to_string())?;
             window.drawn.push(Instant::now());
+            let (drawn, shown) = app.frames(window.id);
+            ahead = ahead.max(drawn.wrapping_sub(shown));
         }
     }
     let mut total = 0;
@@ -142,7 +145,7 @@ fn run() -> Result<(), String> {
         );
     }
     println!(
-        "load: {} windows, {total} frames in {:.2} s",
+        "load: {} windows, {total} frames in {:.2} s, at most {ahead} on their way",
         windows.len(),
         start.elapsed().as_secs_f64()
     );

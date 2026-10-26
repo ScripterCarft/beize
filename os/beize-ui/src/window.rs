@@ -1,10 +1,19 @@
 //! A window of an app (`app`): an xdg-shell toplevel, or a panel of Beize's
 //! shell along an edge of the screen (wlr-layer-shell, ADR 0028 §1), shown
 //! through a Vulkan swapchain on the app's libwayland display (Mesa's WSI:
-//! dmabufs on a GPU, shm on lavapipe; FIFO paces it to the compositor's
-//! frames, each frame's callback the sizes it takes). Opaque – a translucent panel premultiplied –, in the size the
-//! compositor asks for. The app's renderer draws into the swapchain's
-//! images.
+//! dmabufs on a GPU, shm on lavapipe). Opaque – a translucent panel
+//! premultiplied –, in the size the compositor asks for. The app's renderer
+//! draws into the swapchain's images.
+//!
+//! The app paces its frames itself, one on its way at a time (`App::ready`,
+//! the wl_surface.frame callback), as GTK does; the swapchain presents in
+//! MAILBOX, as GTK's, so the WSI adds no pacing of its own. With FIFO, Mesa
+//! paces through the frame callback only where the compositor lacks wp_fifo;
+//! with it, presents do not wait, and every frame drawn ahead waits in line
+//! one refresh behind the last (Mesa's wsi_common_wayland.c: "4 images …
+//! deeply problematic due to excessive latency"). Beize UI drew whenever
+//! something changed and counted on FIFO's waiting: once Beize's compositor
+//! had wp_fifo (0.5.105), resizing trailed the pointer and keys came late.
 //!
 //! An app's window has Beize UI's title bar along its top (`titlebar`):
 //! the app draws and hears its content only, below the bar, in its own
@@ -427,13 +436,21 @@ impl Window {
             .swapchains(&swapchains)
             .image_indices(&indices);
         // With the present's commit: the compositor's answer that it showed
-        // the frame lets the next configure in (`State::apply_configures`).
-        surface.wl.frame(qh, surface.id);
-        surface.frame_pending.set(true);
+        // the frame makes the window ready for the next (`App::ready`).
+        let frame = surface.frames.get();
+        surface.frames.set(frame.wrapping_add(1));
+        surface.wl.frame(qh, (surface.id, frame));
+        surface.on_its_way.set(Some(frame));
         let gpu = &renderer.gpu;
         // SAFETY: the image was acquired above and is drawn when `drawn`
         // is signalled.
-        match unsafe { gpu.swapchain.queue_present(gpu.queue, &present) } {
+        let presented = unsafe { gpu.swapchain.queue_present(gpu.queue, &present) };
+        if presented.is_err() {
+            // Not committed: its callback comes with a later frame, which
+            // must not wait for it.
+            surface.on_its_way.set(None);
+        }
+        match presented {
             Ok(false) => {}
             // Suboptimal: shown, but the next frame gets a new swapchain.
             Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => self.stale = true,
@@ -469,6 +486,18 @@ impl Window {
         };
         let caps = caps.context("the surface's capabilities")?;
         let formats = formats.context("the surface's formats")?;
+        // SAFETY: as above.
+        let modes = unsafe {
+            surface.get_physical_device_surface_present_modes(gpu.physical, self.vk_surface)
+        }
+        .context("the surface's present modes")?;
+        // MAILBOX where offered (Mesa's Wayland WSI always does), as GTK
+        // chooses; FIFO, which every driver has, otherwise.
+        let mode = if modes.contains(&vk::PresentModeKHR::MAILBOX) {
+            vk::PresentModeKHR::MAILBOX
+        } else {
+            vk::PresentModeKHR::FIFO
+        };
         let format = self.format();
         if !formats
             .iter()
@@ -497,10 +526,9 @@ impl Window {
                     .clamp(caps.min_image_extent.height, caps.max_image_extent.height),
             }
         };
-        let mut count = caps.min_image_count + 1;
-        if caps.max_image_count > 0 {
-            count = count.min(caps.max_image_count);
-        }
+        // The driver's least: one frame on its way at a time needs no more
+        // (Mesa gives MAILBOX its four by itself).
+        let count = caps.min_image_count;
         let old = self.swapchain.take();
         let info = vk::SwapchainCreateInfoKHR::default()
             .surface(self.vk_surface)
@@ -513,7 +541,7 @@ impl Window {
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(caps.current_transform)
             .composite_alpha(alpha)
-            .present_mode(vk::PresentModeKHR::FIFO)
+            .present_mode(mode)
             .clipped(true)
             .old_swapchain(old.as_ref().map_or(vk::SwapchainKHR::null(), |s| s.handle));
         // SAFETY: the info lives until the call returns; the old swapchain
@@ -562,7 +590,7 @@ impl Window {
             return Err(e);
         }
         debug!(
-            "swapchain {}x{} with {} images",
+            "swapchain {}x{} with {} images, {mode:?}",
             extent.width,
             extent.height,
             swapchain.images.len()

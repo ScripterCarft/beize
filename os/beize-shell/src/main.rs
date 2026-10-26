@@ -118,6 +118,8 @@ fn run() -> Result<(), String> {
     let mut backdrop = app.menu_bar_backdrop();
     let look = BarLook::from_environment();
     info!("menu bar {look:?}");
+    // What changed since a panel's last frame, drawn once it is ready.
+    let (mut redraw_bar, mut redraw_dock) = (false, false);
     loop {
         let mut dispatched = app
             .dispatch(None, &[Watch::Read(minutes.fd())])
@@ -135,8 +137,8 @@ fn run() -> Result<(), String> {
                 .take()
                 .map_err(|e| format!("the minute's timer: {e}"))?;
         }
-        let mut redraw_bar = bar_events.configured || tick;
-        let mut redraw_dock = false;
+        redraw_bar |= bar_events.configured || tick;
+        redraw_dock |= dock_events.configured;
         if app.appearance() != appearance {
             appearance = app.appearance();
             info!("appearance {appearance:?}");
@@ -202,7 +204,8 @@ fn run() -> Result<(), String> {
             redraw_dock = false;
         }
         bar_shown |= bar_events.configured;
-        if bar_shown && redraw_bar {
+        if bar_shown && redraw_bar && app.ready(bar) {
+            redraw_bar = false;
             let size = app.size(bar);
             // On glass the ink follows the appearance, as the dock's.
             let behind = match look {
@@ -223,7 +226,8 @@ fn run() -> Result<(), String> {
             bar_drawn = true;
         }
         dock_shown |= dock_events.configured;
-        if dock_shown && (redraw_dock || dock_events.configured) {
+        if dock_shown && redraw_dock && app.ready(dock_panel) {
+            redraw_dock = false;
             let size = app.size(dock_panel);
             app.set_glass(dock_panel, Some(Dock::glass(size)));
             let scene = dock.draw(app.text(), size, appearance);

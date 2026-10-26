@@ -245,7 +245,10 @@ impl App {
                 info!("the shell ended: {status}");
                 return Ok(());
             }
-            if self.dirty {
+            // What came since the last frame, drawn once the window takes
+            // the next (Beize UI's `ready`): output that arrives meanwhile
+            // goes into the same frame, as in Alacritty and VTE.
+            if self.dirty && self.ui.ready(self.window) {
                 self.dirty = false;
                 let size = self.ui.size(self.window);
                 let scene = view::draw(&self.term, &self.fonts, self.focused, size);
@@ -342,10 +345,11 @@ impl App {
         }
         let app_cursor = self.term.mode().contains(TermMode::APP_CURSOR);
         if let Some(bytes) = keys::bytes(key, app_cursor) {
-            // Typing goes back to the bottom and ends a selection.
+            // Typing goes back to the bottom and ends a selection; what
+            // the key shows comes with the shell's echo.
+            let scrolled = self.term.grid().display_offset() != 0;
             self.term.scroll_display(Scroll::Bottom);
-            self.term.selection = None;
-            self.dirty = true;
+            self.dirty |= scrolled || self.term.selection.take().is_some();
             self.outgoing.extend_from_slice(&bytes);
         }
     }
