@@ -315,9 +315,16 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Bildschirm aus bei Inaktivität fertig)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.111 bereit)
 
-**JETZT (27.10.): idle-inhibit + Bildschirm aus erledigt** (ADR 0029 §7, `idle.rs`; Smoke
+**JETZT: Messbau 0.5.111** (Tag `measure/desktop-0.5.111`, 34e1a2b; Zweig `measure/desktop` neu
+auf main 05fdbe0 = Commit von 0.5.110 + Version + `hw-test.sh` Teil 6 „Bildschirm aus“ statt
+Knöpfe/Wellen; Smoke grün, nouveau-Patches angewendet; Teil 6 nur `bash -n`, 10 min in der VM
+nicht gelaufen). Besitzer: Force-Push `measure/desktop` + Tag, `docs/hardware.md` A–C, dann
+„Release fertig“ → Claude kopiert Release und Skript auf D:. Der nächste Chat wertet aus:
+vor allem Teil 6 (kommt das Bild nach dem Abschalten wieder?), Teil 5 lange Zeile/Pfeil hoch.
+
+**27.10.: idle-inhibit + Bildschirm aus erledigt** (ADR 0029 §7, `idle.rs`; Smoke
 `screen_goes_off` in einer zweiten Sitzung mit 3 s Frist, Gegenproben rot: Inhibitor
 ignoriert, Eingabe ohne Wirkung, CRTC nicht aus („kernel says On“), aus mit Bildtakt des
 Bildschirms (180 statt ≤ 5 Bilder in 3 s); drei volle Läufe grün). 10 min ohne Eingabe → 10 s
@@ -338,7 +345,9 @@ Knopf ohne hellen Rand. **Offen:** lange Zeile + Pfeil hoch nicht berichtet; ob 
 Besitzer (`git branch -D measure/desktop-old`, Claudes Rechteprüfung verweigert es).
 **Leerlauf-Ratsche 27.10. wieder rot** (1 Lauf von ~8; Compositor-Hauptthread 1×, im Fenster
 wieder nur ntp-daemon „No consensus on current time“, Log `~/hw-logs/smoke-idle-red-20261027.log`)
-– zweites Mal dasselbe Muster.
+– danach noch einmal beim Messbau (`smoke-idle-red-20261027-b.log`): 3 von ~11 Läufen am
+27.10., jedes Mal nur ntp-daemon im Fenster. Nächster Schritt nach dem Messbau: belegen, was den
+Haupt-Thread weckt (Verdacht ohne Beleg: ein Signal auf einer Bus-Verbindung, Zeitsprung).
 
 **0.5.109 getestet (26.10., `~/hw-logs/results-20261026-222434`).** Lasttest 110 768 Bilder
 (0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von 6966

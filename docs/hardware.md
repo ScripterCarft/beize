@@ -115,10 +115,12 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
       Bleibt der Prompt eine saubere Zeile `beize ~ $` (in 0.5.104 vervielfachte er sich)?
       Eine Zeile länger als das Fenster tippen: bricht sie um (bis 0.5.109 schob sie mit `<`
       nach links), bleibt nach Pfeil hoch/runter kein Rest stehen? Danach `exit` darin.
-   6. **Knöpfe und Hintergrund**: den roten Kreis gedrückt halten, dabei Super+Shift+3, dann
-      neben dem Kreis loslassen: ganzer Kreis dunkler, kein heller Ring? Wellenkanten scharf,
-      ihr Licht noch da (seit 0.5.110 1 px)? Das Skript legt alle Fotos der Sitzung zu den
-      Ergebnissen, egal in welchem Teil.
+   6. **Bildschirm aus** (ADR 0029 §7, seit 0.5.111): Maus und Tastatur nicht mehr anfassen.
+      Nach 10 Minuten blendet das Bild 10 Sekunden ab, dann geht der Monitor in Standby.
+      Etwa eine Minute warten, dann die Maus bewegen: kommt das Bild nach wenigen Sekunden
+      wieder, wie es war? Bleibt es schwarz: Strg+Alt+F2, dann Strg+Alt+F1; hilft das nicht,
+      Reset und danach `hw-test.sh -1`. Das Skript wartet selbst (höchstens 20 Minuten).
+      Fotos (Super+Shift+3, jederzeit) legt das Skript zu den Ergebnissen.
 
    Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
    Erwartet:
@@ -139,7 +141,11 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
      Grafikspeicher voll war)
    - `Tasten im Fenster: 7` (das Loslassen der Enter-Taste, die das Fenster startete, gehört
      ihm, wie Wayland es will), `Klicks: 2`
-   - Warnungen: nur „Unable to become drm master …“ (bekannt, Smithay)
+   - unter „Bildschirm aus“: `no input for 600 s: the screen fades to black`, gut 10 s später
+     `the screen is off`, nach der Maus `input: the screen is on again`; in den Zeilen der
+     Anschlüsse danach `…-DP-…/dpms:On`
+   - Warnungen: nur „Unable to become drm master …“ und nach dem Wiedereinschalten „Failed to
+     destroy old mode property blob …“ (beide bekannt, Smithay)
 8. Noch von Hand (je kurz, Foto nur bei Fehlern):
    - **Fenster:** das Terminal an der Titelleiste ziehen, am Rand größer ziehen, gelber Knopf
      (ins Dock, Klick aufs Symbol holt es zurück), **Super+F** (Vollbild; Maus an den oberen
