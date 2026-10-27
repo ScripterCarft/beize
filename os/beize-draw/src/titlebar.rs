@@ -126,31 +126,47 @@ const CLOSE_HOVER: Color = Color::rgb(0xc42b1c);
 const CLOSE_PRESSED: Color = Color::rgb(0xc84031);
 const CLOSE_INK: Color = Color::rgb(0xffffff);
 
-/// macOS' circles as AppKit draws them: the fill, its rim, the fill held
-/// down, and the mark.
+/// macOS' circles as AppKit draws them: the fill, its rim, both held down,
+/// and the mark. Held down the whole circle darkens: the rim by the fill's
+/// own factor per channel (about 0.75), so it stays darker than the fill.
 struct Circle {
     fill: u32,
     rim: u32,
     pressed: u32,
+    pressed_rim: u32,
     mark: u32,
+}
+
+impl Circle {
+    /// The fill and the rim, held down or not.
+    fn colours(&self, held: bool) -> (u32, u32) {
+        if held {
+            (self.pressed, self.pressed_rim)
+        } else {
+            (self.fill, self.rim)
+        }
+    }
 }
 
 const RED: Circle = Circle {
     fill: 0xff5f57,
     rim: 0xe0443e,
     pressed: 0xbf4942,
+    pressed_rim: 0xa8342f,
     mark: 0x4d0000,
 };
 const YELLOW: Circle = Circle {
     fill: 0xfebc2e,
     rim: 0xdea123,
     pressed: 0xbf8e22,
+    pressed_rim: 0xa77a1a,
     mark: 0x995700,
 };
 const GREEN: Circle = Circle {
     fill: 0x28c840,
     rim: 0x1aab29,
     pressed: 0x1f9a31,
+    pressed_rim: 0x14841f,
     mark: 0x006500,
 };
 
@@ -398,12 +414,11 @@ impl TitleBar {
             // the pointer is over them: macOS shows them in colour then.
             let lit = self.active || self.over_buttons;
             let held = self.pressed == Some(button) && self.hover == Some(button);
-            let (fill, rim) = if !lit {
-                (colors.idle, colors.idle_rim)
-            } else if held {
-                (Color::rgb(circle.pressed), Color::rgb(circle.rim))
+            let (fill, rim) = if lit {
+                let (fill, rim) = circle.colours(held);
+                (Color::rgb(fill), Color::rgb(rim))
             } else {
-                (Color::rgb(circle.fill), Color::rgb(circle.rim))
+                (colors.idle, colors.idle_rim)
             };
             // The rim, and the fill inside it.
             let unit = CIRCLE as f32 / GRID;
@@ -528,6 +543,21 @@ mod tests {
         bar.hover(400.0, Some((39.0, 10.0)));
         assert_eq!(bar.press(400.0, 39.0, 10.0, now), Press::Button);
         assert_eq!(bar.release(), Some(Button::Minimize));
+    }
+
+    #[test]
+    fn a_circles_rim_stays_darker_than_its_fill_when_held() {
+        let channels = |c: u32| [c >> 16 & 0xff, c >> 8 & 0xff, c & 0xff];
+        for circle in [&RED, &YELLOW, &GREEN] {
+            for held in [false, true] {
+                let (fill, rim) = circle.colours(held);
+                let (fill, rim) = (channels(fill), channels(rim));
+                assert!(
+                    fill.iter().zip(rim).all(|(f, r)| r <= *f),
+                    "rim {rim:?} lighter than fill {fill:?}, held {held}"
+                );
+            }
+        }
     }
 
     #[test]
