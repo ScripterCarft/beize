@@ -315,7 +315,26 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27 nachts: 0.5.112 ausgewertet, Punkte 2–4 erledigt, als Nächstes explizite Sync)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28 nachts: explizite Sync fertig und gepusht; als Nächstes Messbau 0.5.113)
+
+**28.10. nachts: Punkt 1 „Explizite Synchronisation“ umgesetzt** (ADR 0027 §7, `syncobj.rs`,
+Smoke `syncobj`, Testclient `--syncobj`; Plan und Ergebnis je von einem Agenten gegengeprüft,
+dessen Funde behoben; drei volle Läufe grün, Gegenproben rot: Acquire auf impliziten Fence,
+ohne Holds, ohne eigene Protokollprüfung). Belegt unterwegs: Smithays `DrmCompositor` hält
+Client-Puffer NICHT bis zum Flip (nur Scanout-Ebenen, `drm/compositor/mod.rs:206ff`) – die
+Annahme in 1(iv) unten war falsch, Beize hält sie selbst (`Holds`, frühestens bis zum vblank);
+CPU-signalisierte Timeline-Punkte haben den Stub-Fence mit Zeit des Kernelstarts
+(`dma_fence_get_stub`), der Test misst deshalb, wann der Client das Signal sieht. In der VM gab
+es bisher KEINE dmabufs (lavapipe ohne udmabuf → keine Modifier): jetzt `CONFIG_UDMABUF=y` (Fedora,
+Besitzer entschied), die VM prüft dmabuf-Wege. **Smithay-Fix:** importierte Timelines zerstörte
+Smithay nie (je Swapchain-Bild 2, bei jedem Resize) → `Drop` für `DrmTimelineDeviceSpecific`;
+Fork `ScripterCarft/smithay`, Zweig `beize-0.7.0` (v0.7.0 + nur der Fix, Commit dfd93618) per
+`[patch.crates-io]`, `deny.toml` erlaubt genau diese Git-URL, SBOM nennt die Git-Quelle. **Offen,
+Besitzer:** PR an Smithay aus Zweig `syncobj-timeline-drop` (master + Fix, bbd88267, lokal
+`~/upstream/smithay/src`); mit dem nächsten Smithay-Release fällt der `[patch]` weg. Nächster
+Schritt: Messbau 0.5.113 (Punkt 2 unten; NVK-Apps müssen „synchronised explicitly“ im `held:`
+zeigen, „waited for … client buffers“ 0). Bemerkt, nicht geändert: ein Client, der denselben
+Puffer endlos neu anhängt, sammelt Release-Punkte (wlroots ebenso).
 
 **AUFTRAG DES BESITZERS (27.10.)** – vor der Shell (Schritt 4 (e)–(g)), die „auf einem stabilen
 Fundament bauen muss, nicht nur oberflächlich okay“:
@@ -452,23 +471,7 @@ Minutengrenze (Uhr der Shell) – jetzt wird bei neuer Minute nach Ruhezeit neu 
 **OFFEN, in dieser Reihenfolge (Besitzer: jeder Punkt in EINEM Schritt, nicht in a/b teilen;
 am Ende jedes Schritts prüft ein Agent unabhängig gegen; Mechanismus belegen, Vorbild aus dem
 Quelltext lesen, nicht aus dem Gedächtnis):**
-1. **Explizite Synchronisation** (`linux-drm-syncobj-v1`; KWin, Mutter, wlroots, niri/Smithay).
-   Belegt, gehört zusammen: (i) `DrmSyncobjState` nur wenn `supports_syncobj_eventfd` (Smithay
-   `wayland/drm_syncobj`), Import-Gerät = unsere GPU; (ii) im Pre-Commit-Hook (`timing.rs`) für
-   Commits mit Acquire-Punkt dessen Blocker (`DrmSyncPoint::generate_blocker`, wie anvil) statt
-   `DmabufBlocker`; (iii) für diese Puffer kein `pending_writes`-Warten und kein `sync::attach`
-   im Renderer (Smithay nimmt an, der Blocker hat gewartet: `drm/compositor/mod.rs:230-233`) –
-   der Renderer braucht dafür eine Markierung je dmabuf; (iv) **Release-Punkt**: Smithay
-   signalisiert ihn (und `wl_buffer.release`) beim Fallen der letzten `Buffer`-Referenz
-   (`renderer/utils/wayland.rs` `InnerBuffer::drop`); Smithays `DrmCompositor` hält die Puffer
-   eines Bildes bis zu dessen Flip – unsere Bildschleife muss die `Buffer` der gezeichneten
-   Flächen (`RendererSurfaceState::buffer`) in `Pending` bis zum vblank halten, sonst schreibt
-   der Client, während unsere GPU liest. (v) Test: in der VM nutzen Clients shm, das Protokoll
-   verbietet shm mit syncobj → Testclient mit dmabuf (virtio-gpu Dumb-Buffer per PRIME) und
-   DRM-Syncobj-Timeline; Smoke prüft Acquire (Bild erst nach Signal), Release (erst nach dem
-   vblank), Gegenproben rot. ADR 0027 §6/B nachziehen (am 26.10. zurückgestellt mit „wenn die
-   implizite Sync ein Problem wird“ – jetzt belegt). nouveau-Patch (BOOKKEEP statt WRITE wie
-   Xe/panthor – unbelegt, nachprüfen) nur als Upstream-Bericht, nie im Image.
+1. ~~Explizite Synchronisation~~ **erledigt 28.10.** (oben; 1(iv) des Plans war falsch, s. dort).
 2. Messbau 0.5.113 mit 1 + `hw-test.sh`: Kernel-Journal per `run0 bash -c 'journalctl … > "$0"'
    datei` (run0 bleibt am Terminal). Auswerten: „waited for … client buffers“ muss 0 sein,
    „stalled“, späte Bilder.
