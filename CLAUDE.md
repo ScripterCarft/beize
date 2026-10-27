@@ -315,7 +315,20 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: 0.5.109 ausgewertet, drei Fixes auf main)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.110 bereit)
+
+**JETZT: Messbau 0.5.110** (Tag `measure/desktop-0.5.110`, 73314bd; Smoke grün, alle drei
+nouveau-Patches angewendet; Teile 5/6 von `hw-test.sh` nur mit `bash -n` geprüft). Der Zweig
+`measure/desktop` ist **neu auf main ed52d18 aufgesetzt** (ein Commit: Patches, `kernel.rs`,
+`hw-test.sh`, Version; Dateien byte-gleich mit 0.5.109 geprüft) statt 19 alte Commits über
+die geänderte `docs/hardware.md` zu spielen. Alter Stand lokal als `measure/desktop-old`
+(0edc1b8, ungetaggt) – löschen, sobald der Besitzer `measure/desktop` und die Tags per
+Force-Push hochgeladen hat. Besitzer: `docs/hardware.md` A–C, dann „Release fertig“ →
+Claude kopiert `build/out/desktop/release/0.5.110` als `D:\beize-0.5.110` und Skript samt
+Testprogrammen nach `D:\beize-test` (D: in WSL nicht eingehängt: per PowerShell kopieren).
+**Der nächste Chat: erst 0.5.110 auswerten** (wie 0.5.109; dazu Wellenkanten, gehaltener
+Knopf, lange Zeile + Pfeil hoch, ob die „told“-Sperre noch gebraucht wird), **dann
+idle-inhibit + Bildschirm aus** (Auftrag 4 unten).
 
 **0.5.109 getestet (26.10., `~/hw-logs/results-20261026-222434`).** Lasttest 110 768 Bilder
 (0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von 6966
