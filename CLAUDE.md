@@ -315,21 +315,15 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: 0.5.111 getestet; Fundament prüfen vor der Shell)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27 nachts: Grund der VM-Wackler belegt, Messbau 0.5.112)
 
-**AUFTRAG DES BESITZERS für den nächsten Chat (27.10.)** – vor der Shell (Schritt 4 (e)–(g)),
-die „auf einem stabilen Fundament bauen muss, nicht nur oberflächlich okay“:
-1. **Smoke-Probleme beheben**, zuerst die Leerlauf-Ratsche (27.10. 3 von ~11 Läufen rot, jedes
-   Mal nur ntp-daemon „No consensus on current time“ im Fenster; Logs
-   `~/hw-logs/smoke-idle-red-20261027*.log`, unten mehr). Den Weckgrund des Haupt-Threads
-   **belegen** (z. B. strace/`/proc/<tid>/wchan`/Bus-Signale im roten Fall), dann an der Wurzel
-   beheben. Ebenso die anderen seltenen Fehler unten („close button … did not end the
-   client“, „libinput: system too slow“, RCU-Stall #41).
-2. **Die CPU-Fragen** (früher „nach der Shell“, jetzt): (1) späte Bilder im Lasttest (0.5.111:
-   158 von 7012 in 30 s, 137 „display“, 21 „GPU“); (2) Compositor 29–30 % je Bild beschäftigt
-   (Median damage 0,39, record 0,22, sync 0,08 ms) – wie Glas 0,77 → 0, den Rest angehen;
-   (3) warum Fenster 2–12 stufenweise weniger Bilder haben. Unten „Auftrag des Besitzers
-   (26.10.)“ und C b–d.
+**AUFTRAG DES BESITZERS (27.10.)** – vor der Shell (Schritt 4 (e)–(g)), die „auf einem stabilen
+Fundament bauen muss, nicht nur oberflächlich okay“:
+1. ~~Leerlauf-Ratsche~~ **erledigt 27.10. abends** (unten). Offen aus 1: „close button … did
+   not end the client“, „libinput: system too slow“, RCU-Stall #41, neu: Testclient `--timed`
+   einmal 10 von 29 pünktlich, bis +91,7 ms (1 von 8 Läufen 27.10.; GPU-Zeiten der VM zur
+   selben Zeit 200–265 ms; Journal der Sitzung nur bis 16 s erhalten → nicht belegt).
+2. ~~CPU-/GPU-Fragen~~ **geklärt 27.10. abends, teils behoben; Rest misst der Messbau** (unten).
 3. **Smoke-Zeit** (152 s) prüfen: was Zeit kostet, ob Fehler dahinterstecken (Wartezeiten,
    Neustarts), und senken, ohne Prüfungen zu verlieren.
 4. **Gründliche Fehlersuche** im ganzen Desktop-Stapel (Compositor, Beize UI, Shell,
@@ -337,6 +331,104 @@ die „auf einem stabilen Fundament bauen muss, nicht nur oberflächlich okay“
    Durchsicht“), dazu die offene „told“-Sperre in `prompt.rs`. Regeln wie immer: Mechanismus
    belegen, Vorbild nennen, Smoke-Prüfung + Gegenprobe, drei volle Läufe; Befunde direkt beheben,
    größere Umbauten vorher dem Besitzer vorlegen.
+
+**27.10. abends erledigt** (je Test/Smoke-Prüfung mit Gegenprobe, die rot wurde):
+- **Leerlauf-Ratsche, Ursache belegt:** der Compositor beobachtete ganz `/etc` (inotify
+  CLOSE_WRITE|MOVED_TO) für die Tastaturbelegung; jede dort zum Schreiben geöffnete und
+  geschlossene Datei weckte ihn – systemd nimmt `/etc/.pwd.lock` für jeden Dienst mit
+  `DynamicUser=` (ntpd-rs u. a.; ntp im Journal-Fenster war Zufall der Uhrzeit, ~86 s). In der
+  VM: `: >> /etc/.pwd.lock`, `systemd-run -p DynamicUser=yes true`, `systemctl restart
+  ntpd-rs` je genau 1 Weckvorgang des Haupt-Threads; Uhrzeitsprung, Bus-Signal, Units,
+  Sitzungen 0. Fix: die Datei selbst beobachten wie systemd `/etc/localtime`
+  (`manager_setup_timezone_change`), `/etc` nur solange sie fehlt (CREATE|MOVED_TO); Belegung
+  nur anwenden, wenn sie sich unterscheidet (localed: ein Schreiben = zwei Ereignisse, O_TMPFILE
+  verlinkt, dann geschlossen; localed vergleicht selbst). Smoke: das Leerlauf-Fenster startet
+  einen `DynamicUser`-Dienst (Gegenprobe alte Überwachung rot, 1 Weckvorgang); neu
+  `layout_follows` (zwei Belegungen nacheinander, je genau einmal; Gegenprobe rot).
+- **Shell:** Uhr gesetzt ohne Minutenwechsel zeichnet die Menüleiste nicht neu (VM: jedes
+  `date -s` ließ Shell und Compositor zeichnen).
+- **Abblenden** zeichnet nur an den 255 Stufen eines 8-Bit-Bildschirms (Timer zur nächsten
+  Stufe) statt 2400 ganzer Bilder bei 240 Hz, neun von zehn pixelgleich. Der späte erste
+  Abblend-Frame (1,5 ms GPU) war kein Einzelfall: 30 von 2370 Abblend-Bildern spät, alle auf
+  dem 100-ms-Raster unten; GPU nach 10 min heruntergetaktet (erschlossen), 1,5 ms je ganzes
+  Bild in den ersten ~1,7 s.
+- **Zeitplan:** ein Bild mit Vorlauf = Bildperiode wartete vom Flip-Ereignis (Beginn des
+  vblank) bis zum Stempel (Ende), 0,43 ms je Bild verschenkt; 346 der 380 späten Bilder aus 7
+  Hardware-Läufen hatten diesen Vorlauf. Jetzt am Ereignis, Plan und Lernen unverändert.
+- **CPU:** Log-Filter mit `max_level_hint` (wie EnvFilter bei anvil/niri): abgeschaltete
+  debug!/trace! kosten einen Vergleich statt des Filters (~30 ns je Aufruf gemessen).
+- **Messpunkte:** Teil `damage` jetzt nur Smithays Tracker, neu `quads` (unser Quad-Bau je
+  Element) und `planes` (Zeiger-Plane, Damage-Clips-Blob); späte Bilder nennen die GPU-Spanne
+  auf CLOCK_MONOTONIC („on the GPU x ms, from a to b“, `VK_EXT_calibrated_timestamps`; in der VM
+  geprüft).
+- **Beize UI:** GPU-Bildplätze je Fenster (wie GTKs Renderer je Surface) statt zwei für alle;
+  Fenster k wartete auf die GPU-Arbeit von Fenster k−2. **Nutzen unbelegt:** in der VM gleich
+  (303→164 statt 302→162, dort begrenzt die CPU) – der Messbau zeigt es (0.5.111: 9380→9061),
+  sonst zurücknehmen.
+**Geklärt, nicht geändert** (zwei Helfer, belegt aus 7 Hardware-Läufen und Quelltext):
+- **Späte Bilder:** etwa alle 100 ms (10-Hz-Raster in jedem Lauf) ~2 ms Stau zwischen Commit
+  und Fence bei ~0,4 ms GPU-Arbeit; kein 100-ms-Timer im Compositor oder in nouveaus Host-Code.
+  Erschlossen: periodische Arbeit der GSP-Firmware (DVFS?). nouveau wartet im Worker auf der CPU
+  auf die Fences und braucht ~0,8 ms vor Beginn des vblank (kein Bild, das vor −0,79 ms fertig
+  war, kam zu spät). Die GPU-Spanne im Messbau zerlegt den Stau. 0 späte Bilder trotz Stau ginge
+  nur mit einem zweiten Bild unterwegs bei vollem Vorlauf (KWin 6.1, Mutter 48 „dynamic triple
+  buffering“) – widerspricht ADR 0027 §6 „höchstens eins wartet“: **27.10. nachts entschieden: nein** (unten).
+- **Fenster 2–12:** der Lasttest zeichnet sie in fester Reihenfolge; der Verlust über Fenster 1
+  wächst mit der Position (0, −1, 2, 5, 10, 17, 38, 73, 126, 210, 319): spätere Commits
+  verpassen das Bild. Fenster 1 verliert nur, was der Compositor spät ist.
+- **CPU je Bild:** Smithays Tracker ~75 µs auf schnellem Kern (Nachbau der Lastszene), ~60
+  Pipeline-Wechsel (blend/opak) je Bild. Kandidat nach dem Messbau: eine Pipeline mit
+  Blend-Schalter (`VK_EXT_extended_dynamic_state3`) oder immer vormultipliziert.
+  `implicit_waits` bleibt (26.10. bewusst als Sicherheitsnetz behalten).
+**27.10. nachts: FIFO-Wackler geklärt – KEIN Compositor-Fehler; GRUND der tagelangen VM-Fehler.**
+Ein Agent (Code-Durchsicht) und Claude unabhängig, gleiches Ergebnis. Kette vblank → `lift`
+(`state.rs` `present`) → `blocker_cleared` → Commit → `changed` → `schedule_render` ist richtig:
+`flipping` ist vorher gelöscht, der Zeichen-Timer wird immer gesetzt, das Bild sofort gezeichnet.
+Die Lücken: in der VM zeichnet **lavapipe auf den vCPUs des Gasts**, der Haupt-Thread wartet darauf
+(`sync` ≈ GPU-Zeit: 411,87 ↔ 408,90 ms; lavapipes sync_file-Export wartet, erschlossen); unter
+Last braucht ein Bild > 16,7 ms → einen vblank später. Belegt in 4/4 roten Läufen: Vorlauf gekappt
+(`lead … max 16.68`), GPU bis 590 ms, Client 0 Lücken. `pacing` zählt sie nicht, weil virtio den
+Zeitstempel vor das Ereignis setzt (Ziel = übernächster vblank; auf Hardware stimmt die Zählung,
+der Agent-Vorschlag `target` zu ändern hätte sie dort verfälscht → verworfen). Dazu: virtio-gpu
+hat einen **Software-vblank** (hrtimer, `DRM_CRTC_VBLANK_TIMER_FUNCS`); ein verspäteter Tick zählt
+die Sequenz um 2 hoch. Und #41: auch im **grünen** Lauf 27.10. nachts stand eine leerlaufende vCPU 21 s
+(`rcu_preempt … t=21008 jiffies`; verlorener Weckruf bei KVM in Hyper-V erschlossen, nicht belegt).
+**Gemeinsamer Grund:** Smoke-Prüfungen verlangten Echtzeit-Takt von einer VM ohne echte GPU, ohne
+echten vblank, mit einfrierenden vCPUs, und wurden mit getunten Toleranzen beruhigt
+(`MISSED_VBLANKS = 2`) – jede Lastspitze sah aus wie ein Compositor-Fehler. **Behoben:**
+fifo/timed prüfen das Protokoll ausnahmslos (120/120, 0 verworfen, Sequenz streng steigend – war
+vorher nicht geprüft –, 0 vor der Zeit) und vom Takt nur, was ein Compositor-Fehler mit ALLEN
+Bildern machte (Barriere/Zeit einen vblank zu spät → kein einziges im Abstand eins). Den Takt misst
+der Messbau auf Hardware. Regel ab jetzt: **in der VM keine Zeit-Toleranzen; Takt nur auf Hardware.**
+- Smoke gibt bei rotem Desktop-Check das Sitzungs-Journal ins Konsolen-Log (`JournalOnFailure`;
+  die liegengelassene Maschine behält davon nichts). `bz debug` überschreibt `logs/boot`!
+- run0 verlor einmal die ganze Ausgabe (Exit 0): upstream-Mechanismus, `ptyfwd.c` `drained()`
+  prüft nur `TIOCINQ`, Flip-Puffer des PTY nicht (systemd PR #43058 beschreibt es). Nicht
+  nachgestellt; Bericht an systemd = Besitzer-Entscheidung.
+- Zeitplan-Änderung ist in der VM praktisch wirkungslos (2 Treffer gemessen) → nicht die Ursache.
+**Nicht committet** (alles im Arbeitsbaum, Smoke ohne Last 7/8 grün): siehe oben „27.10. abends“.
+**27.10. nachts erledigt (Liste der Helfer-Agenten vom 27.10.):** (2) `pacing:` sagt „a whole refresh
+for N frames“, late-Zeilen „stalled x“ (ready − committed − GPU); (3) Teile `begin`/`record`/`end`
+statt `record`, „quads median …, in draws median …“ (VM-Lasttest: 271 Quads in 49 Draws);
+(4) `beize-load-test --rotate` (Startfenster je Runde); Beize UI-Bildplätze geprüft (Atlas:
+ein Bild, Barriere in derselben Queue → sicher; leben so lange wie die App, Fenster schließen
+einzeln gibt es nicht). **Entschieden (Besitzer: nur mit Vorbild, das stabil ist):** kein zweites
+Bild unterwegs – Weston, niri, sway haben eins; Mutter brauchte Jahre und Rückfälle; der 10-Hz-Stau
+ist erst zu zerlegen (6), sonst wäre es ein Symptom-Pflaster. `told`-Sperre bleibt (Ereignis statt
+kitty's Timer `resize_debounce_time`; Test belegt Bedarf; jede Ausgabe der Shell löst sie).
+`beize-session` durchgesehen, ohne Befund. Smoke-Zeit 158 s: kritischer Pfad Desktop 133 s,
+keine Wiederholungen dahinter; größter fester Teil ist das echte Abblenden (10 s, GNOME) –
+bewusst echt geprüft.
+**OFFEN, in dieser Reihenfolge:**
+1. Messbau 0.5.112 (`hw-test.sh`: Teil 3 dazu `--fifo 2400`, `--timed 240`; Teil 4 dazu 30 s
+   `--rotate`). Auswerten: Teile begin/record/end, Draws, „stalled“, GPU-Spanne (10-Hz-Stau),
+   Rotation (Verlust folgt Position?), Bildplätze je Fenster (sonst zurücknehmen), FIFO-Takt.
+2. Danach CPU je Bild (Besitzer: nach stabilen Tests): eine Pipeline statt ~50 Wechseln nur, wenn
+   `record`/Draws es zeigen (Weston zeichnet Opakes ohne Blend – „immer vormultipliziert“ kostet
+   GPU-Bandbreite; dynamisch per `VK_EXT_extended_dynamic_state3`). Abblenden per GAMMA_LUT erst
+   auf Hardware belegen (nouveau `commit_core` wartet synchron). 10-Hz-Stau: ftrace im Messkernel.
+3. #41 (vCPU 21 s still) eigens untersuchen; run0-Fehler an systemd = Besitzer.
+4. Bewusst NICHT: `implicit_waits` weglassen; Smithays Damage-Tracker ersetzen.
 
 **0.5.111 getestet (27.10., `~/hw-logs/results-20261027-143412`). Besitzer: „hat richtig gut
 geklappt“, Bildschirm aus/an funktioniert.** Teil 6: Abblenden nach genau 600 s, aus 10,0 s
@@ -365,11 +457,6 @@ Knopf ohne hellen Rand. **Offen:** lange Zeile + Pfeil hoch nicht berichtet; ob 
 „told“-Sperre (`beize-terminal/src/prompt.rs`) noch nötig ist, weiter unbelegt.
 `measure/desktop` und Tags vom Besitzer gepusht (origin = 73314bd); `measure/desktop-old` löscht der
 Besitzer (`git branch -D measure/desktop-old`, Claudes Rechteprüfung verweigert es).
-**Leerlauf-Ratsche 27.10. wieder rot** (1 Lauf von ~8; Compositor-Hauptthread 1×, im Fenster
-wieder nur ntp-daemon „No consensus on current time“, Log `~/hw-logs/smoke-idle-red-20261027.log`)
-– danach noch einmal beim Messbau (`smoke-idle-red-20261027-b.log`): 3 von ~11 Läufen am
-27.10., jedes Mal nur ntp-daemon im Fenster. Nächster Schritt nach dem Messbau: belegen, was den
-Haupt-Thread weckt (Verdacht ohne Beleg: ein Signal auf einer Bus-Verbindung, Zeitsprung).
 
 **0.5.109 getestet (26.10., `~/hw-logs/results-20261026-222434`).** Lasttest 110 768 Bilder
 (0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von 6966
@@ -440,8 +527,7 @@ die späten Bilder (Lasttest 0.5.108: 214, je eines kostet jedem Fenster ein Bil
 Median) – wie Glas 0,77 → 0,00 ms, den Rest ebenso angehen; (3) warum Fenster 2–12 stufenweise
 weniger Bilder haben (9380 → 9055; Vermutung: der Lasttest zeichnet nacheinander, späte Commits
 verpassen das Bild – unbelegt).
-**Offen:** späte Bilder „display“ (anderer Chat); Leerlauf-Ratsche (Hinweis ntp-daemon, unten;
-26.10. einmal mehr rot, 1 von 7 Läufen, Journal-Fenster leer, Log in `~/hw-logs/smoke-idle-red-20261026`);
+**Offen:** späte Bilder „display“ (anderer Chat); ~~Leerlauf-Ratsche~~ (27.10. behoben, oben);
 seltener Smoke-Fehler
 „close button of the compositor's frame did not end the client“ (1 von ~20 Läufen 26.10., nach
 systemd 262.1; in 4 Folgeläufen nicht wieder, Logs überschrieben) – beim nächsten Auftreten Logs
@@ -530,8 +616,7 @@ messen), EFI_DISABLE_PCI_DMA, INIT_ON_FREE (Besitzer). ITMT/P-Kerne aktiv (ACPI_
 System MOR beim sauberen Herunterfahren löscht; Beize tut das nicht → Firmware löscht den RAM
 vermutlich bei jedem Start (Kosten unbekannt). Prüfen auf dem PC: `od -An -tx1
 /sys/firmware/efi/efivars/MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829`
-(Datei fehlt → wirkungslos). Leerlauf-Ratsche: neuer Hinweis, im roten Lauf stand im Fenster
-nur ntp-daemon („No consensus on current time“). Als Nächstes: Messbau für die Hardware.
+(Datei fehlt → wirkungslos). Als Nächstes: Messbau für die Hardware.
 **Auftrag des Besitzers an den nächsten Chat (26.10.):** suchen, bis etwas **grundlegend Falsches,
 Systemkritisches** gefunden ist – die Probleme liegen „wohl woanders“; Beize darf dafür grundlegend
 geändert werden. **Vor E** (SVG/Knöpfe) zu lösen. Weiteres Symptom: **Strg+Alt+Entf startet neu,
@@ -606,11 +691,6 @@ sobald CI-Lauf 40304913614 grün ist (Hintergrund-Job); der Messzweig braucht Fo
 **Beim Besitzer:** Release bauen/signieren, dann Stick → Test (docs/hardware.md A–C).
 Danach: Befund 2 mit den Daten beheben, Befund 1 bestätigen, E, dann idle-inhibit; D mit der Shell.
 `.wslconfig` `preempt=full` wirkt (Kommandozeile), `bz smoke` warnt nicht mehr (Gegenfall belegt).
-**Leerlauf-Ratsche (offen):** der Haupt-Thread des Compositors wachte in 3 von 27 Läufen einmal in
-3 s auf, ohne zu zeichnen (25.10. vor, 26.10. nach A; Häufigkeit nicht belegt verschieden). Die
-Prüfung nennt jetzt Thread und Journal des Fensters (`BEIZE-WOKE`, `BEIZE-JOURNAL`) und zählt
-stoppende Test-Units mit; beim nächsten Rot daraus die Ursache. Debug-Log taugt nicht (verlangsamt,
-Lasttest wird rot). Kandidaten ohne Beleg: ein Eingabe-Ereignis ohne Wirkung, ein später Flip.
 
 **Beim Besitzer:** Messbau 0.5.105 (Tag `measure/desktop-0.5.105`); `main` ist 0.6 und ersetzt
 ihn (der Updater nimmt nur Neueres). Neu installieren: `keys/secureboot/README.md`; Update vom
@@ -790,7 +870,7 @@ hielt eine CPU bis 141 ms (SCHED_FIFO-99-Wächter je CPU, SysRq-l: alle Backtrac
 WSL-Start), `bz smoke` warnt sonst. Belegt sind die Lücken; dass sie die damaligen roten Läufe
 waren, ist erschlossen (Muster passt, heute auch mit `none` 9 von 9 grün). Offen: sechs VMs (#41)
 mit `preempt=full` erneut messen.
-**Beobachten, Ursache offen:** Leerlauf-Ratsche: Compositor einmal in 3 s aufgewacht (1 von 6 Smoke-Läufen 25.10., Log überschrieben; nicht zugeordnet), RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
+**Beobachten, Ursache offen:** RCU-Stall im Gast beim parallelen Smoke (bis 21 s, belegt 25.10.,
 Issue; erschlossen: der Weckruf an die vCPU kam nicht, verschachteltes KVM), „libinput: system too slow“ (1 von ~8 Läufen),
 „Boot0002 … Not Found“ im Update-Szenario (einmal).
 
