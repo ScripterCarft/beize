@@ -110,7 +110,13 @@ vec3 wallpaper(vec2 p, vec2 size, uint look) {
         float top = b.x + b.y * sin(b.z * at.x + b.w)
             + 0.35 * b.y * sin(2.3 * b.z * at.x + 1.7 * b.w);
         float bottom_edge = top + BAND_BODY[i].x * (1.0 + 0.35 * sin(0.8 * b.z * at.x + b.w + 1.0));
-        float a = smoothstep(top - 0.002, top + 0.002, at.y)
+        // The upper edge one pixel wide on any screen, as quad.frag's
+        // shapes: the pixel's coverage by its distance to the edge in
+        // pixels, across the edge (its slope from the derivative of `top`).
+        float slope = b.y * b.z * (cos(b.z * at.x + b.w)
+            + 0.805 * cos(2.3 * b.z * at.x + 1.7 * b.w));
+        float across = (at.y - top) * size.y / sqrt(1.0 + slope * slope);
+        float a = clamp(0.5 + across, 0.0, 1.0)
             * (1.0 - smoothstep(top, bottom_edge, at.y));
         vec3 band = oklab(decoded3(BAND_COLOR[first + i] / 255.0));
         // Lit along its upper edge.
