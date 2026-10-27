@@ -43,6 +43,10 @@
 //! (lavapipe): the hardware test measures that.
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
+//! Signed in again, with a short time: without input, the screen fades to
+//! black, and a key takes the fade back; a window with an idle inhibitor
+//! keeps it on; once that is gone, the screen fades and goes off – the
+//! CRTC off – and a key turns it on with the desktop.
 //!
 //! The owner's shell on the serial console looks on: the same user, so the
 //! same service manager as the login on tty1.
@@ -251,6 +255,26 @@ const CORNER: usize = 24;
 /// How far the test drags the framed client's window by the compositor's
 /// bar.
 const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);
+
+/// The time without input after which the screen fades (`screen_goes_off`;
+/// the compositor's `BEIZE_SCREEN_OFF_AFTER`), and its fade to black
+/// (os/beize-compositor, `idle::FADE`); how long a part of it may take
+/// beyond that, in a VM beside others.
+const SCREEN_OFF_AFTER: Duration = Duration::from_secs(3);
+const SCREEN_FADE: Duration = Duration::from_secs(10);
+const SCREEN_OFF_SLACK: Duration = Duration::from_secs(5);
+/// How far into the fade the screen is looked at, and by how much the
+/// middle of the desktop (the background: no window) is darker then, at
+/// least, in the mean of its channels: 30 % black over a background of
+/// some 150 takes 45.
+const FADE_LOOKED_AT: Duration = Duration::from_secs(3);
+const FADE_DARKER: f64 = 20.0;
+/// How long a client draws with the screen off, and how many frames it may
+/// draw then: hidden windows hear "frame done" once a second
+/// (`HIDDEN_FRAMES`, os/beize-compositor/src/state.rs), with the first and
+/// one at the edge. In the screen's pace it drew some 60 a second.
+const OFF_DRAWING: Duration = Duration::from_secs(3);
+const OFF_FRAMES_MOST: usize = 5;
 
 /// The load test's scene (os/beize-ui, `beize-load-test`): its windows, how
 /// long it runs, and how many frames each window must have drawn at least
@@ -633,6 +657,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  ok: with no terminal running, the dock's tile started one");
 
     still_and_signed_out(&shell)?;
+    screen_goes_off(&shell, &machine, &qmp)?;
     shell.stop()?;
     remove_screens(&machine.logs)?;
     machine.remove()
@@ -1360,6 +1385,254 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
          back"
     );
     Ok(())
+}
+
+/// The screen goes off without input (os/beize-compositor, `idle`), in a
+/// session of its own with `SCREEN_OFF_AFTER` – the desktop's other
+/// checks would see it go off. The owner signs in again on tty1. Without
+/// input the screen fades to black, darker a while in, and a key takes
+/// the fade back: the desktop as it was. The test client's window with an
+/// idle inhibitor keeps the screen from fading for twice the time; once
+/// the client ends, the screen fades, goes off – the kernel says the
+/// connector is off (DPMS) – and a key turns it on with the desktop.
+/// Nothing warns but Smithay's known warnings.
+fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
+    let after = SCREEN_OFF_AFTER.as_secs();
+    let (_, lines) = shell.capture(&format!(
+        "systemctl --user set-environment BEIZE_SCREEN_OFF_AFTER={after} && \
+         for i in $(seq 50); do pgrep -t tty1 -x agetty > /dev/null && break; sleep 0.2; done; \
+         echo BEIZE-SINCE-$(date +%s.%N)"
+    ))?;
+    let since = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-SINCE-"))
+        .with_context(|| format!("no time to look from: {lines:?}"))?
+        .to_owned();
+    // The new getty's prompt, then as at the first sign-in.
+    thread::sleep(Duration::from_secs(1));
+    for (typed, pause) in [(SMOKE_USER, 1), (SMOKE_PASSWORD, 2), ("beize-session", 0)] {
+        keys(qmp, &german_presses(typed)?)?;
+        thread::sleep(Duration::from_secs(pause));
+    }
+    let said =
+        |line: &str, count: usize, within: Duration| said_since(shell, &since, line, count, within);
+    said(
+        &format!("the screen goes off after {after} s without input"),
+        1,
+        SCREEN_TIMEOUT,
+    )?;
+    said(
+        "desktop shown with the shell, [0-9]* ms after the screen",
+        1,
+        SCREEN_TIMEOUT,
+    )?;
+    ensure!(
+        dpms(shell)? == "On",
+        "the screen is not on after signing in"
+    );
+
+    // Without input it fades; darker a while in; a key takes it back.
+    const FADES: &str = "no input for [0-9]* s: the screen fades to black";
+    said(FADES, 1, SCREEN_OFF_AFTER + SCREEN_OFF_SLACK)?;
+    thread::sleep(FADE_LOOKED_AT);
+    let faded = screen(machine, "fading")?;
+    keys(qmp, &["shift"])?;
+    said(
+        "input: the fade to black is taken back",
+        1,
+        SCREEN_OFF_SLACK,
+    )?;
+    wait_for_panels(machine)?;
+    let desktop = screen(machine, "fade-taken-back")?;
+    let darker = centre_mean(&desktop) - centre_mean(&faded);
+    ensure!(
+        darker >= FADE_DARKER,
+        "{} s into the fade the screen was not darker than the desktop by {FADE_DARKER} \
+         but by {darker:.1}; the screens are in the logs as fading and fade-taken-back",
+        FADE_LOOKED_AT.as_secs()
+    );
+    say!(
+        "  ok: without input for {after} s the screen faded to black, {darker:.0} darker {} s \
+         in, and a key took the fade back",
+        FADE_LOOKED_AT.as_secs()
+    );
+
+    // A window with an idle inhibitor keeps it from fading, for twice the
+    // time; ended, the screen fades and goes off.
+    let (_, lines) = shell.capture(
+        "systemd-run --user --unit=beize-testclient-inhibit /run/t/beize-testclient --inhibit \
+         --seconds 60 && for i in $(seq 50); do journalctl --user -u beize-testclient-inhibit \
+         -o cat | grep -q '^configure ' && break; sleep 0.2; done; \
+         journalctl --user -u beize-testclient-inhibit -o cat",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l.starts_with("configure ")),
+        "the test client with an idle inhibitor got no window: {lines:?}"
+    );
+    thread::sleep(2 * SCREEN_OFF_AFTER + SCREEN_OFF_SLACK / 5);
+    let fades = said_since(shell, &since, FADES, 0, Duration::ZERO)?;
+    ensure!(
+        fades == 1,
+        "the screen faded with a window that inhibits idling on it ({fades} fades)"
+    );
+    shell.capture("systemctl --user stop beize-testclient-inhibit")?;
+    said(FADES, 2, SCREEN_OFF_AFTER + SCREEN_OFF_SLACK)?;
+    said("the screen is off", 1, SCREEN_FADE + SCREEN_OFF_SLACK)?;
+    let state = dpms(shell)?;
+    ensure!(
+        state == "Off",
+        "the compositor said the screen is off, the kernel says {state}"
+    );
+    say!(
+        "  ok: a window with an idle inhibitor kept the screen on for {} s; once it ended, the \
+         screen faded and went off (DPMS Off)",
+        2 * after
+    );
+
+    // Off, the screen is gone for clients: one drawing as Mesa's FIFO does
+    // may draw as hidden windows do, not in the screen's pace.
+    let (_, lines) = shell.capture(&format!(
+        "systemd-run --user --wait --unit=beize-testclient-off /run/t/beize-testclient \
+         --fifo 1000 --seconds {}; journalctl --user -u beize-testclient-off -o cat \
+         | grep '^drawing: '",
+        OFF_DRAWING.as_secs()
+    ))?;
+    let drawn: usize = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("drawing: ")?.split_once(' ')?.0.parse().ok())
+        .with_context(|| format!("the client said nothing of its drawing: {lines:?}"))?;
+    ensure!(
+        drawn <= OFF_FRAMES_MOST,
+        "with the screen off a client drew {drawn} frames in {} s, not at most \
+         {OFF_FRAMES_MOST}",
+        OFF_DRAWING.as_secs()
+    );
+    ensure!(
+        dpms(shell)? == "Off",
+        "a client's window turned the screen on"
+    );
+    say!(
+        "  ok: off, a client drew {drawn} frames in {} s, as hidden windows do",
+        OFF_DRAWING.as_secs()
+    );
+
+    // A key turns it on, with the desktop as it was.
+    keys(qmp, &["shift"])?;
+    said("input: the screen is on again", 1, SCREEN_OFF_SLACK)?;
+    wait_for_panels(machine)?;
+    let state = dpms(shell)?;
+    ensure!(
+        state == "On",
+        "after a key the kernel says the screen is {state}"
+    );
+    let back = screen(machine, "screen-on")?;
+    ensure!(
+        (centre_mean(&back) - centre_mean(&desktop)).abs() < 1.0,
+        "the desktop did not come back as it was; the screens are in the logs as \
+         fade-taken-back and screen-on"
+    );
+    let (_, lines) = shell.capture(&format!(
+        "journalctl --user -u beize-compositor.service --since=@{since} -p warning -o cat"
+    ))?;
+    let unexpected: Vec<&String> = lines
+        .iter()
+        .filter(|l| !l.is_empty() && !KNOWN_WARNINGS.contains(&l.as_str()))
+        .collect();
+    ensure!(
+        unexpected.is_empty(),
+        "the compositor warned: {unexpected:?}"
+    );
+    say!("  ok: a key turned the screen on with the desktop as it was");
+
+    // Signed out as in `still_and_signed_out`: the environment goes last.
+    let (_, lines) = shell.capture(
+        "s=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p'); \
+         loginctl terminate-session \"$s\"; \
+         for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
+         || break; sleep 0.2; done; systemctl --user unset-environment BEIZE_SCREEN_OFF_AFTER; \
+         systemctl --user is-active beize-compositor.service",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "inactive"),
+        "signing out did not stop the desktop: {lines:?}"
+    );
+    Ok(())
+}
+
+/// Waits until the compositor has said `line` (a pattern, as grep's) at
+/// least `count` times since `since` (seconds since the epoch), at most
+/// `within`; how often it has. `count` 0: only how often.
+fn said_since(
+    shell: &Shell,
+    since: &str,
+    line: &str,
+    count: usize,
+    within: Duration,
+) -> Result<usize> {
+    let deadline = Instant::now() + within;
+    loop {
+        let (_, lines) = shell.capture(&format!(
+            "echo BEIZE-COUNT-$(journalctl --user -u beize-compositor.service --since=@{since} \
+             -o cat | grep -cx '{line}')"
+        ))?;
+        let said: usize = lines
+            .iter()
+            .find_map(|l| l.strip_prefix("BEIZE-COUNT-"))
+            .and_then(|n| n.parse().ok())
+            .with_context(|| format!("could not count \"{line}\": {lines:?}"))?;
+        if said >= count {
+            return Ok(said);
+        }
+        if Instant::now() >= deadline {
+            let (_, last) = shell.capture(&format!(
+                "journalctl --user -u beize-compositor.service --since=@{since} \
+                 -o short-monotonic | grep -v ': pointer at ' | tail -n 30"
+            ))?;
+            bail!(
+                "the compositor said \"{line}\" {said} times, not {count}, within {} s; last \
+                 said:\n{}",
+                within.as_secs(),
+                last.join("\n")
+            );
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The VM screen's connector state as the kernel has it: `On` or `Off`.
+fn dpms(shell: &Shell) -> Result<String> {
+    let (_, lines) = shell.capture(&format!(
+        "echo BEIZE-DPMS-$(cat /sys/class/drm/card*-{VM_SCREEN}/dpms)"
+    ))?;
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-DPMS-"))
+        .map(str::to_owned)
+        .with_context(|| format!("no DPMS state: {lines:?}"))
+}
+
+/// What the screen shows now, kept in the logs as `name`.
+fn screen(machine: &Machine, name: &str) -> Result<Image> {
+    let file = screen_file(machine, name);
+    screendump(&machine.qmp(), &file)?;
+    Image::read_ppm(&fs::read(&file)?)
+}
+
+/// The mean of the channels in the middle of the screen, 100 pixels a
+/// side: the background, where no window opened.
+fn centre_mean(screen: &Image) -> f64 {
+    let (x, y) = (screen.width / 2, screen.height / 2);
+    let rows = y.saturating_sub(50)..(y + 50).min(screen.height);
+    let n = rows.len().max(1) as f64;
+    rows.map(|row| {
+        row_mean(
+            screen,
+            row,
+            x.saturating_sub(50)..(x + 50).min(screen.width),
+        )
+    })
+    .sum::<f64>()
+        / n
 }
 
 /// The screen dumps of a passed run go (3 MB each, some 30 a run); a failed

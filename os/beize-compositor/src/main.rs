@@ -30,6 +30,7 @@ mod decorations;
 mod error;
 mod glass;
 mod gpu;
+mod idle;
 mod input;
 mod keyboard;
 mod layers;

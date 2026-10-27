@@ -3,8 +3,9 @@
 //! wl_output, copy and paste (wl_data_device), windows (xdg-shell,
 //! `shell`) with their frames (xdg-decoration, `decorations`), the
 //! shell's panels (wlr-layer-shell, `layers`) and its list of windows
-//! (beize-shell-v1, `shell_v1`), cropped and scaled surfaces (viewporter)
-//! and windows that ask to become active (xdg-activation, `activation`).
+//! (beize-shell-v1, `shell_v1`), cropped and scaled surfaces (viewporter),
+//! windows that ask to become active (xdg-activation, `activation`) and
+//! surfaces that keep the screen on (idle-inhibit, `idle`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
 //! screen for a redraw at the deadline of the next vblank (`schedule`),
@@ -66,6 +67,7 @@ use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
 };
 use smithay::wayland::fifo::{FifoBarrierCachedState, FifoManagerState};
+use smithay::wayland::idle_inhibit::{IdleInhibitHandler, IdleInhibitManagerState};
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
 use smithay::wayland::presentation::{PresentationState, Refresh};
 use smithay::wayland::selection::SelectionHandler;
@@ -82,8 +84,8 @@ use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::{
     delegate_commit_timing, delegate_compositor, delegate_cursor_shape, delegate_data_device,
-    delegate_dmabuf, delegate_fifo, delegate_output, delegate_presentation, delegate_seat,
-    delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_dmabuf, delegate_fifo, delegate_idle_inhibit, delegate_output, delegate_presentation,
+    delegate_seat, delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
@@ -92,6 +94,7 @@ use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
 use crate::error::{Context, Error, Result, error};
 use crate::gpu::{self, Change, Gpu};
+use crate::idle::{Idle, Woken};
 use crate::keyboard::Layout;
 use crate::layers::{Side, side};
 use crate::opening::{Opening, SHELL_WAIT, Veil};
@@ -135,6 +138,7 @@ pub struct State {
     _commit_timing: CommitTimingManagerState,
     _viewporter: ViewporterState,
     pub activation: XdgActivationState,
+    _idle_inhibit: IdleInhibitManagerState,
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
@@ -218,6 +222,12 @@ pub struct State {
     pub timed_wake: Option<(u64, Duration)>,
     /// Counts the wakes set, to know the current one by.
     pub timed_wakes: u64,
+    /// When the screen goes off without input (`idle`), and the timer for
+    /// it, set while it may.
+    idle: Idle,
+    idle_timer: Option<RegistrationToken>,
+    /// Surfaces with an idle inhibitor, once per inhibitor.
+    inhibitors: Vec<WlSurface>,
     failure: Option<Error>,
 }
 
@@ -306,6 +316,15 @@ impl State {
                 }
             })
             .map_err(|e| error(format!("the shell's end: {}", e.error)))?;
+        let clock = Clock::<Monotonic>::new();
+        let idle = Idle::from_environment(clock.now().into());
+        match idle.after() {
+            Some(after) => info!(
+                "the screen goes off after {} s without input",
+                after.as_secs()
+            ),
+            None => info!("the screen stays on without input"),
+        }
         Ok(State {
             compositor: CompositorState::new::<State>(&display),
             shm: ShmState::new::<State>(&display, Vec::new()),
@@ -331,6 +350,8 @@ impl State {
             // Smithay applies it to what a surface shows (its view).
             _viewporter: ViewporterState::new::<State>(&display),
             activation: XdgActivationState::new::<State>(&display),
+            // Video players and presentations keep the screen on (`idle`).
+            _idle_inhibit: IdleInhibitManagerState::new::<State>(&display),
             seat_state,
             seat,
             keyboard,
@@ -362,7 +383,7 @@ impl State {
             revealed: None,
             fullscreen_front: false,
             cursor: Cursor::new(),
-            clock: Clock::new(),
+            clock,
             redraw: false,
             changed_at: None,
             draw_timer: None,
@@ -375,6 +396,9 @@ impl State {
             hidden_done: None,
             timed_wake: None,
             timed_wakes: 0,
+            idle,
+            idle_timer: None,
+            inhibitors: Vec::new(),
             failure: None,
             display,
             handle,
@@ -407,6 +431,8 @@ impl State {
             }
             None => self.start()?,
         }
+        // Coming back to the session is use: a screen gone off comes on.
+        self.input_came();
         self.redraw = true;
         self.schedule_render();
         Ok(())
@@ -829,6 +855,8 @@ impl State {
         if !self.session.is_active() {
             return;
         }
+        // An inhibitor shown until now takes a fade back before it draws.
+        self.look_at_inhibitors();
         // A window came to the front or left it: the panels over fullscreen,
         // and what the pointer is over then.
         if self.reveal() {
@@ -870,11 +898,17 @@ impl State {
         }
         let at = self.pointer.to_physical(1.0).to_i32_round();
         let on_plane = self.cursor.image(began).is_some_and(|i| gpu.cursor_fits(i));
-        // In front of all, the black the desktop fades in from.
+        // In front of all, the black the desktop fades in from, or the
+        // black it fades to before the screen goes off (`idle`), the
+        // pointer still over it.
         let veil = self.opening.veil(began);
+        let shade = match (veil, self.idle.black(began)) {
+            (Veil::None, Some(black)) => Veil::Fading(black),
+            _ => veil,
+        };
         let mut elements: Vec<Element> = Vec::new();
-        if veil != Veil::None {
-            let alpha = match veil {
+        if shade != Veil::None {
+            let alpha = match shade {
                 Veil::Fading(alpha) => alpha,
                 Veil::Black | Veil::None => 1.0,
             };
@@ -1364,6 +1398,126 @@ impl State {
         if matches!(self.opening, Opening::Fading { .. }) {
             self.changed();
         }
+        // The fade to black (`idle`) asks for its frames the same way; once
+        // all black is on the screen, it goes off.
+        let now = self.now();
+        if self.idle.faded(now) {
+            self.screen_off();
+        } else if self.idle.black(now).is_some() {
+            self.changed();
+        }
+    }
+
+    /// Input came (`input`), or the session came back: the time without
+    /// input starts anew, a fade is taken back, a screen gone off comes on
+    /// – drawn in full, which sets its mode.
+    pub fn input_came(&mut self) {
+        let now = self.now();
+        match self.idle.input(now) {
+            Woken::Nothing => {}
+            Woken::Fade => {
+                info!("input: the fade to black is taken back");
+                self.changed();
+            }
+            Woken::Screen => {
+                info!("input: the screen is on again");
+                if let Some(gpu) = &mut self.gpu {
+                    gpu.wake();
+                }
+                self.changed();
+            }
+        }
+        self.set_idle_timer();
+    }
+
+    /// Sets the timer for when the screen fades without input, unless one
+    /// is set: it runs out at the time the last use allows, looks whether
+    /// there was use since and, if so, runs on for the rest – one wake per
+    /// such time, none per input event.
+    fn set_idle_timer(&mut self) {
+        if self.idle_timer.is_some() {
+            return;
+        }
+        let Some(due) = self.idle.due() else {
+            return;
+        };
+        let token = self.handle.insert_source(
+            Timer::from_duration(due.saturating_sub(self.now())),
+            |_, _, state| {
+                let now = state.now();
+                // Another session's time is not ours to count.
+                if !state.session.is_active() {
+                    state.idle.inhibited(now);
+                }
+                state.look_at_inhibitors();
+                if state.idle.fade(now) {
+                    state.idle_timer = None;
+                    state.fade_out();
+                    return TimeoutAction::Drop;
+                }
+                match state.idle.due() {
+                    Some(due) => TimeoutAction::ToDuration(due.saturating_sub(now)),
+                    None => {
+                        state.idle_timer = None;
+                        TimeoutAction::Drop
+                    }
+                }
+            },
+        );
+        match token {
+            Ok(token) => self.idle_timer = Some(token),
+            Err(e) => warn!("idle timer: {}", e.error),
+        }
+    }
+
+    /// No input for the time: the screen fades to black, then goes off
+    /// (`frame_done`); without a screen to fade, off at once.
+    fn fade_out(&mut self) {
+        let seconds = self.idle.after().unwrap_or_default().as_secs();
+        if self.gpu.as_ref().is_some_and(Gpu::shows) {
+            info!("no input for {seconds} s: the screen fades to black");
+            self.changed();
+        } else {
+            info!("no input for {seconds} s: no screen to fade, off");
+            self.screen_off();
+        }
+    }
+
+    /// The fade is done: the screen goes off. A frame still waiting for its
+    /// vblank defers it to that vblank's `frame_done`.
+    fn screen_off(&mut self) {
+        let slept = match &mut self.gpu {
+            Some(gpu) => gpu.sleep(),
+            None => Ok(true),
+        };
+        match slept {
+            Ok(false) => return,
+            Ok(true) => info!("the screen is off"),
+            // Not drawn on either way until input comes.
+            Err(e) => warn!("{e:#}; nothing is drawn until input comes"),
+        }
+        self.idle.sleep();
+    }
+
+    /// The idle inhibitors (`idle`): those of surfaces gone are dropped; one
+    /// on a surface the last frame showed – until now, also if it went
+    /// since – counts as use, and takes a fade back.
+    fn look_at_inhibitors(&mut self) {
+        if self.inhibitors.is_empty() {
+            return;
+        }
+        let drawn = &self.drawn;
+        let mut seen = false;
+        self.inhibitors.retain(|surface| {
+            seen |= drawn.element_was_presented(surface);
+            surface.is_alive()
+        });
+        let now = self.now();
+        if seen && self.idle.inhibited(now) {
+            info!("an idle inhibitor shows: the fade to black is taken back");
+            self.changed();
+            self.set_idle_timer();
+        }
     }
 
     /// The topmost surface under `at` – a panel above the windows, a
@@ -1581,6 +1735,21 @@ impl ServerDndGrabHandler for State {}
 
 impl OutputHandler for State {}
 
+impl IdleInhibitHandler for State {
+    fn inhibit(&mut self, surface: WlSurface) {
+        self.inhibitors.push(surface);
+    }
+
+    /// Destroyed by its client: shown until now, if it was. Inhibitors of
+    /// a client that ends go without this (`look_at_inhibitors`).
+    fn uninhibit(&mut self, surface: WlSurface) {
+        self.look_at_inhibitors();
+        if let Some(i) = self.inhibitors.iter().position(|s| *s == surface) {
+            self.inhibitors.swap_remove(i);
+        }
+    }
+}
+
 delegate_compositor!(State);
 delegate_shm!(State);
 delegate_dmabuf!(State);
@@ -1592,6 +1761,7 @@ delegate_xdg_decoration!(State);
 delegate_cursor_shape!(State);
 delegate_presentation!(State);
 delegate_fifo!(State);
+delegate_idle_inhibit!(State);
 delegate_commit_timing!(State);
 delegate_viewporter!(State);
 

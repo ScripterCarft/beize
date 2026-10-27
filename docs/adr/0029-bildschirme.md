@@ -42,6 +42,17 @@ ohne Zutun wieder alles.
 5. **`link-status` BAD:** denselben Modus erneut setzen (Neutraining), wie Mutter und KWin.
 6. **Später, eigener Abschnitt:** mehrere Bildschirme gleichzeitig (Fenster verteilen,
    Menüleiste je Bildschirm wie macOS, Skalierung je Bildschirm nach EDID).
+7. **Aus bei Inaktivität** (`idle.rs`): nach 10 min ohne Eingabe (macOS, Desktop) blendet der
+   Bildschirm 10 s nach Schwarz ab (GNOME-Shell, `STANDARD_FADE_TIME`), dann CRTC, Ebenen und
+   Anschluss aus in einem Commit (Smithays `DrmSurface::clear`, wie niri). Eingabe nimmt das
+   Abblenden sofort zurück bzw. schaltet ein (nächstes Bild setzt den Modus, ganz gezeichnet)
+   und erreicht ihr Fenster (Weston, Mutter, niri). Aus verhält sich für Clients wie „geht“
+   (3.); ein Bildschirm, der im Standby geht und wiederkommt, bleibt aus bis zur Eingabe.
+   `zwp_idle_inhibit_v1` hält ihn an, solange die Fläche im letzten Bild sichtbar war
+   (Smithay überspringt Verdecktes, wie niri); seine Zeit zählt als Benutzung, nach dem Ende
+   läuft die volle Frist (Mutter). Eingabe merkt sich nur ihre Zeit, ein Timer prüft bei
+   Ablauf – kein Aufwachen je Ereignis. Die Frist kommt bis zu Beizes Einstellungen aus
+   `BEIZE_SCREEN_OFF_AFTER` (Sekunden, 0 = nie) in der Umgebung des Desktops.
 
 ## Prüfung
 
@@ -56,8 +67,12 @@ ohne Zutun wieder alles.
   der Rückkehr selbst zeichnet, ist in der VM nicht isolierbar (Clients committen laufend).
   Die Anmeldung beginnt ohne Bildschirm: der Compositor wartet, die Sitzung ist nicht
   bereit, nach `detect` startet der Desktop (Gegenprobe: READY sofort → alles „active“).
+  Aus bei Inaktivität (7.) in einer zweiten Sitzung mit 3 s Frist: Abblenden (Bildmitte
+  dunkler) und Zurücknehmen per Taste, ein Testclient mit Inhibitor hält den Bildschirm an,
+  nach seinem Ende aus (Kernel: `dpms` Off), Taste: an, Desktop wie vorher.
 - **Hardware-Test:** neuer Teil in `measure/hw-test.sh`: Monitor aus und wieder an, Kabel ab
-  und an. `link-status` lässt sich nur dort prüfen.
+  und an. `link-status` lässt sich nur dort prüfen; ebenso, ob der Monitor nach dem
+  Abschalten (7.) wieder Bild bekommt (nouveau trainiert die Verbindung dabei neu).
 
 ## Konsequenzen
 

@@ -89,6 +89,9 @@ pub struct Gpu {
     node: DrmNode,
     /// What the renderer held when last logged (`pacing_idle`).
     held: Option<(usize, u32)>,
+    /// The screen is off (`idle`), and one that comes stays off until
+    /// woken: a monitor in standby may leave and come back by itself.
+    asleep: bool,
 }
 
 /// The refresh rate in millihertz, from the mode's timings: `vrefresh` is
@@ -127,6 +130,7 @@ pub fn open(session: &mut LibSeatSession) -> Result<(Gpu, Option<Info>, DrmDevic
         drm,
         node,
         held: None,
+        asleep: false,
     };
     // The console probed the connectors already.
     let info = match gpu.scan(false)? {
@@ -242,9 +246,36 @@ impl Gpu {
         &mut self.renderer
     }
 
-    /// A screen is shown.
+    /// A screen is shown: there and on.
     pub fn shows(&self) -> bool {
-        self.screen.is_some()
+        self.screen.is_some() && !self.asleep
+    }
+
+    /// Turns the screen off (`Output::sleep`; false: not now, a frame
+    /// waits for its vblank). Without one, a screen that comes stays off;
+    /// one that could not be turned off is not drawn on either, until
+    /// woken.
+    pub fn sleep(&mut self) -> Result<bool> {
+        let slept = match &mut self.screen {
+            Some(screen) if !self.asleep => each!(screen, o => o.sleep()),
+            _ => Ok(true),
+        };
+        if !matches!(slept, Ok(false)) {
+            self.asleep = true;
+        }
+        slept
+    }
+
+    /// The screen may be on again; the caller draws, which sets its mode.
+    pub fn wake(&mut self) {
+        self.asleep = false;
+    }
+
+    /// The screen, while on: off, it has no vblanks or refresh – for
+    /// clients as gone (ADR 0029 §3), "frame done" in the hidden ones'
+    /// pace, not the screen's.
+    fn on(&self) -> Option<&Screen> {
+        self.screen.as_ref().filter(|_| !self.asleep)
     }
 
     /// Looks at the connectors anew (`probe`: asks the screens, as at a
@@ -357,7 +388,8 @@ impl Gpu {
         Ok(info)
     }
 
-    /// Draws on the screen (`Output::render`); without one, nothing.
+    /// Draws on the screen (`Output::render`); without one, or off,
+    /// nothing.
     pub fn render<E: RenderElement<VkRenderer>>(
         &mut self,
         elements: &[E],
@@ -368,25 +400,28 @@ impl Gpu {
     ) -> Result<Frame> {
         let renderer = &mut self.renderer;
         match &mut self.screen {
-            Some(screen) => {
+            Some(screen) if !self.asleep => {
                 each!(screen, o => o.render(renderer, elements, cursor, requested, began, parts))
             }
-            None => Ok(Frame::Unchanged(RenderElementStates::default())),
+            _ => Ok(Frame::Unchanged(RenderElementStates::default())),
         }
     }
 
     pub fn draw_at(&mut self) -> Option<Duration> {
+        if self.asleep {
+            return None;
+        }
         each!(self.screen.as_mut()?, o => o.draw_at())
     }
 
     /// The vblank the frame about to be drawn shows at (`Output::aim`).
     pub fn aim(&self) -> Option<Duration> {
-        each!(self.screen.as_ref()?, o => Some(o.aim()))
+        each!(self.on()?, o => Some(o.aim()))
     }
 
     /// The screen's first vblank at or after `time`.
     pub fn vblank_from(&self, time: Duration) -> Option<Duration> {
-        each!(self.screen.as_ref()?, o => Some(o.vblank_from(time)))
+        each!(self.on()?, o => Some(o.vblank_from(time)))
     }
 
     /// A run of frames is being measured (`Output::pacing_idle`); once
@@ -424,9 +459,7 @@ impl Gpu {
 
     /// The time between two vblanks of the screen.
     pub fn refresh(&self) -> Option<Duration> {
-        self.screen
-            .as_ref()
-            .map(|screen| each!(screen, o => o.refresh()))
+        self.on().map(|screen| each!(screen, o => o.refresh()))
     }
 
     pub fn cursor_fits(&self, image: &cursor::Image) -> bool {

@@ -43,6 +43,9 @@
 //! with one without a serial.
 //! A roundtrip after each request tells whether the window got the
 //! keyboard, one line each: `activation <case>: granted` or `refused`.
+//!
+//! `--inhibit` keeps the screen on while its window shows, as a video
+//! player does (zwp_idle_inhibit_v1), until it ends.
 
 use std::fs::File;
 use std::io::Read as _;
@@ -74,6 +77,9 @@ use wayland_protocols::wp::commit_timing::v1::client::{
 };
 use wayland_protocols::wp::fifo::v1::client::{
     wp_fifo_manager_v1::WpFifoManagerV1, wp_fifo_v1::WpFifoV1,
+};
+use wayland_protocols::wp::idle_inhibit::zv1::client::{
+    zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1, zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1,
 };
 use wayland_protocols::wp::presentation_time::client::{
     wp_presentation::{self, WpPresentation},
@@ -145,6 +151,7 @@ struct Options {
     server_side: bool,
     viewport: bool,
     activation: bool,
+    inhibit: bool,
 }
 
 /// What the next of the frames waits for.
@@ -166,6 +173,7 @@ fn options() -> Result<Options> {
         server_side: false,
         viewport: false,
         activation: false,
+        inhibit: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -187,6 +195,7 @@ fn options() -> Result<Options> {
             "--server-side" => options.server_side = true,
             "--viewport" => options.viewport = true,
             "--activation" => options.activation = true,
+            "--inhibit" => options.inhibit = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -413,6 +422,15 @@ fn run() -> Result<()> {
         }
         _ => None,
     };
+    // Kept until the end, which ends it.
+    let _inhibitor = if options.inhibit {
+        let manager: ZwpIdleInhibitManagerV1 = globals
+            .bind(&qh, 1..=1, ())
+            .map_err(missing("zwp_idle_inhibit_manager_v1"))?;
+        Some(manager.create_inhibitor(&surface, &qh, ()))
+    } else {
+        None
+    };
     let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
     let toplevel = xdg_surface.get_toplevel(&qh, ());
     toplevel.set_title("beize-testclient".into());
@@ -544,7 +562,8 @@ fn report_drawing(times: &[Duration]) {
     }
     ms.sort_by(f64::total_cmp);
     println!(
-        "drawing: {:.3} ms per frame (median), at most {:.3} ms",
+        "drawing: {} frames, {:.3} ms per frame (median), at most {:.3} ms",
+        ms.len(),
         ms[ms.len() / 2],
         ms[ms.len() - 1]
     );
@@ -1441,6 +1460,8 @@ impl Dispatch<XdgActivationTokenV1, ()> for App {
 }
 
 delegate_noop!(App: ignore XdgActivationV1);
+delegate_noop!(App: ignore ZwpIdleInhibitManagerV1);
+delegate_noop!(App: ignore ZwpIdleInhibitorV1);
 delegate_noop!(App: ignore WpViewporter);
 delegate_noop!(App: ignore WpViewport);
 delegate_noop!(App: ignore ZxdgDecorationManagerV1);

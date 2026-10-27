@@ -994,6 +994,32 @@ where
         Ok(((size.w as u32, size.h as u32), rgb))
     }
 
+    /// The screen goes off (`idle`): the CRTC, its planes and connector
+    /// off in one commit, as Smithay's `clear` makes it and niri powers
+    /// its monitors off. Only between frames (false while a commit waits
+    /// for its vblank, which the kernel would refuse to change). The next
+    /// frame sets the mode again, drawn in full; the vblanks the schedule
+    /// knew are gone.
+    pub fn sleep(&mut self) -> Result<bool> {
+        if self.flipping {
+            return Ok(false);
+        }
+        self.surface.clear().context("turning the screen off")?;
+        self.pacing.pause();
+        self.schedule.reset();
+        self.planned = None;
+        self.shown = None;
+        self.modeset = true;
+        if let Some(plane) = &mut self.cursor {
+            plane.shown = None;
+            plane.pending = None;
+        }
+        let (w, h) = self.surface.pending_mode().size();
+        self.damage =
+            OutputDamageTracker::new((i32::from(w), i32::from(h)), 1.0, Transform::Normal);
+        Ok(true)
+    }
+
     /// Another session took the screen (logind).
     pub fn pause(&mut self) {
         self.pacing.pause();

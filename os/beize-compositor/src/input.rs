@@ -26,6 +26,18 @@ use crate::decorations::Hit;
 use crate::state::State;
 
 pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
+    // Someone uses the computer (`idle`): any key, pointer, touch, tablet
+    // or gesture – not a device plugged in or a lid switch. The event that
+    // turns the screen on still reaches its window, as in Weston and Mutter.
+    if !matches!(
+        event,
+        InputEvent::DeviceAdded { .. }
+            | InputEvent::DeviceRemoved { .. }
+            | InputEvent::SwitchToggle { .. }
+            | InputEvent::Special(_)
+    ) {
+        state.input_came();
+    }
     match event {
         InputEvent::Keyboard { event } => key::<LibinputInputBackend>(state, &event),
         InputEvent::PointerMotion { event } => {
