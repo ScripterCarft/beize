@@ -315,14 +315,36 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.111 auf dem Stick)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: 0.5.111 getestet; Fundament prüfen vor der Shell)
 
-**JETZT: Messbau 0.5.111** (Tag `measure/desktop-0.5.111`, 34e1a2b; Zweig `measure/desktop` neu
-auf main 05fdbe0 = Commit von 0.5.110 + Version + `hw-test.sh` Teil 6 „Bildschirm aus“ statt
-Knöpfe/Wellen; Smoke grün, nouveau-Patches angewendet; Teil 6 nur `bash -n`, 10 min in der VM
-nicht gelaufen). **Auf dem Stick** (27.10. 14:30, `D:\beize-0.5.111` und `D:\beize-test`, Prüfsummen auf D:
-geprüft); Besitzer testet nach `docs/hardware.md` B–C. Der nächste Chat wertet aus:
-vor allem Teil 6 (kommt das Bild nach dem Abschalten wieder?), Teil 5 lange Zeile/Pfeil hoch.
+**AUFTRAG DES BESITZERS für den nächsten Chat (27.10.)** – vor der Shell (Schritt 4 (e)–(g)),
+die „auf einem stabilen Fundament bauen muss, nicht nur oberflächlich okay“:
+1. **Smoke-Probleme beheben**, zuerst die Leerlauf-Ratsche (27.10. 3 von ~11 Läufen rot, jedes
+   Mal nur ntp-daemon „No consensus on current time“ im Fenster; Logs
+   `~/hw-logs/smoke-idle-red-20261027*.log`, unten mehr). Den Weckgrund des Haupt-Threads
+   **belegen** (z. B. strace/`/proc/<tid>/wchan`/Bus-Signale im roten Fall), dann an der Wurzel
+   beheben. Ebenso die anderen seltenen Fehler unten („close button … did not end the
+   client“, „libinput: system too slow“, RCU-Stall #41).
+2. **Die CPU-Fragen** (früher „nach der Shell“, jetzt): (1) späte Bilder im Lasttest (0.5.111:
+   158 von 7012 in 30 s, 137 „display“, 21 „GPU“); (2) Compositor 29–30 % je Bild beschäftigt
+   (Median damage 0,39, record 0,22, sync 0,08 ms) – wie Glas 0,77 → 0, den Rest angehen;
+   (3) warum Fenster 2–12 stufenweise weniger Bilder haben. Unten „Auftrag des Besitzers
+   (26.10.)“ und C b–d.
+3. **Smoke-Zeit** (152 s) prüfen: was Zeit kostet, ob Fehler dahinterstecken (Wartezeiten,
+   Neustarts), und senken, ohne Prüfungen zu verlieren.
+4. **Gründliche Fehlersuche** im ganzen Desktop-Stapel (Compositor, Beize UI, Shell,
+   Terminal, Session; Zeile für Zeile, nicht nur nach Mustern – unten „Zeile-für-Zeile-
+   Durchsicht“), dazu die offene „told“-Sperre in `prompt.rs`. Regeln wie immer: Mechanismus
+   belegen, Vorbild nennen, Smoke-Prüfung + Gegenprobe, drei volle Läufe; Befunde direkt beheben,
+   größere Umbauten vorher dem Besitzer vorlegen.
+
+**0.5.111 getestet (27.10., `~/hw-logs/results-20261027-143412`). Besitzer: „hat richtig gut
+geklappt“, Bildschirm aus/an funktioniert.** Teil 6: Abblenden nach genau 600 s, aus 10,0 s
+später, Maus nach 90 s: an, neuer Modus sofort, `dpms` On, Kernel schweigt (nouveau trainiert
+den Link beim Wiedereinschalten ohne Fehler). Lasttest 111 761 Bilder (0.5.109: 110 768), „at
+most 1 on their way“; Testfenster 4763 von 4800 (wie 0.5.109), 35 spät; Resize 3 ms, `held:`
+flach (8–16 dmabufs); Warnung nur der bekannte Smithay-Blob beim Wiedereinschalten. Ein spätes
+Bild „GPU“ beim ersten Abblendbild (ganzer Schirm, 1,5 ms GPU) – einmalig, hinnehmbar.
 
 **27.10.: idle-inhibit + Bildschirm aus erledigt** (ADR 0029 §7, `idle.rs`; Smoke
 `screen_goes_off` in einer zweiten Sitzung mit 3 s Frist, Gegenproben rot: Inhibitor
