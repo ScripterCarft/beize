@@ -2,7 +2,7 @@
 name = "bash"
 version = "5.3"
 stage = "target"
-deps = ["gcc", "glibc"]
+deps = ["gcc", "glibc", "ncurses"]
 
 [source]
 latest = { release-monitoring = 166 }
@@ -13,10 +13,15 @@ keyring = "bash"
 
 [build]
 script = '''
-# Answers for checks that cannot run when cross compiling.
+# Answers for checks that cannot run when cross compiling. The terminal's
+# capabilities from ncurses' terminfo, as Fedora's and Arch's bash: without
+# it bash falls back to its own termcap reading /etc/termcap, which Beize
+# has not, and Readline knows no terminal (no wrapping, no clearing to the
+# end of the line). Named here, so a missing ncurses fails the link.
 "$SRC/configure" \
   --host="$TARGET" --build="$("$SRC/support/config.guess")" --prefix=/usr \
-  --without-bash-malloc --disable-nls \
+  --without-bash-malloc --disable-nls --with-curses \
+  bash_cv_termcap_lib=libncursesw \
   bash_cv_getcwd_malloc=yes bash_cv_job_control_missing=present \
   bash_cv_sys_named_pipes=present bash_cv_func_sigsetjmp=present \
   bash_cv_printf_a_format=yes bash_cv_strtold_broken=no
