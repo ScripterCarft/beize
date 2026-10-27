@@ -315,13 +315,13 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.111 bereit)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.111 auf dem Stick)
 
 **JETZT: Messbau 0.5.111** (Tag `measure/desktop-0.5.111`, 34e1a2b; Zweig `measure/desktop` neu
 auf main 05fdbe0 = Commit von 0.5.110 + Version + `hw-test.sh` Teil 6 „Bildschirm aus“ statt
 Knöpfe/Wellen; Smoke grün, nouveau-Patches angewendet; Teil 6 nur `bash -n`, 10 min in der VM
-nicht gelaufen). Besitzer: Force-Push `measure/desktop` + Tag, `docs/hardware.md` A–C, dann
-„Release fertig“ → Claude kopiert Release und Skript auf D:. Der nächste Chat wertet aus:
+nicht gelaufen). **Auf dem Stick** (27.10. 14:30, `D:eize-0.5.111` und `D:eize-test`, Prüfsummen auf D:
+geprüft); Besitzer testet nach `docs/hardware.md` B–C. Der nächste Chat wertet aus:
 vor allem Teil 6 (kommt das Bild nach dem Abschalten wieder?), Teil 5 lange Zeile/Pfeil hoch.
 
 **27.10.: idle-inhibit + Bildschirm aus erledigt** (ADR 0029 §7, `idle.rs`; Smoke
