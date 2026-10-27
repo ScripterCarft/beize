@@ -11,6 +11,10 @@
 //!
 //! `--windows N` (default 12), `--size WxH` the content of each (default
 //! 640x400; the compositor cascades them), `--seconds S` (default 20).
+//! `--rotate` begins each round of drawing at the next window rather than
+//! the first: drawn in a fixed order, the later windows got fewer frames
+//! (0.5.111: 9380 to 9061), likely as their commits came after the frame's
+//! drawing began; if so, rotated, all get about the same.
 //! At the end one line per window, `window I: F frames, between frames
 //! median M ms, max X ms`, then `load: N windows, F frames in S s, at most
 //! A on their way` – a window's frames drawn and not yet shown at once.
@@ -41,6 +45,7 @@ struct Options {
     windows: u32,
     size: (u32, u32),
     seconds: u64,
+    rotate: bool,
 }
 
 fn options() -> Result<Options, String> {
@@ -48,9 +53,14 @@ fn options() -> Result<Options, String> {
         windows: 12,
         size: (640, 400),
         seconds: 20,
+        rotate: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
+        if arg == "--rotate" {
+            options.rotate = true;
+            continue;
+        }
         let value = args.next().ok_or(format!("{arg} needs a value"))?;
         let number = || {
             value
@@ -102,6 +112,7 @@ fn run() -> Result<(), String> {
     // The most frames of a window on their way at once, drawn and not yet
     // shown: one, as Beize UI paces its windows.
     let mut ahead = 0;
+    let mut first = 0;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
         // Each window draws as soon as its last frame is shown (`ready`):
         // the compositor's frames pace the loop.
@@ -114,10 +125,14 @@ fn run() -> Result<(), String> {
             window.configured |= events.configured;
         }
         let t = start.elapsed().as_secs_f32();
-        for window in &mut windows {
+        let count = windows.len();
+        let mut drew = false;
+        for n in 0..count {
+            let window = &mut windows[(first + n) % count];
             if !(window.configured && app.ready(window.id)) {
                 continue;
             }
+            drew = true;
             let (w, h) = app.size(window.id);
             let frame = window.drawn.len() + 1;
             let scene = scene(app.text(), w, h, window.index, frame, t);
@@ -125,6 +140,10 @@ fn run() -> Result<(), String> {
             window.drawn.push(Instant::now());
             let (drawn, shown) = app.frames(window.id);
             ahead = ahead.max(drawn.wrapping_sub(shown));
+        }
+        // A round is a wake that drew.
+        if options.rotate && drew {
+            first = (first + 1) % count.max(1);
         }
     }
     let mut total = 0;

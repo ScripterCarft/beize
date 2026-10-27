@@ -3,8 +3,14 @@
 //! buffers, and the atlases on the GPU – glyphs and symbols, images in
 //! colour – filled as the scenes need them (`glyphs`).
 //!
-//! Two frames are in flight, as in the compositor: a frame's objects are
-//! reused once the timeline says its last submission is done.
+//! Two frames are in flight per window, as in the compositor: a frame's
+//! objects are reused once the timeline says its last submission is done.
+//! Each window has its own, as GTK's renderer keeps its frames per surface:
+//! with two for all, drawing a window waited for the GPU to finish the one
+//! drawn two before it – an app's windows in a row, CPU and GPU in turn,
+//! and the last of the load test's 12 lost a frame in 30 (0.5.111).
+
+use std::collections::HashMap;
 
 use ash::vk;
 use beize_vulkan::barrier::{
@@ -17,6 +23,7 @@ use beize_vulkan::image::{Sampled, own_image};
 use beize_vulkan::pipeline::{Attachment, ENCODE, EXACT, MASK, Quad};
 use tracing::{debug, warn};
 
+use crate::WindowId;
 use crate::gpu::Gpu;
 use beize_draw::glyphs::{ATLAS_SIZE, COLOUR_ATLAS_SIZE, Glyphs};
 use beize_draw::{Atlases, Scene};
@@ -70,11 +77,20 @@ struct InFlight {
     submission: u64,
 }
 
+/// A window's frames (`in_flight`), taken in turn.
+struct Ring {
+    frames: [usize; IN_FLIGHT],
+    next: usize,
+}
+
 pub struct Renderer {
     pub(crate) gpu: Gpu,
     pool: vk::CommandPool,
     in_flight: Vec<InFlight>,
-    current: usize,
+    /// Each window's frames; None for an offscreen image's. They live as
+    /// long as the renderer, as an app's windows do (`App` destroys them
+    /// together); once a window can close alone, its ring has to go with it.
+    rings: HashMap<Option<WindowId>, Ring>,
     submitted: u64,
     glyphs: Glyphs,
     atlas: GpuAtlas,
@@ -97,7 +113,7 @@ impl Renderer {
             gpu,
             pool: vk::CommandPool::null(),
             in_flight: Vec::new(),
-            current: 0,
+            rings: HashMap::new(),
             submitted: 0,
             glyphs: Glyphs::new(),
             atlas: GpuAtlas::new(ATLAS_FORMAT, ATLAS_SIZE),
@@ -115,11 +131,23 @@ impl Renderer {
             )
         }
         .context("command pool")?;
-        for _ in 0..IN_FLIGHT {
-            let frame = renderer.in_flight_new()?;
-            renderer.in_flight.push(frame);
-        }
         Ok(renderer)
+    }
+
+    /// Where `window`'s next frame is in `in_flight`; its frames are made
+    /// when it first draws.
+    fn frame(&mut self, window: Option<WindowId>) -> Result<usize> {
+        if let Some(ring) = self.rings.get(&window) {
+            return Ok(ring.frames[ring.next]);
+        }
+        let mut frames = [0; IN_FLIGHT];
+        for slot in &mut frames {
+            *slot = self.in_flight.len();
+            let frame = self.in_flight_new()?;
+            self.in_flight.push(frame);
+        }
+        self.rings.insert(window, Ring { frames, next: 0 });
+        Ok(frames[0])
     }
 
     fn in_flight_new(&self) -> Result<InFlight> {
@@ -147,27 +175,29 @@ impl Renderer {
         }
     }
 
-    /// Waits until the next frame's objects are free; returns the
+    /// Waits until `window`'s next frame's objects are free; returns the
     /// semaphore a swapchain image for it is acquired with.
-    pub(crate) fn next(&mut self) -> Result<vk::Semaphore> {
-        let frame = &self.in_flight[self.current];
+    pub(crate) fn next(&mut self, window: Option<WindowId>) -> Result<vk::Semaphore> {
+        let i = self.frame(window)?;
+        let frame = &self.in_flight[i];
         self.gpu.shared.wait(frame.submission)?;
         self.gpu.shared.collect();
         Ok(frame.acquired)
     }
 
-    /// Draws `scene` into `target` (the frame after `next`), after `wait`
-    /// at the colour output, signalling `signal` when done. Returns the
-    /// submission.
+    /// Draws `scene` into `target` (`window`'s frame after `next`), after
+    /// `wait` at the colour output, signalling `signal` when done. Returns
+    /// the submission.
     pub(crate) fn draw(
         &mut self,
+        window: Option<WindowId>,
         scene: &Scene,
         target: &Target,
         wait: Option<vk::Semaphore>,
         signal: Option<vk::Semaphore>,
     ) -> Result<u64> {
-        let i = self.current;
-        self.next()?;
+        let i = self.frame(window)?;
+        self.next(window)?;
         let atlases = Atlases {
             coverage: if scene.has_glyphs() {
                 self.atlas.slot(&self.gpu)?
@@ -400,7 +430,9 @@ impl Renderer {
         }
         self.submitted = submission;
         self.in_flight[i].submission = submission;
-        self.current = (i + 1) % IN_FLIGHT;
+        if let Some(ring) = self.rings.get_mut(&window) {
+            ring.next = (ring.next + 1) % IN_FLIGHT;
+        }
         Ok(submission)
     }
 

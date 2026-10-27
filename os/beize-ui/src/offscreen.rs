@@ -80,7 +80,7 @@ impl Offscreen {
             after: After::Read(self.readback.buffer),
             via: None,
         };
-        let submission = self.renderer.draw(scene, &target, None, None)?;
+        let submission = self.renderer.draw(None, scene, &target, None, None)?;
         self.renderer.gpu.shared.wait(submission)?;
         let bytes = (self.size.0 * self.size.1 * 4) as usize;
         let mut pixels = vec![0; bytes];

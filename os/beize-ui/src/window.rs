@@ -399,7 +399,7 @@ impl Window {
         surface: &Surface,
         qh: &QueueHandle<State>,
     ) -> Result<bool> {
-        let acquired = renderer.next()?;
+        let acquired = renderer.next(Some(self.id))?;
         let swapchain = self.swapchain.as_ref().context("no swapchain")?;
         let gpu = &renderer.gpu;
         // SAFETY: the swapchain is this device's; the semaphore is
@@ -426,7 +426,7 @@ impl Window {
             via: swapchain.via.as_ref(),
         };
         let (handle, drawn) = (swapchain.handle, swapchain.drawn[index]);
-        renderer.draw(scene, &target, Some(acquired), Some(drawn))?;
+        renderer.draw(Some(self.id), scene, &target, Some(acquired), Some(drawn))?;
 
         let swapchains = [handle];
         let indices = [index as u32];
