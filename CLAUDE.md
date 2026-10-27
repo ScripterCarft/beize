@@ -320,7 +320,7 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 **JETZT: Messbau 0.5.111** (Tag `measure/desktop-0.5.111`, 34e1a2b; Zweig `measure/desktop` neu
 auf main 05fdbe0 = Commit von 0.5.110 + Version + `hw-test.sh` Teil 6 „Bildschirm aus“ statt
 Knöpfe/Wellen; Smoke grün, nouveau-Patches angewendet; Teil 6 nur `bash -n`, 10 min in der VM
-nicht gelaufen). **Auf dem Stick** (27.10. 14:30, `D:eize-0.5.111` und `D:eize-test`, Prüfsummen auf D:
+nicht gelaufen). **Auf dem Stick** (27.10. 14:30, `D:\beize-0.5.111` und `D:\beize-test`, Prüfsummen auf D:
 geprüft); Besitzer testet nach `docs/hardware.md` B–C. Der nächste Chat wertet aus:
 vor allem Teil 6 (kommt das Bild nach dem Abschalten wieder?), Teil 5 lange Zeile/Pfeil hoch.
 
