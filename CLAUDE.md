@@ -315,29 +315,28 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: 0.5.109 getestet, Bildschirmfoto fehlt noch)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: 0.5.109 ausgewertet, drei Fixes auf main)
 
-**0.5.109 getestet (26.10. 22:24, `~/hw-logs/results-20261026-222434`).** Lasttest 110 768
-Bilder (0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von
-6966 spät (display 180, GPU 24); Testfenster 4763 von 4800; Resize 1 und 4 ms, `held:` flach;
-Testclient 19 MB, Lasttest 10 MB. Keine Warnungen. **Das Foto fehlte:** der Compositor schrieb
-drei PNGs (Journal `screenshot 2560x1440: …`), das Skript suchte erst ab Teil 6, der Besitzer
-drückte schon in Teil 5 (16 s davor) – und `/run/user` ist mit dem Neustart weg. Skript kopiert
-jetzt alle Fotos der Sitzung, auch bei `hw-test.sh logs` (`measure/desktop` 0edc1b8, auf dem
-Stick; Probe + Gegenprobe). **Fotos 27.10. (`~/hw-logs/results-20261027-085037`) ausgewertet:**
-Hintergrund gedithert (±1), keine Treppen; der Besitzer meint die **weichen Wellenkanten**:
-`smoothstep(top ± 0.002)` in Bildschirmhöhen = 5,8 px bei 1440 (10–90 % über 3–4 Zeilen),
-obwohl der Kommentar „crisp“ sagt – Entscheidung des Besitzers offen (Vorschlag: Kante ~1 px
-wie die SDF-Formen). Gedrückter Knopf: Rand blieb hell (e0443e um bf4942) → behoben 55a581d
-(Rand dunkelt im Faktor der Füllung, Test + Gegenprobe). Nebenbefund im Foto, unbelegt: lange
-Befehlszeile im Terminal verstümmelt („<u),gid=…“ wie Readlines horizontal scroll, Zeilen
-überschrieben; TERM ist xterm-256color) – beim Shell-Schritt nachstellen.
-Alte Notiz zu Teil 6: Zeichen der Kreise unter dem Zeiger scharf? und das **Bildschirmfoto vom
-Hintergrund**, das der Besitzer pixelig findet (liegt in `results-*/`). Der Hintergrund ist kein
-SVG: `backdrop.frag` rechnet ihn einmal in voller Auflösung, gedithert, 1:1 gezeigt – im Code kein
-Grund für Pixel gefunden; erst am Foto den Mechanismus belegen (Banding? Kanten der Bänder? das
-kleiner gerechnete Glas?), das Design bleibt 1:1 (Besitzer). Teil 6 nur mit `bash -n` und der
-Journal-Zeile `screenshot WxH: <Pfad>` aus dem Smoke geprüft, nicht in der VM durchgespielt.
+**0.5.109 getestet (26.10., `~/hw-logs/results-20261026-222434`).** Lasttest 110 768 Bilder
+(0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von 6966
+spät (display 180, GPU 24); Testfenster 4763 von 4800; Resize 1 und 4 ms, `held:` flach; keine
+Warnungen. Foto fehlte (Skript suchte erst ab Teil 6, Besitzer drückte in Teil 5; `/run/user`
+mit dem Neustart weg) → Skript kopiert alle Fotos der Sitzung (`measure/desktop` 0edc1b8, auf
+dem Stick). Fotos 27.10. (`~/hw-logs/results-20261027-085037`) ergaben, alle auf main, Smoke grün:
+- **Wellenkanten weich** („pixelig“ war das): 0,004 Bildschirmhöhen = 5,8 px. Jetzt 1 px,
+  Abdeckung nach dem Abstand quer zur Kante wie `quad.frag` (2bf5391, Besitzer einverstanden).
+  Beleg: Python-Nachbau des Shaders trifft das Foto auf ±1, neu 1 Zeile, Licht der Kante bleibt.
+- **Gedrückter Knopf mit hellem Rand** (e0443e um bf4942) → ganzer Kreis dunkelt (55a581d, Test
+  + Gegenprobe).
+- **Terminal: lange Zeile seitlich verschoben („<…“), Reste beim Blättern:** bash hing nicht an
+  ncurses, nahm sein eigenes termcap (`/etc/termcap`, gibt es nicht) → Readline ohne Umbruch und
+  ohne Löschen bis Zeilenende. Fix fa905e1 (ncurses als Abhängigkeit, `bash_cv_termcap_lib`);
+  bash des Sysroots im PTY: vorher `<`, jetzt Umbruch; ohne ncurses scheitert der Link (geprüft).
+  **Offen, auf Hardware prüfen:** ob die „told“-Sperre in `beize-terminal/src/prompt.rs` (eine
+  Größe je Zeichnung der Shell) noch nötig ist. Die Prompt-Leerung selbst bleibt (Tests nutzen
+  ein bash mit ncurses; kitty/Ghostty machen es ebenso). Besitzer nannte die Sperre „unsauber“.
+Nächster Messbau (0.5.110) mit diesen drei Fixes; Besitzer prüft Wellen, Knopf, lange Zeilen +
+Pfeil hoch, Resize.
 
 **E erledigt (26.10.):**
 - (a) Knöpfe als SDF (c7035c4): Kreise (`Scene::circle`), Striche und Dreiecke rechnet der
