@@ -120,6 +120,9 @@ fn run() -> Result<(), String> {
     info!("menu bar {look:?}");
     // What changed since a panel's last frame, drawn once it is ready.
     let (mut redraw_bar, mut redraw_dock) = (false, false);
+    // The time the bar shows: the clock set within the minute (NTS at
+    // boot) changes nothing to draw.
+    let mut shown_time = None;
     loop {
         let mut dispatched = app
             .dispatch(None, &[Watch::Read(minutes.fd())])
@@ -137,7 +140,7 @@ fn run() -> Result<(), String> {
                 .take()
                 .map_err(|e| format!("the minute's timer: {e}"))?;
         }
-        redraw_bar |= bar_events.configured || tick;
+        redraw_bar |= bar_events.configured || (tick && clock::now() != shown_time);
         redraw_dock |= dock_events.configured;
         if app.appearance() != appearance {
             appearance = app.appearance();
@@ -215,11 +218,12 @@ fn run() -> Result<(), String> {
                     appearance
                 }
             };
+            shown_time = clock::now();
             let scene = menu_bar(
                 app.text(),
                 size,
                 active_name.as_deref(),
-                clock::now(),
+                shown_time.clone(),
                 behind,
             );
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
