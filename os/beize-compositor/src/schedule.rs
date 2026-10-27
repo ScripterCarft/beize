@@ -9,9 +9,14 @@
 //!   earlier (from the mode: blank lines × line time; Mutter and KWin both).
 //! - Ready is committed to KMS and done on the GPU (the kernel's own time
 //!   of its fence): measured from when drawing was planned to begin, so a
-//!   late wakeup counts too. The longest of the recent frames, at least
-//!   2 ms: below that timings are unpredictable when CPU or GPU change
-//!   their power state (KWin).
+//!   late wakeup counts too. Expected as KWin's `RenderJournal` does: the
+//!   times smoothed over half a second, plus twice how far they went above
+//!   that, which jumps up at once and fades over seconds; at least 2 ms:
+//!   below that timings are unpredictable when CPU or GPU change their
+//!   power state (KWin). Until 0.5.112 the longest of the last 120 frames:
+//!   half a second at 240 Hz, after which a stall that comes every 100 ms
+//!   on NVK (~2 ms before the GPU begins) was forgotten, the lead fell to
+//!   3.46 ms and the next such stall made a frame late.
 //! - Ready a margin before the vblank begins, for the kernel to program the
 //!   display: 1 ms (KWin), plus what frames that were ready later than that
 //!   lacked, learnt and slowly given back, at most 3 ms or half a refresh.
@@ -37,7 +42,6 @@
 //! and a millisecond, against the vblank's end: on nouveau most frames
 //! missed their vblank (`docs/hardware.md`).
 
-use std::collections::VecDeque;
 use std::time::Duration;
 
 /// Ready this long before the vblank begins, for the kernel to program the
@@ -52,8 +56,10 @@ const MOST_LEARNT: Duration = Duration::from_millis(3);
 const GIVE_BACK: u32 = 10;
 /// Without a frame for this many refreshes, the next is drawn at once.
 const IDLE_REFRESHES: u32 = 100;
-/// The frames whose times set the lead: a second at 120 Hz.
-const RECENT: usize = 120;
+/// How fast the expected drawing follows the frames' times, and how
+/// slowly what went above it fades (KWin's `RenderJournal`).
+const SMOOTHING: Duration = Duration::from_millis(500);
+const VARIANCE_FADING: Duration = Duration::from_secs(6);
 /// A vblank time older than this is asked of KMS anew before it is used:
 /// the display's clock drifts from the mode's nominal refresh (50 ppm are
 /// 50 µs a second).
@@ -76,10 +82,45 @@ pub struct Schedule {
     phase: Option<Duration>,
     /// When the last frame was ready.
     last: Option<Duration>,
-    /// From planned start to ready, of the recent frames.
-    drawing: VecDeque<Duration>,
+    /// From planned start to ready: what a frame is expected to take.
+    drawing: Journal,
     /// Learnt on top of `MARGIN`.
     learnt: Duration,
+}
+
+/// What a frame's drawing is expected to take, as KWin's `RenderJournal`
+/// (src/core/renderjournal.cpp): the times smoothed with a time constant
+/// of `SMOOTHING`, plus twice their variance – how far a time went above
+/// that, taken at once and fading with `VARIANCE_FADING`. In nanoseconds.
+#[derive(Default)]
+struct Journal {
+    result: f64,
+    variance: f64,
+    /// When the last time was added.
+    last: Option<Duration>,
+}
+
+impl Journal {
+    /// A frame took `time`, ready `at`.
+    fn add(&mut self, time: Duration, at: Duration) {
+        // The first: as if the last were long ago (KWin: 10 s).
+        let since = self
+            .last
+            .map_or(Duration::from_secs(10), |last| at.saturating_sub(last));
+        self.last = Some(at);
+        let (time, since) = (time.as_nanos() as f64, since.as_nanos() as f64);
+        // `mix(a, b, r)` = a·r + b·(1 − r).
+        let mix = |a: f64, b: f64, r: f64| a * r + b * (1.0 - r);
+        let ratio = (since / VARIANCE_FADING.as_nanos() as f64).clamp(0.001, 0.1);
+        let above = (time - self.result).max(0.0);
+        self.variance = mix(above, self.variance, ratio).max(above);
+        let ratio = (since / SMOOTHING.as_nanos() as f64).clamp(0.01, 1.0);
+        self.result = mix(time, self.result, ratio);
+    }
+
+    fn expected(&self) -> Duration {
+        Duration::from_nanos((self.result + 2.0 * self.variance).round() as u64)
+    }
 }
 
 impl Schedule {
@@ -89,7 +130,7 @@ impl Schedule {
             blank,
             phase: None,
             last: None,
-            drawing: VecDeque::with_capacity(RECENT),
+            drawing: Journal::default(),
             learnt: Duration::ZERO,
         }
     }
@@ -115,10 +156,7 @@ impl Schedule {
     /// planned for one, was ready (committed and done on the GPU) at
     /// `ready`.
     pub fn ready(&mut self, planned: Duration, ready: Duration, aim: Option<Duration>) {
-        if self.drawing.len() == RECENT {
-            self.drawing.pop_front();
-        }
-        self.drawing.push_back(ready.saturating_sub(planned));
+        self.drawing.add(ready.saturating_sub(planned), ready);
         self.last = Some(ready);
         let Some(aim) = aim else {
             return;
@@ -141,7 +179,7 @@ impl Schedule {
         if idle {
             return self.refresh;
         }
-        let drawing = self.drawing.iter().max().copied().unwrap_or_default();
+        let drawing = self.drawing.expected();
         (drawing.max(FLOOR) + self.blank + MARGIN + self.learnt).min(self.refresh)
     }
 
@@ -216,13 +254,36 @@ mod tests {
         Duration::from_micros(us)
     }
 
-    /// 8 ms refresh, a 0.5 ms vblank ending at 100 ms, a frame ready 1.5 ms
-    /// after it was planned: a lead of 2 (the floor) + 0.5 + 1 = 3.5 ms.
+    /// 8 ms refresh, a 0.5 ms vblank ending at 100 ms, frames that took a
+    /// steady 1.5 ms, the last ready at 102.5 ms: a lead of 2 (the floor) +
+    /// 0.5 + 1 = 3.5 ms.
     fn schedule() -> Schedule {
         let mut s = Schedule::new(at(8000), at(500));
         s.vblank(at(100_000));
         s.ready(at(101_000), at(102_500), Some(at(108_000)));
+        s.drawing = Journal {
+            result: 1_500_000.0,
+            variance: 0.0,
+            last: Some(at(102_500)),
+        };
         s
+    }
+
+    #[test]
+    fn the_journal_follows_kwins() {
+        // The first frame counts thrice (its variance is itself), as in KWin.
+        let mut j = Journal::default();
+        j.add(at(1000), at(0));
+        assert_eq!(j.expected(), at(3000));
+        // A steady time: the variance fades, the result stays.
+        let mut j = Journal {
+            result: 1_000_000.0,
+            variance: 1_000_000.0,
+            last: Some(at(0)),
+        };
+        j.add(at(1000), at(60_000));
+        // 60 ms of 6 s: a hundredth of the variance goes.
+        assert_eq!(j.expected(), at(1000) + at(1980));
     }
 
     #[test]
@@ -240,14 +301,28 @@ mod tests {
     fn the_lead_is_the_drawing_the_vblank_and_the_margin() {
         let mut s = schedule();
         assert_eq!(s.lead(at(103_000)), at(3500));
-        // A frame that took 2.5 ms: it sets the lead while it is recent.
-        s.ready(at(110_000), at(112_500), Some(at(116_000)));
-        assert_eq!(s.lead(at(113_000)), at(4000));
-        for n in 0..RECENT as u64 {
-            let t = 120_000 + n * 8000;
+        // A frame stalled to 3.5 ms (NVK's ~2 ms before the GPU begins):
+        // 2 ms above the 1.5 expected, twice that on top.
+        s.ready(at(110_000), at(113_500), Some(at(116_000)));
+        let lead = s.lead(at(114_000));
+        assert!(lead > at(7000) && lead < at(7100), "{lead:?}");
+        // Remembered for seconds, not frames: after a second of 1 ms
+        // frames (until 0.5.112 the 120 frames that set the lead), still
+        // more than a millisecond above.
+        let mut t = 114_000;
+        for _ in 0..125 {
+            t += 8000;
             s.ready(at(t), at(t + 1000), Some(at(t + 4000)));
         }
-        assert_eq!(s.lead(at(120_000 + RECENT as u64 * 8000)), at(3500));
+        let lead = s.lead(at(t + 1000));
+        assert!(lead > at(4500), "{lead:?}");
+        // Faded after half a minute.
+        for _ in 0..3750 {
+            t += 8000;
+            s.ready(at(t), at(t + 1000), Some(at(t + 4000)));
+        }
+        let lead = s.lead(at(t + 1000));
+        assert!(lead < at(3600), "{lead:?}");
     }
 
     #[test]

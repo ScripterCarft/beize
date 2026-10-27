@@ -9,7 +9,7 @@
 //! and back to the foreign queue, as wlroots' Vulkan renderer does.
 
 use std::marker::PhantomData;
-use std::os::fd::IntoRawFd;
+use std::os::fd::{AsFd, IntoRawFd};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -836,24 +836,37 @@ pub(super) fn record_frame(
 }
 
 /// Semaphores the submission waits for: the pending writes of the clients'
-/// dmabufs it reads, and the fences given to `Frame::wait`.
+/// dmabufs it reads, and the fences given to `Frame::wait`; and how many of
+/// the writes were still pending. A client's commit applies only once its
+/// buffer is written (`timing`), so a pending write is later work of that
+/// client: nouveau marks each submission a writer of every buffer shared
+/// in its VM (`nouveau_exec.c`, `DMA_RESV_USAGE_WRITE`) – the frame then
+/// waits for the client's next frame.
 pub(super) fn implicit_waits(
     d: &ash::Device,
     ext: &Ext,
     frame: &Recorded<'_>,
     _submission: u64,
-) -> Vec<vk::Semaphore> {
+) -> (Vec<vk::Semaphore>, usize) {
     let mut fds = Vec::new();
+    let mut pending = 0;
     for t in &frame.foreign {
         let Some(dmabuf) = t.0.dmabuf.as_ref().and_then(|w| w.upgrade()) else {
             continue;
         };
+        // Counted per buffer, not per plane (a video's NV12, a modifier's
+        // auxiliary plane).
+        let mut writing = false;
         for handle in dmabuf.handles() {
             match sync::pending_writes(handle) {
-                Ok(fd) => fds.push(fd),
+                Ok(fd) => {
+                    writing |= sync::pending(fd.as_fd());
+                    fds.push(fd);
+                }
                 Err(e) => debug!("a dmabuf's pending writes: {e}"),
             }
         }
+        pending += usize::from(writing);
     }
     for point in &frame.waits {
         match point.export() {
@@ -893,7 +906,7 @@ pub(super) fn implicit_waits(
             }
         }
     }
-    semaphores
+    (semaphores, pending)
 }
 
 /// An image copied to the CPU (`ExportMem`).

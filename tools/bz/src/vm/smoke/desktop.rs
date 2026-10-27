@@ -333,10 +333,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     // run0 asks for the owner's password: to unplug the screen before the
     // login and plug it in after, to mount the test medium, four times in
     // `screen_comes_back`, twice in `layout_follows` and once in
-    // `still_and_signed_out`.
+    // `still_and_signed_out` (twice when a minute began meanwhile).
     let shell = Shell::boot(
         &machine,
-        &Answers::passwords(&[SMOKE_PASSWORD; 10]),
+        &Answers::passwords(&[SMOKE_PASSWORD; 11]),
         &OWNER_CONSOLE_CREDENTIALS,
         false,
     )?;
@@ -1376,7 +1376,9 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
     // Still, nothing of the desktop wakes (ADR 0027 §6: events, no
     // polling): for IDLE_SECONDS the compositor, the shell and the terminal
     // switch to no other task, not one of their threads – measured off the
-    // minute, when the menu bar's clock ticks, once the terminal's first
+    // minute, when the menu bar's clock ticks (measured again if one began
+    // meanwhile: the run0 below lengthens the window by its password, and
+    // once, 27.10., it ended past the minute), once the terminal's first
     // frames are done – and with no test program left, whose window going
     // by itself would wake them rightly (a test client did, 25.10.) – nor
     // one still stopping. Woken, each thread that switched is named
@@ -1401,7 +1403,9 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
     thread::sleep(RUN_ENDED);
     let (_, lines) = shell.capture(&format!(
         "c() {{ cat /proc/$1/task/*/status | awk '/ctxt_switches/ {{s += $2}} END {{print s}}'; }}; \
+         for try in 1 2; do \
          while [ $((10#$(date +%S))) -gt $((58 - {IDLE_SECONDS})) ]; do sleep 0.5; done; \
+         minute=$(date +%H%M); \
          : > /tmp/idle-threads; for n in beize-compositor beize-shell beize-terminal; do \
          p=$(pgrep -f \"^/usr/lib/beize/$n\" | head -n 1); echo \"$n $p $(c $p)\"; \
          for t in /proc/$p/task/*; do echo \"$n ${{t##*/}} $(tr ' ' _ < $t/comm) \
@@ -1409,13 +1413,18 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
          done; done > /tmp/idle; since=$(date +%s.%N); \
          run0 systemd-run -q -p DynamicUser=yes true; \
          sleep {IDLE_SECONDS}; \
+         [ \"$(date +%H%M)\" = \"$minute\" ] && break; echo BEIZE-NEW-MINUTE; \
+         sleep {settle}; done; \
          while read -r n p s; do echo \"BEIZE-IDLE $n $(( $(c $p) - s ))\"; done < /tmp/idle; \
          while read -r n t name s; do \
          now=$(awk '/ctxt_switches/ {{s += $2}} END {{print s}}' /proc/*/task/$t/status 2>/dev/null); \
          [ \"${{now:-$s}}\" != \"$s\" ] && echo \"BEIZE-WOKE $n $name/$t $(( ${{now:-$s}} - s ))\"; \
          done < /tmp/idle-threads; \
          journalctl -b --since=@$since -o short-monotonic --no-pager -q | sed 's/^/BEIZE-JOURNAL /'; \
-         true"
+         true",
+        // Before measuring again, what the new minute drew settles, as
+        // before the first.
+        settle = RUN_ENDED.as_secs()
     ))?;
     let woke: Vec<(&str, u64)> = lines
         .iter()

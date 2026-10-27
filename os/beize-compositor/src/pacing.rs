@@ -95,6 +95,9 @@ pub struct Parts {
     pub commit: Duration,
     pub quads_drawn: usize,
     pub draws: usize,
+    /// Clients' buffers it read whose writes were still pending: the GPU
+    /// waited for the clients' later work first (`frame::implicit_waits`).
+    pub pending_writes: usize,
 }
 
 impl Parts {
@@ -151,6 +154,8 @@ struct Run {
     /// Quads and draw calls per frame.
     quads: Vec<f64>,
     draws: Vec<f64>,
+    /// Frames that waited for clients' later work (`Parts::pending_writes`).
+    waited: u32,
 }
 
 pub struct Pacing {
@@ -228,6 +233,9 @@ impl Pacing {
         }
         run.quads.push(times.parts.quads_drawn as f64);
         run.draws.push(times.parts.draws as f64);
+        if times.parts.pending_writes > 0 {
+            run.waited += 1;
+        }
         if vblank.saturating_sub(run.first) >= PIECE {
             self.report();
             self.run.first = vblank;
@@ -294,7 +302,7 @@ impl Pacing {
              {} frames; drawing (CPU) median {:.2} ms, 99 % {:.2}, max {:.2}; \
              GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame; \
              drawing in parts, median/99 % ms: {parts}; quads median {:.0}, max {:.0}, in \
-             draws median {:.0}, max {:.0}",
+             draws median {:.0}, max {:.0}; {} waited for clients' later work",
             run.frames,
             length.as_secs_f64(),
             1000.0 / budget,
@@ -320,6 +328,7 @@ impl Pacing {
             max(&quads),
             median(&draws),
             max(&draws),
+            run.waited,
         ))
     }
 }
@@ -363,14 +372,15 @@ fn late(
     };
     format!(
         "late frame ({who}), ms from its vblank's begin: change {:.2}, planned {:.2}, began \
-         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {gpu}; {plan}; drawing in parts, ms: \
-         {}",
+         {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {gpu}; waited for {} client \
+         buffers; {plan}; drawing in parts, ms: {}",
         at(times.requested),
         at(times.planned),
         at(times.began),
         at(times.committed),
         at(ready),
         at(shown),
+        p.pending_writes,
         Parts::NAMES
             .iter()
             .zip(p.each())
@@ -513,6 +523,7 @@ mod tests {
                 commit: at(20),
                 quads_drawn: 40,
                 draws: 3,
+                pending_writes: 2,
             },
         };
         let begins = times.due - BLANK;
@@ -532,7 +543,8 @@ mod tests {
             line,
             "late frame (display), ms from its vblank's begin: change -2.54, planned -2.54, \
              began -2.54, committed -2.34, ready -1.14, shown 4.17; on the GPU 0.08 ms, from \
-             -1.34 to -1.26, stalled 1.12; planned with a lead of 3.00 ms; drawing in parts, \
+             -1.34 to -1.26, stalled 1.12; waited for 2 client buffers; planned with a lead \
+             of 3.00 ms; drawing in parts, \
              ms: scene 0.05, glass 0.02, damage 0.05, quads 0.03, wait 0.01, begin 0.01, \
              record 0.02, sync 0.01, end 0.01, queue 0.02, planes 0.01, commit 0.02"
         );

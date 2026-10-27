@@ -200,8 +200,10 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
 - **Zeitplan** (`schedule.rs`): Gezeichnet wird so spät vor dem vblank, wie es sicher
   reicht, nicht am vblank; alle Änderungen bis zur Frist (Client, Zeiger) kommen in ein Bild.
   **Modell von KWin** (`RenderLoop`, `DrmCommitThread`), jeder Teil gemessen oder aus dem
-  Modus: Vorlauf = längste Zeit vom *geplanten* Beginn bis „ready“ (Commit und Fence der GPU)
-  der letzten 120 Bilder, mindestens 2 ms (darunter sind Zeiten bei wechselnden
+  Modus: Vorlauf = erwartete Zeit vom *geplanten* Beginn bis „ready“ (Commit und Fence der
+  GPU) wie KWins `RenderJournal`: geglättet über 0,5 s plus doppelte Abweichung nach oben,
+  die sofort steigt und über 6 s abklingt (bis 0.5.112 das Längste der letzten 120 Bilder:
+  bei 240 Hz eine halbe Sekunde, danach war ein Stau vergessen), mindestens 2 ms (darunter sind Zeiten bei wechselnden
   Energiezuständen unberechenbar) + Dauer des vblank (Leerzeilen × Zeilenzeit, wie Mutter;
   0,46 ms beim AW2723DF) + 1 ms für den Kernel + Gelerntes (Fehlbetrag später Bilder, je
   Bild ein Zehntel des Spielraums zurück, höchstens 3 ms oder ein halbes Bild). Gelernt wird
@@ -213,10 +215,14 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   durch (0.5.97–0.5.100, Einzelheiten in Git); mit dem Modell 4 von 4797 Bildern spät.
   Braucht ein Bild das ganze Bild (Vorlauf = Bildperiode), beginnt es am Flip-Ereignis des
   vblank davor (dessen Beginn), nicht an dessen Stempel (Ende): 0,43 ms mehr bei 240 Hz.
-  Offen: Bei 240 Hz bleiben dem Vorlauf über KWins Mindestwerte (3,46 ms) nur 0,71 ms; auf
-  NVK kommt etwa alle 100 ms ein Stau von ~2 ms zwischen Commit und Fence (0.5.111, nicht
-  zugeordnet), der den Vorlauf dauerhaft auf ein ganzes Bild hält; späte Bilder zeigen die
-  GPU-Spanne auf CLOCK_MONOTONIC („from … to …“, `VK_EXT_calibrated_timestamps`).
+  Bleibt ein Flip-Ereignis 1 s aus, sagt der Compositor es (Treiberfehler; lag es nur ungelesen,
+  hing er selbst) und wartet weiter, wie KWins Commit-Thread (`s_pageflipTimeout`).
+  Offen: Bei 240 Hz bleiben dem Vorlauf über KWins Mindestwerte (3,46 ms) nur 0,71 ms. Auf
+  NVK beginnt die GPU etwa alle 100 ms ~2 ms nach dem Commit (0.5.112: GPU-Spanne auf
+  CLOCK_MONOTONIC, „stalled“), auch ohne GPU-Clients; dazu wartet jedes Bild auf spätere Arbeit
+  der Clients, weil nouveau jede Submission als Schreiber aller geteilten Puffer einträgt
+  (implizite Synchronisation; „waited for … client buffers“) – Abhilfe explizite
+  Synchronisation (`linux-drm-syncobj`, wie KWin, Mutter, wlroots, niri).
   Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)

@@ -82,6 +82,28 @@ struct FileInfo {
 
 const SYNC_IOC_FILE_INFO: rustix::ioctl::Opcode = opcode::read_write::<FileInfo>(b'>', 4);
 
+/// Whether a fence of `sync_file` is still pending (`status` 0; 1 is
+/// signalled, below 0 an error, linux/sync_file.h).
+pub fn pending(sync_file: BorrowedFd<'_>) -> bool {
+    let mut arg = FileInfo {
+        name: [0; 32],
+        status: 0,
+        flags: 0,
+        num_fences: 0,
+        pad: 0,
+        sync_fence_info: 0,
+    };
+    // SAFETY: the argument has the kernel's layout and lives during the
+    // call; with no fences asked for, the kernel writes only `arg`.
+    let read = unsafe {
+        ioctl(
+            sync_file,
+            Updater::<SYNC_IOC_FILE_INFO, FileInfo>::new(&mut arg),
+        )
+    };
+    read.is_ok() && arg.status == 0
+}
+
 /// When the last fence of `sync_file` signalled, by the kernel's
 /// CLOCK_MONOTONIC (as KMS's vblank times); None while one is pending.
 pub fn signalled_at(sync_file: BorrowedFd<'_>) -> Option<std::time::Duration> {

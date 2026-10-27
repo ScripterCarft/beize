@@ -98,7 +98,7 @@ use crate::idle::{Idle, Woken};
 use crate::keyboard::Layout;
 use crate::layers::{Side, side};
 use crate::opening::{Opening, SHELL_WAIT, Veil};
-use crate::output::{Frame, Info};
+use crate::output::{FLIP_TIMEOUT, Frame, Info};
 use crate::pacing::Parts;
 use crate::scene::{self, Element};
 
@@ -207,6 +207,8 @@ pub struct State {
     pacing_timer: Option<RegistrationToken>,
     /// "Frame done" for clients when nothing was drawn.
     frame_timer: Option<RegistrationToken>,
+    /// Watches a commit for its vblank (`watch_flip`), and when it fires.
+    flip_watch: Option<(RegistrationToken, Duration)>,
     /// Draws an animated pointer's next frame.
     cursor_timer: Option<RegistrationToken>,
     /// What clients hear once their content shows (`Shown`): that of the
@@ -394,6 +396,7 @@ impl State {
             draw_timer: None,
             pacing_timer: None,
             frame_timer: None,
+            flip_watch: None,
             cursor_timer: None,
             presenting: None,
             unchanged: Vec::new(),
@@ -458,6 +461,7 @@ impl State {
         self.handle
             .insert_source(events, |event, metadata, state| match event {
                 DrmEvent::VBlank(crtc) => {
+                    state.flip_came(crtc);
                     let sequence = metadata.as_ref().map_or(0, |m| m.sequence);
                     let time = state
                         .gpu
@@ -534,6 +538,7 @@ impl State {
         if let Some(gpu) = &mut self.gpu {
             gpu.render(&[black], None, now, now, Parts::default())?;
         }
+        self.watch_flip();
         crate::notify_ready();
         Ok(())
     }
@@ -1042,6 +1047,7 @@ impl State {
                 self.changed();
             }
         }
+        self.watch_flip();
         self.animate_cursor(began);
     }
 
@@ -1091,6 +1097,92 @@ impl State {
         let now = self.clock.now().into();
         self.cursor
             .set(CursorImageStatus::Named(CursorIcon::Default), now);
+    }
+
+    /// A commit went to KMS: if its vblank has not come after
+    /// `FLIP_TIMEOUT`, that is said each time, as KWin's commit thread says
+    /// it, and waited for further – nothing is reset; the vblank, when it
+    /// comes, says how late (`Output::vblank`). An event that lay unread
+    /// meanwhile means the compositor was held up, not the driver (KWin
+    /// asks its main thread). Only while a commit waits: idle, no timer.
+    fn watch_flip(&mut self) {
+        if self.flip_watch.is_some() {
+            return;
+        }
+        // Counted from when it could show (`Output::flip_since`); while the
+        // GPU still draws, from now, looked at again then.
+        let Some(since) = self.gpu.as_ref().and_then(Gpu::flip_since) else {
+            return;
+        };
+        let now = self.now();
+        let at = since.unwrap_or(now) + FLIP_TIMEOUT;
+        let token = self.handle.insert_source(
+            Timer::from_duration(at.saturating_sub(now)),
+            |_, _, state| {
+                let now = state.now();
+                // Another session's screen is not ours to watch.
+                let waiting = state
+                    .gpu
+                    .as_ref()
+                    .filter(|_| state.session.is_active())
+                    .and_then(|gpu| Some((gpu, gpu.flip_since()?)));
+                let Some((gpu, since)) = waiting else {
+                    state.flip_watch = None;
+                    return TimeoutAction::Drop;
+                };
+                let next = match since {
+                    // The GPU still draws the frame (a client's long work it
+                    // waits for): not KMS's to show yet.
+                    None => FLIP_TIMEOUT,
+                    // A later commit than the one this was set for.
+                    Some(since) if now.saturating_sub(since) < FLIP_TIMEOUT => {
+                        FLIP_TIMEOUT - now.saturating_sub(since)
+                    }
+                    Some(since) => {
+                        let waited = now.saturating_sub(since).as_millis();
+                        // Held up (a VM's CPU stopped, the system swapping) is
+                        // no fault of the compositor or the driver: said, not
+                        // warned of.
+                        if gpu.events_waiting() {
+                            info!(
+                                "the compositor was held up: a vblank waited {waited} ms to be read"
+                            );
+                        } else {
+                            error!(
+                                "page flip timed out, no vblank {waited} ms after the frame \
+                                 was committed and drawn: a bug in the kernel driver"
+                            );
+                        }
+                        FLIP_TIMEOUT
+                    }
+                };
+                if let Some((_, at)) = &mut state.flip_watch {
+                    *at = now + next;
+                }
+                TimeoutAction::ToDuration(next)
+            },
+        );
+        match token {
+            Ok(token) => self.flip_watch = Some((token, at)),
+            Err(e) => warn!("page flip timer: {}", e.error),
+        }
+    }
+
+    /// The vblank of a commit on `crtc` came: the watch goes – not for an
+    /// event of a screen gone, nor once its time is reached: then its event
+    /// may wait in this same dispatch (calloop warns of an event for a
+    /// source gone); it finds no commit then and goes itself.
+    fn flip_came(&mut self, crtc: smithay::reexports::drm::control::crtc::Handle) {
+        if !self.gpu.as_ref().is_some_and(|gpu| gpu.flipping_on(crtc)) {
+            return;
+        }
+        let now = self.now();
+        if let Some((token, at)) = self.flip_watch
+            && now < at
+        {
+            self.flip_watch = None;
+            self.handle.remove(token);
+        }
     }
 
     /// While frames come in a row, checks twice a second whether they

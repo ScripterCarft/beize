@@ -42,7 +42,7 @@ use tracing::{debug, info, warn};
 use crate::cursor;
 use crate::error::{Context, Result, error};
 use crate::pacing::{Pacing, Parts, Times};
-use crate::render::{Target, VkRenderer, signalled_at};
+use crate::render::{Target, VkRenderer, pending, signalled_at};
 use crate::schedule::{Plan, Schedule};
 
 /// What the screen is, for clients (`wl_output`).
@@ -521,6 +521,10 @@ struct Image<F> {
 /// the background (`backdrop`) is, or if it cannot be.
 const BACKGROUND: [f32; 4] = [0.08, 0.10, 0.14, 1.0];
 
+/// A commit whose vblank has not come after this long is a driver's bug
+/// (KWin's `s_pageflipTimeout`, drm_gpu.h): said, and waited for further.
+pub const FLIP_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// The time between two vblanks of `mode`.
 fn period(mode: &Mode) -> Duration {
     let millihertz = crate::gpu::millihertz(mode).max(1);
@@ -581,6 +585,8 @@ pub struct Output<A: Allocator, F: ExportFramebuffer<A::Buffer>> {
     direct: bool,
     /// A commit waits for its vblank.
     flipping: bool,
+    /// When that commit went to KMS.
+    flip_committed: Duration,
     /// Its image, if it brought one, and when it was asked for and drawn.
     pending: Option<Pending<A::Buffer>>,
     /// When the next frame is planned to be drawn, and for which vblank
@@ -646,6 +652,7 @@ where
             cursor,
             direct,
             flipping: false,
+            flip_committed: Duration::ZERO,
             pending: None,
             planned: None,
             shown: None,
@@ -705,6 +712,42 @@ where
         let plan = self.schedule.draw_at(now);
         self.planned = Some(plan);
         Some(plan.at)
+    }
+
+    /// The commit waiting for its vblank: None if none waits; Some(None)
+    /// while the GPU still draws its frame – KMS shows it only then (its
+    /// fence), and a client's long GPU work it waits for is no driver's
+    /// fault; else since when it could show: its commit, or its fence if
+    /// later. KWin commits only once the fences have signalled
+    /// (`isReadyFor`), so its timeout too counts from there.
+    pub fn flip_since(&self) -> Option<Option<Duration>> {
+        if !self.flipping {
+            return None;
+        }
+        let fence = self.pending.as_ref().and_then(|p| p.fence.as_ref());
+        Some(match fence {
+            Some(fence) if pending(fence.as_fd()) => None,
+            // Signalled – or ended with an error (a GPU reset), which no
+            // signal time follows: counted from the commit then.
+            Some(fence) => Some(
+                signalled_at(fence.as_fd())
+                    .map_or(self.flip_committed, |done| done.max(self.flip_committed)),
+            ),
+            None => Some(self.flip_committed),
+        })
+    }
+
+    /// How long the commit waiting for its vblank has waited since it could
+    /// show (`flip_since`), once that is longer than `FLIP_TIMEOUT`
+    /// (`State::watch_flip`).
+    pub fn flip_overdue(&self, now: Duration) -> Option<Duration> {
+        let waited = now.saturating_sub(self.flip_since()??);
+        (waited > FLIP_TIMEOUT).then_some(waited)
+    }
+
+    /// The commit waiting for its vblank is on `crtc`.
+    pub fn flipping_on(&self, crtc: smithay::reexports::drm::control::crtc::Handle) -> bool {
+        self.flipping && self.crtc() == crtc
     }
 
     /// The last vblank, from KMS: the libdrm query (a wait for none).
@@ -867,6 +910,7 @@ where
         parts.queue = spent.queue;
         parts.quads_drawn = spent.quads_drawn;
         parts.draws = spent.draws;
+        parts.pending_writes = spent.pending_writes;
         parts.planes = committing.saturating_sub(placing);
         parts.damage = placing.saturating_sub(framing).saturating_sub(
             spent.quads
@@ -890,6 +934,7 @@ where
         }
         self.flipping = true;
         let committed: Duration = self.clock.now().into();
+        self.flip_committed = committed;
         parts.commit = committed.saturating_sub(committing);
         // Planned by the timer; a frame drawn without it (after a pause)
         // from when it began, for no vblank.
@@ -924,6 +969,14 @@ where
         renderer: &VkRenderer,
         metadata: Option<DrmEventMetadata>,
     ) -> Option<Duration> {
+        if self.flipping
+            && let Some(waited) = self.flip_overdue(self.clock.now().into())
+        {
+            warn!(
+                "page flip arrived after all, {} ms after the frame was committed and drawn",
+                waited.as_millis()
+            );
+        }
         self.flipping = false;
         let time = match metadata.map(|m| m.time) {
             Some(DrmEventTime::Monotonic(time)) => Some(time),

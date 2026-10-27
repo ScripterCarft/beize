@@ -40,7 +40,7 @@ use beize_vulkan::buffer::HostBuffer;
 use beize_vulkan::pipeline::{Pipelines, Quad};
 use device::{Caps, Ext, Garbage, Shared};
 pub use frame::VkFrame;
-pub use sync::signalled_at;
+pub use sync::{pending, signalled_at};
 pub use target::{Target, VkFramebuffer};
 pub use texture::VkTexture;
 
@@ -114,6 +114,9 @@ pub struct Spent {
     pub end: Duration,
     pub quads_drawn: usize,
     pub draws: usize,
+    /// Clients' buffers whose writes were still pending at submission
+    /// (`frame::implicit_waits`): the GPU waited for them.
+    pub pending_writes: usize,
     pub sync: Duration,
     pub queue: Duration,
 }
@@ -1324,7 +1327,9 @@ impl VkRenderer {
             self.spent.quads_drawn += frame.quads.len();
             self.spent.draws += draws;
             let syncing = Instant::now();
-            waits = frame::implicit_waits(&d, &self.ext, frame, submission);
+            let pending;
+            (waits, pending) = frame::implicit_waits(&d, &self.ext, frame, submission);
+            self.spent.pending_writes += pending;
             synced = syncing.elapsed();
         }
         if let Some(readout) = readout {

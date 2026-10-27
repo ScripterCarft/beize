@@ -414,6 +414,32 @@ impl Gpu {
         each!(self.screen.as_mut()?, o => o.draw_at())
     }
 
+    /// The commit waiting for its vblank: since when it could show, or
+    /// Some(None) while the GPU draws it (`Output::flip_since`).
+    pub fn flip_since(&self) -> Option<Option<Duration>> {
+        each!(self.screen.as_ref()?, o => o.flip_since())
+    }
+
+    /// The commit waiting for its vblank is on `crtc` (`Output::flipping_on`).
+    pub fn flipping_on(&self, crtc: crtc::Handle) -> bool {
+        self.screen
+            .as_ref()
+            .is_some_and(|screen| each!(screen, o => o.flipping_on(crtc)))
+    }
+
+    /// An event of the GPU waits to be read: its vblank came and the
+    /// compositor has not got to it yet.
+    pub fn events_waiting(&self) -> bool {
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
+        let fd = self.drm.device_fd();
+        let mut fds = [PollFd::new(fd, PollFlags::IN)];
+        let now = Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        poll(&mut fds, Some(&now)).is_ok_and(|n| n > 0)
+    }
+
     /// The vblank the frame about to be drawn shows at (`Output::aim`).
     pub fn aim(&self) -> Option<Duration> {
         each!(self.on()?, o => Some(o.aim()))
