@@ -841,7 +841,9 @@ pub(super) fn record_frame(
 /// buffer is written (`timing`), so a pending write is later work of that
 /// client: nouveau marks each submission a writer of every buffer shared
 /// in its VM (`nouveau_exec.c`, `DMA_RESV_USAGE_WRITE`) – the frame then
-/// waits for the client's next frame.
+/// waits for the client's next frame. Not for dmabufs synchronised
+/// explicitly: their commit applied once the acquire point signalled
+/// (`syncobj`), nothing is left to wait for.
 pub(super) fn implicit_waits(
     d: &ash::Device,
     ext: &Ext,
@@ -850,7 +852,7 @@ pub(super) fn implicit_waits(
 ) -> (Vec<vk::Semaphore>, usize) {
     let mut fds = Vec::new();
     let mut pending = 0;
-    for t in &frame.foreign {
+    for t in frame.foreign.iter().filter(|t| !t.explicit()) {
         let Some(dmabuf) = t.0.dmabuf.as_ref().and_then(|w| w.upgrade()) else {
             continue;
         };

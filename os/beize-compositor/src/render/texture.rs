@@ -6,7 +6,7 @@
 use std::fmt;
 use std::os::fd::{AsRawFd, IntoRawFd};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use smithay::backend::allocator::Buffer as _;
 use smithay::backend::allocator::Fourcc;
@@ -59,6 +59,13 @@ pub(super) struct Inner {
     /// A client's dmabuf: owned by the foreign queue between frames, its
     /// writes waited for, our reads added to it.
     pub dmabuf: Option<WeakDmabuf>,
+    /// The dmabuf's last applied commit came with an acquire point, which
+    /// was waited for (linux-drm-syncobj, `syncobj`): no implicit sync
+    /// for it.
+    pub explicit: AtomicBool,
+    /// It came with a release point, which tells the client when we are
+    /// done: frames that read it keep it (`syncobj::Holds`).
+    pub released: AtomicBool,
     /// Holds content (an own image after its first upload).
     pub filled: AtomicBool,
     /// A picture's sRGB view, which the compositor draws into
@@ -84,6 +91,16 @@ impl VkTexture {
 
     pub fn has_alpha(&self) -> bool {
         self.0.has_alpha
+    }
+
+    /// A client's dmabuf synchronised explicitly (`Inner::explicit`).
+    pub(super) fn explicit(&self) -> bool {
+        self.0.explicit.load(Ordering::Relaxed)
+    }
+
+    /// One whose release point we signal (`Inner::released`).
+    pub(super) fn released(&self) -> bool {
+        self.0.released.load(Ordering::Relaxed)
     }
 
     /// Its place in the texture array, for quads of its own (beize-draw).
@@ -278,6 +295,8 @@ pub(super) fn wrap(
         fourcc,
         has_alpha,
         dmabuf,
+        explicit: AtomicBool::new(false),
+        released: AtomicBool::new(false),
         filled: AtomicBool::new(filled),
         attachment,
     })))

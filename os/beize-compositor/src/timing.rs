@@ -4,7 +4,8 @@
 //! compositor lifts it.
 //!
 //! - drawn: a commit of a dmabuf waits until the client's GPU has written it
-//!   (its implicit write fence), as Mutter, KWin, niri and Smithay's anvil
+//!   (its implicit write fence, `wait_written`; its acquire point with
+//!   explicit sync, `syncobj`), as Mutter, KWin, niri and Smithay's anvil
 //!   hold it; till then the surface shows what it showed. Applied at once,
 //!   the frame's own submission waited for the client's work on the GPU, and
 //!   KMS showed it only then: a slow client held up every window and the
@@ -40,8 +41,7 @@ use tracing::warn;
 use crate::state::State;
 
 /// Watches a new surface's commits for a time they wait for – this hook
-/// comes before Smithay's, which takes the time and holds the commit back –
-/// and for a dmabuf the GPU still writes.
+/// comes before Smithay's, which takes the time and holds the commit back.
 pub fn watch(surface: &WlSurface) {
     add_pre_commit_hook::<State, _>(surface, |state, _, surface| {
         let time = with_states(surface, |states| {
@@ -54,35 +54,38 @@ pub fn watch(surface: &WlSurface) {
             state.wake_for(duration(time));
         }
     });
-    add_pre_commit_hook::<State, _>(surface, |state, _, surface| {
-        let dmabuf = with_states(surface, |states| {
-            match states
-                .cached_state
-                .get::<SurfaceAttributes>()
-                .pending()
-                .buffer
-                .as_ref()
-            {
-                Some(BufferAssignment::NewBuffer(buffer)) => get_dmabuf(buffer).ok().cloned(),
-                _ => None,
-            }
-        });
-        let (Some(dmabuf), Some(client)) = (dmabuf, surface.client()) else {
-            return;
-        };
-        // Err: written already, nothing to wait for.
-        let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) else {
-            return;
-        };
-        let inserted = state.handle.insert_source(source, move |_, _, state| {
-            state.unblock(vec![client.clone()]);
-            Ok(())
-        });
-        match inserted {
-            Ok(_) => add_blocker(surface, blocker),
-            Err(e) => warn!("waiting for a client's buffer: {}", e.error),
+}
+
+/// Holds a commit of a dmabuf back until the GPU has written it, by its
+/// implicit fence (`syncobj::watch` calls it for commits without points).
+pub fn wait_written(state: &mut State, surface: &WlSurface) {
+    let dmabuf = with_states(surface, |states| {
+        match states
+            .cached_state
+            .get::<SurfaceAttributes>()
+            .pending()
+            .buffer
+            .as_ref()
+        {
+            Some(BufferAssignment::NewBuffer(buffer)) => get_dmabuf(buffer).ok().cloned(),
+            _ => None,
         }
     });
+    let (Some(dmabuf), Some(client)) = (dmabuf, surface.client()) else {
+        return;
+    };
+    // Err: written already, nothing to wait for.
+    let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) else {
+        return;
+    };
+    let inserted = state.handle.insert_source(source, move |_, _, state| {
+        state.unblock(vec![client.clone()]);
+        Ok(())
+    });
+    match inserted {
+        Ok(_) => add_blocker(surface, blocker),
+        Err(e) => warn!("waiting for a client's buffer: {}", e.error),
+    }
 }
 
 impl State {

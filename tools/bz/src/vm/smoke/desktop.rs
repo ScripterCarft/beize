@@ -1100,6 +1100,7 @@ fn frames(shell: &Shell) -> Result<()> {
     shell.capture("systemctl --user stop beize-testclient-frames")?;
     fifo(shell)?;
     timed(shell)?;
+    syncobj(shell)?;
 
     Ok(())
 }
@@ -1226,6 +1227,56 @@ fn timed(shell: &Shell) -> Result<()> {
     Ok(())
 }
 
+/// Explicit sync (linux-drm-syncobj): the test client's dmabufs (dumb
+/// buffers of virtio-gpu; the VM's lavapipe takes them through udmabuf)
+/// with timeline points it signals itself. Its checks are about order,
+/// not time: a commit shows only after its acquire point signalled; a
+/// buffer's release point signals (the kernel's time) no earlier than the
+/// vblank of the frame that showed it, also when the next one replaced it
+/// while that frame was on its way – which must have happened, or the
+/// check caught nothing; a buffer without points is a protocol error.
+fn syncobj(shell: &Shell) -> Result<()> {
+    let said = client_summary(
+        shell,
+        "beize-testclient-syncobj",
+        "--syncobj",
+        "syncobj protocol: ",
+    )?;
+    let line = |name: &str| {
+        said.iter()
+            .find(|l| l.starts_with(name))
+            .with_context(|| format!("no {name} line of the syncobj client: {said:?}"))
+    };
+    let acquire = line("syncobj acquire: ")?;
+    ensure!(
+        acquire == "syncobj acquire: held until signalled, shown after",
+        "a commit showed before its acquire point signalled: {acquire}"
+    );
+    let release = line("syncobj release: ")?;
+    let counts: Vec<u32> = release
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    let [after, of, replaced] = counts[..] else {
+        bail!("no counts in: {release}");
+    };
+    ensure!(
+        release.contains(" after their vblank,") && after == of && of > 0,
+        "a release point signalled while the compositor could still read its buffer: {release}"
+    );
+    ensure!(
+        replaced > 0,
+        "no buffer was replaced while its frame was on its way, the release check caught nothing: {release}"
+    );
+    let protocol = line("syncobj protocol: ")?;
+    ensure!(
+        protocol == "syncobj protocol: no_acquire_point raised",
+        "a buffer without sync points was taken: {protocol}"
+    );
+    say!("  ok: explicit sync: {acquire}; {release}; {protocol}");
+    Ok(())
+}
+
 /// Runs the test client as `unit` with `args` until it printed a line
 /// starting with `last`, then stops it; its summary lines (`name: …`).
 fn client_summary(shell: &Shell, unit: &str, args: &str, last: &str) -> Result<Vec<String>> {
@@ -1233,7 +1284,8 @@ fn client_summary(shell: &Shell, unit: &str, args: &str, last: &str) -> Result<V
         "systemd-run --user --unit={unit} /run/t/beize-testclient {args} --seconds 20 \
          && for i in $(seq 100); do journalctl --user -u {unit} -o cat | grep -q '^{last}' \
          && break; sleep 0.2; done; journalctl --user -u {unit} -o cat \
-         | grep -E '^(presentation|fifo|timed|activation [a-z ]+): '; systemctl --user stop {unit}"
+         | grep -E '^(presentation|fifo|timed|(activation|syncobj) [a-z ]+): '; \
+         systemctl --user stop {unit}"
     ))?;
     Ok(lines)
 }

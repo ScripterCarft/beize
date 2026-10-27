@@ -88,7 +88,7 @@ pub struct Gpu {
     drm: DrmDevice,
     node: DrmNode,
     /// What the renderer held when last logged (`pacing_idle`).
-    held: Option<(usize, u32)>,
+    held: Option<(usize, usize, u32)>,
     /// The screen is off (`idle`), and one that comes stays off until
     /// woken: a monitor in standby may leave and come back by itself.
     asleep: bool,
@@ -244,6 +244,16 @@ impl Gpu {
 
     pub fn renderer(&mut self) -> &mut VkRenderer {
         &mut self.renderer
+    }
+
+    /// The renderer, to look at (`renderer` to draw).
+    pub fn renderer_ref(&self) -> &VkRenderer {
+        &self.renderer
+    }
+
+    /// The GPU's DRM device, which imports the clients' syncobj timelines.
+    pub fn device_fd(&self) -> &DrmDeviceFd {
+        self.drm.device_fd()
     }
 
     /// A screen is shown: there and on.
@@ -460,7 +470,10 @@ impl Gpu {
         let held = self.renderer.held();
         if !running && self.held != Some(held) {
             self.held = Some(held);
-            info!("held: {} dmabufs of clients, {} textures", held.0, held.1);
+            info!(
+                "held: {} dmabufs of clients ({} synchronised explicitly), {} textures",
+                held.0, held.1, held.2
+            );
         }
         running
     }

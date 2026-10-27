@@ -47,6 +47,10 @@
 //!
 //! `--inhibit` keeps the screen on while its window shows, as a video
 //! player does (zwp_idle_inhibit_v1), until it ends.
+//!
+//! `--syncobj` checks explicit sync instead of all that (`syncobj`).
+
+mod syncobj;
 
 use std::fs::File;
 use std::io::Read as _;
@@ -153,6 +157,7 @@ struct Options {
     viewport: bool,
     activation: bool,
     inhibit: bool,
+    syncobj: bool,
 }
 
 /// What the next of the frames waits for.
@@ -175,6 +180,7 @@ fn options() -> Result<Options> {
         viewport: false,
         activation: false,
         inhibit: false,
+        syncobj: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -197,6 +203,7 @@ fn options() -> Result<Options> {
             "--viewport" => options.viewport = true,
             "--activation" => options.activation = true,
             "--inhibit" => options.inhibit = true,
+            "--syncobj" => options.syncobj = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -350,6 +357,11 @@ struct Shown {
 
 fn run() -> Result<()> {
     let options = options()?;
+    if options.syncobj {
+        syncobj::run()?;
+        println!("done");
+        return Ok(());
+    }
     let connection = Connection::connect_to_env().map_err(|e| format!("connecting: {e}"))?;
     let (globals, mut queue) =
         registry_queue_init::<App>(&connection).map_err(|e| format!("registry: {e}"))?;

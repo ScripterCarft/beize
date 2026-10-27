@@ -45,6 +45,7 @@ mod screenshot;
 mod shell;
 mod shell_v1;
 mod state;
+mod syncobj;
 mod timing;
 mod trust;
 mod windows;

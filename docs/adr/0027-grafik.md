@@ -37,7 +37,12 @@ Stand der Bausteine (Oktober 2026):
 
 Ein eigener Compositor (`os/beize-compositor`): Fenster, Eingabe, Effekte (Blur, Schatten,
 Ecken, Animationen) und Bildschleife. Smithay übernimmt Protokoll, KMS und Eingabe und bleibt
-unverändert (Crate aus crates.io, keine Forks). Menüleiste, Dock und Kontrollzentrum zeichnet
+unverändert (Crate aus crates.io, keine Forks). Einzige Ausnahme, befristet: ein Fehler, den
+Beize upstream meldet und dessen Patch dort liegt, kommt bis zum nächsten Smithay-Release per
+`[patch.crates-io]` von einem festen Commit (Fork des Besitzers: das Release + nur dieser
+Patch), mit Verweis auf den Upstream-PR; mit dem Release fällt er weg. Heute: importierte
+syncobj-Timelines zerstört Smithay 0.7.0 nie (je Swapchain-Bild zwei, also bei jeder
+Größenänderung einer Mesa-App). Menüleiste, Dock und Kontrollzentrum zeichnet
 ein eigener Prozess mit Beize UI, aus derselben Hand (ADR 0028). Vorbild: macOS' WindowServer
 mit Dock und Menüleiste als eigenen Prozessen.
 
@@ -221,8 +226,8 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   NVK beginnt die GPU etwa alle 100 ms ~2 ms nach dem Commit (0.5.112: GPU-Spanne auf
   CLOCK_MONOTONIC, „stalled“), auch ohne GPU-Clients; dazu wartet jedes Bild auf spätere Arbeit
   der Clients, weil nouveau jede Submission als Schreiber aller geteilten Puffer einträgt
-  (implizite Synchronisation; „waited for … client buffers“) – Abhilfe explizite
-  Synchronisation (`linux-drm-syncobj`, wie KWin, Mutter, wlroots, niri).
+  (implizite Synchronisation; „waited for … client buffers“). Abhilfe ist die explizite
+  Synchronisation (§7); ob danach 0 Puffer warten, misst der nächste Hardware-Test.
   Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
@@ -253,6 +258,27 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
   Schreibvorgänge eines Client-dmabufs wartet die GPU ab, nicht die CPU (wie wlroots).
   Geteilte Bilder wechseln per Queue-Family-Übergabe von und zur Foreign-Queue. Nur
   lavapipes Kopie in einen Dumb-Buffer wartet, weil die CPU kopiert.
+- **Explizite Synchronisation** (`linux-drm-syncobj-v1`, wie KWin, Mutter, wlroots, anvil;
+  `syncobj.rs`), angeboten, wenn der Treiber ein eventfd an einem syncobj-Punkt signalisiert
+  (Smithays Bedingung, wie Mutter). Mesas Vulkan-WSI nutzt es von selbst, wenn das Gerät keine
+  Software-GPU ist und Timeline-Semaphoren als opaque fd exportiert (`wsi_common.c`; NVK ja,
+  lavapipe nein). Ein Commit mit Acquire-Punkt wartet auf diesen statt auf den impliziten Fence
+  seines dmabufs; für einen solchen dmabuf wartet die GPU nicht auf dessen ausstehende
+  Schreibvorgänge und bekommt das Ende des Bildes nicht eingetragen – nouveau trägt jede
+  Submission als Schreiber aller geteilten Puffer ein, die implizite Synchronisation wartete
+  so auf spätere Arbeit der Clients (0.5.112). Lässt sich auf den Acquire-Punkt nicht warten
+  (kein eventfd), bleibt für diesen Commit die implizite Synchronisation. Den Release-Punkt
+  signalisiert Smithay, wenn die letzte Referenz auf den Puffer fällt; ein Bild hält die Puffer,
+  die es las, bis die GPU es beendet hat, frühestens bis zum vblank des Bildes (KMS wartete auf
+  seinen Fence) – ohne Bild unterwegs auch, wenn Clients „frame done“ ohne Bild hören –, wie
+  KWin den Release-Punkt an den Render-Fence bindet. Ein erneut angehängter Puffer behält auch
+  den neuen Release-Punkt bis dahin (Smithay ließe ihn liegen; wlroots bindet je Commit). Die
+  Protokollfehler, die Smithay nicht prüft (Puffer ohne Punkte, Punkt ohne Puffer, shm mit
+  Punkten), meldet Beize in wlroots' Reihenfolge. Clients ohne das Protokoll behalten die
+  implizite Synchronisation. Kommt Direct Scanout, gilt ein Puffer auf einer Ebene erst mit dem
+  Flip, der ihn ersetzt, als frei. In der VM nimmt lavapipe dmabufs mit Modifier über
+  `/dev/udmabuf` (Kernel `UDMABUF`, wie Fedora); der Smoke-Test prüft Acquire, Release und
+  Protokollfehler mit Dumb-Buffern von virtio-gpu.
 - **Ohne Änderung kein Bild:** Smithays Damage-Tracker mit dem Alter jedes Bildes. Ist
   nichts geändert, gibt es weder Zeichnen noch Commit, und die Anzeige-Engine zeigt das
   letzte Bild weiter. macOS' „bis 10 Hz“ ist eine Eigenschaft des Panels (ProMotion), nicht

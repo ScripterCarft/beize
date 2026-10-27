@@ -5,7 +5,8 @@
 //! shell's panels (wlr-layer-shell, `layers`) and its list of windows
 //! (beize-shell-v1, `shell_v1`), cropped and scaled surfaces (viewporter),
 //! windows that ask to become active (xdg-activation, `activation`) and
-//! surfaces that keep the screen on (idle-inhibit, `idle`).
+//! surfaces that keep the screen on (idle-inhibit, `idle`) and explicit
+//! synchronisation (linux-drm-syncobj, `syncobj`).
 //!
 //! Drawing follows the screen, not the clients: any change marks the
 //! screen for a redraw at the deadline of the next vblank (`schedule`),
@@ -66,6 +67,7 @@ use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
 };
+use smithay::wayland::drm_syncobj::{DrmSyncobjHandler, DrmSyncobjState, supports_syncobj_eventfd};
 use smithay::wayland::fifo::{FifoBarrierCachedState, FifoManagerState};
 use smithay::wayland::idle_inhibit::{IdleInhibitHandler, IdleInhibitManagerState};
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
@@ -84,8 +86,9 @@ use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::{
     delegate_commit_timing, delegate_compositor, delegate_cursor_shape, delegate_data_device,
-    delegate_dmabuf, delegate_fifo, delegate_idle_inhibit, delegate_output, delegate_presentation,
-    delegate_seat, delegate_shm, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_dmabuf, delegate_drm_syncobj, delegate_fifo, delegate_idle_inhibit, delegate_output,
+    delegate_presentation, delegate_seat, delegate_shm, delegate_viewporter,
+    delegate_xdg_decoration, delegate_xdg_shell,
 };
 use tracing::{error, info, warn};
 
@@ -101,6 +104,7 @@ use crate::opening::{Opening, SHELL_WAIT, Veil};
 use crate::output::{FLIP_TIMEOUT, Frame, Info};
 use crate::pacing::Parts;
 use crate::scene::{self, Element};
+use crate::syncobj::{self, Holds};
 
 /// Key repeat: GNOME's defaults (500 ms, then every 30 ms) until Beize's
 /// settings offer a choice.
@@ -126,6 +130,9 @@ pub struct State {
     compositor: CompositorState,
     shm: ShmState,
     dmabuf: DmabufState,
+    /// linux-drm-syncobj, if the GPU's driver signals eventfds from
+    /// syncobjs (Smithay's condition, as Mutter's).
+    syncobj: Option<DrmSyncobjState>,
     pub xdg_shell: XdgShellState,
     _xdg_decoration: XdgDecorationState,
     pub layer_shell: WlrLayerShellState,
@@ -216,6 +223,9 @@ pub struct State {
     /// nothing on the screen, told at the next vblank or a refresh later.
     presenting: Option<Shown>,
     unchanged: Vec<Shown>,
+    /// The buffers synchronised explicitly that frames on the GPU read
+    /// (`syncobj`): let go once it finished them.
+    holds: Holds,
     /// What the last frame showed, changed or not (the damage tracker's
     /// states); the other surfaces are hidden.
     drawn: RenderElementStates,
@@ -335,6 +345,7 @@ impl State {
             compositor: CompositorState::new::<State>(&display),
             shm: ShmState::new::<State>(&display, Vec::new()),
             dmabuf: DmabufState::new(),
+            syncobj: None,
             xdg_shell: XdgShellState::new::<State>(&display),
             _xdg_decoration: XdgDecorationState::new::<State>(&display),
             // Other clients do not even see the global.
@@ -400,6 +411,7 @@ impl State {
             cursor_timer: None,
             presenting: None,
             unchanged: Vec::new(),
+            holds: Holds::default(),
             drawn: RenderElementStates::default(),
             hidden_done: None,
             timed_wake: None,
@@ -468,6 +480,8 @@ impl State {
                         .as_mut()
                         .and_then(|gpu| gpu.vblank(crtc, metadata.take()));
                     state.presented(time, sequence);
+                    // `presented` took the frame that showed.
+                    state.release_read();
                     state.frame_done(time);
                     if state.redraw {
                         state.schedule_render();
@@ -493,6 +507,7 @@ impl State {
         let node = gpu.node();
         self.gpu = Some(gpu);
         self.offer_dmabuf(node);
+        self.offer_syncobj();
         match info {
             Some(info) => self.first_screen(&info),
             None => {
@@ -562,6 +577,7 @@ impl State {
                 if let Some(shown) = self.presenting.take() {
                     self.never_shown(shown);
                 }
+                self.release_read();
                 self.frame_done_later();
             }
             Ok(Change::Retrained) => self.changed(),
@@ -774,6 +790,43 @@ impl State {
                     .create_global_with_default_feedback::<State>(&self.display, &feedback);
             }
             Err(e) => warn!("no linux-dmabuf for clients: {e}"),
+        }
+    }
+
+    /// linux-drm-syncobj, with the GPU importing the clients' timelines (as
+    /// anvil): only if its driver signals an eventfd from a syncobj point,
+    /// or no commit could wait for its acquire point.
+    fn offer_syncobj(&mut self) {
+        let Some(gpu) = &self.gpu else {
+            return;
+        };
+        let device = gpu.device_fd().clone();
+        if supports_syncobj_eventfd(&device) {
+            self.syncobj = Some(DrmSyncobjState::new::<State>(&self.display, device));
+            info!("explicit sync for clients (linux-drm-syncobj)");
+        } else {
+            info!("no explicit sync: the GPU's driver has no syncobj eventfd");
+        }
+    }
+
+    /// Lets go of the buffers synchronised explicitly that finished frames
+    /// read (`syncobj`): at each vblank – KMS waited for the frame's fence,
+    /// which signals after the submission's timeline –, and while no frame
+    /// waits for its vblank when clients hear "frame done" without one (no
+    /// screen, nothing drawn). So a buffer is let go no earlier than the
+    /// vblank of the last frame that showed it, as a buffer on a plane of
+    /// its own will need (direct scanout). With some left and no vblank to
+    /// come, it looks again a refresh later.
+    fn release_read(&mut self) {
+        if self.presenting.is_some() {
+            return;
+        }
+        if let Some(gpu) = &mut self.gpu {
+            let completed = gpu.renderer().completed();
+            self.holds.done(completed);
+        }
+        if !self.holds.is_empty() {
+            self.frame_done_later();
         }
     }
 
@@ -1017,6 +1070,7 @@ impl State {
         }
         match frame {
             Ok(Frame::Queued(shown)) => {
+                self.hold_read(Some(&shown));
                 let (mut taken, hidden) = self.take_shown(&shown);
                 // Drawn: their clients may draw the next frame now, a
                 // refresh ahead of the next drawing (`take_shown`).
@@ -1044,6 +1098,8 @@ impl State {
             // for that frame, its clients' callbacks with it.
             Err(e) => {
                 warn!("a frame failed: {e:#}");
+                // It may have reached the GPU: all it could have read.
+                self.hold_read(None);
                 self.changed();
             }
         }
@@ -1229,6 +1285,7 @@ impl State {
                     state.release_timed(now);
                 }
                 state.presented_unchanged();
+                state.release_read();
                 state.frame_done(None);
                 TimeoutAction::Drop
             });
@@ -1269,7 +1326,12 @@ impl State {
         }
         if let Some(output) = &self.output {
             for panel in layer_map_for_output(output).layers() {
-                tree(panel.wl_surface());
+                let surface = panel.wl_surface();
+                tree(surface);
+                // As Smithay draws them with their panel.
+                for (popup, _) in PopupManager::popups_for_surface(surface) {
+                    tree(popup.wl_surface());
+                }
             }
         }
     }
@@ -1330,6 +1392,24 @@ impl State {
             fifo,
         };
         (shown, hidden)
+    }
+
+    /// Keeps the buffers synchronised explicitly that the frame just
+    /// drawn read – of the surfaces it shows (`shown`), or of all – until
+    /// the GPU finished it (`release_read`).
+    fn hold_read(&mut self, shown: Option<&RenderElementStates>) {
+        let Some(gpu) = &self.gpu else {
+            return;
+        };
+        let renderer = gpu.renderer_ref();
+        let mut held = Vec::new();
+        self.each_surface(|surface, states| {
+            if shown.is_none_or(|shown| shown.element_was_presented(surface)) {
+                held.extend(syncobj::held(renderer, states));
+            }
+        });
+        let submission = renderer.submitted();
+        self.holds.add(submission, held);
     }
 
     /// Tells clients their content showed: that of the frame KMS just
@@ -1759,6 +1839,7 @@ impl CompositorHandler for State {
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
+        syncobj::watch(surface);
         crate::timing::watch(surface);
     }
 
@@ -1772,6 +1853,11 @@ impl CompositorHandler for State {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
+        if let Some(gpu) = &self.gpu {
+            let replaced = syncobj::applied(gpu.renderer_ref(), surface);
+            let submission = gpu.renderer_ref().submitted();
+            self.holds.add(submission, replaced);
+        }
         on_commit_buffer_handler::<State>(surface);
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
@@ -1787,6 +1873,12 @@ impl CompositorHandler for State {
         crate::layers::committed(self, surface);
         self.cursor.committed(surface);
         self.changed();
+    }
+}
+
+impl DrmSyncobjHandler for State {
+    fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
+        self.syncobj.as_mut()
     }
 }
 
@@ -1884,6 +1976,7 @@ impl IdleInhibitHandler for State {
 delegate_compositor!(State);
 delegate_shm!(State);
 delegate_dmabuf!(State);
+delegate_drm_syncobj!(State);
 delegate_seat!(State);
 delegate_data_device!(State);
 delegate_output!(State);

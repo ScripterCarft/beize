@@ -18,6 +18,7 @@ mod texture;
 
 use std::collections::HashMap;
 use std::os::fd::AsFd;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -232,10 +233,35 @@ impl VkRenderer {
         &self.name
     }
 
-    /// The clients' dmabufs it holds, and the textures in use: both stay
-    /// flat while windows come, go and change size (a leak shows here).
-    pub fn held(&self) -> (usize, u32) {
-        (self.dmabufs.len(), self.shared.textures_in_use())
+    /// The clients' dmabufs it holds, of them those synchronised
+    /// explicitly, and the textures in use: they stay flat while windows
+    /// come, go and change size (a leak shows here).
+    pub fn held(&self) -> (usize, usize, u32) {
+        let explicit = self.dmabufs.values().filter(|t| t.explicit()).count();
+        (self.dmabufs.len(), explicit, self.shared.textures_in_use())
+    }
+
+    /// Whether `dmabuf`'s last applied commit is synchronised explicitly –
+    /// its acquire point waited for –, and whether it has a release point
+    /// (`syncobj`); its imported texture keeps both. Without one (never
+    /// imported) nothing is drawn from it.
+    pub fn synced_explicitly(&self, dmabuf: &Dmabuf, explicit: bool, released: bool) {
+        if let Some(texture) = self.dmabufs.get(&dmabuf.weak()) {
+            texture.0.explicit.store(explicit, Ordering::Relaxed);
+            texture.0.released.store(released, Ordering::Relaxed);
+        }
+    }
+
+    /// Whether frames that read `dmabuf` keep it for its release point.
+    pub fn released_explicitly(&self, dmabuf: &Dmabuf) -> bool {
+        self.dmabufs
+            .get(&dmabuf.weak())
+            .is_some_and(VkTexture::released)
+    }
+
+    /// The number of the last submission the GPU finished.
+    pub fn completed(&self) -> u64 {
+        self.shared.completed()
     }
 
     /// Where the CPU's time went in the submissions since the last call.
@@ -1485,8 +1511,10 @@ impl VkRenderer {
             }
         };
         // Into the dmabufs the frame touched: readers and writers of them
-        // elsewhere see it (implicit sync).
-        for texture in &frame.foreign {
+        // elsewhere see it (implicit sync). Not into those synchronised
+        // explicitly: their clients wait for the release point instead
+        // (`syncobj`; the protocol leaves implicit sync to the compositor).
+        for texture in frame.foreign.iter().filter(|t| !t.explicit()) {
             if let Some(dmabuf) = texture.0.dmabuf.as_ref().and_then(|w| w.upgrade())
                 && let Some(handle) = dmabuf.handles().next()
                 && let Err(e) = sync::attach(handle, fd.as_fd(), false)
