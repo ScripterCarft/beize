@@ -335,7 +335,7 @@ dem Stick). Fotos 27.10. (`~/hw-logs/results-20261027-085037`) ergaben, alle auf
   **Offen, auf Hardware prüfen:** ob die „told“-Sperre in `beize-terminal/src/prompt.rs` (eine
   Größe je Zeichnung der Shell) noch nötig ist. Die Prompt-Leerung selbst bleibt (Tests nutzen
   ein bash mit ncurses; kitty/Ghostty machen es ebenso). Besitzer nannte die Sperre „unsauber“.
-Nächster Messbau (0.5.110) mit diesen drei Fixes; Besitzer prüft Wellen, Knopf, lange Zeilen +
+Diese drei Fixes sind im Messbau 0.5.110 (oben); Besitzer prüft Wellen, Knopf, lange Zeilen +
 Pfeil hoch, Resize.
 
 **E erledigt (26.10.):**

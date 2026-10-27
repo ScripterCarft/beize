@@ -113,11 +113,12 @@ als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 �
    5. **Fenstergröße**: mit Strg+Alt+T ein zweites Terminal öffnen und es 20 Sekunden lang an
       der rechten unteren Ecke immer wieder ganz groß und klein ziehen. Bleibt es offen?
       Bleibt der Prompt eine saubere Zeile `beize ~ $` (in 0.5.104 vervielfachte er sich)?
-      Danach `exit` darin.
-   6. **Knöpfe und Hintergrund**: mit dem Zeiger über die drei Kreise des Terminals fahren –
-      scharf ein X, ein Strich und zwei Dreiecke (seit 0.5.109 vom Shader gerechnet)? Dann
-      das Terminal so schieben, dass die pixelig wirkende Stelle des Hintergrunds frei liegt,
-      Super+Shift+3; das Skript legt das Bildschirmfoto zu den Ergebnissen.
+      Eine Zeile länger als das Fenster tippen: bricht sie um (bis 0.5.109 schob sie mit `<`
+      nach links), bleibt nach Pfeil hoch/runter kein Rest stehen? Danach `exit` darin.
+   6. **Knöpfe und Hintergrund**: den roten Kreis gedrückt halten, dabei Super+Shift+3, dann
+      neben dem Kreis loslassen: ganzer Kreis dunkler, kein heller Ring? Wellenkanten scharf,
+      ihr Licht noch da (seit 0.5.110 1 px)? Das Skript legt alle Fotos der Sitzung zu den
+      Ergebnissen, egal in welchem Teil.
 
    Dann fragt run0 noch einmal dein Passwort (Journal des Kernels), und das Ergebnis steht da.
    Erwartet:
