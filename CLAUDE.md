@@ -422,9 +422,9 @@ bewusst echt geprüft.
 **OFFEN, in dieser Reihenfolge:**
 1. Messbau 0.5.112 **getaggt** (`measure/desktop-0.5.112` = main bf34aff + 284cf14, Tag gepusht,
    Smoke grün, `--rotate` in der VM gelaufen; `hw-test.sh`: Teil 3 dazu `--fifo 2400`,
-   `--timed 240`; Teil 4 dazu 30 s `--rotate`). **Beim Besitzer:** `git push --force-with-lease
-   origin measure/desktop`, Release bauen/signieren, „Release fertig“ → Claude kopiert auf D:,
-   dann Hardware-Test (docs/hardware.md). Auswerten: Teile begin/record/end, Draws, „stalled“, GPU-Spanne (10-Hz-Stau),
+   `--timed 240`; Teil 4 dazu 30 s `--rotate`). Zweig gepusht, Release
+   gebaut, **27.10. abends auf dem Stick** (D:eize-0.5.112, Prüfsummen ok; D:eize-test neu).
+   Besitzer testet (docs/hardware.md B–C). Auswerten: Teile begin/record/end, Draws, „stalled“, GPU-Spanne (10-Hz-Stau),
    Rotation (Verlust folgt Position?), Bildplätze je Fenster (sonst zurücknehmen), FIFO-Takt.
 2. Danach CPU je Bild (Besitzer: nach stabilen Tests): eine Pipeline statt ~50 Wechseln nur, wenn
    `record`/Draws es zeigen (Weston zeichnet Opakes ohne Blend – „immer vormultipliziert“ kostet
