@@ -315,9 +315,9 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.110 bereit)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.110 auf dem Stick)
 
-**JETZT: Messbau 0.5.110** (Tag `measure/desktop-0.5.110`, 73314bd; Smoke grün, alle drei
+**JETZT: Messbau 0.5.110 auf dem Stick** (27.10. 09:40, Prüfsummen auf D: geprüft; Tag `measure/desktop-0.5.110`, 73314bd; Smoke grün, alle drei
 nouveau-Patches angewendet; Teile 5/6 von `hw-test.sh` nur mit `bash -n` geprüft). Der Zweig
 `measure/desktop` ist **neu auf main ed52d18 aufgesetzt** (ein Commit: Patches, `kernel.rs`,
 `hw-test.sh`, Version; Dateien byte-gleich mit 0.5.109 geprüft) statt 19 alte Commits über
