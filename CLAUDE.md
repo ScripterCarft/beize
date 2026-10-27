@@ -315,7 +315,7 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27 nachts: Grund der VM-Wackler belegt, Messbau 0.5.112)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27 nachts: 0.5.112 ausgewertet, Punkte 2–4 erledigt, als Nächstes explizite Sync)
 
 **AUFTRAG DES BESITZERS (27.10.)** – vor der Shell (Schritt 4 (e)–(g)), die „auf einem stabilen
 Fundament bauen muss, nicht nur oberflächlich okay“:
@@ -419,19 +419,68 @@ kitty's Timer `resize_debounce_time`; Test belegt Bedarf; jede Ausgabe der Shell
 `beize-session` durchgesehen, ohne Befund. Smoke-Zeit 158 s: kritischer Pfad Desktop 133 s,
 keine Wiederholungen dahinter; größter fester Teil ist das echte Abblenden (10 s, GNOME) –
 bewusst echt geprüft.
-**OFFEN, in dieser Reihenfolge:**
-1. Messbau 0.5.112 **getaggt** (`measure/desktop-0.5.112` = main bf34aff + 284cf14, Tag gepusht,
-   Smoke grün, `--rotate` in der VM gelaufen; `hw-test.sh`: Teil 3 dazu `--fifo 2400`,
-   `--timed 240`; Teil 4 dazu 30 s `--rotate`). Zweig gepusht, Release
-   gebaut, **27.10. abends auf dem Stick** (D:eize-0.5.112, Prüfsummen ok; D:eize-test neu).
-   Besitzer testet (docs/hardware.md B–C). Auswerten: Teile begin/record/end, Draws, „stalled“, GPU-Spanne (10-Hz-Stau),
-   Rotation (Verlust folgt Position?), Bildplätze je Fenster (sonst zurücknehmen), FIFO-Takt.
-2. Danach CPU je Bild (Besitzer: nach stabilen Tests): eine Pipeline statt ~50 Wechseln nur, wenn
-   `record`/Draws es zeigen (Weston zeichnet Opakes ohne Blend – „immer vormultipliziert“ kostet
-   GPU-Bandbreite; dynamisch per `VK_EXT_extended_dynamic_state3`). Abblenden per GAMMA_LUT erst
-   auf Hardware belegen (nouveau `commit_core` wartet synchron). 10-Hz-Stau: ftrace im Messkernel.
-3. #41 (vCPU 21 s still) eigens untersuchen; run0-Fehler an systemd = Besitzer.
-4. Bewusst NICHT: `implicit_waits` weglassen; Smithays Damage-Tracker ersetzen.
+**0.5.112 getestet 27.10. abends (`~/hw-logs/results-20261027-181253`).** Lasttest **114 346 von
+115 200** (0.5.111: 111 761), Fenster 1–12 gleich (9531 → 9525; vorher 9380 → 9061): die Treppe
+kam von den zwei GPU-Bildplätzen für alle Fenster einer App – Bildplätze je Fenster belegt,
+bleiben. `--rotate` ebenso gleich. Testfenster 4790/4800, FIFO 2394/2399 (`1648:0` = nouveau
+meldet die alte Sequenz, wenn die Scanout-Position noch vor dem vblank liest, `drm_vblank.c`;
+kein übersprungenes Bild; Zeichnen am Flip-Ereignis sicher), timed 238/239 (ruckelt sichtbar mit
+Absicht: alle 2,5 vblanks). Jedes späte Bild: Commit ~2,8 ms vor dem vblank, **die GPU beginnt
+erst ~2,2 ms später**, arbeitet 0,1–0,4 ms, nouveau braucht ~0,8 ms → zu spät. Zwei Agenten
+(27.10., Quelltext geprüft): (a) `nouveau_exec.c:252` trägt jede Submission als WRITE in **alle**
+geteilten Puffer der VM ein; unser `implicit_waits` (EXPORT_SYNC_FILE READ) und Smithays
+`DmabufBlocker` warten damit auf spätere Arbeit der Clients (Lasttest ~20× mehr späte Bilder je
+geplantes Bild als ohne GPU-Clients); (b) Rest ~2,5 ms auf 100-ms-Raster auch ohne GPU-Clients =
+Firmware/Strom (erschlossen); (c) **hohe GPU-Priorität gibt es auf NVK/nouveau nicht**
+(`nvk_queue.c:403-406` lehnt > MEDIUM ab, Kernel ohne Prioritäten); (d) CPU ist kein Hebel
+(0,2 ms je Bild, `record` 0,02 ms) – die frühere Pipeline-Idee entfällt. Kernel-Journal fehlte:
+`run0` im Skript mit umgeleiteter Ausgabe → „Access denied“.
+**27.10. nachts erledigt (Punkte 2–4 des Besitzers, je mit Vorbild, Smoke + Gegenprobe):**
+(2) Vorlauf nach KWins `RenderJournal` (Quelltext gelesen: 0,5 s geglättet + 2× Abweichung, die
+über 6 s abklingt) statt Maximum der letzten 120 Bilder (vergaß einen Stau nach 0,5 s); `learnt`
+blieb, ist schon KWins `DrmCommitThread` (+voll, −1/10, ≤ min(3 ms, ½ Periode)). (3) Flip-Wächter
+wie KWin (`s_pageflipTimeout` 1 s): Fehler „page flip timed out … kernel driver“, weiter warten,
+später „arrived after all“; liegt das Ereignis ungelesen, hing der Compositor (info); Timer nur
+solange ein Commit wartet (Leerlauf-Check grün), Gegenprobe 1 ms rot. KWin setzt NICHTS zurück –
+Agent 2s „zurücksetzen und neu zeichnen“ wäre eigene Erfindung gewesen. (4) late-Zeilen „waited
+for N client buffers“, Summe „N waited for clients' later work“ (`sync::pending`). Prüf-Agent
+fand und behoben: Frist zählt erst ab erfülltem GPU-Fence (sonst falscher „Treiberfehler“ bei
+langer Client-GPU-Arbeit; KWin `isReadyFor`), Fence mit Fehler zählt als fertig; Timer nur vor
+seiner Frist entfernen; nur das vblank des wartenden Bildschirms; Zählung je Puffer statt Plane.
+Smoke-Wackler „still desktop woke“ (1 von 7): seit dem run0 im Leerlauf-Fenster reichte es über die
+Minutengrenze (Uhr der Shell) – jetzt wird bei neuer Minute nach Ruhezeit neu gemessen.
+**OFFEN, in dieser Reihenfolge (Besitzer: jeder Punkt in EINEM Schritt, nicht in a/b teilen;
+am Ende jedes Schritts prüft ein Agent unabhängig gegen; Mechanismus belegen, Vorbild aus dem
+Quelltext lesen, nicht aus dem Gedächtnis):**
+1. **Explizite Synchronisation** (`linux-drm-syncobj-v1`; KWin, Mutter, wlroots, niri/Smithay).
+   Belegt, gehört zusammen: (i) `DrmSyncobjState` nur wenn `supports_syncobj_eventfd` (Smithay
+   `wayland/drm_syncobj`), Import-Gerät = unsere GPU; (ii) im Pre-Commit-Hook (`timing.rs`) für
+   Commits mit Acquire-Punkt dessen Blocker (`DrmSyncPoint::generate_blocker`, wie anvil) statt
+   `DmabufBlocker`; (iii) für diese Puffer kein `pending_writes`-Warten und kein `sync::attach`
+   im Renderer (Smithay nimmt an, der Blocker hat gewartet: `drm/compositor/mod.rs:230-233`) –
+   der Renderer braucht dafür eine Markierung je dmabuf; (iv) **Release-Punkt**: Smithay
+   signalisiert ihn (und `wl_buffer.release`) beim Fallen der letzten `Buffer`-Referenz
+   (`renderer/utils/wayland.rs` `InnerBuffer::drop`); Smithays `DrmCompositor` hält die Puffer
+   eines Bildes bis zu dessen Flip – unsere Bildschleife muss die `Buffer` der gezeichneten
+   Flächen (`RendererSurfaceState::buffer`) in `Pending` bis zum vblank halten, sonst schreibt
+   der Client, während unsere GPU liest. (v) Test: in der VM nutzen Clients shm, das Protokoll
+   verbietet shm mit syncobj → Testclient mit dmabuf (virtio-gpu Dumb-Buffer per PRIME) und
+   DRM-Syncobj-Timeline; Smoke prüft Acquire (Bild erst nach Signal), Release (erst nach dem
+   vblank), Gegenproben rot. ADR 0027 §6/B nachziehen (am 26.10. zurückgestellt mit „wenn die
+   implizite Sync ein Problem wird“ – jetzt belegt). nouveau-Patch (BOOKKEEP statt WRITE wie
+   Xe/panthor – unbelegt, nachprüfen) nur als Upstream-Bericht, nie im Image.
+2. Messbau 0.5.113 mit 1 + `hw-test.sh`: Kernel-Journal per `run0 bash -c 'journalctl … > "$0"'
+   datei` (run0 bleibt am Terminal). Auswerten: „waited for … client buffers“ muss 0 sein,
+   „stalled“, späte Bilder.
+3. **Danach entscheiden (Punkt 5 des Besitzers):** bleibt der Firmware-Rest spürbar, ein zweites
+   Bild unterwegs nach KWin/Mutter („dynamic triple buffering“; Apple: Metal-Standard 3 Bilder,
+   Android SurfaceFlinger) mit ADR – erst mit diesen Zahlen, sonst wäre es Retusche.
+4. Weitere Funde Agent 2 (nicht dringend): Beize UI sendet immer die ganze Fläche als Damage
+   (`VK_KHR_incremental_present`, GTK); `frame_timer` (jetzt + Periode) statt auf den nächsten
+   vblank (niri); `Frame::Deferred` im Normalbetrieb unerreichbar (bleibt als Schutz).
+5. #41 (vCPU 21 s still) eigens untersuchen; run0-Ausgabeverlust kommt mit systemd v263.
+6. Bewusst NICHT: `implicit_waits` für Clients ohne syncobj weglassen; Smithays Damage-Tracker
+   ersetzen; GPU-Priorität (gibt es nicht); Pipelines zusammenlegen (record 0,02 ms).
 
 **0.5.111 getestet (27.10., `~/hw-logs/results-20261027-143412`). Besitzer: „hat richtig gut
 geklappt“, Bildschirm aus/an funktioniert.** Teil 6: Abblenden nach genau 600 s, aus 10,0 s
