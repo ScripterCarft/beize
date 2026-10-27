@@ -163,7 +163,11 @@ impl Schedule {
 
     /// When to draw a change there at `now`: the deadline of the next
     /// vblank, or at once if it is past (the frame may still make it, but
-    /// it is planned for none).
+    /// it is planned for none). A frame that needs the whole refresh is
+    /// drawn at once from the vblank before's event, which comes where that
+    /// vblank begins – waiting for its stamp, where it ends, lost the
+    /// vblank's duration of every such frame (0.43 ms at 240 Hz; 0.5.111
+    /// drew 346 of its 380 late frames with a lead of a refresh).
     pub fn draw_at(&self, now: Duration) -> Plan {
         let lead = self.lead(now);
         if self.phase.is_none() {
@@ -176,7 +180,7 @@ impl Schedule {
         let next = self.after(now);
         match next.checked_sub(lead) {
             Some(at) if at >= now => Plan {
-                at,
+                at: if lead >= self.refresh { now } else { at },
                 aim: Some(next),
                 lead,
             },
@@ -317,6 +321,29 @@ mod tests {
             }
         );
         assert_eq!(s.target(at(107_700)), at(116_000));
+    }
+
+    #[test]
+    fn a_frame_that_needs_the_refresh_begins_at_the_vblank_event() {
+        // A frame of 7 ms: the lead is the whole refresh. The vblank ending
+        // at 108 ms is reported at 107.5, where it begins: drawn then, for
+        // the vblank after, not at 108.
+        let mut s = schedule();
+        s.ready(at(101_000), at(108_000), Some(at(108_000)));
+        assert_eq!(s.lead(at(107_500)), at(8000));
+        s.vblank(at(108_000));
+        assert_eq!(
+            s.draw_at(at(107_520)),
+            Plan {
+                at: at(107_520),
+                aim: Some(at(116_000)),
+                lead: at(8000)
+            }
+        );
+        // Once the vblank is over, a change is late for the next: at once,
+        // planned for none, as before.
+        let plan = s.draw_at(at(109_000));
+        assert_eq!((plan.at, plan.aim), (at(109_000), None));
     }
 
     #[test]

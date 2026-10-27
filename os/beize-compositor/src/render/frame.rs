@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 use std::os::fd::IntoRawFd;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use smithay::backend::renderer::sync::SyncPoint;
 use smithay::backend::renderer::{Color32F, ContextId, Frame, Texture};
@@ -333,12 +334,14 @@ impl Frame for VkFrame<'_, '_> {
     }
 
     fn clear(&mut self, color: Color32F, at: &[Rectangle<i32, Physical>]) -> Result<()> {
+        let began = Instant::now();
         // A clear sets the colour, alpha included: no blending.
         for &rect in at {
             let mut quad = geometry::quad(&self.space, rect, None);
             quad.color = color.components();
             self.push(quad, false);
         }
+        self.renderer.spent.quads += began.elapsed();
         Ok(())
     }
 
@@ -348,6 +351,7 @@ impl Frame for VkFrame<'_, '_> {
         damage: &[Rectangle<i32, Physical>],
         color: Color32F,
     ) -> Result<()> {
+        let began = Instant::now();
         let blend = color.a() < 1.0;
         let parts: Vec<_> = geometry::absolute(dst, damage).collect();
         for part in parts {
@@ -355,6 +359,7 @@ impl Frame for VkFrame<'_, '_> {
             quad.color = color.components();
             self.push(quad, blend);
         }
+        self.renderer.spent.quads += began.elapsed();
         Ok(())
     }
 
@@ -368,6 +373,7 @@ impl Frame for VkFrame<'_, '_> {
         src_transform: Transform,
         alpha: f32,
     ) -> Result<()> {
+        let began = Instant::now();
         let parts: Vec<_> = geometry::absolute(dst, damage).collect();
         if parts.is_empty() || dst.size.w <= 0 || dst.size.h <= 0 {
             return Ok(());
@@ -399,6 +405,7 @@ impl Frame for VkFrame<'_, '_> {
             }
         }
         self.uses(texture);
+        self.renderer.spent.quads += began.elapsed();
         Ok(())
     }
 
@@ -663,7 +670,8 @@ fn record_insert(
 }
 
 /// The frame's quads, drawn into its target, with its live glass between
-/// (`inserts`; their passes' quads at `insert_addresses`).
+/// (`inserts`; their passes' quads at `insert_addresses`). Returns the
+/// number of draw calls.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn record_frame(
     d: &ash::Device,
@@ -675,7 +683,7 @@ pub(super) fn record_frame(
     insert_addresses: &[Vec<u64>],
     frame: &mut Recorded<'_>,
     submission: u64,
-) {
+) -> usize {
     let target = &*frame.target;
     let foreign = vk::QUEUE_FAMILY_FOREIGN_EXT;
     let own = frame.family;
@@ -765,12 +773,6 @@ pub(super) fn record_frame(
             );
         }
     }
-    debug!(
-        "{} quads in {draws} draws, {} live glass",
-        frame.quads.len(),
-        frame.inserts.len()
-    );
-
     // Kept for the next frame, or handed to KMS.
     let target = &*frame.target;
     if let Some(readback) = &target.readback {
@@ -830,6 +832,7 @@ pub(super) fn record_frame(
     for t in &frame.textures {
         t.used(submission);
     }
+    draws
 }
 
 /// Semaphores the submission waits for: the pending writes of the clients'

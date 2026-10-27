@@ -24,6 +24,9 @@ pub struct Ext {
     pub memory_fd: ash::khr::external_memory_fd::Device,
     pub fence_fd: ash::khr::external_fence_fd::Device,
     pub semaphore_fd: ash::khr::external_semaphore_fd::Device,
+    /// `VK_EXT_calibrated_timestamps`: when the GPU worked on a frame, on
+    /// the clock of KMS and the fences (`VkRenderer::gpu_time`).
+    pub calibrated: Option<ash::ext::calibrated_timestamps::Device>,
 }
 
 pub struct Created {
@@ -46,7 +49,10 @@ pub fn create(phd: &PhysicalDevice) -> Result<Created> {
     let instance = phd.instance().handle();
     let extensions = beize_vulkan::device::Extensions {
         required: &REQUIRED,
-        optional: &[ash::ext::image_drm_format_modifier::NAME],
+        optional: &[
+            ash::ext::image_drm_format_modifier::NAME,
+            ash::ext::calibrated_timestamps::NAME,
+        ],
     };
     // SAFETY: the physical device belongs to Smithay's instance, and the
     // device keeps a clone of it (reference-counted).
@@ -63,6 +69,8 @@ pub fn create(phd: &PhysicalDevice) -> Result<Created> {
         memory_fd: ash::khr::external_memory_fd::Device::new(instance, device),
         fence_fd: ash::khr::external_fence_fd::Device::new(instance, device),
         semaphore_fd: ash::khr::external_semaphore_fd::Device::new(instance, device),
+        calibrated: (created.optional[1] && created.timestamp_period.is_some())
+            .then(|| ash::ext::calibrated_timestamps::Device::new(instance, device)),
     };
     Ok(Created {
         caps: Caps {

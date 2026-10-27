@@ -37,6 +37,8 @@ use std::time::Duration;
 
 use tracing::{debug, info};
 
+use crate::render::GpuTime;
+
 /// A frame longer than this after the last one begins a new run: the
 /// screen was idle in between.
 const IDLE: Duration = Duration::from_millis(250);
@@ -69,36 +71,51 @@ pub struct Times {
 /// Where a frame's drawing (CPU) went, from when it began to its commit:
 /// the scene put together (every window's, panel's and shadow's
 /// elements), live glass drawn behind its panels, then the frame itself –
-/// its damage and quads (Smithay's damage tracker calling the renderer),
-/// waiting for the GPU to give back a frame's objects, the recording of
-/// its commands, the fences of the clients' buffers and its own (implicit
-/// sync) and the submission to the GPU's queue – and the commit to KMS.
+/// its damage (Smithay's damage tracker), the quads the tracker has the
+/// renderer make for each element, waiting for the GPU to give back a
+/// frame's objects, beginning its commands (uploads, the quads into their
+/// buffer), recording its barriers and draws, the fences of the clients'
+/// buffers and its own (implicit sync), ending the commands and the
+/// submission to the GPU's queue –, the planes (the pointer's, the frame's
+/// damage clips for KMS) and the commit to KMS. And how many quads it drew
+/// in how many draw calls.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Parts {
     pub scene: Duration,
     pub glass: Duration,
     pub damage: Duration,
+    pub quads: Duration,
     pub wait: Duration,
+    pub begin: Duration,
     pub record: Duration,
     pub sync: Duration,
+    pub end: Duration,
     pub queue: Duration,
+    pub planes: Duration,
     pub commit: Duration,
+    pub quads_drawn: usize,
+    pub draws: usize,
 }
 
 impl Parts {
-    const NAMES: [&str; 8] = [
-        "scene", "glass", "damage", "wait", "record", "sync", "queue", "commit",
+    const NAMES: [&str; 12] = [
+        "scene", "glass", "damage", "quads", "wait", "begin", "record", "sync", "end", "queue",
+        "planes", "commit",
     ];
 
-    fn each(&self) -> [Duration; 8] {
+    fn each(&self) -> [Duration; 12] {
         [
             self.scene,
             self.glass,
             self.damage,
+            self.quads,
             self.wait,
+            self.begin,
             self.record,
             self.sync,
+            self.end,
             self.queue,
+            self.planes,
             self.commit,
         ]
     }
@@ -126,8 +143,14 @@ struct Run {
     ahead: Vec<f64>,
     /// The schedule's lead, in milliseconds.
     lead: Vec<f64>,
+    /// Frames planned with a lead of the whole refresh: drawn at the vblank
+    /// before's event, there was no room left (`Schedule::lead`).
+    saturated: u32,
     /// The drawing's parts (`Parts`), in milliseconds.
-    parts: [Vec<f64>; 8],
+    parts: [Vec<f64>; 12],
+    /// Quads and draw calls per frame.
+    quads: Vec<f64>,
+    draws: Vec<f64>,
 }
 
 pub struct Pacing {
@@ -149,14 +172,14 @@ impl Pacing {
         }
     }
 
-    /// A drawn frame is on the screen since `vblank`; `gpu_ms` how long
-    /// the GPU worked on it, if measured, `gpu_done` when its fence
+    /// A drawn frame is on the screen since `vblank`; `gpu` how long (and
+    /// when) the GPU worked on it, if measured, `gpu_done` when its fence
     /// signalled if it had one.
     pub fn shown(
         &mut self,
         times: Times,
         vblank: Duration,
-        gpu_ms: Option<f64>,
+        gpu: Option<GpuTime>,
         gpu_done: Option<Duration>,
     ) {
         if self
@@ -187,19 +210,24 @@ impl Pacing {
             if self.run.logged < LOGGED_LATE {
                 self.run.logged += 1;
                 let shown = vblank.saturating_sub(self.blank);
-                info!("{}", late(who, &times, begins, ready, shown, gpu_ms));
+                info!("{}", late(who, &times, begins, ready, shown, gpu));
             }
         }
         let run = &mut self.run;
         run.latency.push(ms(vblank.saturating_sub(times.requested)));
         run.cpu
             .push(ms(times.committed.saturating_sub(times.began)));
-        run.gpu.extend(gpu_ms);
+        run.gpu.extend(gpu.map(|g| g.ms));
         run.ahead.push(ms(begins) - ms(ready));
         run.lead.extend(times.lead.map(ms));
+        if times.lead.is_some_and(|lead| lead >= self.refresh) {
+            run.saturated += 1;
+        }
         for (all, part) in run.parts.iter_mut().zip(times.parts.each()) {
             all.push(ms(part));
         }
+        run.quads.push(times.parts.quads_drawn as f64);
+        run.draws.push(times.parts.draws as f64);
         if vblank.saturating_sub(run.first) >= PIECE {
             self.report();
             self.run.first = vblank;
@@ -250,6 +278,7 @@ impl Pacing {
         let budget = ms(self.refresh);
         let (cpu, gpu, latency) = (sorted(&run.cpu), sorted(&run.gpu), sorted(&run.latency));
         let (ahead, lead) = (sorted(&run.ahead), sorted(&run.lead));
+        let (quads, draws) = (sorted(&run.quads), sorted(&run.draws));
         let busy = (median(&cpu) + median(&gpu)) / budget * 100.0;
         let parts = run.parts.each_ref().map(|p| sorted(p));
         let parts = Parts::NAMES
@@ -261,10 +290,11 @@ impl Pacing {
         Some(format!(
             "pacing: {} frames in {:.2} s at {:.0} Hz, {} late (drawing {}, GPU {}, display {}); \
              change to screen median {:.2} ms, max {:.2}; ready median {:.2} ms before the \
-             vblank begins, least {:.2}; lead median {:.2} ms, max {:.2}; drawing (CPU) median \
-             {:.2} ms, 99 % {:.2}, max {:.2}; \
+             vblank begins, least {:.2}; lead median {:.2} ms, max {:.2}, a whole refresh for \
+             {} frames; drawing (CPU) median {:.2} ms, 99 % {:.2}, max {:.2}; \
              GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame; \
-             drawing in parts, median/99 % ms: {parts}",
+             drawing in parts, median/99 % ms: {parts}; quads median {:.0}, max {:.0}, in \
+             draws median {:.0}, max {:.0}",
             run.frames,
             length.as_secs_f64(),
             1000.0 / budget,
@@ -278,6 +308,7 @@ impl Pacing {
             ahead.first().copied().unwrap_or(0.0),
             median(&lead),
             max(&lead),
+            run.saturated,
             median(&cpu),
             percentile(&cpu, 0.99),
             max(&cpu),
@@ -285,6 +316,10 @@ impl Pacing {
             max(&gpu),
             busy,
             budget,
+            median(&quads),
+            max(&quads),
+            median(&draws),
+            max(&draws),
         ))
     }
 }
@@ -297,7 +332,7 @@ fn late(
     begins: Duration,
     ready: Duration,
     shown: Duration,
-    gpu_ms: Option<f64>,
+    gpu: Option<GpuTime>,
 ) -> String {
     let at = |t: Duration| ms(t) - ms(begins);
     let plan = match (times.lead, times.aimed) {
@@ -306,11 +341,26 @@ fn late(
         (None, _) => "drawn without a plan".to_string(),
     };
     let p = times.parts;
-    // Of the time from commit to ready, how long the GPU worked; the rest it
-    // waited (for a client's buffer, a busy queue).
-    let gpu = gpu_ms.map_or("GPU time unknown".to_string(), |g| {
-        format!("on the GPU {g:.2} ms")
-    });
+    // Of the time from commit to ready, how long the GPU worked, and from
+    // when to when: before, it waited (for a client's buffer, a busy
+    // queue); after, its fence came late (the driver). The rest of that
+    // time is the stall.
+    let stalled = |gpu_ms: f64| (ms(ready) - ms(times.committed) - gpu_ms).max(0.0);
+    let gpu = match gpu {
+        None => "GPU time unknown".to_string(),
+        Some(GpuTime { ms, span: None }) => {
+            format!("on the GPU {ms:.2} ms, stalled {:.2}", stalled(ms))
+        }
+        Some(GpuTime {
+            ms,
+            span: Some((from, to)),
+        }) => format!(
+            "on the GPU {ms:.2} ms, from {:.2} to {:.2}, stalled {:.2}",
+            at(from),
+            at(to),
+            stalled(ms)
+        ),
+    };
     format!(
         "late frame ({who}), ms from its vblank's begin: change {:.2}, planned {:.2}, began \
          {:.2}, committed {:.2}, ready {:.2}, shown {:.2}; {gpu}; {plan}; drawing in parts, ms: \
@@ -383,7 +433,11 @@ mod tests {
             aimed: true,
             parts: Parts::default(),
         };
-        p.shown(times, at((n + shown) * vblank), Some(0.1), None);
+        let gpu = GpuTime {
+            ms: 0.1,
+            span: None,
+        };
+        p.shown(times, at((n + shown) * vblank), Some(gpu), None);
     }
 
     #[test]
@@ -448,28 +502,39 @@ mod tests {
                 scene: at(50),
                 glass: at(20),
                 damage: at(50),
+                quads: at(30),
                 wait: at(10),
+                begin: at(10),
                 record: at(20),
                 sync: at(10),
+                end: at(10),
                 queue: at(20),
+                planes: at(10),
                 commit: at(20),
+                quads_drawn: 40,
+                draws: 3,
             },
         };
         let begins = times.due - BLANK;
+        // Ready 1.2 ms after the commit, 0.08 of it on the GPU: 1.12 stalled.
         let line = late(
             "display",
             &times,
             begins,
-            times.committed,
+            times.committed + at(1200),
             at(3 * vblank) - BLANK,
-            Some(0.08),
+            Some(GpuTime {
+                ms: 0.08,
+                span: Some((times.committed + at(1000), times.committed + at(1080))),
+            }),
         );
         assert_eq!(
             line,
             "late frame (display), ms from its vblank's begin: change -2.54, planned -2.54, \
-             began -2.54, committed -2.34, ready -2.34, shown 4.17; on the GPU 0.08 ms; planned \
-             with a lead of 3.00 ms; drawing in parts, ms: scene 0.05, glass 0.02, damage 0.05, \
-             wait 0.01, record 0.02, sync 0.01, queue 0.02, commit 0.02"
+             began -2.54, committed -2.34, ready -1.14, shown 4.17; on the GPU 0.08 ms, from \
+             -1.34 to -1.26, stalled 1.12; planned with a lead of 3.00 ms; drawing in parts, \
+             ms: scene 0.05, glass 0.02, damage 0.05, quads 0.03, wait 0.01, begin 0.01, \
+             record 0.02, sync 0.01, end 0.01, queue 0.02, planes 0.01, commit 0.02"
         );
         // Only the first few of a run are logged one by one.
         let mut p = Pacing::new(REFRESH, BLANK);

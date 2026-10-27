@@ -43,7 +43,9 @@ ohne Zutun wieder alles.
 6. **Später, eigener Abschnitt:** mehrere Bildschirme gleichzeitig (Fenster verteilen,
    Menüleiste je Bildschirm wie macOS, Skalierung je Bildschirm nach EDID).
 7. **Aus bei Inaktivität** (`idle.rs`): nach 10 min ohne Eingabe (macOS, Desktop) blendet der
-   Bildschirm 10 s nach Schwarz ab (GNOME-Shell, `STANDARD_FADE_TIME`), dann CRTC, Ebenen und
+   Bildschirm 10 s nach Schwarz ab (GNOME-Shell, `STANDARD_FADE_TIME`; gezeichnet nur an den
+   255 Stufen, die ein 8-Bit-Bildschirm zeigt, statt je vblank – 0.5.111 zeichnete 2400 ganze
+   Bilder, neun von zehn pixelgleich), dann CRTC, Ebenen und
    Anschluss aus in einem Commit (Smithays `DrmSurface::clear`, wie niri). Eingabe nimmt das
    Abblenden sofort zurück bzw. schaltet ein (nächstes Bild setzt den Modus, ganz gezeichnet)
    und erreicht ihr Fenster (Weston, Mutter, niri). Aus verhält sich für Clients wie „geht“

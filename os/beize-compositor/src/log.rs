@@ -30,7 +30,11 @@ pub fn init() {
             || context
                 .lookup_current()
                 .is_none_or(|span| span.name() != "backend_vulkan_debug")
-    });
+    })
+    // Tells tracing the level, as an EnvFilter does (anvil, niri): a
+    // disabled debug! or trace! then costs a compare, not this closure –
+    // Smithay has many on each frame's path.
+    .with_max_level_hint(level);
     // The journal stamps time, unit and priority itself.
     let lines = format()
         .without_time()

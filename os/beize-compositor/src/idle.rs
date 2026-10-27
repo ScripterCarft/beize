@@ -26,6 +26,12 @@ const AFTER: Duration = Duration::from_secs(10 * 60);
 /// GNOME's fade to black before the screen blanks.
 pub const FADE: Duration = Duration::from_secs(10);
 
+/// The fade's steps: the levels of black an 8-bit screen shows over white.
+/// A frame is drawn where the screen can show the next – 255 over `FADE`
+/// rather than one each refresh (2400 at 240 Hz, each the whole screen,
+/// nine in ten the same pixels as the one before; 0.5.111).
+const STEPS: u128 = 255;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Phase {
     Awake,
@@ -126,13 +132,29 @@ impl Idle {
     }
 
     /// The black over the screen at `now`, while fading: linear, as the
-    /// lightbox's opacity; 1 once done.
+    /// lightbox's opacity, in `STEPS`; 1 once done.
     pub fn black(&self, now: Duration) -> Option<f32> {
+        let step = self.step(now)?;
+        Some(step.min(STEPS) as f32 / STEPS as f32)
+    }
+
+    /// While fading, when the black next gets darker.
+    pub fn next_step(&self, now: Duration) -> Option<Duration> {
         let Phase::Fading(since) = self.phase else {
             return None;
         };
-        let t = now.saturating_sub(since).as_secs_f64() / FADE.as_secs_f64();
-        Some(t.min(1.0) as f32)
+        let next = self.step(now)? + 1;
+        // The first nanosecond of that step (rounded up).
+        let nanos = (next * FADE.as_nanos()).div_ceil(STEPS);
+        (next <= STEPS).then(|| since + Duration::from_nanos(nanos as u64))
+    }
+
+    /// The fade's step at `now`, counted exactly in nanoseconds.
+    fn step(&self, now: Duration) -> Option<u128> {
+        let Phase::Fading(since) = self.phase else {
+            return None;
+        };
+        Some(now.saturating_sub(since).as_nanos() * STEPS / FADE.as_nanos())
     }
 
     /// The fade is all black at `now`: time for the screen to go off.
@@ -166,7 +188,8 @@ mod tests {
         assert!(idle.fade(s(700)));
         assert_eq!(idle.due(), None);
         assert_eq!(idle.black(s(700)), Some(0.0));
-        assert_eq!(idle.black(s(705)), Some(0.5));
+        // Half way: step 127 of 255.
+        assert_eq!(idle.black(s(705)), Some(127.0 / 255.0));
         assert!(!idle.faded(s(709)));
         assert!(idle.faded(s(710)));
         idle.sleep();
@@ -203,6 +226,36 @@ mod tests {
         idle.sleep();
         assert!(!idle.inhibited(s(1800)));
         assert_eq!(idle.phase, Phase::Off);
+    }
+
+    #[test]
+    fn the_fade_steps_where_the_screen_shows_a_change() {
+        let mut idle = Idle::new(Some(s(600)), s(0));
+        assert_eq!(idle.next_step(s(0)), None);
+        assert!(idle.fade(s(600)));
+        // Step 1 of 255 begins 10 s / 255 in, rounded up to the nanosecond.
+        let first = s(600) + Duration::from_nanos(39_215_687);
+        assert_eq!(idle.next_step(s(600)), Some(first));
+        assert_eq!(idle.black(first - Duration::from_nanos(1)), Some(0.0));
+        assert_eq!(idle.black(first), Some(1.0 / 255.0));
+        assert_eq!(
+            idle.next_step(first).unwrap() - first,
+            Duration::from_nanos(39_215_686)
+        );
+        // The last step is the end of the fade; after it, none.
+        let last = s(610) - Duration::from_nanos(1);
+        assert_eq!(idle.next_step(last), Some(s(610)));
+        assert_eq!(idle.black(s(610)), Some(1.0));
+        assert!(idle.faded(s(610)));
+        assert_eq!(idle.next_step(s(610)), None);
+        // 255 frames in all.
+        let mut t = s(600);
+        let mut frames = 0;
+        while let Some(next) = idle.next_step(t) {
+            t = next;
+            frames += 1;
+        }
+        assert_eq!((frames, t), (255, s(610)));
     }
 
     #[test]

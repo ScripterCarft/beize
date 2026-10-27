@@ -3,9 +3,10 @@
 //! beize-setup and `localectl set-x11-keymap` write (ADR 0017). Read
 //! directly instead of asking localed over D-Bus: no bus client in the
 //! compositor, and the file is localed's documented store. A change is
-//! applied at once (inotify on /etc, as localed replaces the file by
-//! renaming), as macOS switches input sources without logging out.
+//! applied at once (inotify on the file, `Watch`), as macOS switches input
+//! sources without logging out.
 
+use std::cell::Cell;
 use std::fs;
 use std::io::ErrorKind;
 use std::os::fd::{AsFd, OwnedFd};
@@ -96,31 +97,71 @@ fn parse(text: &str) -> Layout {
     layout
 }
 
-/// Watches /etc for localed replacing vconsole.conf.
-pub struct Watch(OwnedFd);
+/// Watches vconsole.conf itself, as systemd watches /etc/localtime
+/// (`manager_setup_timezone_change`): a write to it, a rename over it (its
+/// link count changes), its move; /etc only while it does not exist, and
+/// then only for files created or moved there. Watching all of /etc woke
+/// the compositor for every file there closed after writing – systemd
+/// takes /etc/.pwd.lock for each service with DynamicUser= (27.10.).
+pub struct Watch {
+    fd: OwnedFd,
+    /// On the file, or on /etc while there is none.
+    wd: Cell<Option<i32>>,
+}
 
 impl Watch {
     pub fn new() -> Result<Watch> {
         let fd = inotify::init(inotify::CreateFlags::CLOEXEC | inotify::CreateFlags::NONBLOCK)
             .context("inotify")?;
-        inotify::add_watch(
-            &fd,
-            "/etc",
-            inotify::WatchFlags::CLOSE_WRITE | inotify::WatchFlags::MOVED_TO,
-        )
-        .context("watching /etc")?;
-        Ok(Watch(fd))
+        let watch = Watch {
+            fd,
+            wd: Cell::new(None),
+        };
+        watch.arm().context("watching /etc/vconsole.conf")?;
+        Ok(watch)
     }
 
-    /// Reads the pending events; true if vconsole.conf was among them.
+    /// Watches the file as it is now, or /etc for it; the previous watch
+    /// goes (a file renamed over it is another inode).
+    fn arm(&self) -> rustix::io::Result<()> {
+        use inotify::WatchFlags as W;
+        let wd = match inotify::add_watch(
+            &self.fd,
+            FILE,
+            W::ATTRIB | W::MOVE_SELF | W::CLOSE_WRITE | W::DONT_FOLLOW,
+        ) {
+            Err(rustix::io::Errno::NOENT) => {
+                inotify::add_watch(&self.fd, "/etc", W::CREATE | W::MOVED_TO | W::ONLYDIR)?
+            }
+            other => other?,
+        };
+        if let Some(old) = self.wd.replace(Some(wd))
+            && old != wd
+        {
+            // Already gone when its inode went.
+            let _ = inotify::remove_watch(&self.fd, old);
+        }
+        Ok(())
+    }
+
+    /// Reads the pending events; true if vconsole.conf changed, which is
+    /// then watched anew.
     pub fn changed(&self) -> bool {
         let mut buffer = [std::mem::MaybeUninit::uninit(); 4096];
-        let mut events = inotify::Reader::new(&self.0, &mut buffer);
+        let mut events = inotify::Reader::new(&self.fd, &mut buffer);
         let mut changed = false;
         while let Ok(event) = events.next() {
+            // A watch that ended (its file gone, or replaced by `arm`).
+            if event.events().contains(inotify::ReadFlags::IGNORED) {
+                continue;
+            }
+            // In /etc, only the file's own arrival; on it, everything.
             changed |= event
                 .file_name()
-                .is_some_and(|name| name.to_bytes() == b"vconsole.conf");
+                .is_none_or(|name| name.to_bytes() == b"vconsole.conf");
+        }
+        if changed && let Err(e) = self.arm() {
+            warn!("{FILE} is no longer watched: {e}");
         }
         changed
     }
@@ -128,7 +169,7 @@ impl Watch {
 
 impl AsFd for Watch {
     fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
-        self.0.as_fd()
+        self.fd.as_fd()
     }
 }
 

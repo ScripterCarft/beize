@@ -142,6 +142,8 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
+    /// What localed last set (`reload_layout`).
+    layout: Layout,
     /// Keys pressed for the compositor (`input`): their release stays with
     /// it too, the window never hears of them.
     pub taken_keys: HashSet<Keycode>,
@@ -226,6 +228,8 @@ pub struct State {
     /// it, set while it may.
     idle: Idle,
     idle_timer: Option<RegistrationToken>,
+    /// The fade's next step (`Idle::next_step`).
+    fade_timer: Option<RegistrationToken>,
     /// Surfaces with an idle inhibitor, once per inhibitor.
     inhibitors: Vec<WlSurface>,
     failure: Option<Error>,
@@ -355,6 +359,7 @@ impl State {
             seat_state,
             seat,
             keyboard,
+            layout,
             taken_keys: HashSet::new(),
             space: Space::default(),
             unmapped: Vec::new(),
@@ -398,6 +403,7 @@ impl State {
             timed_wakes: 0,
             idle,
             idle_timer: None,
+            fade_timer: None,
             inhibitors: Vec::new(),
             failure: None,
             display,
@@ -903,7 +909,7 @@ impl State {
         // pointer still over it.
         let veil = self.opening.veil(began);
         let shade = match (veil, self.idle.black(began)) {
-            (Veil::None, Some(black)) => Veil::Fading(black),
+            (Veil::None, Some(black)) if black > 0.0 => Veil::Fading(black),
             _ => veil,
         };
         let mut elements: Vec<Element> = Vec::new();
@@ -1398,13 +1404,39 @@ impl State {
         if matches!(self.opening, Opening::Fading { .. }) {
             self.changed();
         }
-        // The fade to black (`idle`) asks for its frames the same way; once
-        // all black is on the screen, it goes off.
+        // The fade to black (`idle`) asks for its next step once one is
+        // shown; once all black is on the screen, it goes off.
         let now = self.now();
         if self.idle.faded(now) {
             self.screen_off();
-        } else if self.idle.black(now).is_some() {
-            self.changed();
+        } else {
+            self.fade_step();
+        }
+    }
+
+    /// While fading, draws when the black next gets darker
+    /// (`Idle::next_step`); a fade taken back meanwhile draws nothing.
+    fn fade_step(&mut self) {
+        if self.fade_timer.is_some() {
+            return;
+        }
+        let now = self.now();
+        let Some(at) = self.idle.next_step(now) else {
+            return;
+        };
+        let token = self.handle.insert_source(
+            Timer::from_duration(at.saturating_sub(now)),
+            |_, _, state| {
+                state.fade_timer = None;
+                if state.idle.black(state.now()).is_some() {
+                    state.changed();
+                }
+                TimeoutAction::Drop
+            },
+        );
+        match token {
+            Ok(token) => self.fade_timer = Some(token),
+            Err(e) => warn!("fade timer: {}", e.error),
         }
     }
 
@@ -1476,7 +1508,7 @@ impl State {
         let seconds = self.idle.after().unwrap_or_default().as_secs();
         if self.gpu.as_ref().is_some_and(Gpu::shows) {
             info!("no input for {seconds} s: the screen fades to black");
-            self.changed();
+            self.fade_step();
         } else {
             info!("no input for {seconds} s: no screen to fade, off");
             self.screen_off();
@@ -1612,13 +1644,20 @@ impl State {
     }
 
     /// localed changed the layout.
+    /// Only a layout other than the last: localed's one write is two
+    /// events (its file linked over the old one, then closed), and it too
+    /// writes only what differs.
     pub fn reload_layout(&mut self) {
         let layout = Layout::current();
+        if layout == self.layout {
+            return;
+        }
         let keyboard = self.keyboard.clone();
         match keyboard.set_xkb_config(self, layout.xkb()) {
             Ok(()) => info!("keyboard layout {layout}"),
             Err(e) => warn!("keyboard layout {layout}: {e:?}; keeping the previous one"),
         }
+        self.layout = layout;
     }
 }
 

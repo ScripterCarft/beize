@@ -211,8 +211,12 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   er KMS (`drmWaitVBlank` relativ 0). Der gemeldete vblank (Ereignis am Beginn, Stempel am
   Ende) ist nie der nächste. Jede Abweichung von KWins Modell fiel auf der 3070 Ti einmal
   durch (0.5.97–0.5.100, Einzelheiten in Git); mit dem Modell 4 von 4797 Bildern spät.
-  Offen: Bei 240 Hz bleiben dem Vorlauf über KWins Mindestwerte (3,46 ms) nur 0,71 ms; ein
-  Bild über 2,7 ms (GPU nach einer Pause heruntergetaktet) macht den Vorlauf ein ganzes Bild.
+  Braucht ein Bild das ganze Bild (Vorlauf = Bildperiode), beginnt es am Flip-Ereignis des
+  vblank davor (dessen Beginn), nicht an dessen Stempel (Ende): 0,43 ms mehr bei 240 Hz.
+  Offen: Bei 240 Hz bleiben dem Vorlauf über KWins Mindestwerte (3,46 ms) nur 0,71 ms; auf
+  NVK kommt etwa alle 100 ms ein Stau von ~2 ms zwischen Commit und Fence (0.5.111, nicht
+  zugeordnet), der den Vorlauf dauerhaft auf ein ganzes Bild hält; späte Bilder zeigen die
+  GPU-Spanne auf CLOCK_MONOTONIC („from … to …“, `VK_EXT_calibrated_timestamps`).
   Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)
@@ -271,7 +275,9 @@ Maxwell und Pascal), lavapipe 1.4. Beide haben alles, worauf der Renderer baut.
   Abstand von 13,33 ms bei 75 Hz.
 - **Tastatur:** das XKB-Layout, das localed in `/etc/vconsole.conf` ablegt (`XKBLAYOUT=`
   usw., vconsole.conf(5)). Gelesen wird die Datei direkt, ohne D-Bus-Client im Compositor.
-  Ändert localed sie, gilt das neue Layout sofort (inotify), wie bei macOS ohne Abmelden.
+  Ändert localed sie, gilt das neue Layout sofort (inotify auf der Datei selbst, wie systemd
+  `/etc/localtime` beobachtet; ganz `/etc` weckte den Compositor bei jeder dort geschriebenen
+  Datei), wie bei macOS ohne Abmelden.
   Wiederholung mit GNOMEs Vorgaben (500 ms, 33/s), bis die Einstellungen es anbieten.
   Strg+Alt+F1…F12 wechselt das VT über logind.
 - **Zeiger:** auf der Cursor-Ebene, zwei Dumb-Buffer ARGB8888, so groß wie der Treiber

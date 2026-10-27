@@ -820,6 +820,7 @@ where
             (result.damage.cloned(), result.sync.export(), result.states)
         };
         let damaged = damage.is_some();
+        let placing: Duration = self.clock.now().into();
         let cursor = match &mut self.cursor {
             Some(plane) => plane.update(cursor)?,
             None => None,
@@ -857,13 +858,25 @@ where
         let planes = primary.into_iter().chain(cursor);
         let committing: Duration = self.clock.now().into();
         let spent = renderer.take_spent();
+        parts.quads = spent.quads;
         parts.wait = spent.wait;
+        parts.begin = spent.begin;
         parts.record = spent.record;
         parts.sync = spent.sync;
+        parts.end = spent.end;
         parts.queue = spent.queue;
-        parts.damage = committing
-            .saturating_sub(framing)
-            .saturating_sub(spent.wait + spent.record + spent.sync + spent.queue);
+        parts.quads_drawn = spent.quads_drawn;
+        parts.draws = spent.draws;
+        parts.planes = committing.saturating_sub(placing);
+        parts.damage = placing.saturating_sub(framing).saturating_sub(
+            spent.quads
+                + spent.wait
+                + spent.begin
+                + spent.record
+                + spent.sync
+                + spent.end
+                + spent.queue,
+        );
         if self.modeset {
             self.surface
                 .commit(planes, true)
@@ -933,14 +946,14 @@ where
         };
         // KMS showed it, so its fence has signalled: when, the kernel says,
         // and how long the GPU worked on it, its timestamps.
-        let gpu_ms = renderer.gpu_ms(submission);
+        let gpu = renderer.gpu_time(submission);
         let gpu_done = fence.as_ref().and_then(|f| signalled_at(f.as_fd()));
         if learn {
             let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
             self.schedule.ready(times.planned, ready, aim);
         }
         if let Some(time) = time {
-            self.pacing.shown(times, time, gpu_ms, gpu_done);
+            self.pacing.shown(times, time, gpu, gpu_done);
         }
         self.shown = Some(slot);
         self.frames += 1;
@@ -948,7 +961,10 @@ where
         self.last = time.or(self.last);
         match self.frames {
             1 => info!("first frame on the screen; idle until something changes"),
-            n => debug!("frame {n}: {since:?} after the last, GPU {gpu_ms:?} ms"),
+            n => debug!(
+                "frame {n}: {since:?} after the last, GPU {:?} ms",
+                gpu.map(|g| g.ms)
+            ),
         }
         time
     }

@@ -27,7 +27,8 @@
 //! `--fifo N` draws N frames as Mesa's Vulkan FIFO mode does: without
 //! waiting for "frame done", each commit waiting for the one before it to
 //! show (wp_fifo), as long as one of three buffers is free; it prints how
-//! many frames were a vblank apart. `--timed N` gives each frame after the
+//! many frames were a vblank apart, and of the others how many it committed
+//! only after the frame before showed (late itself). `--timed N` gives each frame after the
 //! first a time, 2.5 refreshes after the last one showed (wp_commit_timing),
 //! and prints how many showed at the first vblank at or after their time;
 //! the first, which maps the window, gets one 100 ms ahead.
@@ -253,6 +254,8 @@ struct App {
     done_answered: Vec<u32>,
     /// How long each frame took to draw.
     draw_times: Vec<Duration>,
+    /// When each frame asked about was committed, by its number.
+    committed: Vec<Duration>,
     /// When the frames showed, if the compositor tells.
     presentation: Option<WpPresentation>,
     /// The clock its times are on.
@@ -473,6 +476,7 @@ fn run() -> Result<()> {
         frame_times: Vec::new(),
         done_answered: Vec::new(),
         draw_times: Vec::new(),
+        committed: Vec::new(),
         presentation,
         clock: None,
         asked: 0,
@@ -650,6 +654,9 @@ impl App {
             if let Some(presentation) = &self.presentation {
                 presentation.feedback(&self.surface, qh, ());
                 self.asked += 1;
+                self.committed
+                    .resize(self.asked as usize - 1, Duration::ZERO);
+                self.committed.push(monotonic());
             }
             self.bar = (self.bar + BAR_STEP) % (size.0 - BAR_SIZE.0).max(1);
         }
@@ -813,9 +820,22 @@ impl App {
                     .collect();
                 println!(
                     "fifo: {apart} of {} a vblank apart, others [{}]",
-                    steps.count(),
+                    steps.clone().count(),
                     others.join(" ")
                 );
+                // Of the others, those committed only after the frame
+                // before showed: this client was late (starved), not the
+                // compositor, which shows a commit at the vblank after the
+                // one before it.
+                let late = steps
+                    .filter(|w| w[1].sequence != w[0].sequence + 1)
+                    .filter(|w| {
+                        self.committed
+                            .get(w[1].frame as usize - 1)
+                            .is_some_and(|&c| c > w[0].time)
+                    })
+                    .count();
+                println!("fifo: {late} of the others committed after the frame before showed");
             }
             Pace::Timed => {
                 // Each at the first vblank at or after its time: not before

@@ -99,16 +99,38 @@ pub struct Material {
 
 /// Where the CPU's time went in the submissions since it was last taken
 /// (`VkRenderer::take_spent`): waiting for the GPU to give back a frame's
-/// objects (or for lavapipe's copy), recording the commands, the fences of
-/// the clients' dmabufs and of the frame (sync_file in and out), and the
-/// submission to the queue.
+/// objects (or for lavapipe's copy), recording the commands – beginning
+/// them (uploads, the quads into their buffer), the barriers and draws, and
+/// ending them –, the fences of the clients' dmabufs and of the frame
+/// (sync_file in and out), and the submission to the queue. And how many
+/// quads the frames drew, in how many draw calls.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Spent {
+    /// In the frame's draw calls: the quads of each element.
+    pub quads: Duration,
     pub wait: Duration,
+    pub begin: Duration,
     pub record: Duration,
+    pub end: Duration,
+    pub quads_drawn: usize,
+    pub draws: usize,
     pub sync: Duration,
     pub queue: Duration,
 }
+
+/// How long the GPU worked on a frame, and, with calibrated timestamps,
+/// from when to when on CLOCK_MONOTONIC: after the commit it waited that
+/// long to begin (for the fences it waits on, for the queue), and its fence
+/// signalled that long after it ended (the driver's interrupt and work).
+#[derive(Clone, Copy, Debug)]
+pub struct GpuTime {
+    pub ms: f64,
+    pub span: Option<(Duration, Duration)>,
+}
+
+/// How often the GPU's clock is set against CLOCK_MONOTONIC: they drift by
+/// microseconds a second.
+const CALIBRATE: Duration = Duration::from_secs(1);
 
 /// A picture's format: read as UNORM, drawn through an sRGB view.
 const PICTURE: vk::Format = vk::Format::R8G8B8A8_UNORM;
@@ -135,6 +157,9 @@ pub struct VkRenderer {
     debug: DebugFlags,
     name: String,
     spent: Spent,
+    /// When the GPU's clock was last set against CLOCK_MONOTONIC, and the
+    /// nanoseconds to add to a GPU time for it.
+    calibration: std::cell::Cell<Option<(std::time::Instant, i128)>>,
 }
 
 impl std::fmt::Debug for VkRenderer {
@@ -180,6 +205,7 @@ impl VkRenderer {
             debug: DebugFlags::empty(),
             name: phd.name().to_owned(),
             spent: Spent::default(),
+            calibration: std::cell::Cell::new(None),
         };
         for _ in 0..IN_FLIGHT {
             let frame = renderer.in_flight_new()?;
@@ -219,10 +245,10 @@ impl VkRenderer {
         self.submitted
     }
 
-    /// How long the GPU worked on `submission`, in milliseconds: once it is
+    /// How long the GPU worked on `submission` (`GpuTime`): once it is
     /// done (a frame on the screen is), while its frame's objects are not
     /// yet used again. None without timestamps.
-    pub fn gpu_ms(&self, submission: u64) -> Option<f64> {
+    pub fn gpu_time(&self, submission: u64) -> Option<GpuTime> {
         let frame = self.in_flight.iter().find(|f| f.submission == submission)?;
         let (pool, period) = (frame.queries?, self.caps.timestamp_period?);
         let mut times = [0u64; 2];
@@ -236,8 +262,47 @@ impl VkRenderer {
                 vk::QueryResultFlags::TYPE_64,
             )
         };
-        (read.is_ok() && times[1] > times[0])
-            .then(|| (times[1] - times[0]) as f64 * f64::from(period) / 1e6)
+        if read.is_err() || times[1] <= times[0] {
+            return None;
+        }
+        let ns = |ticks: u64| (ticks as f64 * f64::from(period)) as i128;
+        let span = self.calibration().map(|offset| {
+            let at = |ticks| Duration::from_nanos((ns(ticks) + offset).max(0) as u64);
+            (at(times[0]), at(times[1]))
+        });
+        Some(GpuTime {
+            ms: (ns(times[1]) - ns(times[0])) as f64 / 1e6,
+            span,
+        })
+    }
+
+    /// The nanoseconds from the GPU's clock to CLOCK_MONOTONIC, set anew
+    /// after `CALIBRATE`; None without calibrated timestamps.
+    fn calibration(&self) -> Option<i128> {
+        let calibrated = self.ext.calibrated.as_ref()?;
+        if let Some((at, offset)) = self.calibration.get()
+            && at.elapsed() < CALIBRATE
+        {
+            return Some(offset);
+        }
+        let period = self.caps.timestamp_period?;
+        let infos = [
+            vk::TimeDomainEXT::DEVICE,
+            vk::TimeDomainEXT::CLOCK_MONOTONIC,
+        ]
+        .map(|domain| vk::CalibratedTimestampInfoEXT::default().time_domain(domain));
+        // SAFETY: the device has the extension (`device::create`).
+        let (stamps, _deviation) = match unsafe { calibrated.get_calibrated_timestamps(&infos) } {
+            Ok(read) => read,
+            Err(e) => {
+                debug!("no calibrated timestamps: {e}");
+                return None;
+            }
+        };
+        let offset = i128::from(stamps[1]) - (stamps[0] as f64 * f64::from(period)) as i128;
+        self.calibration
+            .set(Some((std::time::Instant::now(), offset)));
+        Some(offset)
     }
 
     /// An empty 8-bit texture of `size` × `size` for coverage: the glyph
@@ -1216,6 +1281,8 @@ impl VkRenderer {
             }
         }
         let addresses = self.write_quads(i, &lists)?;
+        let drawing = Instant::now();
+        self.spent.begin += drawing - recording;
         let pass_pipelines = [
             self.pipelines.get(&d, PICTURE_DRAWN)?,
             self.pipelines.get_backdrop(&d, PICTURE_DRAWN)?,
@@ -1243,7 +1310,7 @@ impl VkRenderer {
                 .iter()
                 .map(|insert| rest.by_ref().take(insert.passes.len()).collect())
                 .collect();
-            frame::record_frame(
+            let draws = frame::record_frame(
                 &d,
                 commands,
                 &self.pipelines,
@@ -1254,6 +1321,8 @@ impl VkRenderer {
                 frame,
                 submission,
             );
+            self.spent.quads_drawn += frame.quads.len();
+            self.spent.draws += draws;
             let syncing = Instant::now();
             waits = frame::implicit_waits(&d, &self.ext, frame, submission);
             synced = syncing.elapsed();
@@ -1261,6 +1330,7 @@ impl VkRenderer {
         if let Some(readout) = readout {
             frame::record_readout(&d, commands, readout);
         }
+        let ending = Instant::now();
         // SAFETY: as above.
         unsafe {
             if let Some(pool) = self.in_flight[i].queries {
@@ -1287,8 +1357,9 @@ impl VkRenderer {
             .command_buffer_infos(&buffers)
             .signal_semaphore_infos(&signal);
         let queueing = Instant::now();
-        self.spent.record += (queueing - recording).saturating_sub(synced);
+        self.spent.record += (ending - drawing).saturating_sub(synced);
         self.spent.sync += synced;
+        self.spent.end += queueing - ending;
         // SAFETY: the fence is not pending (its frame is done); every
         // object the commands use lives until this submission completes.
         unsafe {
