@@ -324,9 +324,15 @@ Testclient 19 MB, Lasttest 10 MB. Keine Warnungen. **Das Foto fehlte:** der Comp
 drei PNGs (Journal `screenshot 2560x1440: …`), das Skript suchte erst ab Teil 6, der Besitzer
 drückte schon in Teil 5 (16 s davor) – und `/run/user` ist mit dem Neustart weg. Skript kopiert
 jetzt alle Fotos der Sitzung, auch bei `hw-test.sh logs` (`measure/desktop` 0edc1b8, auf dem
-Stick; Probe + Gegenprobe). Besitzer: 0.5.109 noch einmal starten, Foto der pixeligen Stelle,
-im Terminal Stick einhängen und `hw-test.sh logs`. Danach auswerten:
-Teil 6: Zeichen der Kreise unter dem Zeiger scharf? und das **Bildschirmfoto vom
+Stick; Probe + Gegenprobe). **Fotos 27.10. (`~/hw-logs/results-20261027-085037`) ausgewertet:**
+Hintergrund gedithert (±1), keine Treppen; der Besitzer meint die **weichen Wellenkanten**:
+`smoothstep(top ± 0.002)` in Bildschirmhöhen = 5,8 px bei 1440 (10–90 % über 3–4 Zeilen),
+obwohl der Kommentar „crisp“ sagt – Entscheidung des Besitzers offen (Vorschlag: Kante ~1 px
+wie die SDF-Formen). Gedrückter Knopf: Rand blieb hell (e0443e um bf4942) → behoben 55a581d
+(Rand dunkelt im Faktor der Füllung, Test + Gegenprobe). Nebenbefund im Foto, unbelegt: lange
+Befehlszeile im Terminal verstümmelt („<u),gid=…“ wie Readlines horizontal scroll, Zeilen
+überschrieben; TERM ist xterm-256color) – beim Shell-Schritt nachstellen.
+Alte Notiz zu Teil 6: Zeichen der Kreise unter dem Zeiger scharf? und das **Bildschirmfoto vom
 Hintergrund**, das der Besitzer pixelig findet (liegt in `results-*/`). Der Hintergrund ist kein
 SVG: `backdrop.frag` rechnet ihn einmal in voller Auflösung, gedithert, 1:1 gezeigt – im Code kein
 Grund für Pixel gefunden; erst am Foto den Mechanismus belegen (Banding? Kanten der Bänder? das
