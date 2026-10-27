@@ -31,3 +31,11 @@ debug = false
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Smithay 0.7.0 with one fix until its next release (ADR 0027 §1): imported
+# syncobj timelines were never destroyed (`wayland/drm_syncobj/sync_point.rs`,
+# a Drop for the device context). The fork's branch `beize-0.7.0` is the
+# release plus only that commit; upstream as branch `syncobj-timeline-drop`.
+# Goes with the release that has it.
+[patch.crates-io]
+smithay = { git = "https://github.com/ScripterCarft/smithay", rev = "dfd93618b653145f1ac7c6dbf4b188ec7a809663" }

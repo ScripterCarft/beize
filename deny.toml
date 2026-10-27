@@ -57,7 +57,10 @@ deny = [
 ]
 
 # Crates only from crates.io: their versions and checksums are in Cargo.lock.
+# One exception until Smithay's next release: its 0.7.0 with Beize's upstream
+# fix, at a fixed commit (Cargo.toml `[patch.crates-io]`, ADR 0027 §1).
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/ScripterCarft/smithay"]

@@ -88,6 +88,9 @@ struct Crate {
     name: String,
     version: String,
     checksum: Option<String>,
+    /// Where it comes from when not from crates.io: a git repository at a
+    /// commit (`git+URL@commit`, a `[patch.crates-io]` of the workspace).
+    git: Option<String>,
     /// The recipes whose programs link it.
     used_by: BTreeSet<String>,
 }
@@ -135,8 +138,8 @@ fn document(
             "SPDXID": id,
             "name": krate.name,
             "versionInfo": krate.version,
-            "downloadLocation": format!(
-                "https://crates.io/api/v1/crates/{}/{}/download", krate.name, krate.version),
+            "downloadLocation": krate.git.clone().unwrap_or_else(|| format!(
+                "https://crates.io/api/v1/crates/{}/{}/download", krate.name, krate.version)),
             "filesAnalyzed": false,
             "licenseConcluded": "NOASSERTION",
             "licenseDeclared": "NOASSERTION",
@@ -333,7 +336,7 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
         );
     }
     let metadata: Value = serde_json::from_slice(&out.stdout)?;
-    let ids: BTreeMap<&str, (&str, &str, bool)> = metadata["packages"]
+    let ids: BTreeMap<&str, (&str, &str, Option<&str>)> = metadata["packages"]
         .as_array()
         .context("cargo metadata without packages")?
         .iter()
@@ -343,7 +346,7 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
                 (
                     p["name"].as_str()?,
                     p["version"].as_str()?,
-                    p["source"].is_string(),
+                    p["source"].as_str(),
                 ),
             ))
         })
@@ -368,18 +371,20 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
         .collect();
     let checksums = lock_checksums(&paths.root.join("Cargo.lock"))?;
     let mut crates: BTreeMap<(String, String), Crate> = BTreeMap::new();
-    let mut add = |name: &str, version: &str, checksum: Option<&String>, user: &str| {
-        crates
-            .entry((name.to_owned(), version.to_owned()))
-            .or_insert_with(|| Crate {
-                name: name.to_owned(),
-                version: version.to_owned(),
-                checksum: checksum.cloned(),
-                used_by: BTreeSet::new(),
-            })
-            .used_by
-            .insert(user.to_owned());
-    };
+    let mut add =
+        |name: &str, version: &str, checksum: Option<&String>, git: Option<String>, user: &str| {
+            crates
+                .entry((name.to_owned(), version.to_owned()))
+                .or_insert_with(|| Crate {
+                    name: name.to_owned(),
+                    version: version.to_owned(),
+                    checksum: checksum.cloned(),
+                    git,
+                    used_by: BTreeSet::new(),
+                })
+                .used_by
+                .insert(user.to_owned());
+        };
     // Rust programs from other projects (ntpd-rs) record what they linked
     // when they are built, as Fedora's %cargo_vendor_manifest.
     for recipe in recipes {
@@ -391,7 +396,7 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
         for line in fs::read_to_string(&manifest)?.lines() {
             if let Some((name, version)) = line.split_once(' ') {
                 let key = (name.to_owned(), version.to_owned());
-                add(name, version, checksums.get(&key), &recipe.name);
+                add(name, version, checksums.get(&key), None, &recipe.name);
             }
         }
     }
@@ -405,16 +410,30 @@ fn rust_crates(paths: &Paths, recipes: &[Recipe]) -> Result<Vec<Crate>> {
             if !seen.insert(id) {
                 continue;
             }
-            if let Some((crate_name, version, from_registry)) = ids.get(id)
-                && *from_registry
-            {
+            // A source: not a crate of the workspace.
+            if let Some((crate_name, version, Some(source))) = ids.get(id) {
                 let key = ((*crate_name).to_owned(), (*version).to_owned());
-                add(crate_name, version, checksums.get(&key), name);
+                add(
+                    crate_name,
+                    version,
+                    checksums.get(&key),
+                    git_location(source),
+                    name,
+                );
             }
             pending.extend(deps.get(id).into_iter().flatten().copied());
         }
     }
     Ok(crates.into_values().collect())
+}
+
+/// SPDX's location of a git source of cargo
+/// (`git+URL?rev=…#commit` → `git+URL@commit`); None for a registry.
+fn git_location(source: &str) -> Option<String> {
+    let rest = source.strip_prefix("git+")?;
+    let (url, commit) = rest.split_once('#')?;
+    let url = url.split_once('?').map_or(url, |(u, _)| u);
+    Some(format!("git+{url}@{commit}"))
 }
 
 /// The crates (`name version` per line) a Rust recipe from another project
@@ -489,6 +508,18 @@ fn iso8601(seconds: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_git_source_is_its_repository_at_the_commit() {
+        assert_eq!(
+            git_location("git+https://github.com/o/smithay?rev=abc#abcdef").as_deref(),
+            Some("git+https://github.com/o/smithay@abcdef")
+        );
+        assert_eq!(
+            git_location("registry+https://github.com/rust-lang/crates.io-index"),
+            None
+        );
+    }
 
     #[test]
     fn dates_and_identifiers() {
