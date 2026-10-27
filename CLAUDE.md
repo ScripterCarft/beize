@@ -171,7 +171,7 @@ cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && carg
 0004 WSL2 · 0005 Cross-Toolchain, Rezepte, signierte Quellen · 0006 Secure Boot, Test-
 vs. Produktionsschlüssel · 0007 nur `/usr`, A/B, erster Start · 0008 dm-verity · 0009 Root
 mit LUKS2 + TPM · 0010 Plattform-Eigentümer, Profile, Neubinden, echte Hardware · 0011
-Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter) · 0028 Shell (eigener Prozess, Menüleiste + Dock, `beize-shell-v1`, Strg-Modell, Phosphor) · 0029 Bildschirme (Hotplug, link-status, GPU und Bildschirme getrennt). Neue Architekturentscheidung = neues ADR; spätere Änderungen
+Netzwerk · 0012 Zeit (NTS) · 0013 Was läuft (Units im Image) · 0014 Toolchain x86-64-v3 + Härtung · 0015 Kernel: Konfiguration, Module, Microcode, Firmware · 0016 initrd aus Funktionen, Notfall-Shell, hwdb · 0017 Tastatur (XKB, kbd-Keymaps, Keymap der initrd in EFI-Variable) · 0018 Rechte (run0 + polkit, kein setuid, Wiederherstellung) · 0019 Konten (Beizes Kontodienst, `/etc/userdb`, Rechte durch Beweis; homed verworfen) · 0020 Updates (beize-updated + systemd-sysupdate, ML-DSA-signierte Liste, 4-GiB-Slots) · 0021 Buildroot (gepinnt, abgeschottet, lokal = CI) · 0022 SBOM und Schwachstellen (NVD, RustSec) · 0023 Absturzberichte (MiniDebugInfo, elfutils) · 0024 Bootloader-Konfiguration mit jeder Version · 0025 Varianten `base`/`desktop` (Vorgabe `desktop`, Start ohne Oberfläche) · 0026 TPM-Schlüssel für „(Basis)“ (mit M4) · 0027 Grafik (Smithay, nur Vulkan, eigene Bildschleife, Beize UI, NVK, Inter) · 0028 Shell (eigener Prozess, Menüleiste + Dock, `beize-shell-v1`, Strg-Modell, Phosphor) · 0029 Bildschirme (Hotplug, link-status, GPU und Bildschirme getrennt, aus bei Inaktivität). Neue Architekturentscheidung = neues ADR; spätere Änderungen
 in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code
@@ -315,20 +315,30 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Messbau 0.5.110 auf dem Stick)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: Bildschirm aus bei Inaktivität fertig)
 
-**JETZT: Messbau 0.5.110 auf dem Stick** (27.10. 09:40, Prüfsummen auf D: geprüft; Tag `measure/desktop-0.5.110`, 73314bd; Smoke grün, alle drei
-nouveau-Patches angewendet; Teile 5/6 von `hw-test.sh` nur mit `bash -n` geprüft). Der Zweig
-`measure/desktop` ist **neu auf main ed52d18 aufgesetzt** (ein Commit: Patches, `kernel.rs`,
-`hw-test.sh`, Version; Dateien byte-gleich mit 0.5.109 geprüft) statt 19 alte Commits über
-die geänderte `docs/hardware.md` zu spielen. Alter Stand lokal als `measure/desktop-old`
-(0edc1b8, ungetaggt) – löschen, sobald der Besitzer `measure/desktop` und die Tags per
-Force-Push hochgeladen hat. Besitzer: `docs/hardware.md` A–C, dann „Release fertig“ →
-Claude kopiert `build/out/desktop/release/0.5.110` als `D:\beize-0.5.110` und Skript samt
-Testprogrammen nach `D:\beize-test` (D: in WSL nicht eingehängt: per PowerShell kopieren).
-**Der nächste Chat: erst 0.5.110 auswerten** (wie 0.5.109; dazu Wellenkanten, gehaltener
-Knopf, lange Zeile + Pfeil hoch, ob die „told“-Sperre noch gebraucht wird), **dann
-idle-inhibit + Bildschirm aus** (Auftrag 4 unten).
+**JETZT (27.10.): idle-inhibit + Bildschirm aus erledigt** (ADR 0029 §7, `idle.rs`; Smoke
+`screen_goes_off` in einer zweiten Sitzung mit 3 s Frist, Gegenproben rot: Inhibitor
+ignoriert, Eingabe ohne Wirkung, CRTC nicht aus („kernel says On“), aus mit Bildtakt des
+Bildschirms (180 statt ≤ 5 Bilder in 3 s); drei volle Läufe grün). 10 min ohne Eingabe → 10 s
+Abblenden (GNOME) → `DrmSurface::clear` (niri); aus = für Clients „weg“ (`Gpu::on`). macOS'
+10 min sind aus dem Gedächtnis, nicht belegt (Suche fand keine Apple-Quelle); GNOME 5 min.
+Smoke gesamt ~140 → 152 s (zweite Anmeldung + 10 s Abblenden im Desktop-Szenario). Unterwegs
+behoben: aus meldete Clients noch den Bildtakt (FIFO-Client 60/s statt 1/s).
+**Auf Hardware offen (nächster Messbau):** kommt der Monitor nach dem Abschalten wieder
+(nouveau trainiert den Link neu; Monitor aus/an blieb auch unter Fedora schwarz – anderer Weg,
+aber dieselbe Schwachstelle möglich)? Teil für `hw-test.sh`: am Ende 10 min + 10 s nichts
+anfassen, dann Maus; Skript liest `the screen is off`/`input: the screen is on again` und
+`dpms`. Ohne eigenen Messbau-Schalter (Frist kommt aus der Umgebung beim Start).
+**0.5.110 ausgewertet (27.10., `~/hw-logs/results-20261027-131921`):** nur der Screenshot-Teil
+lief (Lasttest/Client/UI-Logs leer); Besitzer: Screenshot gut – Wellenkanten 1 px, gehaltener
+Knopf ohne hellen Rand. **Offen:** lange Zeile + Pfeil hoch nicht berichtet; ob die
+„told“-Sperre (`beize-terminal/src/prompt.rs`) noch nötig ist, weiter unbelegt.
+`measure/desktop` und Tags vom Besitzer gepusht (origin = 73314bd); `measure/desktop-old` löscht der
+Besitzer (`git branch -D measure/desktop-old`, Claudes Rechteprüfung verweigert es).
+**Leerlauf-Ratsche 27.10. wieder rot** (1 Lauf von ~8; Compositor-Hauptthread 1×, im Fenster
+wieder nur ntp-daemon „No consensus on current time“, Log `~/hw-logs/smoke-idle-red-20261027.log`)
+– zweites Mal dasselbe Muster.
 
 **0.5.109 getestet (26.10., `~/hw-logs/results-20261026-222434`).** Lasttest 110 768 Bilder
 (0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von 6966
@@ -390,7 +400,7 @@ Abbild, Fehler „missing: /usr A“).
    ntpd-rs, nicht gelinkt) → `[cargo.update]` 1.0.10; `bz` hebt jetzt die kompatible von mehreren
    Versionen an (f8c6ecf). `main` gepusht 26.10. Offen beim Besitzer: Force-Push `measure/desktop`
    und Tags. Nächster Messbau 0.5.108 (Lasttest-Erwartung oben).
-4. ~~E~~ erledigt (oben). Nach dem Messbau: idle-inhibit + Bildschirm aus, D mit der Shell.
+4. ~~E~~ erledigt (oben). ~~idle-inhibit + Bildschirm aus~~ erledigt 27.10. (oben). D mit der Shell.
    nouveau-Patch für das still scheiternde Link-Training
    (Befund 2, unten) schreiben – senden tut der Besitzer.
 **Auftrag des Besitzers (26.10.) für einen Chat nach der Shell, am besten nach idle:** (1) warum
