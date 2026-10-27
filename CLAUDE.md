@@ -315,13 +315,18 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-26 nachts: E fertig, Messbau 0.5.109 bereit)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-27: 0.5.109 getestet, Bildschirmfoto fehlt noch)
 
-**JETZT: Messbau 0.5.109 auf dem Stick** (Prüfsummen geprüft; Zweig `measure/desktop` cd0db36 auf f11ffcf,
-Tag `measure/desktop-0.5.109`, Smoke grün). Besitzer: `docs/hardware.md` A–C, dann „Release
-fertig“ → Claude kopiert `build/out/desktop/release/0.5.109` als `D:\beize-0.5.109` und das
-Skript samt Testprogrammen nach `D:\beize-test`. Der nächste Chat wertet aus: wie 0.5.108,
-dazu Teil 6 (neu): Zeichen der Kreise unter dem Zeiger scharf? und das **Bildschirmfoto vom
+**0.5.109 getestet (26.10. 22:24, `~/hw-logs/results-20261026-222434`).** Lasttest 110 768
+Bilder (0.5.108: 111 749), Fenster 1–12 9306 → 8921 (Auftrag (3) unten); Pacing 30 s: 204 von
+6966 spät (display 180, GPU 24); Testfenster 4763 von 4800; Resize 1 und 4 ms, `held:` flach;
+Testclient 19 MB, Lasttest 10 MB. Keine Warnungen. **Das Foto fehlte:** der Compositor schrieb
+drei PNGs (Journal `screenshot 2560x1440: …`), das Skript suchte erst ab Teil 6, der Besitzer
+drückte schon in Teil 5 (16 s davor) – und `/run/user` ist mit dem Neustart weg. Skript kopiert
+jetzt alle Fotos der Sitzung, auch bei `hw-test.sh logs` (`measure/desktop` 0edc1b8, auf dem
+Stick; Probe + Gegenprobe). Besitzer: 0.5.109 noch einmal starten, Foto der pixeligen Stelle,
+im Terminal Stick einhängen und `hw-test.sh logs`. Danach auswerten:
+Teil 6: Zeichen der Kreise unter dem Zeiger scharf? und das **Bildschirmfoto vom
 Hintergrund**, das der Besitzer pixelig findet (liegt in `results-*/`). Der Hintergrund ist kein
 SVG: `backdrop.frag` rechnet ihn einmal in voller Auflösung, gedithert, 1:1 gezeigt – im Code kein
 Grund für Pixel gefunden; erst am Foto den Mechanismus belegen (Banding? Kanten der Bänder? das
