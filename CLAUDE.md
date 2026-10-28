@@ -317,7 +317,10 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28 spät: Shell (e) nachgebessert, Messbau 0.5.117)
 
-**JETZT: Messbau 0.5.117 auf den Stick bringen, testen lassen, auswerten.** Tag
+**JETZT: Messbau 0.5.117 auswerten, sobald der Besitzer getestet hat.** Release fertig und
+schon auf dem Stick (28.10. 22:25: `D:\beize-0.5.117`, SHA256SUMS geprüft OK; `D:\beize-test`
+mit Skript + Testprogrammen); Branch + Tag vom Besitzer gepusht (1121851). Also gleich bei
+„Ergebnisse“ einsteigen. Tag
 `measure/desktop-0.5.117` (`measure/desktop` = 1121851, ein Commit auf `main` 4d3870d; gebaut,
 Smoke grün 173 s). Stick-Dateien (`hw-test.sh` aus dem Tag + Testprogramme) liegen in
 `~/scratch/stick`. Ablauf wie immer: **Besitzer** macht das Release (docs/hardware.md A) und
