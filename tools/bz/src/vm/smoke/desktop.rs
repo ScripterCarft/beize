@@ -1261,7 +1261,7 @@ fn syncobj(shell: &Shell) -> Result<()> {
         bail!("no counts in: {release}");
     };
     ensure!(
-        release.contains(" after their vblank,") && after == of && of > 0,
+        release.contains(" after their vblank began,") && after == of && of > 0,
         "a release point signalled while the compositor could still read its buffer: {release}"
     );
     ensure!(

@@ -15,12 +15,15 @@
 //!   showed it – the compositor's GPU may read it until then. The client
 //!   watches every release point while it runs and notes when it sees the
 //!   signal, never before it was given: a release seen before the vblank
-//!   is one. (The kernel's own time does not tell: a point signalled from
-//!   the CPU gets the stub fence, stamped when the kernel started.) A
-//!   compositor that released at the replacing commit, ~a refresh before
-//!   the vblank, would be seen early unless this client looked that much
-//!   later; how many buffers were replaced while their frame was on its
-//!   way says whether the check had something to catch;
+//!   began is one. The presentation time is where the vblank ends (the
+//!   kernel's stamp, `drm_vblank.c`), the flip event comes where it begins
+//!   (0.46 ms earlier at 1440p, 240 Hz); the vblank's length comes from
+//!   the screen's mode. (The kernel's own time does not tell: a point
+//!   signalled from the CPU gets the stub fence, stamped when the kernel
+//!   started.) A compositor that released at the replacing commit, ~a
+//!   refresh before the vblank, would be seen early unless this client
+//!   looked that much later; how many buffers were replaced while their
+//!   frame was on its way says whether the check had something to catch;
 //! - `syncobj protocol:` a buffer committed without points raises
 //!   no_acquire_point.
 
@@ -125,6 +128,56 @@ struct SyncobjEventfd {
     fd: i32,
     pad: u32,
 }
+#[repr(C)]
+#[derive(Default)]
+struct CardRes {
+    fb_id_ptr: u64,
+    crtc_id_ptr: u64,
+    connector_id_ptr: u64,
+    encoder_id_ptr: u64,
+    count_fbs: u32,
+    count_crtcs: u32,
+    count_connectors: u32,
+    count_encoders: u32,
+    min_width: u32,
+    max_width: u32,
+    min_height: u32,
+    max_height: u32,
+}
+#[repr(C)]
+#[derive(Default)]
+struct ModeInfo {
+    clock: u32,
+    hdisplay: u16,
+    hsync_start: u16,
+    hsync_end: u16,
+    htotal: u16,
+    hskew: u16,
+    vdisplay: u16,
+    vsync_start: u16,
+    vsync_end: u16,
+    vtotal: u16,
+    vscan: u16,
+    vrefresh: u32,
+    flags: u32,
+    kind: u32,
+    name: [u8; 32],
+}
+#[repr(C)]
+#[derive(Default)]
+struct ModeCrtc {
+    set_connectors_ptr: u64,
+    count_connectors: u32,
+    crtc_id: u32,
+    fb_id: u32,
+    x: u32,
+    y: u32,
+    gamma_size: u32,
+    mode_valid: u32,
+    mode: ModeInfo,
+}
+const GET_RESOURCES: rustix::ioctl::Opcode = opcode::read_write::<CardRes>(b'd', 0xa0);
+const GET_CRTC: rustix::ioctl::Opcode = opcode::read_write::<ModeCrtc>(b'd', 0xa1);
 const CREATE_DUMB: rustix::ioctl::Opcode = opcode::read_write::<CreateDumb>(b'd', 0xb2);
 const PRIME_HANDLE_TO_FD: rustix::ioctl::Opcode = opcode::read_write::<PrimeHandle>(b'd', 0x2d);
 const SYNCOBJ_CREATE: rustix::ioctl::Opcode = opcode::read_write::<SyncobjCreate>(b'd', 0xbf);
@@ -136,8 +189,41 @@ const SYNCOBJ_EVENTFD: rustix::ioctl::Opcode = opcode::read_write::<SyncobjEvent
 /// An ioctl that fills `arg` in.
 fn drm<const OPCODE: rustix::ioctl::Opcode, T>(fd: BorrowedFd<'_>, arg: &mut T) -> Result<()> {
     // SAFETY: every argument here has the kernel's layout (the structs
-    // above) and lives during the call; the kernel writes only into it.
+    // above) and lives during the call, as do the arrays its pointers
+    // name (as long as its counts say); the kernel writes only into them.
     unsafe { ioctl(fd, Updater::<OPCODE, T>::new(arg)) }.map_err(|e| format!("DRM ioctl: {e}"))
+}
+
+/// How long the vblank of the screen lasts, from its mode (the longest if
+/// several CRTCs are on): the presentation time is where it ends.
+fn vblank_length(gpu: BorrowedFd<'_>) -> Result<Duration> {
+    let mut res = CardRes::default();
+    drm::<GET_RESOURCES, _>(gpu, &mut res)?;
+    let mut crtcs = vec![0u32; res.count_crtcs as usize];
+    res = CardRes {
+        count_crtcs: crtcs.len() as u32,
+        crtc_id_ptr: crtcs.as_mut_ptr() as u64,
+        ..CardRes::default()
+    };
+    drm::<GET_RESOURCES, _>(gpu, &mut res)?;
+    crtcs.truncate(res.count_crtcs as usize);
+    let mut longest = None;
+    for crtc_id in crtcs {
+        let mut crtc = ModeCrtc {
+            crtc_id,
+            ..ModeCrtc::default()
+        };
+        drm::<GET_CRTC, _>(gpu, &mut crtc)?;
+        let mode = &crtc.mode;
+        if crtc.mode_valid == 0 || mode.clock == 0 {
+            continue;
+        }
+        // Lines of the vblank × the line's time (clock in kHz).
+        let lines = u64::from(mode.vtotal.saturating_sub(mode.vdisplay));
+        let nanos = lines * u64::from(mode.htotal) * 1_000_000 / u64::from(mode.clock);
+        longest = longest.max(Some(Duration::from_nanos(nanos)));
+    }
+    longest.ok_or_else(|| "no CRTC with a mode".into())
 }
 
 /// A timeline syncobj of the client's device.
@@ -297,6 +383,7 @@ pub fn run() -> Result<()> {
     )
     .map_err(|e| format!("opening {path}: {e}"))?;
     let gpu = gpu.as_fd();
+    let blank = vblank_length(gpu)?;
 
     let surface = compositor.create_surface(&qh, ());
     let sync = manager.get_surface(&surface, &qh, ());
@@ -418,27 +505,28 @@ pub fn run() -> Result<()> {
         };
         checked += 1;
         in_flight += usize::from(flying);
-        if released < at {
+        if released + blank < at {
             early += 1;
             first_early.get_or_insert((round, at, released));
         }
     }
     if early == 0 {
         println!(
-            "syncobj release: {checked} of {checked} after their vblank, {in_flight} replaced on their way"
+            "syncobj release: {checked} of {checked} after their vblank began, {in_flight} replaced on their way"
         );
     } else {
         println!(
-            "syncobj release: {early} of {checked} before their vblank, {in_flight} replaced on their way"
+            "syncobj release: {early} of {checked} before their vblank began, {in_flight} replaced on their way"
         );
         // When, to tell a release at the replacing commit from one at the
         // vblank (CLOCK_MONOTONIC, ms).
         if let Some((round, at, released)) = first_early {
             let ms = |d: Duration| d.as_secs_f64() * 1000.0;
             println!(
-                "syncobj release detail: round {round} committed {:.3}, presented {:.3}, released {:.3}, next committed {:?}",
+                "syncobj release detail: round {round} committed {:.3}, presented {:.3} (vblank {:.3} ms), released {:.3}, next committed {:?}",
                 ms(rounds[round].3),
                 ms(at),
+                ms(blank),
                 ms(released),
                 rounds.get(round + 1).map(|r| ms(r.3)),
             );
