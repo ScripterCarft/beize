@@ -315,7 +315,31 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: 0.5.113 ausgewertet, A/B/C/E erledigt, Messbau 0.5.114 getaggt)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: 0.5.114 ausgewertet, D erledigt, Messbau 0.5.115 getaggt)
+
+**0.5.114 getestet 28.10. (`~/hw-logs/results-20261028-114239`).** syncobj 30/30 nach Beginn
+des vblank (A auf Hardware bestätigt); Lasttest 114 912/115 200, rotiert 86 270/86 400; timed
+239/239. **B senkte den Vorlauf nicht** (weiter ein ganzes Bild, Latenz 7,5 ms Median): die
+Abweichung ~1 ms aus dem NVK-Stau (alle ~100 ms ~2,4 ms „stalled“) ergibt nach KWins Formel
+2 + 2 × 1 + 0,46 + 1 > 4,17 ms – meine Vorhersage 3,46 ms hatte die Abweichung übersehen; KWin
+gäbe hier dasselbe. Späte Bilder „display“ im Lasttest = derselbe Stau. **Befunde 2/4 belegt**
+(Quelltext `dispnv50/disp.c` `nv50_disp_atomic_commit_tail`: Ereignis nach dem Notifier, Zähler
+per `drm_crtc_accurate_vblank_count` aus der Zeilenposition): (a) echtes wiederholtes Ereignis
+am Beginn des nächsten vblank mit Nummer/Stempel des vorigen, 10–29 je 30 s; jedes der 6
+geloggten späten „drawing“-Bilder 4 ms danach, = FIFO-Paare „0 dann 2“ (12). Diese Bilder kamen
+im normalen Takt, nur `due` war mit der alten Lage einen vblank zu früh. (b) Cursor-Züge allein:
+nouveau meldet sofort (kein neues Bild → kein Notifier, `disp.c:2465`, `wndw.c:124`), mehrere je
+Bild – kein Fehler, zählte fälschlich mit. KWin/Mutter/Weston geben den Stempel des Kernels
+ungeändert an Clients (geprüft im Quelltext) → Client-Zeiten bleiben, Fix gehört in nouveau.
+**D erledigt:** 74f07a6 (Ziel nie vor dem frühesten vblank des letzten Commits + 1, wie KWins
+`scheduleRepaint`; Cursor-Ereignisse nicht gezählt; Tests + 4 Gegenproben rot; Prüf-Agent fand
+D1 – zuerst `target` statt frühestem vblank gespeichert, hätte nach Pausen das zweite Bild einen
+vblank gekostet – und D2 – ohne Phase –, beide behoben, Nachprüfung ohne Befund), Testclient
+zählt „0, then 2“-Paare eigens (074b9f0). Smoke 3 grün + 1 rot (#41, Flip 21,6 s, VM).
+**Messbau 0.5.115** (Tag `measure/desktop-0.5.115`). Erwartet: späte „drawing“-Bilder im
+Client-Test ~0, „Flip-Ereignisse mit dem vblank davor“ ohne Cursor-Bursts (~10–30 je 30 s),
+FIFO-Zeile „pairs … 0, then 2“ ≈ deren Zahl; Vorlauf/Latenz unverändert (NVK-Stau). Offen
+(Besitzer): nouveau-Bericht upstream (wiederholtes Ereignis; NVK-Stau alle 100 ms).
 
 **0.5.113 getestet 28.10. (`~/hw-logs/results-20261028-091933`).** Explizite Sync wirkt: späte
 Bilder im Lasttest 109 → 5, „stalled“ Median 2,13 → 0,44 ms, 0 späte Bilder warteten auf
