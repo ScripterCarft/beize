@@ -171,17 +171,20 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         color: [f32; 4],
     ) {
         let parts: Vec<_> = geometry::absolute(dst, damage).collect();
-        // The window but its corners, which let the shadow show.
+        // The window but its corners, which let the shadow show. Corners
+        // of half an odd side round up past the middle: that band is empty,
+        // not negative – one of -1 px drew a line of shadow twice beside
+        // a 75 px capsule.
         let c =
             corner_extent(radius as f32, cover.size.w as f32, cover.size.h as f32).ceil() as i32;
         let covered = [
             Rectangle::new(
                 (cover.loc.x + c, cover.loc.y).into(),
-                (cover.size.w - 2 * c, cover.size.h).into(),
+                ((cover.size.w - 2 * c).max(0), cover.size.h).into(),
             ),
             Rectangle::new(
                 (cover.loc.x, cover.loc.y + c).into(),
-                (cover.size.w, cover.size.h - 2 * c).into(),
+                (cover.size.w, (cover.size.h - 2 * c).max(0)).into(),
             ),
         ];
         let fb = self.space.framebuffer_rect(caster);
