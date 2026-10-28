@@ -315,7 +315,36 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: 0.5.114 ausgewertet, D erledigt, Messbau 0.5.115 getaggt)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: 0.5.115 bestätigt, Bildtakt abgeschlossen → Shell)
+
+**NÄCHSTE AUFGABE: Shell, ADR 0028 „Reihenfolge“ (e) → (f) → (g).** Der Bildtakt ist auf
+Beizes Seite fertig (0.5.115 unten); offen ist dort nur Treiberseitiges (nouveau-Bericht,
+NVK-Stau – Besitzer-Entscheidung, kein Compositor-Code). Wünsche des Besitzers (28.10.):
+Sperrbildschirm, Skripte anlegen (Frage: geht das schon? – im Terminal ja, mit `nano` im Image; per Maus
+nein, es gibt noch keinen Dateimanager und keinen Editor), Dateien auf dem Schreibtisch,
+Kontrollzentrum mit Netz und Bluetooth, Rechtsklick-Menüs. Einordnung laut ADR 0028/VISION:
+- (e) Kontrollzentrum mit Netz-Kachel (networkd über Varlink, `os/beize-varlink`; WLAN mit iwd
+  #17) + Beize-Menü (Sperren, Abmelden, Neustart, Ausschalten über logind). Bluetooth/Ton erst
+  mit PipeWire/BlueZ (#17, M4): „leere Kacheln gibt es nicht“ (§5).
+- (f) App-Menüs (`beize-menu-v1`), Alt+Tab, Snap; Rechtsklick-/Kontextmenüs gehören dazu.
+- (g) Federanimationen.
+- Eigenes ADR je: Sperrbildschirm (Super+L, §7; VISION: 1Password-Sperre daran), grafische
+  Anmeldung, Suche, Benachrichtigungen. Sperren im Beize-Menü (e) braucht den Sperrbildschirm.
+- Dateien auf dem Schreibtisch, Skripte per Doppelklick: kommen mit dem Dateimanager „Sift“
+  (eigene App, zugleich Datei-Dialog, VISION) – noch kein ADR. macOS legt Dateien auf den
+  Schreibtisch über den Finder, nicht über die Shell.
+Vorschlag an den Besitzer (noch nicht entschieden): erst (e) wie geplant, weil Beize-Menü und
+Netz-Kachel auf vorhandenen Diensten bauen; der Sperrbildschirm als Nächstes mit eigenem ADR
+(Sicherheitsgrenze: ext-session-lock-v1 wie KWin/sway, vorher prüfen, Anmeldung über PAM); dann (f).
+Vor dem Start: ADR 0028 §5 und „Reihenfolge“ lesen, Plan dem Besitzer vorlegen.
+
+**0.5.115 getestet 28.10. (`~/hw-logs/results-20261028-154745`) – D bestätigt.** Client-Test
+2 späte von 7163 in 30 s, **0 „drawing“** (0.5.114: 10, davon 7 „drawing“); Lasttest 3 spät,
+114 976/115 200; rotiert **0 spät**, 86 286/86 400; syncobj 30/30, timed 239/239; keine
+Warnungen. Wiederholte Flip-Ereignisse weiter da (Client-Test 25 in 30 s), alle echte (Art a),
+keine Cursor-Bursts mehr gezählt; FIFO „7 pairs … 0, then 2“ = alle 7 Abweichungen. Rest der
+späten Bilder: NVK-Stau („stalled“ 2,3–2,7 ms), zwei erste Bilder beim Start, eines nach einem
+späten davor. Vorlauf weiter ein ganzes Bild, Latenz 7,5 ms Median (NVK-Stau, siehe unten).
 
 **0.5.114 getestet 28.10. (`~/hw-logs/results-20261028-114239`).** syncobj 30/30 nach Beginn
 des vblank (A auf Hardware bestätigt); Lasttest 114 912/115 200, rotiert 86 270/86 400; timed
