@@ -320,8 +320,9 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 **NÄCHSTE AUFGABE: Shell, ADR 0028 „Reihenfolge“ (e) → (f) → (g).** Der Bildtakt ist auf
 Beizes Seite fertig (0.5.115 unten); offen ist dort nur Treiberseitiges (nouveau-Bericht,
 NVK-Stau – Besitzer-Entscheidung, kein Compositor-Code). Wünsche des Besitzers (28.10.):
-Sperrbildschirm, Skripte anlegen (Frage: geht das schon? – im Terminal ja, mit `nano` im Image; per Maus
-nein, es gibt noch keinen Dateimanager und keinen Editor), Dateien auf dem Schreibtisch,
+Sperrbildschirm, Skripte anlegen (Frage: geht das schon? – im Terminal ja, mit `nano` im
+Image; per Maus nein, es gibt noch keinen Dateimanager und keinen grafischen Editor), Dateien
+auf dem Schreibtisch,
 Kontrollzentrum mit Netz und Bluetooth, Rechtsklick-Menüs. Einordnung laut ADR 0028/VISION:
 - (e) Kontrollzentrum mit Netz-Kachel (networkd über Varlink, `os/beize-varlink`; WLAN mit iwd
   #17) + Beize-Menü (Sperren, Abmelden, Neustart, Ausschalten über logind). Bluetooth/Ton erst
