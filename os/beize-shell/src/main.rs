@@ -51,18 +51,28 @@ const HEIGHT: u32 = measures::MENU_BAR;
 const INK_LIGHT: Color = Color::rgb(0x1d1d1d);
 const INK_DARK: Color = Color::rgb(0xffffff);
 /// Its size, macOS' 13 a little larger (the owner chose between 15 and
-/// 16.25, macOS' at `SCALE`), and the space at the bar's ends, macOS' 12.
+/// 16.25, macOS' at `SCALE`), and the space at the bar's ends: macOS' 12
+/// at `SCALE` was 15, the owner wanted the ends further in (28.10.: 20).
+/// The control center's right edge lies on it too, under the clock's.
 const TEXT_SIZE: f32 = 15.0;
-const MARGIN: f32 = 12.0 * measures::SCALE;
+const MARGIN: f32 = 20.0;
 /// The bar's symbols: Beize's mark and Phosphor's, as the mock-ups the
-/// owner approved (28.10.); the space between them and to the clock.
+/// owner approved (28.10.); the space between the mark and the app's name.
+/// The globe larger, its circle about 16 px (the owner's, 28.10.).
 const SYMBOL: u32 = 18;
 const SYMBOL_GAP: f32 = 22.0;
-/// The pill below an open menu's button: macOS 26's, 36 × 24 pt (measured
-/// in the HIG's menu-bar image), its corners estimated; black at 18 % on
-/// white ink, 10 % on dark.
-const PILL: (f32, f32) = (36.0 * measures::SCALE, 24.0 * measures::SCALE);
-const PILL_RADIUS: f32 = 12.0;
+const GLOBE: u32 = 20;
+/// The pill below an open menu's button, round at the ends, black at 18 %
+/// on white ink, 10 % on dark: 36 pt wide under the Beize menu (measured in
+/// the HIG's menu-bar image); under the control center's the owner's
+/// 54 × 28 px (28.10.; Apple's 46.5 × 24 pt at `SCALE`, 58 × 30, filled
+/// the bar). The control center's button is its pill: the clock and the
+/// globe keep Apple's space from it, about 6 pt to their ink in Apple's
+/// image of it (2 px per pt), at `SCALE`.
+const PILL_HEIGHT: f32 = 28.0;
+const MENU_PILL: f32 = 36.0 * measures::SCALE;
+const CONTROL_CENTER_PILL: f32 = 54.0;
+const BUTTON_SPACE: f32 = 8.0;
 
 /// What lies behind the menu bar (ADR 0028 §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -602,7 +612,7 @@ impl Buttons {
             return Some((Open::BeizeMenu, anchor, Align::Left));
         }
         if self.control_center.is_some_and(|r| inside(&r)) {
-            let right = self.width - ControlCenter::margin();
+            let right = self.width - MARGIN;
             let anchor = Rect {
                 x: right - 1.0,
                 y: 0.0,
@@ -646,12 +656,12 @@ fn menu_bar(
     };
     let symbol = SYMBOL as f32;
     let symbol_y = ((h - symbol) / 2.0).round();
-    // A pill centred on a symbol at `x`, for its button.
-    let pill = |x: f32| Rect {
-        x: (x + symbol / 2.0 - PILL.0 / 2.0).round(),
-        y: ((h - PILL.1) / 2.0).round(),
-        w: PILL.0.round(),
-        h: PILL.1.round(),
+    // A pill `width` wide centred on a symbol at `x`, for its button.
+    let pill = |x: f32, width: f32| Rect {
+        x: (x + symbol / 2.0 - width / 2.0).round(),
+        y: ((h - PILL_HEIGHT) / 2.0).round(),
+        w: width.round(),
+        h: PILL_HEIGHT.round(),
     };
     let style = |weight| Style {
         family: Family::Sans,
@@ -662,9 +672,9 @@ fn menu_bar(
     let centred = |height: f32| ((h - height) / 2.0).round();
 
     let logo_x = (MARGIN + 4.0).round();
-    let beize_button = pill(logo_x);
+    let beize_button = pill(logo_x, MENU_PILL);
     if content.open == Some(Open::BeizeMenu) {
-        scene.rounded(beize_button, PILL_RADIUS, pill_color);
+        scene.rounded(beize_button, beize_button.h / 2.0, pill_color);
     }
     logo(&mut scene, logo_x, symbol_y, symbol, ink);
     if let Some(app) = content.app {
@@ -682,21 +692,33 @@ fn menu_bar(
         let layout = text.layout(time, &style(500.0), None);
         right -= layout.width();
         scene.text(&layout, right.round(), centred(layout.height()));
-        right -= SYMBOL_GAP;
+        right -= BUTTON_SPACE;
     }
-    let cc_x = (right - symbol).round();
-    let cc_button = pill(cc_x);
+    let cc_button = Rect {
+        x: (right - CONTROL_CENTER_PILL).round(),
+        y: ((h - PILL_HEIGHT) / 2.0).round(),
+        w: CONTROL_CENTER_PILL,
+        h: PILL_HEIGHT,
+    };
     if content.open == Some(Open::ControlCenter) {
-        scene.rounded(cc_button, PILL_RADIUS, pill_color);
+        scene.rounded(cc_button, cc_button.h / 2.0, pill_color);
     }
+    let cc_x = (cc_button.x + (cc_button.w - symbol) / 2.0).round();
     scene.symbol("toggle-left-fill", cc_x, symbol_y, SYMBOL, ink);
-    let network_x = (cc_x - SYMBOL_GAP - symbol).round();
+    let globe = GLOBE as f32;
+    let network_x = (cc_button.x - BUTTON_SPACE - globe).round();
     let network_symbol = if content.network.connected {
         "globe-simple"
     } else {
         "globe-simple-x"
     };
-    scene.symbol(network_symbol, network_x, symbol_y, SYMBOL, ink);
+    scene.symbol(
+        network_symbol,
+        network_x,
+        ((h - globe) / 2.0).round(),
+        GLOBE,
+        ink,
+    );
     let buttons = Buttons {
         beize_menu: Some(beize_button),
         control_center: Some(cc_button),

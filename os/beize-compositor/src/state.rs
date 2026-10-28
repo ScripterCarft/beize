@@ -1804,7 +1804,10 @@ impl State {
         {
             return;
         }
-        self.popup_grab = None;
+        let Some(grab) = self.popup_grab.take() else {
+            return;
+        };
+        self.let_go_of(&grab);
         let active = self
             .space
             .elements()
@@ -1814,6 +1817,24 @@ impl State {
             .map(|t| t.wl_surface().clone());
         let keyboard = self.keyboard.clone();
         keyboard.set_focus(self, active, SERIAL_COUNTER.next_serial());
+    }
+
+    /// Lets go of the pointer and keyboard that a menu's `grab` holds, now:
+    /// Smithay's grabs let go only at their next event, and the pointer's
+    /// drops it – a motion: the press after it went where the pointer had
+    /// been (smoke, 28.10.). As `shell::grab` lets go of a menu closed just
+    /// before another opens.
+    pub fn let_go_of(&mut self, grab: &PopupGrab<State>) {
+        if let Some(pointer) = self.seat.get_pointer()
+            && pointer.has_grab(grab.serial())
+        {
+            let serial = SERIAL_COUNTER.next_serial();
+            pointer.unset_grab(self, serial, self.time_msec());
+        }
+        let keyboard = self.keyboard.clone();
+        if keyboard.has_grab(grab.serial()) {
+            keyboard.unset_grab(self);
+        }
     }
 
     /// Raises `window`, makes it the active one and gives it the keyboard.

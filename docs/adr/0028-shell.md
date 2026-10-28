@@ -195,7 +195,10 @@ Einstellung, die dann zur Laufzeit umschaltet.
   der Besitzer schickt ihn); mit der grafischen Anmeldung entsteht die Sitzung ohnehin als
   Wayland-Sitzung (wie bei GDM).
 - **Menüs** (`beize_ui::menu`, ein Baustein auch für Kontext- und App-Menüs): ein Popup
-  (`xdg_popup` mit Grab: ein Klick daneben schließt es, wie anvil und niri; danach bekommt das
+  (`xdg_popup` mit Grab: ein Klick daneben schließt es, wie anvil und niri, und wirkt zugleich
+  wie ohne Menü – eine Titelleiste zieht, ein Rand ändert die Größe, das Fenster kommt nach vorn
+  (Besitzer, 28.10.; der Compositor lässt den Zeiger vor dem Klick los, sonst lief er durch
+  Smithays Grab ohne Klick-Grab, und das Verschieben wurde abgelehnt); danach bekommt das
   aktive Fenster die Tastatur zurück) auf Menü-Glas – lebendig, mit macOS' Menüfarben #F2F2F2 bzw.
   #2D2D2D zu 85 % getönt (Besitzer: ruhig, kaum durchscheinend; macOS 26 lässt etwa die Hälfte
   durch), schwache Lichtkante, Schatten nur außen. Maße aus den Menübildern der HIG (genau 2 px
@@ -203,7 +206,11 @@ Einstellung, die dann zur Laufzeit umschaltet.
   Trennlinie 1 px schwarz 7,5 %, Ecken 16 (wie Fenster), mindestens 225 breit. Geschätzt: die
   Hervorhebung (Akzentblau, 6 eingerückt, Ecken 8), der Schatten. Gewählt wird beim Loslassen
   über einem Eintrag oder mit Return, Escape oder ein Klick in der Shell schließt. Der Knopf eines
-  offenen Menüs liegt auf einer Pille (macOS 26: 36 × 24 pt).
+  offenen Menüs liegt auf einer Pille mit runden Enden, 28 px hoch: beim Beize-Menü 45 breit
+  (macOS 26: 36 pt), beim Kontrollzentrum 54 (Besitzer 28.10.; Apples 46,5 × 24 pt × 1,25 füllte
+  die Leiste). Der Knopf des Kontrollzentrums ist seine Pille: Uhr und Globus halten 8 px Abstand
+  von ihr (Apple ~6 pt bis zum nächsten Symbol). Die Leiste hat 20 px an den Enden (Besitzer;
+  macOS 12 pt × 1,25 = 15), der Globus ist 20 px groß (Kugel ~16).
 - **App-Menüs:** Beize-Apps beschreiben ihre Menüs in Beize UI, und die Shell zeigt sie
   (Protokoll `beize-menu-v1`, wie AppKit das Menü an den WindowServer gibt). Fremde Apps
   liefern unter Wayland keine Menüs (GTK 4 hat das globale Menü entfernt, Qt kann es nur
@@ -250,10 +257,12 @@ daneben schließt es, und daneben fällt er durch (Eingabe-Region nur auf den Ka
 
 - **Raster** gemessen an Apples Pressebild (3840 px, ~3,94 px je pt über die Versalhöhe der
   Leiste): vier Spalten zu 64 pt mit 12 pt Abstand, 292 pt breit – das Bild bestätigt die Summe –,
-  in Beize × 1,25: Kachel 80, Abstand 15, 15 unter der Leiste und zum Bildschirmrand. Eine Zelle
-  ist ein Kreis, 2 × 1 eine Kapsel, 2 × 2 hat Ecken von 21 pt (26), eine Reihe aus vier (Regler)
-  16,5 pt (21). Runde Knöpfe in Kapseln 36 pt, „an“ ist eine weiße Scheibe mit dem Symbol in
-  Akzentblau.
+  in Beize × 1,25 und 6,5 % kleiner (Besitzer 28.10., alles in der Kachel mit): Kachel 75,
+  Abstand 14, 14 unter der Leiste; rechts bündig mit dem Ende der Uhr (20 px Rand der Leiste).
+  Eine Zelle ist ein Kreis, 2 × 1 eine Kapsel, 2 × 2 hat Ecken von 21 pt (25), eine Reihe aus
+  vier (Regler) 16,5 pt (19). Runde Knöpfe in Kapseln 36 pt (42), „an“ ist eine weiße Scheibe mit
+  dem Symbol in Akzentblau. Titel der Kapsel 10 % leichter als halbfett (540), 2 px über der
+  Zeile darunter; das Symbol von Hell/Dunkel 30 px (Besitzer).
 - **Anordnung** (Besitzer, 28.10.): Netz oben links (2 × 1), daneben der Mediaplayer (2 × 2),
   darunter Bluetooth (2 × 1), darunter Hell/Dunkel (1 × 1), dann Helligkeit und Lautstärke je
   über die ganze Breite. Gebaut 28.10.: **Netz** (networkd über Varlink

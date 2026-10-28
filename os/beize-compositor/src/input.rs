@@ -195,6 +195,9 @@ fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
 fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     let serial = SERIAL_COUNTER.next_serial();
     let pressed = event.state() == ButtonState::Pressed;
+    if pressed {
+        state.press_ends_popup_grab();
+    }
     let grabbed = state.seat.get_pointer().is_some_and(|p| p.is_grabbed());
     // On a window's edge in front (`edge_under`): the compositor resizes
     // it; the press goes to that drag (`windows`).

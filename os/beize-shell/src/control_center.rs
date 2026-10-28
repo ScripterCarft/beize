@@ -6,7 +6,8 @@
 //! Its grid is macOS 26's, measured in Apple's press image of it (3840 px,
 //! ~3.94 px per pt by the menu bar's cap height; CLAUDE.md §11): four
 //! columns of 64 pt with 12 pt between – 292 pt across, which the image
-//! confirms –, at Beize's scale (`measures::SCALE`). A tile is one cell
+//! confirms –, at Beize's scale (`measures::SCALE`), 6.5 % smaller (`SIZE`,
+//! the owner's); its right edge under the clock's. A tile is one cell
 //! (a circle), two across (a capsule), two by two (corners of 21 pt) or a
 //! row of four (a slider, corners of 16.5 pt). The layout is the owner's
 //! (28.10.): network top left, the media player beside it, Bluetooth below
@@ -24,7 +25,7 @@ use beize_ui::{Appearance, Color, Family, Glass, GlassShape, Material, Rect, Sce
 
 use crate::network::{Kind, Status};
 
-/// macOS' measures in pt (`SCALE` makes them Beize's).
+/// macOS' measures in pt (`SCALE` and `SIZE` make them Beize's).
 const CELL: f32 = 64.0;
 const GAP: f32 = 12.0;
 /// Below the menu bar, as between tiles.
@@ -34,6 +35,15 @@ const BIG_RADIUS: f32 = 21.0;
 const BUTTON: f32 = 36.0;
 const BUTTON_AT: f32 = 32.0;
 const TEXT_AT: f32 = 56.0;
+/// The owner's size (28.10.): 6.5 % below macOS' at Beize's scale – a cell
+/// 75 px instead of 80; what lies in a tile shrinks with it.
+const SIZE: f32 = 0.935;
+/// A capsule's title and the line below, in px at `SCALE`, shrunk by
+/// `SIZE`; the title 10 % lighter than semibold, and a little space
+/// between the lines (both the owner's, 28.10.).
+const TITLE: (f32, f32) = (15.0, 540.0);
+const SUBTITLE: (f32, f32) = (13.0, 400.0);
+const LINE_GAP: f32 = 1.5;
 
 const INK_LIGHT: Color = Color::rgb(0x1d1d1f);
 const INK_DARK: Color = Color::rgb(0xffffff);
@@ -57,7 +67,12 @@ const OFF_DARK: Color = Color {
 };
 
 fn px(pt: f32) -> f32 {
-    (pt * SCALE).round()
+    (pt * SCALE * SIZE).round()
+}
+
+/// A symbol's square, given in px at `SCALE`.
+fn symbol_size(size: f32) -> u32 {
+    (size * SIZE).round() as u32
 }
 
 /// The tiles there are.
@@ -135,12 +150,6 @@ impl ControlCenter {
         self.size
     }
 
-    /// The space between the grid and the screen's right edge, as between
-    /// tiles.
-    pub fn margin() -> f32 {
-        px(GAP)
-    }
-
     /// Where it takes the pointer: its tiles. Beside them a click goes to
     /// what lies below, and closes it.
     pub fn input(&self) -> Vec<Rect> {
@@ -206,7 +215,7 @@ impl ControlCenter {
                         (off, "globe-simple-x", ink)
                     };
                     scene.circle(centre, px(BUTTON) / 2.0, disc);
-                    let size = 22;
+                    let size = symbol_size(22.0);
                     let half = size as f32 / 2.0;
                     scene.symbol(symbol, centre[0] - half, centre[1] - half, size, color);
                     let title = match network.kind {
@@ -220,12 +229,13 @@ impl ControlCenter {
                         "Not Connected"
                     };
                     let x = r.x + px(TEXT_AT);
-                    let title = text.layout(title, &style(15.0, 600.0, ink), None);
-                    let state = text.layout(state, &style(13.0, 400.0, sub), None);
-                    let block = title.height() + state.height();
+                    let title = text.layout(title, &style(TITLE, ink), None);
+                    let state = text.layout(state, &style(SUBTITLE, sub), None);
+                    let gap = px(LINE_GAP);
+                    let block = title.height() + gap + state.height();
                     let y = (r.y + (r.h - block) / 2.0).round();
                     scene.text(&title, x, y);
-                    scene.text(&state, x, y + title.height());
+                    scene.text(&state, x, (y + title.height() + gap).round());
                 }
                 Tile::Appearance => {
                     let centre = [r.x + r.w / 2.0, r.y + r.h / 2.0];
@@ -236,7 +246,8 @@ impl ControlCenter {
                     } else {
                         ink
                     };
-                    let size = 30;
+                    // A pixel larger each way than at `SIZE` (owner, 28.10.).
+                    let size = symbol_size(30.0) + 2;
                     let half = size as f32 / 2.0;
                     scene.symbol(
                         "circle-half-fill",
@@ -252,10 +263,10 @@ impl ControlCenter {
     }
 }
 
-fn style(size: f32, weight: f32, color: Color) -> Style {
+fn style((size, weight): (f32, f32), color: Color) -> Style {
     Style {
         family: Family::Sans,
-        size,
+        size: size * SIZE,
         weight,
         color,
     }

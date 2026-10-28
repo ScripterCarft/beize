@@ -1075,7 +1075,10 @@ fn dock_glass(
 /// act; Escape closes it (the keyboard is the menu's), a click elsewhere
 /// does too (the pointer is), and with it open a press on the control
 /// center's button opens that. Its light/dark tile switches the appearance
-/// and back; the compositor keeps the choice. The screens of the open
+/// and back; the compositor keeps the choice. With the menu open, a drag
+/// on a window's title bar closes it and moves the window (owner, 28.10.:
+/// the press went to the menu's grab, the move was refused). The screens of
+/// the open
 /// menus are in the logs for the owner (`beize-menu.png`,
 /// `control-center-*.png`).
 fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -> Result<()> {
@@ -1156,7 +1159,7 @@ fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -
     wait_for_shell_count(shell, "ControlCenter open", 1)?;
     // The light/dark tile: the second row's first, below the bar and a gap
     // (os/beize-shell/src/control_center.rs).
-    let left = screen.0 - CONTROL_CENTER_GAP - CONTROL_CENTER_WIDTH;
+    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
     let tile = (
         i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
         i32::try_from(
@@ -1197,8 +1200,60 @@ fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -
         "  ok: a press on the control center's button closed the Beize menu and opened it; its \
          tile switched to dark and back, and the compositor kept the choice"
     );
+
+    // With the menu open, a press on a window's title bar closes the menu
+    // and drags the window at once (owner, 28.10.): the press is not the
+    // menu's grab's but the window's, which asks to move with it.
+    let (_, lines) = shell.capture(PLACED)?;
+    let ((x, y), (w, _)) = lines
+        .iter()
+        .rev()
+        .find_map(|l| placement(l, "beize-terminal"))
+        .ok_or_else(|| anyhow::anyhow!("no terminal's window was placed"))?;
+    let (x, y, w) = (i32::try_from(x)?, i32::try_from(y)?, i32::try_from(w)?);
+    let grip = (x + w / 2, y + i32::try_from(TITLE_BAR / 2)?);
+    // In the title bar's right end before, the desktop once moved off; left
+    // of the window before, in its title bar once moved.
+    let left_behind = (x + w - 40, grip.1);
+    let arrived = (x - 40, grip.1 + MENU_DRAG_BY.1);
+    let dark = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3 < WINDOW_DARK;
+    let at = |image: &Image, (px, py): (i32, i32)| -> Result<[u8; 3]> {
+        Ok(image.pixel(usize::try_from(px)?, usize::try_from(py)?))
+    };
+    let before = self::screen(machine, "drag-before")?;
+    ensure!(
+        dark(at(&before, left_behind)?) && !dark(at(&before, arrived)?),
+        "the terminal's title bar is not where it was placed ({}x{} at {x},{y}): the check \
+         would prove nothing",
+        w,
+        TITLE_BAR
+    );
+    click(qmp, screen, beize, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu open", 4)?;
+    drag(qmp, screen, grip, by(grip, MENU_DRAG_BY), true)?;
+    park(qmp, screen)?;
+    wait_for_shell_count(shell, "BeizeMenu closed", 4)?;
+    wait_until_screen(machine, "dragged-from-menu", |shown| {
+        let (gone, there) = (at(shown, left_behind)?, at(shown, arrived)?);
+        ensure!(
+            !dark(gone) && dark(there),
+            "the terminal did not move with the drag that closed the menu: {gone:?} where its \
+             title bar was, {there:?} where it should be"
+        );
+        Ok(())
+    })?;
+    say!(
+        "  ok: with the Beize menu open, a drag on a window's title bar closed it and moved the window"
+    );
     Ok(())
 }
+
+/// How far the drag with the Beize menu open moves the terminal: clear of
+/// where its title bar's right end was, over 40 px left of where it began.
+const MENU_DRAG_BY: (i32, i32) = (-160, 100);
+/// A terminal's title bar is darker than this (mean of the channels); the
+/// desktop in light is lighter.
+const WINDOW_DARK: u32 = 90;
 
 /// The mean of the channels at the screen's left edge, 100 pixels a side
 /// at half its height: the background, beside the windows in the middle.
@@ -1215,10 +1270,12 @@ fn left_mean(screen: &Image) -> f64 {
 /// its tint (#F2F2F2 at 85 %) over anything.
 const MENU_LIGHT: u32 = 200;
 /// The control center's measures in the VM, as the shell's (macOS' 12 and
-/// 64 pt at Beize's 1.25): as wide as its columns used, two while network
-/// and light/dark are its only tiles.
-const CONTROL_CENTER_GAP: usize = 15;
-const CONTROL_CENTER_TILE: usize = 80;
+/// 64 pt at Beize's 1.25, 6.5 % smaller): as wide as its columns used, two
+/// while network and light/dark are its only tiles; its right edge where
+/// the menu bar's margin ends.
+const CONTROL_CENTER_GAP: usize = 14;
+const CONTROL_CENTER_TILE: usize = 75;
+const BAR_MARGIN: usize = 20;
 const CONTROL_CENTER_WIDTH: usize = 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
 
 /// Where the bar's buttons are, as the shell said last: the Beize menu's

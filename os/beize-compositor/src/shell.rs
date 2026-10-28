@@ -3,9 +3,10 @@
 //! Popups (menus) open where the client asks, kept on the screen.
 //!
 //! A menu may grab the pointer and keyboard (`xdg_popup.grab`): it closes
-//! on a click elsewhere, which still goes where it was aimed (Smithay's
-//! `PopupPointerGrab`); then the keyboard goes back to the active window
-//! (`State::popup_grab_ended`). A minimized window comes back through the
+//! on a click elsewhere, which still goes where it was aimed – a window's
+//! content (Smithay's `PopupPointerGrab`), its title bar or edge
+//! (`State::press_ends_popup_grab`); then the keyboard goes back to the
+//! active window (`State::popup_grab_ended`). A minimized window comes back through the
 //! shell (`windows`, `shell_v1`).
 
 use smithay::desktop::{
@@ -15,6 +16,7 @@ use smithay::desktop::{
 use smithay::input::Seat;
 use smithay::input::pointer::Focus;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::{
     wl_output::WlOutput, wl_seat, wl_surface::WlSurface,
 };
@@ -167,6 +169,37 @@ impl XdgShellHandler for State {
             }
             pointer.set_grab(self, PopupPointerGrab::new(&grab), serial, Focus::Keep);
         }
+        self.popup_grab = Some(grab);
+    }
+}
+
+impl State {
+    /// A press outside the menu's app closes the menu and lets go of the
+    /// pointer before the press is looked at, so it does what it does
+    /// without a menu: a title bar drags, an edge resizes, the window comes
+    /// forward (owner, 28.10.). Smithay's `PopupPointerGrab::button` closes
+    /// the menu too and hands the press on, but past the pointer's own
+    /// handling: no click grab, so the compositor's title bar never saw it
+    /// and an app's own was refused its move (`windows::grab_for`).
+    pub fn press_ends_popup_grab(&mut self) {
+        let Some(mut grab) = self.popup_grab.take() else {
+            return;
+        };
+        // The same test as Smithay's grab: the focus it would hand on, the
+        // surface under the pointer, is of the menu's app.
+        let ours = self
+            .seat
+            .get_pointer()
+            .and_then(|pointer| pointer.current_focus())
+            .zip(grab.current_grab())
+            .is_some_and(|(under, menu)| under.client() == menu.client());
+        if !ours || grab.has_ended() {
+            grab.ungrab(PopupUngrabStrategy::All);
+            // Back to the surface under the pointer, which the grab hid.
+            self.let_go_of(&grab);
+        }
+        // It ends once the app has destroyed its menus
+        // (`popup_grab_ended`).
         self.popup_grab = Some(grab);
     }
 }
