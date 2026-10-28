@@ -28,10 +28,12 @@
 //! waiting for "frame done", each commit waiting for the one before it to
 //! show (wp_fifo), as long as one of three buffers is free; it prints how
 //! many frames were a vblank apart, and of the others how many it committed
-//! only after the frame before showed (late itself). `--timed N` gives each frame after the
-//! first a time, 2.5 refreshes after the last one showed (wp_commit_timing),
-//! and prints how many showed at the first vblank at or after their time;
-//! the first, which maps the window, gets one 100 ms ahead.
+//! only after the frame before showed (late itself) and how many pairs
+//! "0, then 2" were a vblank the driver reported twice. `--timed N` gives
+//! each frame after the first a time, 2.5 refreshes after the last one
+//! showed (wp_commit_timing), and prints how many showed at the first
+//! vblank at or after their time; the first, which maps the window, gets
+//! one 100 ms ahead.
 //!
 //! `--viewport` shows the pattern through wp_viewporter: the part from
 //! `VIEWPORT_SOURCE` – off centre, so its quadrants split at three
@@ -848,6 +850,23 @@ impl App {
                     })
                     .count();
                 println!("fifo: {late} of the others committed after the frame before showed");
+                // Of the others, pairs "0, then 2": a frame at the vblank
+                // of the one before, the next two after it – both a vblank
+                // apart, the first reported with the vblank before (nouveau's
+                // flip event now and then repeats it, the compositor's
+                // `Pacing::event`), not shown late.
+                let deltas: Vec<_> = shown
+                    .windows(2)
+                    .filter(|w| w[1].frame == w[0].frame + 1)
+                    .map(|w| (w[1].frame, w[1].sequence.wrapping_sub(w[0].sequence)))
+                    .collect();
+                let twice = deltas
+                    .windows(2)
+                    .filter(|d| d[1].0 == d[0].0 + 1 && d[0].1 == 0 && d[1].1 == 2)
+                    .count();
+                println!(
+                    "fifo: {twice} pairs of the others \"0, then 2\" (a vblank reported twice)"
+                );
             }
             Pace::Timed => {
                 // Each at the first vblank at or after its time: not before
