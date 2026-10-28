@@ -11,17 +11,26 @@
 //!   of its fence): measured from when drawing was planned to begin, so a
 //!   late wakeup counts too. Expected as KWin's `RenderJournal` does: the
 //!   times smoothed over half a second, plus twice how far they went above
-//!   that, which jumps up at once and fades over seconds; at least 2 ms:
-//!   below that timings are unpredictable when CPU or GPU change their
-//!   power state (KWin). Until 0.5.112 the longest of the last 120 frames:
+//!   that, which jumps up at once and fades over seconds. Each frame's time
+//!   counts at least 2 ms: below that timings are unpredictable when CPU or
+//!   GPU change their power state (KWin floors the time it adds,
+//!   `renderloop.cpp`). Until 0.5.113 the floor was on the expectation
+//!   instead: frames of ~1 ms kept it near 1 ms, so every frame above that
+//!   raised the variance, and the lead stayed a whole refresh for seconds
+//!   (7089 of 7163 frames in the load test). Until 0.5.112 the longest of
+//!   the last 120 frames:
 //!   half a second at 240 Hz, after which a stall that comes every 100 ms
 //!   on NVK (~2 ms before the GPU begins) was forgotten, the lead fell to
 //!   3.46 ms and the next such stall made a frame late.
 //! - Ready a margin before the vblank begins, for the kernel to program the
 //!   display: 1 ms (KWin), plus what frames that were ready later than that
 //!   lacked, learnt and slowly given back, at most 3 ms or half a refresh.
-//!   Learnt only from frames planned for a vblank, against that vblank (as
-//!   KWin's commit thread against its target): a change that came after
+//!   Learnt from when the frame was committed, as KWin's commit thread
+//!   learns from when its commit returned (`drm_commit_thread.cpp`): the
+//!   GPU's time is the expectation's above. Until 0.5.113 it learnt from
+//!   ready (the GPU done too), so a GPU stall counted twice. Learnt only
+//!   from frames planned for a vblank, against that vblank (as KWin's
+//!   commit thread against its target): a change that came after
 //!   the deadline, or while a frame waited for its vblank, is drawn at once
 //!   and says nothing about the margin. Learning from it (0.5.99) fed
 //!   itself: a late change raised the margin, which moved the deadline next
@@ -72,6 +81,15 @@ pub struct Plan {
     pub at: Duration,
     pub aim: Option<Duration>,
     pub lead: Duration,
+}
+
+/// What the schedule expects at a frame, for the pacing summary: the
+/// journal's smoothed time and variance, and what was learnt.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Estimate {
+    pub smoothed: Duration,
+    pub variance: Duration,
+    pub learnt: Duration,
 }
 
 pub struct Schedule {
@@ -153,19 +171,28 @@ impl Schedule {
     }
 
     /// A frame planned to begin at `planned`, for vblank `aim` if it was
-    /// planned for one, was ready (committed and done on the GPU) at
-    /// `ready`.
-    pub fn ready(&mut self, planned: Duration, ready: Duration, aim: Option<Duration>) {
-        self.drawing.add(ready.saturating_sub(planned), ready);
+    /// planned for one, was committed at `committed` and ready (committed
+    /// and done on the GPU) at `ready`.
+    pub fn ready(
+        &mut self,
+        planned: Duration,
+        committed: Duration,
+        ready: Duration,
+        aim: Option<Duration>,
+    ) {
+        self.drawing
+            .add(ready.saturating_sub(planned).max(FLOOR), ready);
         self.last = Some(ready);
         let Some(aim) = aim else {
             return;
         };
         let deadline = aim.saturating_sub(self.blank + MARGIN);
-        if ready > deadline {
-            self.learnt += ready - deadline;
+        if committed > deadline {
+            self.learnt += committed - deadline;
         } else {
-            self.learnt = self.learnt.saturating_sub((deadline - ready) / GIVE_BACK);
+            self.learnt = self
+                .learnt
+                .saturating_sub((deadline - committed) / GIVE_BACK);
         }
         self.learnt = self.learnt.min(MOST_LEARNT.min(self.refresh / 2));
     }
@@ -179,8 +206,16 @@ impl Schedule {
         if idle {
             return self.refresh;
         }
-        let drawing = self.drawing.expected();
-        (drawing.max(FLOOR) + self.blank + MARGIN + self.learnt).min(self.refresh)
+        (self.drawing.expected() + self.blank + MARGIN + self.learnt).min(self.refresh)
+    }
+
+    /// What it expects now (`Estimate`).
+    pub fn estimate(&self) -> Estimate {
+        Estimate {
+            smoothed: Duration::from_nanos(self.drawing.result.round() as u64),
+            variance: Duration::from_nanos(self.drawing.variance.round() as u64),
+            learnt: self.learnt,
+        }
     }
 
     /// The next vblank after `now`; without a phase, a refresh from it.
@@ -255,14 +290,14 @@ mod tests {
     }
 
     /// 8 ms refresh, a 0.5 ms vblank ending at 100 ms, frames that took a
-    /// steady 1.5 ms, the last ready at 102.5 ms: a lead of 2 (the floor) +
-    /// 0.5 + 1 = 3.5 ms.
+    /// steady 1.5 ms (2, the floor), the last ready at 102.5 ms: a lead of
+    /// 2 + 0.5 + 1 = 3.5 ms.
     fn schedule() -> Schedule {
         let mut s = Schedule::new(at(8000), at(500));
         s.vblank(at(100_000));
-        s.ready(at(101_000), at(102_500), Some(at(108_000)));
+        s.ready(at(101_000), at(102_000), at(102_500), Some(at(108_000)));
         s.drawing = Journal {
-            result: 1_500_000.0,
+            result: 2_000_000.0,
             variance: 0.0,
             last: Some(at(102_500)),
         };
@@ -302,43 +337,68 @@ mod tests {
         let mut s = schedule();
         assert_eq!(s.lead(at(103_000)), at(3500));
         // A frame stalled to 3.5 ms (NVK's ~2 ms before the GPU begins):
-        // 2 ms above the 1.5 expected, twice that on top.
-        s.ready(at(110_000), at(113_500), Some(at(116_000)));
+        // 1.5 ms above the 2 expected, twice that on top.
+        s.ready(at(110_000), at(110_200), at(113_500), Some(at(116_000)));
         let lead = s.lead(at(114_000));
-        assert!(lead > at(7000) && lead < at(7100), "{lead:?}");
+        assert!(lead > at(6500) && lead < at(6600), "{lead:?}");
         // Remembered for seconds, not frames: after a second of 1 ms
         // frames (until 0.5.112 the 120 frames that set the lead), still
         // more than a millisecond above.
         let mut t = 114_000;
         for _ in 0..125 {
             t += 8000;
-            s.ready(at(t), at(t + 1000), Some(at(t + 4000)));
+            s.ready(at(t), at(t + 200), at(t + 1000), Some(at(t + 4000)));
         }
         let lead = s.lead(at(t + 1000));
         assert!(lead > at(4500), "{lead:?}");
         // Faded after half a minute.
         for _ in 0..3750 {
             t += 8000;
-            s.ready(at(t), at(t + 1000), Some(at(t + 4000)));
+            s.ready(at(t), at(t + 200), at(t + 1000), Some(at(t + 4000)));
         }
         let lead = s.lead(at(t + 1000));
         assert!(lead < at(3600), "{lead:?}");
     }
 
     #[test]
+    fn frames_below_the_floor_raise_nothing() {
+        // 0.5.113: frames of ~1 ms against an expectation of ~1 ms raised
+        // the variance with every one a little longer; floored, they are
+        // all 2 ms and the lead stays the floor's.
+        let mut s = schedule();
+        let mut t = 110_000;
+        for n in 0..1000u64 {
+            t += 8000;
+            let took = 600 + (n % 7) * 200;
+            s.ready(at(t), at(t + 100), at(t + took), Some(at(t + 4000)));
+        }
+        assert_eq!(s.lead(at(t + 1000)), at(3500));
+    }
+
+    #[test]
+    fn a_gpu_stall_is_not_learnt_twice() {
+        // Committed in time, done on the GPU late: the expectation takes
+        // it, the margin does not (KWin learns from the commit alone).
+        let mut s = schedule();
+        s.ready(at(112_000), at(112_300), at(115_000), Some(at(116_000)));
+        assert_eq!(s.learnt, Duration::ZERO);
+        assert!(s.lead(at(115_500)) > at(3500));
+    }
+
+    #[test]
     fn a_frame_ready_too_late_raises_the_margin_and_it_goes_back_slowly() {
         let mut s = schedule();
-        // Planned for 116 ms: ready by 114.5. Ready at 115: 0.5 ms short.
-        s.ready(at(112_000), at(115_000), Some(at(116_000)));
+        // Planned for 116 ms: committed by 114.5. At 115: 0.5 ms short.
+        s.ready(at(112_000), at(115_000), at(115_000), Some(at(116_000)));
         assert_eq!(s.learnt, at(500));
         // 1.5 ms of room: a tenth of it goes back.
-        s.ready(at(120_000), at(121_000), Some(at(124_000)));
+        s.ready(at(120_000), at(121_000), at(121_000), Some(at(124_000)));
         assert_eq!(s.learnt, at(350));
         // At most 3 ms, at most half a refresh.
-        s.ready(at(130_000), at(140_000), Some(at(132_000)));
+        s.ready(at(130_000), at(140_000), at(140_000), Some(at(132_000)));
         assert_eq!(s.learnt, at(3000));
         let mut fast = Schedule::new(at(4000), at(500));
-        fast.ready(at(0), at(10_000), Some(at(4000)));
+        fast.ready(at(0), at(10_000), at(10_000), Some(at(4000)));
         assert_eq!(fast.learnt, at(2000));
     }
 
@@ -351,7 +411,7 @@ mod tests {
         let mut s = schedule();
         for n in 0..50u64 {
             let vblank = 108_000 + n * 8000;
-            s.ready(at(vblank + 100), at(vblank + 400), None);
+            s.ready(at(vblank + 100), at(vblank + 300), at(vblank + 400), None);
         }
         assert_eq!(s.learnt, Duration::ZERO);
         assert_eq!(s.lead(at(508_500)), at(3500));
@@ -404,7 +464,7 @@ mod tests {
         // at 108 ms is reported at 107.5, where it begins: drawn then, for
         // the vblank after, not at 108.
         let mut s = schedule();
-        s.ready(at(101_000), at(108_000), Some(at(108_000)));
+        s.ready(at(101_000), at(108_000), at(108_000), Some(at(108_000)));
         assert_eq!(s.lead(at(107_500)), at(8000));
         s.vblank(at(108_000));
         assert_eq!(

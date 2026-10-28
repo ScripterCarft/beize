@@ -208,10 +208,15 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   Modus: Vorlauf = erwartete Zeit vom *geplanten* Beginn bis „ready“ (Commit und Fence der
   GPU) wie KWins `RenderJournal`: geglättet über 0,5 s plus doppelte Abweichung nach oben,
   die sofort steigt und über 6 s abklingt (bis 0.5.112 das Längste der letzten 120 Bilder:
-  bei 240 Hz eine halbe Sekunde, danach war ein Stau vergessen), mindestens 2 ms (darunter sind Zeiten bei wechselnden
-  Energiezuständen unberechenbar) + Dauer des vblank (Leerzeilen × Zeilenzeit, wie Mutter;
+  bei 240 Hz eine halbe Sekunde, danach war ein Stau vergessen), jedes Bild zählt mit
+  mindestens 2 ms (darunter sind Zeiten bei wechselnden Energiezuständen unberechenbar; wie
+  KWin auf den Messwert, nicht auf die Erwartung – bis 0.5.113 auf die Erwartung, dann hob
+  jedes Bild über ~1 ms die Abweichung und der Vorlauf blieb sekundenlang ein ganzes Bild)
+  + Dauer des vblank (Leerzeilen × Zeilenzeit, wie Mutter;
   0,46 ms beim AW2723DF) + 1 ms für den Kernel + Gelerntes (Fehlbetrag später Bilder, je
   Bild ein Zehntel des Spielraums zurück, höchstens 3 ms oder ein halbes Bild). Gelernt wird
+  aus dem Commit gegen die Frist, wie KWins Commit-Thread aus dem Ende seines Commits; die
+  Zeit der GPU trägt die Erwartung (bis 0.5.113 aus „ready“: ein GPU-Stau zählte doppelt), und
   nur aus Bildern, die für einen vblank geplant waren, gegen diesen. Nach 100 Bildern Pause,
   ohne bekannte Lage der vblanks (erstes Bild, nach einem VT-Wechsel) oder nach der Frist
   zeichnet er sofort. Die Lage kommt aus den Flip-Ereignissen; ist sie älter als 1 s, fragt

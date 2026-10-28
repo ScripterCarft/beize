@@ -978,10 +978,14 @@ where
             );
         }
         self.flipping = false;
+        let sequence = metadata.as_ref().map(|m| m.sequence);
         let time = match metadata.map(|m| m.time) {
             Some(DrmEventTime::Monotonic(time)) => Some(time),
             _ => None,
         };
+        if let Some((sequence, time)) = sequence.zip(time) {
+            self.pacing.event(sequence, time, self.clock.now().into());
+        }
         if let Some(time) = time {
             self.schedule.vblank(time);
         }
@@ -1003,10 +1007,12 @@ where
         let gpu_done = fence.as_ref().and_then(|f| signalled_at(f.as_fd()));
         if learn {
             let ready = gpu_done.map_or(times.committed, |g| g.max(times.committed));
-            self.schedule.ready(times.planned, ready, aim);
+            self.schedule
+                .ready(times.planned, times.committed, ready, aim);
         }
         if let Some(time) = time {
-            self.pacing.shown(times, time, gpu, gpu_done);
+            self.pacing
+                .shown(times, time, gpu, gpu_done, self.schedule.estimate());
         }
         self.shown = Some(slot);
         self.frames += 1;
@@ -1098,6 +1104,7 @@ where
     /// the schedule knew are no longer the screen's.
     pub fn retrained(&mut self) {
         self.schedule.reset();
+        self.pacing.retrained();
     }
 
     /// The screen is ours again: everything is set anew; the caller draws.

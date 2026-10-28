@@ -38,6 +38,7 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::render::GpuTime;
+use crate::schedule::Estimate;
 
 /// A frame longer than this after the last one begins a new run: the
 /// screen was idle in between.
@@ -146,6 +147,10 @@ struct Run {
     ahead: Vec<f64>,
     /// The schedule's lead, in milliseconds.
     lead: Vec<f64>,
+    /// What it was made of (`Estimate`), in milliseconds.
+    smoothed: Vec<f64>,
+    variance: Vec<f64>,
+    learnt: Vec<f64>,
     /// Frames planned with a lead of the whole refresh: drawn at the vblank
     /// before's event, there was no room left (`Schedule::lead`).
     saturated: u32,
@@ -156,6 +161,10 @@ struct Run {
     draws: Vec<f64>,
     /// Frames that waited for clients' later work (`Parts::pending_writes`).
     waited: u32,
+    /// Flip events that repeated the vblank before (`Pacing::event`), and
+    /// how many of them were logged.
+    repeated: u32,
+    repeated_logged: u32,
 }
 
 pub struct Pacing {
@@ -164,6 +173,8 @@ pub struct Pacing {
     blank: Duration,
     /// The vblank of the last frame shown.
     last: Option<Duration>,
+    /// The last flip event: its sequence, its time and when it came.
+    event: Option<(u32, Duration, Duration)>,
     run: Run,
 }
 
@@ -173,6 +184,7 @@ impl Pacing {
             refresh,
             blank,
             last: None,
+            event: None,
             run: Run::default(),
         }
     }
@@ -186,6 +198,7 @@ impl Pacing {
         vblank: Duration,
         gpu: Option<GpuTime>,
         gpu_done: Option<Duration>,
+        estimate: Estimate,
     ) {
         if self
             .last
@@ -225,6 +238,9 @@ impl Pacing {
         run.gpu.extend(gpu.map(|g| g.ms));
         run.ahead.push(ms(begins) - ms(ready));
         run.lead.extend(times.lead.map(ms));
+        run.smoothed.push(ms(estimate.smoothed));
+        run.variance.push(ms(estimate.variance));
+        run.learnt.push(ms(estimate.learnt));
         if times.lead.is_some_and(|lead| lead >= self.refresh) {
             run.saturated += 1;
         }
@@ -240,6 +256,35 @@ impl Pacing {
             self.report();
             self.run.first = vblank;
         }
+    }
+
+    /// A flip event came at `came` with the vblank `sequence`, stamped
+    /// `time` (where it ends). nouveau counts vblanks from the scanout
+    /// position (no hardware counter, `drm_vblank.c`
+    /// `drm_update_vblank_count`) and sends the event where the vblank
+    /// begins; read a moment too early, the event repeats the vblank before,
+    /// its sequence and its time (0.5.113: fifo deltas "0, then 2"). Logged
+    /// to prove it on hardware: an event that came a refresh after the last
+    /// with the same sequence and stamp.
+    pub fn event(&mut self, sequence: u32, time: Duration, came: Duration) {
+        if let Some((last_sequence, last_time, last_came)) = self.event
+            && (sequence.wrapping_sub(last_sequence) as i32 <= 0 || time <= last_time)
+        {
+            self.run.repeated += 1;
+            if self.run.repeated_logged < LOGGED_LATE {
+                self.run.repeated_logged += 1;
+                info!(
+                    "flip event repeated the vblank before: sequence {sequence} (last \
+                     {last_sequence}), stamped {:.3} ms after the last, came {:.3} ms after the \
+                     last event, {:.3} ms after its stamp (the last: {:.3})",
+                    ms(time) - ms(last_time),
+                    ms(came) - ms(last_came),
+                    ms(came) - ms(time),
+                    ms(last_came) - ms(last_time),
+                );
+            }
+        }
+        self.event = Some((sequence, time, came));
     }
 
     /// Ends the run once no frame came for a while; false when there is no
@@ -260,6 +305,13 @@ impl Pacing {
     pub fn pause(&mut self) {
         self.report();
         self.last = None;
+        self.event = None;
+    }
+
+    /// The link was trained anew (a modeset): the vblanks' count may start
+    /// over, nothing to compare the next flip event with.
+    pub fn retrained(&mut self) {
+        self.event = None;
     }
 
     /// Logs the run's summary and starts a new one.
@@ -286,6 +338,11 @@ impl Pacing {
         let budget = ms(self.refresh);
         let (cpu, gpu, latency) = (sorted(&run.cpu), sorted(&run.gpu), sorted(&run.latency));
         let (ahead, lead) = (sorted(&run.ahead), sorted(&run.lead));
+        let (smoothed, variance, learnt) = (
+            sorted(&run.smoothed),
+            sorted(&run.variance),
+            sorted(&run.learnt),
+        );
         let (quads, draws) = (sorted(&run.quads), sorted(&run.draws));
         let busy = (median(&cpu) + median(&gpu)) / budget * 100.0;
         let parts = run.parts.each_ref().map(|p| sorted(p));
@@ -299,10 +356,12 @@ impl Pacing {
             "pacing: {} frames in {:.2} s at {:.0} Hz, {} late (drawing {}, GPU {}, display {}); \
              change to screen median {:.2} ms, max {:.2}; ready median {:.2} ms before the \
              vblank begins, least {:.2}; lead median {:.2} ms, max {:.2}, a whole refresh for \
-             {} frames; drawing (CPU) median {:.2} ms, 99 % {:.2}, max {:.2}; \
-             GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame; \
+             {} frames, of it expected drawing median {:.2} ms, variance median {:.2}, max \
+             {:.2}, learnt median {:.2}, max {:.2}; drawing (CPU) median {:.2} ms, 99 % \
+             {:.2}, max {:.2}; GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame; \
              drawing in parts, median/99 % ms: {parts}; quads median {:.0}, max {:.0}, in \
-             draws median {:.0}, max {:.0}; {} waited for clients' later work",
+             draws median {:.0}, max {:.0}; {} waited for clients' later work; {} flip \
+             events repeated the vblank before",
             run.frames,
             length.as_secs_f64(),
             1000.0 / budget,
@@ -317,6 +376,11 @@ impl Pacing {
             median(&lead),
             max(&lead),
             run.saturated,
+            median(&smoothed),
+            median(&variance),
+            max(&variance),
+            median(&learnt),
+            max(&learnt),
             median(&cpu),
             percentile(&cpu, 0.99),
             max(&cpu),
@@ -329,6 +393,7 @@ impl Pacing {
             median(&draws),
             max(&draws),
             run.waited,
+            run.repeated,
         ))
     }
 }
@@ -447,7 +512,13 @@ mod tests {
             ms: 0.1,
             span: None,
         };
-        p.shown(times, at((n + shown) * vblank), Some(gpu), None);
+        p.shown(
+            times,
+            at((n + shown) * vblank),
+            Some(gpu),
+            None,
+            Estimate::default(),
+        );
     }
 
     #[test]
@@ -464,6 +535,24 @@ mod tests {
         // Committed 2.8 ms before the vblank's end, 0.461 ms of blank.
         assert!(line.contains("ready median 2.34 ms before"), "{line}");
         assert!(line.contains("lead median 3.00 ms, max 3.00"), "{line}");
+    }
+
+    #[test]
+    fn a_flip_event_that_repeats_the_vblank_before_is_counted() {
+        // Events where the vblank begins, stamped where it ends; the third
+        // read the scanout position too early and repeats the second's.
+        let mut p = Pacing::new(REFRESH, BLANK);
+        let r = REFRESH.as_micros() as u64;
+        p.event(10, at(10 * r), at(10 * r - 461));
+        p.event(11, at(11 * r), at(11 * r - 461));
+        assert_eq!(p.run.repeated, 0);
+        p.event(11, at(11 * r), at(12 * r - 440));
+        p.event(13, at(13 * r), at(13 * r - 461));
+        assert_eq!(p.run.repeated, 1);
+        // Another session in between: nothing to compare with.
+        p.pause();
+        p.event(5, at(20 * r), at(20 * r - 461));
+        assert_eq!(p.run.repeated, 0);
     }
 
     #[test]
@@ -490,7 +579,13 @@ mod tests {
             aimed: false,
             parts: Parts::default(),
         };
-        p.shown(times, at(7 * vblank), None, Some(at(6 * vblank - 100)));
+        p.shown(
+            times,
+            at(7 * vblank),
+            None,
+            Some(at(6 * vblank - 100)),
+            Estimate::default(),
+        );
         assert_eq!(p.run.late_gpu, 1);
     }
 
