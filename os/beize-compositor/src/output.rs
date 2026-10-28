@@ -941,9 +941,11 @@ where
         let plan = self.planned.take();
         if damaged {
             self.swapchain.submitted(&slot);
+            let due = self.schedule.target(requested);
+            self.schedule.committed(committed);
             let times = Times {
                 requested,
-                due: self.schedule.target(requested),
+                due,
                 planned: plan.map_or(began, |p| p.at.min(began)),
                 began,
                 committed,
@@ -983,9 +985,6 @@ where
             Some(DrmEventTime::Monotonic(time)) => Some(time),
             _ => None,
         };
-        if let Some((sequence, time)) = sequence.zip(time) {
-            self.pacing.event(sequence, time, self.clock.now().into());
-        }
         if let Some(time) = time {
             self.schedule.vblank(time);
         }
@@ -1001,6 +1000,10 @@ where
             debug!("cursor plane only, nothing drawn");
             return time;
         };
+        // A frame's: nouveau sends a cursor move's at once (`Pacing::event`).
+        if let Some((sequence, time)) = sequence.zip(time) {
+            self.pacing.event(sequence, time, self.clock.now().into());
+        }
         // KMS showed it, so its fence has signalled: when, the kernel says,
         // and how long the GPU worked on it, its timestamps.
         let gpu = renderer.gpu_time(submission);

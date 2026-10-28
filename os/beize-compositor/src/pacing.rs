@@ -258,14 +258,21 @@ impl Pacing {
         }
     }
 
-    /// A flip event came at `came` with the vblank `sequence`, stamped
-    /// `time` (where it ends). nouveau counts vblanks from the scanout
-    /// position (no hardware counter, `drm_vblank.c`
-    /// `drm_update_vblank_count`) and sends the event where the vblank
-    /// begins; read a moment too early, the event repeats the vblank before,
-    /// its sequence and its time (0.5.113: fifo deltas "0, then 2"). Logged
-    /// to prove it on hardware: an event that came a refresh after the last
-    /// with the same sequence and stamp.
+    /// A frame's flip event came at `came` with the vblank `sequence`,
+    /// stamped `time` (where it ends). nouveau sends it once the display
+    /// has taken the frame (its notifier), counting the vblank from the
+    /// scanout position then, without a hardware counter
+    /// (`dispnv50/disp.c` `nv50_disp_atomic_commit_tail`,
+    /// `drm_crtc_accurate_vblank_count`); read a moment before the position
+    /// is in the vblank, the event repeats the vblank before, its sequence
+    /// and its time. 0.5.114: 10 to 29 such events in 30 s at 240 Hz, each
+    /// a refresh after the last, where its vblank begins. The clients'
+    /// presentation times repeat with it (fifo deltas "0, then 2"), as on
+    /// KWin, Mutter and Weston, which pass the kernel's time as well; the
+    /// schedule is not misled (`Schedule::earliest`). A cursor move alone
+    /// is not a frame's: nouveau sends its event at once (no new image, no
+    /// notifier to wait for), within the refresh, the vblank's sequence
+    /// unchanged.
     pub fn event(&mut self, sequence: u32, time: Duration, came: Duration) {
         if let Some((last_sequence, last_time, last_came)) = self.event
             && (sequence.wrapping_sub(last_sequence) as i32 <= 0 || time <= last_time)

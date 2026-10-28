@@ -221,8 +221,18 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   ohne bekannte Lage der vblanks (erstes Bild, nach einem VT-Wechsel) oder nach der Frist
   zeichnet er sofort. Die Lage kommt aus den Flip-Ereignissen; ist sie älter als 1 s, fragt
   er KMS (`drmWaitVBlank` relativ 0). Der gemeldete vblank (Ereignis am Beginn, Stempel am
-  Ende) ist nie der nächste. Jede Abweichung von KWins Modell fiel auf der 3070 Ti einmal
-  durch (0.5.97–0.5.100, Einzelheiten in Git); mit dem Modell 4 von 4797 Bildern spät.
+  Ende) ist nie der nächste. Ein Bild zeigt frühestens einen vblank nach dem, den das
+  zuletzt abgeschickte frühestens erreichen konnte (KWin: ein Ziel nie vor dem zuletzt
+  geplanten plus eins; nicht das vorsichtige Ziel der Messung, sonst verlöre nach einer Pause
+  das zweite Bild einen vblank): nouveau wiederholt im Flip-Ereignis ab und zu den vblank
+  davor (es liest die Zeilenposition, sobald die Anzeige das Bild übernommen hat, manchmal
+  einen Moment zu früh; 0.5.114: 10–29 in 30 s bei 240 Hz). Als letzter genommen, schien
+  der eben begonnene vblank der nächste; das Bild wurde sofort, für keinen vblank gezeichnet
+  und spät gezählt, obwohl es rechtzeitig kam. Die Zeit an die Clients bleibt die des
+  Kernels, wie bei KWin, Mutter und Weston: der Fehler gehört in nouveau. Einen Cursor-Zug
+  allein meldet nouveau sofort (kein neues Bild, nichts abzuwarten); er zählt nicht als
+  wiederholter vblank. Jede Abweichung von KWins Modell fiel auf der 3070 Ti einmal durch
+  (0.5.97–0.5.100, Einzelheiten in Git); mit dem Modell 4 von 4797 Bildern spät.
   Braucht ein Bild das ganze Bild (Vorlauf = Bildperiode), beginnt es am Flip-Ereignis des
   vblank davor (dessen Beginn), nicht an dessen Stempel (Ende): 0,43 ms mehr bei 240 Hz.
   Bleibt ein Flip-Ereignis 1 s aus, sagt der Compositor es (Treiberfehler; lag es nur ungelesen,
@@ -233,6 +243,9 @@ der Shell (Schritt 4), Apples Icons und Symbole sind tabu.
   der Clients, weil nouveau jede Submission als Schreiber aller geteilten Puffer einträgt
   (implizite Synchronisation; „waited for … client buffers“). Abhilfe ist die explizite
   Synchronisation (§7); ob danach 0 Puffer warten, misst der nächste Hardware-Test.
+  0.5.114: Die Abweichung aus diesem Stau (~1 ms) hält den Vorlauf nach KWins Formel bei
+  einem ganzen Bild (geglättet 2 ms + 2 × Abweichung 1 ms + vblank 0,46 ms + Marge 1 ms
+  > 4,17 ms); Änderung bis Bild 7,5 ms im Median.
   Ziel: 0 späte Bilder, Änderung bis Bild höchstens ein Bild.
 
 ### 7. Der Renderer (Schritt 2, angenommen 21.10.)

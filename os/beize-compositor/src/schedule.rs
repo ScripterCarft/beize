@@ -45,6 +45,18 @@
 //!   the vblank) drew at its event, its deadline long past, at once –
 //!   before the clients that heard "frame done" there committed: every
 //!   frame a vblank behind.
+//! - A frame shows a vblank after the one the last frame committed could
+//!   show at first, at the earliest (KWin: a target never before the last
+//!   one planned and one more, `renderloop.cpp` `scheduleRepaint`): one
+//!   waits for its vblank at a time. Not the vblank it was due at for the
+//!   pacing (`target`), which allows for its lead: a frame drawn at once
+//!   after an idle stretch showed a vblank before that, and the next would
+//!   have lost one. nouveau's flip event now and then repeats the vblank
+//!   before (`Pacing::event`); taken for the last, it made the vblank that
+//!   had just begun seem the next, and the frame was drawn at once, for no
+//!   vblank, and counted late though it showed in time (0.5.114: each of
+//!   the 6 late frames whose event was logged came 4 ms after such an
+//!   event).
 //!
 //! A change drawn after its vblank's deadline is drawn at once and may
 //! still make it. Until 0.5.98 the lead was the drawing and GPU time alone
@@ -104,6 +116,8 @@ pub struct Schedule {
     drawing: Journal,
     /// Learnt on top of `MARGIN`.
     learnt: Duration,
+    /// The first vblank the last frame committed could show at.
+    committed_for: Option<Duration>,
 }
 
 /// What a frame's drawing is expected to take, as KWin's `RenderJournal`
@@ -150,6 +164,7 @@ impl Schedule {
             last: None,
             drawing: Journal::default(),
             learnt: Duration::ZERO,
+            committed_for: None,
         }
     }
 
@@ -168,6 +183,13 @@ impl Schedule {
     pub fn reset(&mut self) {
         self.phase = None;
         self.last = None;
+        self.committed_for = None;
+    }
+
+    /// A frame was committed at `at`. Without a phase, where it shows is
+    /// unknown, and so held against nothing.
+    pub fn committed(&mut self, at: Duration) {
+        self.committed_for = self.phase.map(|_| self.earliest(at));
     }
 
     /// A frame planned to begin at `planned`, for vblank `aim` if it was
@@ -218,9 +240,10 @@ impl Schedule {
         }
     }
 
-    /// The next vblank after `now`; without a phase, a refresh from it.
+    /// The next vblank after `now` (and after the one the last frame
+    /// could show at); without a phase, a refresh from it.
     pub fn next(&self, now: Duration) -> Duration {
-        self.after(now)
+        self.earliest(now)
     }
 
     /// The first vblank at or after `t` (and after the last known).
@@ -231,12 +254,12 @@ impl Schedule {
     /// The vblank a change there at `t` is due at: the first whose
     /// deadline is not past. Without a phase, a refresh from `t`.
     pub fn target(&self, t: Duration) -> Duration {
-        self.after(t + self.lead(t))
+        self.earliest(t + self.lead(t))
     }
 
     /// When to draw a change there at `now`: the deadline of the next
-    /// vblank, or at once if it is past (the frame may still make it, but
-    /// it is planned for none). A frame that needs the whole refresh is
+    /// vblank (`next`), or at once if it is past (the frame may still make
+    /// it, but it is planned for none). A frame that needs the whole refresh is
     /// drawn at once from the vblank before's event, which comes where that
     /// vblank begins – waiting for its stamp, where it ends, lost the
     /// vblank's duration of every such frame (0.43 ms at 240 Hz; 0.5.111
@@ -250,7 +273,7 @@ impl Schedule {
                 lead,
             };
         }
-        let next = self.after(now);
+        let next = self.earliest(now);
         match next.checked_sub(lead) {
             Some(at) if at >= now => Plan {
                 at: if lead >= self.refresh { now } else { at },
@@ -263,6 +286,16 @@ impl Schedule {
                 lead,
             },
         }
+    }
+
+    /// The first vblank after `t` that a frame committed now can show at:
+    /// after the one the last frame could show at, too. That one taken on the
+    /// vblanks as they lie now (half a refresh off at most: the phase moves
+    /// by microseconds).
+    fn earliest(&self, t: Duration) -> Duration {
+        let after = self.after(t);
+        self.committed_for
+            .map_or(after, |last| after.max(self.after(last + self.refresh / 2)))
     }
 
     /// The first vblank after `t` and after the last known (which has
@@ -319,6 +352,56 @@ mod tests {
         j.add(at(1000), at(60_000));
         // 60 ms of 6 s: a hundredth of the variance goes.
         assert_eq!(j.expected(), at(1000) + at(1980));
+    }
+
+    #[test]
+    fn a_flip_event_that_repeats_the_vblank_before_moves_no_target_back() {
+        // nouveau (0.5.114): the event where vblank 116 begins (115.5) is
+        // stamped 108 again. A frame for 116 was committed: the next shows
+        // at 124 at the earliest, planned for it as any other – also when
+        // the phase moved by microseconds since (asked of KMS anew).
+        let mut s = schedule();
+        s.vblank(at(108_000));
+        s.committed(at(112_600));
+        s.vblank(at(108_003));
+        let now = at(115_600);
+        assert_eq!(s.next(now), at(124_003));
+        assert_eq!(s.target(now), at(124_003));
+        assert_eq!(
+            s.draw_at(now),
+            Plan {
+                at: at(120_503),
+                aim: Some(at(124_003)),
+                lead: at(3500),
+            }
+        );
+        // Long after it, the last frame holds nothing back.
+        s.vblank(at(300_000));
+        assert_eq!(s.next(at(301_000)), at(308_000));
+        // Without a frame committed, the vblank after the last known.
+        s.reset();
+        s.vblank(at(108_000));
+        assert_eq!(s.next(now), at(116_000));
+    }
+
+    #[test]
+    fn a_frame_drawn_at_once_holds_back_no_more_than_where_it_shows() {
+        // After an idle stretch the lead is a refresh: a change at 101 is
+        // drawn at once and shows at 108 (due later for the pacing, 116).
+        // The client's next frame, after 108's event, is for 116.
+        let mut s = Schedule::new(at(8000), at(500));
+        s.vblank(at(100_000));
+        let now = at(101_000);
+        assert_eq!(s.draw_at(now).aim, None);
+        s.committed(at(101_200));
+        s.vblank(at(108_000));
+        assert_eq!(s.next(at(108_300)), at(116_000));
+        // Committed without a phase (after the screen was off): nothing
+        // known to hold against; the first event sets the vblanks.
+        s.reset();
+        s.committed(at(200_000));
+        s.vblank(at(201_000));
+        assert_eq!(s.next(at(201_500)), at(209_000));
     }
 
     #[test]
