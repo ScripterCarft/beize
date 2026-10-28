@@ -315,20 +315,50 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: Shell (e) gebaut, Messbau 0.5.116)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28 spät: Shell (e) nachgebessert, Messbau 0.5.117)
 
-**JETZT: Messbau 0.5.116 auswerten – der Besitzer hat ihn getestet (28.10. abends).** Release
-und Skript lagen auf dem Stick (`D:\beize-0.5.116`, `D:\beize-test`, Prüfsumme der .efi
-geprüft); `measure/desktop` + Tag hat der Besitzer gepusht. Schritt 1: den neuesten
-`D:\beize-test\results-2026102*`-Ordner (nach 20261028-154745) per PowerShell nach
-`~/hw-logs/` kopieren (Löschen auf D: verweigert die Rechteprüfung → dem Besitzer den Befehl
-geben), Fotos ansehen und dem Besitzer zeigen. (Shell (e): Beize-Menü, Kontrollzentrum; Tag
-`measure/desktop-0.5.116`, Stick-Dateien in `~/scratch/stick`, `hw-test.sh` Teil 2/6 neu:
-Menü, Klick daneben, Tastatur danach im Terminal, Kontrollzentrum, Hell/Dunkel, Fotos). Prüfen:
-`Beize menu may:` in `shell.log` = „yes“ dreimal (nur tty1 angemeldet), Fotos (Rand, Schatten,
-Kacheln), `appearance … chosen` im Compositor-Log, Warnungen. Danach mit dem Besitzer: weiße
-Schrift auf dem Glas des Kontrollzentrums und ob das Glas dafür angepasst wird (sein Wunsch, „noch
-nicht jetzt“), Bestätigungsdialog für Neustart/Ausschalten, dann (f).
+**JETZT: Messbau 0.5.117 auf den Stick bringen, testen lassen, auswerten.** Tag
+`measure/desktop-0.5.117` (`measure/desktop` = 1121851, ein Commit auf `main` 4d3870d; gebaut,
+Smoke grün 173 s). Stick-Dateien (`hw-test.sh` aus dem Tag + Testprogramme) liegen in
+`~/scratch/stick`. Ablauf wie immer: **Besitzer** macht das Release (docs/hardware.md A) und
+Force-Push von `measure/desktop` + Tag, sagt „Release fertig“ → Claude kopiert das Release
+nach `D:\beize-0.5.117` und `~/scratch/stick/*` nach `D:\beize-test` (Prüfsumme der .efi
+prüfen) → Besitzer testet → Claude kopiert den neuesten `D:\beize-test\results-*` (nach
+20261028-185707) nach `~/hw-logs/` und wertet aus. Neu in Teil 2/6: d) Pille rund mit Luft zu
+Globus/Uhr, Kacheln kleiner und bündig mit der Uhr; e) Fenster an der Titelleiste ziehen,
+während Beize-Menü bzw. Kontrollzentrum offen ist (Menü zu, Fenster wandert sofort mit);
+f) Kontrollzentrum mit Esc zu, sofort Klick aufs Beize-Zeichen (muss beim ersten Klick
+aufgehen). Prüfen: Fotos, `Beize menu may:` = „yes“ dreimal, Zählung open/closed, Warnungen,
+Bildtakt wie 0.5.116. CI des Pushs 4d3870d bei Übergabe noch offen: `gh run list -L 2` prüfen
+(der Lauf davor, 471279c, war rot: `cargo deny` – behoben in ee35195).
+
+**0.5.116 ausgewertet 28.10. abends (`~/hw-logs/results-20261028-185707`).** Alles bestanden:
+logind „yes“ dreimal, Hell/Dunkel ~60× geschaltet (`appearance … chosen`), keine Warnungen;
+Client-Test 4796/4800 (max 9 ms), Lasttest 114 912/115 200, rotiert 86 269/86 400, syncobj
+30/30, FIFO 14 doppelte vblanks (bekannt, nouveau). Befunde des Besitzers am Test, alle behoben
+in ee35195..4d3870d (ADR 0028 §3/§5 haben die Maße):
+- **Klick neben offenes Menü auf eine Titelleiste zog nicht (belegt, Fehler):** Smithays
+  `PopupPointerGrab::button` schließt und reicht den Klick weiter, aber ohne Klick-Grab →
+  Compositor-Titelleiste sah ihn nie, `grab_for` lehnte das `move` einer App ab (`has=false`,
+  per Debug-Log belegt). Jetzt `State::press_ends_popup_grab` (shell.rs): Menü zu und Zeiger los
+  vor der Auswertung des Klicks (Besitzer wählte „Klick wirkt sofort“, wie anvil/niri).
+- **Nach Esc ging der nächste Klick daneben (belegt, älter):** Smithays Grabs lassen erst beim
+  nächsten Ereignis los und verwerfen diese Bewegung → Klick an der alten Zeigerstelle.
+  `popup_grab_ended` lässt jetzt sofort los (`State::let_go_of`). Smoke fand es.
+- **Schattenstrich neben 75-px-Kacheln:** Band „Fenster ohne Ecken“ wurde −1 px hoch (37,5 → 38
+  aufgerundet), eine Schattenzeile doppelt (frame.rs `draw_shadow`, jetzt `max(0)`).
+- **Maße (Besitzer):** Kontrollzentrum 6,5 % kleiner (`SIZE`, Kachel 75), rechts bündig mit dem
+  Ende der Uhr, Leiste 20 px Rand; Pille rund, 28 hoch, unter dem Kontrollzentrum 54 breit; der
+  Knopf ist seine Pille, Uhr/Globus 8 px davon (Apple ~6 pt, gemessen); Globus 20 px (Kugel
+  ~16); Titel „Ethernet“ Gewicht 540, 2 px Zeilenabstand; Hell/Dunkel-Symbol 30 px.
+- Smoke `menus`: Ziehen an der Terminal-Titelleiste bei offenem Menü (Gegenprobe ohne Fix rot).
+- `deny.toml`: beize-shell darf beize-varlink (Netz über networkd, kam mit (e)).
+
+**Danach mit dem Besitzer (offen aus (e)):** weiße Schrift auf dem Glas des Kontrollzentrums
+und ob das Glas dafür angepasst wird (sein Wunsch, „noch nicht jetzt“); Bestätigungsdialog für
+Neustart/Ausschalten; Abstand Globus↔Pille wirkt ~1–2 px größer als Pille↔Uhr (Kugel füllt ihr
+Feld nicht ganz; angleichen, wenn er will); höheres Kontrollzentrum-Symbol **nicht** nötig
+(Besitzer). Dann (f).
 
 **Shell (e) gebaut 28.10.** (ADR 0028 §3, §5, §6 haben die Einzelheiten und Maße). Entwürfe
 vorher abgenommen (Python-Mock-ups, `beize-design-values`-Notiz): Logo Variante 2, Menü ruhig
