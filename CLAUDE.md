@@ -315,7 +315,17 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28 nachts: explizite Sync fertig und gepusht; als Nächstes Messbau 0.5.113)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: Messbau 0.5.113 getaggt, Besitzer baut Release und testet)
+
+**28.10.: Messbau 0.5.113 gebaut** (Tag `measure/desktop-0.5.113`, `measure/desktop` = 6b9ddb2,
+ein Commit auf `main` 9c5ee5c; Smoke grün 155 s). `hw-test.sh` jetzt 5 Teile: Teil 3 zusätzlich
+`beize-testclient --syncobj` mit nouveaus Timelines (`syncobj.log`, schwarzes Fenster); Kernel-
+Journal schreibt `run0 bash -c 'journalctl "$1" … > "$0"'` selbst (Muster in WSL ohne run0
+geprüft); Auswertung: späte Bilder, davon „auf Clients gewartet“ (soll 0), „stalled“ Median/Max,
+`held:` im Lasttest. Teil „Bildschirm aus“ entfernt (0.5.111 belegt). **Beim Besitzer:** Release
+(docs/hardware.md A), „Release fertig“ → Claude kopiert `D:\beize-0.5.113` und `D:\beize-test`
+(Skript aus dem Tag, Testprogramme aus `build/sysroot/usr/lib/beize/test/` des Messbaus); danach
+auswerten (Punkt 2 unten). Force-Push `measure/desktop` macht der Besitzer.
 
 **28.10. nachts: Punkt 1 „Explizite Synchronisation“ umgesetzt** (ADR 0027 §7, `syncobj.rs`,
 Smoke `syncobj`, Testclient `--syncobj`; Plan und Ergebnis je von einem Agenten gegengeprüft,
@@ -472,7 +482,7 @@ Minutengrenze (Uhr der Shell) – jetzt wird bei neuer Minute nach Ruhezeit neu 
 am Ende jedes Schritts prüft ein Agent unabhängig gegen; Mechanismus belegen, Vorbild aus dem
 Quelltext lesen, nicht aus dem Gedächtnis):**
 1. ~~Explizite Synchronisation~~ **erledigt 28.10.** (oben; 1(iv) des Plans war falsch, s. dort).
-2. Messbau 0.5.113 mit 1 + `hw-test.sh`: Kernel-Journal per `run0 bash -c 'journalctl … > "$0"'
+2. Messbau 0.5.113 (**gebaut 28.10.**, oben; Test beim Besitzer) mit 1 + `hw-test.sh`: Kernel-Journal per `run0 bash -c 'journalctl … > "$0"'
    datei` (run0 bleibt am Terminal). Auswerten: „waited for … client buffers“ muss 0 sein,
    „stalled“, späte Bilder.
 3. **Danach entscheiden (Punkt 5 des Besitzers):** bleibt der Firmware-Rest spürbar, ein zweites
