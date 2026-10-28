@@ -317,7 +317,12 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: Shell (e) gebaut, Messbau 0.5.116)
 
-**JETZT: Messbau 0.5.116 auswerten** (Shell (e): Beize-Menü, Kontrollzentrum; Tag
+**JETZT: Messbau 0.5.116 auswerten – der Besitzer hat ihn getestet (28.10. abends).** Release
+und Skript lagen auf dem Stick (`D:\beize-0.5.116`, `D:\beize-test`, Prüfsumme der .efi
+geprüft); `measure/desktop` + Tag hat der Besitzer gepusht. Schritt 1: den neuesten
+`D:\beize-test\results-2026102*`-Ordner (nach 20261028-154745) per PowerShell nach
+`~/hw-logs/` kopieren (Löschen auf D: verweigert die Rechteprüfung → dem Besitzer den Befehl
+geben), Fotos ansehen und dem Besitzer zeigen. (Shell (e): Beize-Menü, Kontrollzentrum; Tag
 `measure/desktop-0.5.116`, Stick-Dateien in `~/scratch/stick`, `hw-test.sh` Teil 2/6 neu:
 Menü, Klick daneben, Tastatur danach im Terminal, Kontrollzentrum, Hell/Dunkel, Fotos). Prüfen:
 `Beize menu may:` in `shell.log` = „yes“ dreimal (nur tty1 angemeldet), Fotos (Rand, Schatten,
