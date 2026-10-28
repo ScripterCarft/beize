@@ -315,7 +315,37 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: Messbau 0.5.113 getaggt, Besitzer baut Release und testet)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: 0.5.113 ausgewertet, A/B/C/E erledigt, Messbau 0.5.114 getaggt)
+
+**0.5.113 getestet 28.10. (`~/hw-logs/results-20261028-091933`).** Explizite Sync wirkt: späte
+Bilder im Lasttest 109 → 5, „stalled“ Median 2,13 → 0,44 ms, 0 späte Bilder warteten auf
+Clients; Lasttest 114 995/115 200, rotiert 86 308/86 400; busy 14 %; Resize 0–2 ms; keine
+Warnungen; Kernel-Journal kam an (run0-Fix). Testfenster „bleiben stehen“ = fertig gezeichnet,
+warten auf `--seconds` (Skripttext ergänzt). Vier Befunde, zwei Agenten + eigene Prüfung:
+1. syncobj „30 of 30 before their vblank“: **kein Compositor-Fehler (belegt)** – Freigabe am
+   Flip-Ereignis (Beginn vblank, GPU fertig), Präsentationszeit = Ende vblank (`drm_vblank.c`
+   808-813), 0,461 ms bei 179 Leerzeilen. Test prüft jetzt gegen den Beginn (82e7311,
+   vblank-Länge aus GETCRTC; Gegenprobe ohne Holds rot).
+3. Vorlauf fast immer ein ganzes Bild, Latenz 6,6 → 7,5 ms: **belegt** – 2-ms-Boden lag auf der
+   Erwartung statt (KWin `renderloop.cpp:176-177`) auf jedem Messwert; Gelerntes lernte aus
+   „ready“ statt (KWin `DrmCommitThread::submit`) aus dem Commit. Beides wie KWin (7f1aa1d, Tests
+   + Gegenproben rot; `pacing:` nennt Erwartung, Streuung, Gelerntes). Erwartet ~3,46 ms Vorlauf.
+2./4. FIFO „0 dann 2“ (17×) und späte „drawn at once“-Bilder: **im Quelltext möglich, auf
+   Hardware nicht belegt** – nouveau hat keinen Hardware-Zähler, das Flip-Ereignis am Beginn
+   des vblank kann Nummer und Stempel des vorigen tragen (`drm_vblank.c:334-352`,
+   `dispnv50/disp.c:2383-2395`); häufiger, weil wegen 3 fast alles am Flip-Ereignis gezeichnet
+   wurde. 7f1aa1d zählt/loggt solche Ereignisse („flip event repeated the vblank before“).
+   **D (nach 0.5.114, wenn belegt):** Einordnung nach KWin (Ziel nie vor wartendem Flip +
+   1 vblank, `renderloop.cpp:71,106`), FIFO-Test „alte Nummer gemeldet“ getrennt; nouveau-Fix
+   upstream = Besitzer-Entscheidung.
+Prüf-Agent am Ende: kein Fehler; Kleinigkeiten behoben (`retrained` setzt die Zählung zurück).
+Smoke: 4 Läufe, 3 grün, 1 rot im Resize-Check (Fenster 64×632 = Mindestbreite: Parken nach
+(0,0) kam vor dem Loslassen an, libinput-Debounce 280 ms zu spät, VM-Stall; nur aus dem Log
+erschlossen, = offener Punkt „libinput: system too slow“ unten). **Messbau 0.5.114** (Tag
+`measure/desktop-0.5.114`, `measure/desktop` = 2affdd4 auf `main` 7f1aa1d, Smoke grün 162 s;
+Stick-Dateien in `~/scratch/stick`). **Beim Besitzer:** Release, Force-Push `measure/desktop`,
+„Release fertig“ → Claude kopiert, dann Test. Auswerten: Vorlauf/Latenz, „Flip-Ereignisse mit
+dem vblank davor“, FIFO, späte Bilder; dann D.
 
 **28.10.: Messbau 0.5.113 gebaut** (Tag `measure/desktop-0.5.113`, `measure/desktop` = 6b9ddb2,
 ein Commit auf `main` 9c5ee5c; Smoke grün 155 s). `hw-test.sh` jetzt 5 Teile: Teil 3 zusätzlich
