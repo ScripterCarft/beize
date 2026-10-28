@@ -1,5 +1,6 @@
-//! A window of an app (`app`): an xdg-shell toplevel, or a panel of Beize's
-//! shell along an edge of the screen (wlr-layer-shell, ADR 0028 §1), shown
+//! A window of an app (`app`): an xdg-shell toplevel, a panel of Beize's
+//! shell along an edge of the screen (wlr-layer-shell, ADR 0028 §1), or a
+//! popup of either (a menu, the control center), shown
 //! through a Vulkan swapchain on the app's libwayland display (Mesa's WSI:
 //! dmabufs on a GPU, shm on lavapipe). Opaque – a translucent panel
 //! premultiplied –, in the size the compositor asks for. The app's renderer
@@ -31,7 +32,7 @@ use tracing::debug;
 use wayland_client::QueueHandle;
 use wayland_client::protocol::{wl_compositor::WlCompositor, wl_region::WlRegion, wl_seat::WlSeat};
 use wayland_protocols::xdg::shell::client::{
-    xdg_surface::XdgSurface, xdg_toplevel::XdgToplevel, xdg_wm_base::XdgWmBase,
+    xdg_popup::XdgPopup, xdg_surface::XdgSurface, xdg_toplevel::XdgToplevel, xdg_wm_base::XdgWmBase,
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_shell_v1::ZwlrLayerShellV1, zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
@@ -83,6 +84,18 @@ pub(crate) enum Role {
         _layer_shell: ZwlrLayerShellV1,
         layer: ZwlrLayerSurfaceV1,
     },
+    /// A popup of another window: a menu, the control center.
+    Popup {
+        _wm_base: XdgWmBase,
+        xdg_surface: XdgSurface,
+        popup: XdgPopup,
+    },
+}
+
+/// What a popup opens from (`Window::popup_parent`).
+pub(crate) enum PopupParent {
+    Xdg(XdgSurface),
+    Panel(ZwlrLayerSurfaceV1),
 }
 
 pub(crate) struct Window {
@@ -149,6 +162,15 @@ impl Window {
         {
             bar.title = title.to_owned();
             self.bar_changed = true;
+        }
+    }
+
+    /// What a popup of this window is made with.
+    pub(crate) fn popup_parent(&self) -> PopupParent {
+        match &self.role {
+            Role::Toplevel { _xdg_surface, .. } => PopupParent::Xdg(_xdg_surface.clone()),
+            Role::Popup { xdg_surface, .. } => PopupParent::Xdg(xdg_surface.clone()),
+            Role::Panel { layer, .. } => PopupParent::Panel(layer.clone()),
         }
     }
 
@@ -617,7 +639,8 @@ impl Window {
     }
 
     /// Its swapchain and Vulkan surface, once the GPU is idle (the app
-    /// waits); the Wayland surface goes with the connection.
+    /// waits); the Wayland surface goes with the connection – or after
+    /// this, closing the window (`App::close`), with its role (`unmap`).
     pub(crate) fn destroy(mut self, gpu: &Gpu) {
         if let Some(swapchain) = self.swapchain.take() {
             destroy_swapchain(gpu, swapchain);
@@ -625,6 +648,32 @@ impl Window {
         // SAFETY: the GPU is idle; the Wayland surface outlives the Vulkan
         // one (the connection goes after the app's windows).
         unsafe { gpu.instance.surface.destroy_surface(self.vk_surface, None) };
+    }
+
+    /// Ends the window's role, as the protocols want before the surface
+    /// goes: a popup before its xdg_surface.
+    pub(crate) fn unmap(&self) {
+        match &self.role {
+            Role::Toplevel {
+                _wm_base,
+                _xdg_surface,
+                toplevel,
+            } => {
+                toplevel.destroy();
+                _xdg_surface.destroy();
+                _wm_base.destroy();
+            }
+            Role::Panel { layer, .. } => layer.destroy(),
+            Role::Popup {
+                _wm_base,
+                xdg_surface,
+                popup,
+            } => {
+                popup.destroy();
+                xdg_surface.destroy();
+                _wm_base.destroy();
+            }
+        }
     }
 }
 

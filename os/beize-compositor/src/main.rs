@@ -191,6 +191,7 @@ fn run() -> Result<()> {
     }
     event_loop
         .run(None, &mut state, |state| {
+            state.popup_grab_ended();
             // Changes are drawn at their vblank's deadline (`State::changed`);
             // the clients hear everything before we sleep.
             if let Err(e) = state.display.flush_clients() {

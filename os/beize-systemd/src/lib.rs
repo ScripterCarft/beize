@@ -3,9 +3,10 @@
 //! over its private socket (as `systemctl --user`, no session bus needed),
 //! sd-event for the bus and the signals of the login. beize-session starts
 //! the desktop with it, the compositor and the shell the apps (`apps`,
-//! ADR 0027 §9).
+//! ADR 0027 §9). For the shell also logind on the system bus (`login`).
 
 pub mod apps;
+pub mod login;
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ptr;

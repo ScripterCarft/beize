@@ -41,6 +41,12 @@
 //! glass follows what moves there; every window draws throughout, and the
 //! compositor sums its frames up. The VM checks that it works, not how fast
 //! (lavapipe): the hardware test measures that.
+//! Beize's mark opens the Beize menu on its glass (ADR 0028 §3), logind
+//! lets the session sleep, restart and shut down (but where logind keeps
+//! the serial console as the user's display, `menus`); Escape closes it, and so
+//! does a click elsewhere (the popup's grab), and its press on the control
+//! center's button opens that instead. The control center's light/dark tile
+//! switches the appearance, which the compositor keeps (§5, §6).
 //! Signing out stops the desktop with its shell and terminals and takes
 //! its environment back.
 //! Signed in again, with a short time: without input, the screen fades to
@@ -141,10 +147,11 @@ const CLIENT_ICON: &str = "d=~/.local/share; mkdir -p $d/applications \
      height=\"16\" fill=\"#ff8000\"/></svg>' \
      > $d/icons/hicolor/scalable/apps/beize-test-icon.svg";
 
-/// Where the date and time are: the right end of the bar, this wide. "Wed
-/// 30 Sep 23:59" in Inter at 15 px is some 125 px; the rest of the bar is
-/// the background.
-const CLOCK_WIDTH: usize = 200;
+/// Where the status is: the right end of the bar, this wide – the network's
+/// and the control center's symbols (18 px, 22 px apart) and the date and
+/// time ("Wed 30 Sep 23:59" in Inter at 15 px is some 125 px), some 220 px
+/// with the margin; the rest of the bar is the background.
+const CLOCK_WIDTH: usize = 280;
 /// The time's least ink, in pixels far from the background beside it
 /// (`INK_FROM`), white or dark: well below the narrowest time,
 /// "11:11", and well above none.
@@ -674,6 +681,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     wait_for_shell_line(&shell, |l| l.starts_with("dock: beize-terminal running"))?;
     say!("  ok: with no terminal running, the dock's tile started one");
 
+    menus(&shell, &machine, &qmp, screen)?;
     layout_follows(&shell)?;
     still_and_signed_out(&shell)?;
     screen_goes_off(&shell, &machine, &qmp)?;
@@ -1060,6 +1068,208 @@ fn dock_glass(
     );
 
     Ok(())
+}
+
+/// The bar's menus (ADR 0028 §3, §5). The Beize menu opens on its glass –
+/// light where the background showed before –, and logind lets the session
+/// act; Escape closes it (the keyboard is the menu's), a click elsewhere
+/// does too (the pointer is), and with it open a press on the control
+/// center's button opens that. Its light/dark tile switches the appearance
+/// and back; the compositor keeps the choice. The screens of the open
+/// menus are in the logs for the owner (`beize-menu.png`,
+/// `control-center-*.png`).
+fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let (beize, centre) = bar_buttons(shell)?;
+    // Inside the menu, below its first row's text.
+    let inside = (usize::try_from(beize.0)? + 40, MENU_BAR + 10);
+    let before = self::screen(machine, "menu-before")?.pixel(inside.0, inside.1);
+    let brightness = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3;
+    ensure!(
+        brightness(before) < MENU_LIGHT,
+        "the background at {},{} is {before:?}, as light as a menu: the check would prove nothing",
+        inside.0,
+        inside.1
+    );
+    click(qmp, screen, beize, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu open", 1)?;
+    let may = wait_for_shell_line(shell, |l| l.starts_with("Beize menu may: "))?;
+    let allowed = may.contains("restart yes") && may.contains("shut down yes");
+    // polkit takes the user's display session for the shell, which runs
+    // outside any session (sd_uid_get_display). logind elects it when a
+    // session starts, not when beize-session makes tty1 a Wayland session
+    // (SetType): the serial console, signed in first, stays the display –
+    // without a seat, not local to polkit, which asks for a password. The
+    // fix is upstream's to take (~/upstream/systemd-logind-display, sent by
+    // the owner); until then exactly that case is said, any other fails.
+    let (_, said) = shell.capture(
+        "d=$(loginctl show-user $(id -u) -p Display --value); loginctl show-session $d \
+         -p TTY -p Seat | paste -sd ' ' | sed 's/^/BEIZE-SAID /'",
+    )?;
+    let display = said
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-SAID "))
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let fields: Vec<&str> = display.split_whitespace().collect();
+    let upstream = fields.contains(&"TTY=ttyS0") && fields.contains(&"Seat=");
+    ensure!(
+        allowed || upstream,
+        "logind does not let the session act: {may} (display session: {display})"
+    );
+    if !allowed {
+        say!(
+            "  known: logind keeps the serial console as the display ({display}), polkit asks \
+             for a password ({may}) – logind's SetType elects no display, upstream patch \
+             prepared"
+        );
+    }
+    wait_until_screen(machine, "beize-menu", |shown| {
+        let p = shown.pixel(inside.0, inside.1);
+        ensure!(
+            brightness(p) >= MENU_LIGHT,
+            "the menu at {},{} shows {p:?}, not its light glass",
+            inside.0,
+            inside.1
+        );
+        Ok(())
+    })?;
+    self::screen(machine, "beize-menu")?.write_png(&machine.logs.join("beize-menu.png"))?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "BeizeMenu closed", 1)?;
+    // Elsewhere: the screen's middle (the terminal), far from the shell.
+    let elsewhere = (i32::try_from(screen.0 / 2)?, i32::try_from(screen.1 / 2)?);
+    click(qmp, screen, beize, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu open", 2)?;
+    click(qmp, screen, elsewhere, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu closed", 2)?;
+    say!(
+        "  ok: the Beize menu opened on its glass, logind answered ({}), and Escape or a click \
+         elsewhere closed it",
+        may.trim_start_matches("Beize menu may: ")
+    );
+
+    click(qmp, screen, beize, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu open", 3)?;
+    click(qmp, screen, centre, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu closed", 3)?;
+    wait_for_shell_count(shell, "ControlCenter open", 1)?;
+    // The light/dark tile: the second row's first, below the bar and a gap
+    // (os/beize-shell/src/control_center.rs).
+    let left = screen.0 - CONTROL_CENTER_GAP - CONTROL_CENTER_WIDTH;
+    let tile = (
+        i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
+        i32::try_from(
+            MENU_BAR
+                + CONTROL_CENTER_GAP
+                + CONTROL_CENTER_TILE
+                + CONTROL_CENTER_GAP
+                + CONTROL_CENTER_TILE / 2,
+        )?,
+    );
+    thread::sleep(Duration::from_millis(500));
+    self::screen(machine, "control-center")?
+        .write_png(&machine.logs.join("control-center-light.png"))?;
+    let light = left_mean(&self::screen(machine, "light")?);
+    click(qmp, screen, tile, 1)?;
+    wait_for_compositor_line(shell, "appearance Dark, chosen")?;
+    wait_for_shell_line(shell, |l| l == "appearance Dark")?;
+    let kept = keep_says(shell)?;
+    ensure!(kept == "dark", "the compositor kept {kept:?}, not dark");
+    wait_until_screen(machine, "dark", |shown| {
+        let dark = left_mean(shown);
+        ensure!(
+            dark < light,
+            "the background is no darker in dark ({dark:.0}) than in light ({light:.0})"
+        );
+        Ok(())
+    })?;
+    thread::sleep(Duration::from_millis(500));
+    self::screen(machine, "control-center")?
+        .write_png(&machine.logs.join("control-center-dark.png"))?;
+    click(qmp, screen, tile, 1)?;
+    wait_for_compositor_line(shell, "appearance Light, chosen")?;
+    let kept = keep_says(shell)?;
+    ensure!(kept == "light", "the compositor kept {kept:?}, not light");
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "ControlCenter closed", 1)?;
+    say!(
+        "  ok: a press on the control center's button closed the Beize menu and opened it; its \
+         tile switched to dark and back, and the compositor kept the choice"
+    );
+    Ok(())
+}
+
+/// The mean of the channels at the screen's left edge, 100 pixels a side
+/// at half its height: the background, beside the windows in the middle.
+fn left_mean(screen: &Image) -> f64 {
+    let y = screen.height / 2;
+    let rows = y.saturating_sub(50)..(y + 50).min(screen.height);
+    let n = rows.len().max(1) as f64;
+    rows.map(|row| row_mean(screen, row, 8..108.min(screen.width)))
+        .sum::<f64>()
+        / n
+}
+
+/// How light a menu's glass is at least, as the mean of a pixel's channels:
+/// its tint (#F2F2F2 at 85 %) over anything.
+const MENU_LIGHT: u32 = 200;
+/// The control center's measures in the VM, as the shell's (macOS' 12 and
+/// 64 pt at Beize's 1.25): as wide as its columns used, two while network
+/// and light/dark are its only tiles.
+const CONTROL_CENTER_GAP: usize = 15;
+const CONTROL_CENTER_TILE: usize = 80;
+const CONTROL_CENTER_WIDTH: usize = 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+
+/// Where the bar's buttons are, as the shell said last: the Beize menu's
+/// and the control center's (the clock's width moves it).
+fn bar_buttons(shell: &Shell) -> Result<((i32, i32), (i32, i32))> {
+    let line = wait_for_shell_line(shell, |l| l.starts_with("menu bar buttons: "))?;
+    let (_, lines) = shell.capture(&format!("{SHELL_SAID} | grep '^menu bar buttons: '"))?;
+    let line = lines
+        .iter()
+        .rfind(|l| l.starts_with("menu bar buttons: "))
+        .unwrap_or(&line);
+    let points: Vec<(i32, i32)> = line
+        .split("Some((")
+        .skip(1)
+        .filter_map(|part| {
+            let (x, rest) = part.split_once(", ")?;
+            let (y, _) = rest.split_once("))")?;
+            Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+        })
+        .collect();
+    match points[..] {
+        [beize, centre] => Ok((beize, centre)),
+        _ => bail!("the shell said no buttons: {line}"),
+    }
+}
+
+/// Waits until the shell said `line` at least `count` times in this boot.
+fn wait_for_shell_count(shell: &Shell, line: &str, count: usize) -> Result<()> {
+    let deadline = Instant::now() + SCREEN_TIMEOUT;
+    loop {
+        let (_, lines) = shell.capture(SHELL_SAID)?;
+        let said = lines.iter().filter(|l| *l == line).count();
+        if said >= count {
+            return Ok(());
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "the shell said {line:?} {said} times, not {count}"
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The appearance the compositor kept (~/.config/beize/appearance).
+fn keep_says(shell: &Shell) -> Result<String> {
+    let (_, lines) = shell.capture("cat ~/.config/beize/appearance | sed 's/^/BEIZE-SAID /'")?;
+    Ok(lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-SAID "))
+        .unwrap_or_default()
+        .to_owned())
 }
 
 /// The compositor sums up a client's run of frames, alone and in full.

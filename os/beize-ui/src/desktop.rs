@@ -19,16 +19,44 @@ use wayland_client::{Connection, Dispatch, QueueHandle, WEnum, event_created_chi
 use crate::Rect;
 use crate::app::{State, WindowId};
 
-/// Glass below part of a window (`App::set_glass`): a rectangle in its
-/// coordinates with round corners, whether a rim of light runs along its
-/// edge, and whether it is live – showing what lies behind it, windows
-/// too – rather than base glass (the background, blurred once).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Glass below parts of a window (`App::set_glass`): where it lies, what it
+/// shows, and whether each of its shapes casts a shadow.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Glass {
+    pub shapes: Vec<GlassShape>,
+    pub material: Material,
+    pub shadow: bool,
+}
+
+/// One place of a glass: a rectangle in the window's coordinates with round
+/// corners, and whether a rim of light runs along its edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlassShape {
     pub rect: Rect,
     pub radius: f32,
     pub rim: bool,
-    pub live: bool,
+}
+
+/// What a glass shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Material {
+    /// The background, blurred once: costs next to nothing.
+    Base,
+    /// What lies behind it, windows too – the dock's.
+    Live,
+    /// Live, tinted thickly: calm, as macOS' menus.
+    Menu,
+}
+
+impl Glass {
+    /// Glass in one place, without a shadow.
+    pub fn one(rect: Rect, radius: f32, rim: bool, material: Material) -> Glass {
+        Glass {
+            shapes: vec![GlassShape { rect, radius, rim }],
+            material,
+            shadow: false,
+        }
+    }
 }
 
 /// A window of the desktop: the how-manieth it is in the list, so ids
@@ -103,20 +131,31 @@ impl Desktop {
                 proxy
             }
         };
-        let r = glass.rect;
-        proxy.set_shape(
-            r.x.round() as i32,
-            r.y.round() as i32,
-            r.w.round() as i32,
-            r.h.round() as i32,
-            f64::from(glass.radius),
-            u32::from(glass.rim),
-        );
-        proxy.set_material(if glass.live {
-            beize_glass_v1::Material::Live
-        } else {
-            beize_glass_v1::Material::Base
+        if glass.shapes.is_empty() {
+            // No place: none left of the shapes before.
+            proxy.set_shape(0, 0, 0, 0, 0.0, 0);
+        }
+        for (i, shape) in glass.shapes.iter().enumerate() {
+            let r = shape.rect;
+            let (x, y, w, h) = (
+                r.x.round() as i32,
+                r.y.round() as i32,
+                r.w.round() as i32,
+                r.h.round() as i32,
+            );
+            let (radius, rim) = (f64::from(shape.radius), u32::from(shape.rim));
+            if i == 0 {
+                proxy.set_shape(x, y, w, h, radius, rim);
+            } else {
+                proxy.add_shape(x, y, w, h, radius, rim);
+            }
+        }
+        proxy.set_material(match glass.material {
+            Material::Base => beize_glass_v1::Material::Base,
+            Material::Live => beize_glass_v1::Material::Live,
+            Material::Menu => beize_glass_v1::Material::Menu,
         });
+        proxy.set_shadow(u32::from(glass.shadow));
     }
 
     /// The windows, in the order they opened.
@@ -132,6 +171,13 @@ impl Desktop {
 
     pub(crate) fn ready(&self) {
         self.shell.ready();
+    }
+
+    pub(crate) fn choose_appearance(&self, appearance: Appearance) {
+        self.shell.set_appearance(match appearance {
+            Appearance::Light => beize_shell_v1::Appearance::Light,
+            Appearance::Dark => beize_shell_v1::Appearance::Dark,
+        });
     }
 }
 

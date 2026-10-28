@@ -1,35 +1,49 @@
 //! `beize-shell` – Beize's shell (ADR 0028): the menu bar along the top
-//! of the screen and the dock along the bottom; the control center
-//! follows. A client of the compositor with Beize UI, the only one it lets
-//! draw panels (wlr-layer-shell) and see the windows (beize-shell-v1, ADR
-//! 0028 §1): both panels are windows of one app. Runs as
-//! `beize-shell.service` in the user's desktop, restarted if it fails; it
-//! ends with the session.
+//! of the screen with the Beize menu and the control center, and the dock
+//! along the bottom. A client of the compositor with Beize UI, the only one
+//! it lets draw panels (wlr-layer-shell) and see the windows (beize-shell-v1,
+//! ADR 0028 §1): both panels and their popups are windows of one app. Runs
+//! as `beize-shell.service` in the user's desktop, restarted if it fails;
+//! it ends with the session.
 //!
-//! The bar for now: macOS' menu bar in Beize's measures (`measures`), the
-//! active app's name on the left in bold, the date and time on the right. As macOS' since 26 it has no
-//! background: white ink on the scrim the compositor lays behind it, dark
-//! only where the background stays very light, as the compositor measures
-//! it (ADR 0028 §3). With the background switched on (`BarLook::Glass`,
-//! macOS' "Show menu bar background") the bar lies on base glass instead,
-//! its ink for the appearance. The dock lies on live glass, which the
-//! compositor draws below it (§6). The Beize menu and the status come with
-//! the next parts (ADR 0028, Reihenfolge).
+//! The bar: macOS' menu bar in Beize's measures (`measures`) – Beize's mark
+//! on the left, which opens the Beize menu, the active app's name beside it
+//! in bold; on the right the network's symbol, the control center's, and
+//! the date and time. As macOS' since 26 it has no background: white ink on
+//! the scrim the compositor lays behind it, dark only where the background
+//! stays very light, as the compositor measures it (ADR 0028 §3). With the
+//! background switched on (`BarLook::Glass`, macOS' "Show menu bar
+//! background") the bar lies on base glass instead, its ink for the
+//! appearance. An open menu's button lies on a faint pill, as macOS marks
+//! it. The dock lies on live glass, which the compositor draws below it
+//! (§6).
+//!
+//! The Beize menu (`menu`, as macOS' Apple menu): sleep, restart, shut down
+//! and log out, through logind (`beize_systemd::login`). Locking comes with
+//! the lock screen (its own ADR); "About This Computer" and the settings
+//! with their windows. They act at once: macOS' confirmation (Restart…)
+//! comes with dialogs.
 
 mod apps;
 mod clock;
+mod control_center;
 mod dock;
+mod network;
 
 use std::collections::HashMap;
 use std::process::ExitCode;
 
+use beize_systemd::login::{self, Power};
+use beize_ui::draw::Cap;
 use beize_ui::input::{Button, Pointer};
+use beize_ui::menu::{Entry, Menu, Outcome};
 use beize_ui::{
-    App, Appearance, Color, Edge, Family, Glass, Input, Panel, Rect, Scene, Style, Text, Watch,
-    measures,
+    Align, App, Appearance, Color, Edge, Family, Glass, Input, Material, Panel, Popup, Rect, Scene,
+    Style, Text, Watch, WindowId, measures,
 };
-use tracing::info;
+use tracing::{info, warn};
 
+use control_center::ControlCenter;
 use dock::{Action, Dock};
 
 const HEIGHT: u32 = measures::MENU_BAR;
@@ -40,6 +54,15 @@ const INK_DARK: Color = Color::rgb(0xffffff);
 /// 16.25, macOS' at `SCALE`), and the space at the bar's ends, macOS' 12.
 const TEXT_SIZE: f32 = 15.0;
 const MARGIN: f32 = 12.0 * measures::SCALE;
+/// The bar's symbols: Beize's mark and Phosphor's, as the mock-ups the
+/// owner approved (28.10.); the space between them and to the clock.
+const SYMBOL: u32 = 18;
+const SYMBOL_GAP: f32 = 22.0;
+/// The pill below an open menu's button: macOS 26's, 36 × 24 pt (measured
+/// in the HIG's menu-bar image), its corners estimated; black at 18 % on
+/// white ink, 10 % on dark.
+const PILL: (f32, f32) = (36.0 * measures::SCALE, 24.0 * measures::SCALE);
+const PILL_RADIUS: f32 = 12.0;
 
 /// What lies behind the menu bar (ADR 0028 §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +83,20 @@ impl BarLook {
             _ => BarLook::Transparent,
         }
     }
+}
+
+/// Which of the bar's menus is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Open {
+    BeizeMenu,
+    ControlCenter,
+}
+
+/// The Beize menu's commands, in its entries' order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Command {
+    Power(Power),
+    LogOut,
 }
 
 fn main() -> ExitCode {
@@ -107,6 +144,12 @@ fn run() -> Result<(), String> {
     app.watch_desktop().map_err(|e| e.to_string())?;
     info!("menu bar and dock on {}", app.gpu_name());
     let minutes = clock::Minutes::new().map_err(|e| format!("the minute's timer: {e}"))?;
+    // Without it the network shows as it was at the start.
+    let monitor = network::Monitor::new()
+        .inspect_err(|e| warn!("watching the network: {e}"))
+        .ok();
+    let mut network = network::Status::now();
+    info!("network: {network:?}");
     // Each panel is drawn once the compositor has configured it, and the
     // dock again only in the size it asked for last.
     let (mut bar_shown, mut dock_shown) = (false, false);
@@ -123,22 +166,45 @@ fn run() -> Result<(), String> {
     // The time the bar shows: the clock set within the minute (NTS at
     // boot) changes nothing to draw.
     let mut shown_time = None;
+    // The bar's buttons as last drawn, and where the pointer is on it.
+    let mut buttons = Buttons::default();
+    let mut on_bar: Option<(f64, f64)> = None;
+    // The open menu: which, its popup, and whether it waits to be drawn.
+    let mut open: Option<(Open, WindowId)> = None;
+    let mut redraw_open = false;
+    let mut beize_menu = Menu::new(beize_menu_entries());
+    let control_center = ControlCenter::new();
+    let mut on_menu: Option<(f64, f64)> = None;
     loop {
-        let mut dispatched = app
-            .dispatch(None, &[Watch::Read(minutes.fd())])
-            .map_err(|e| e.to_string())?;
+        let mut watches = vec![Watch::Read(minutes.fd())];
+        watches.extend(monitor.as_ref().map(|m| Watch::Read(m.fd())));
+        let mut dispatched = app.dispatch(None, &watches).map_err(|e| e.to_string())?;
+        drop(watches);
         let bar_events = dispatched.take(bar);
         let dock_events = dispatched.take(dock_panel);
+        let open_events = open.map(|(_, id)| dispatched.take(id));
         if bar_events.closed || dock_events.closed {
             // Its screen went: a failure, so the service manager starts the
             // shell again.
             return Err("the compositor closed a panel".into());
         }
-        let tick = !dispatched.ready.is_empty();
+        let tick = dispatched.ready.contains(&0);
         if tick {
             minutes
                 .take()
                 .map_err(|e| format!("the minute's timer: {e}"))?;
+        }
+        if let Some(monitor) = &monitor
+            && dispatched.ready.contains(&1)
+        {
+            monitor.take();
+            let now = network::Status::now();
+            if now != network {
+                info!("network: {now:?}");
+                network = now;
+                redraw_bar = true;
+                redraw_open |= open.is_some_and(|(o, _)| o == Open::ControlCenter);
+            }
         }
         redraw_bar |= bar_events.configured || (tick && clock::now() != shown_time);
         redraw_dock |= dock_events.configured;
@@ -147,6 +213,7 @@ fn run() -> Result<(), String> {
             info!("appearance {appearance:?}");
             redraw_bar = true;
             redraw_dock = true;
+            redraw_open = open.is_some();
         }
         if app.menu_bar_backdrop() != backdrop {
             backdrop = app.menu_bar_backdrop();
@@ -169,6 +236,129 @@ fn run() -> Result<(), String> {
                 info!("menu bar: {}", name.as_deref().unwrap_or("(no app)"));
                 active_name = name;
                 redraw_bar = true;
+            }
+        }
+        // The open menu: what happened to it.
+        if let (Some((which, id)), Some(events)) = (open, open_events) {
+            redraw_open |= events.configured;
+            let mut close = events.closed;
+            let mut chosen = None;
+            let width = app.size(id).0;
+            for input in &events.input {
+                if let Input::Pointer(Pointer::Enter(x, y) | Pointer::Motion(x, y)) = input {
+                    on_menu = Some((*x, *y));
+                }
+                match which {
+                    Open::BeizeMenu => match beize_menu.input(input, width) {
+                        Outcome::None => {}
+                        Outcome::Changed => redraw_open = true,
+                        Outcome::Dismissed => close = true,
+                        Outcome::Chosen(i) => {
+                            close = true;
+                            chosen = command_at(i);
+                        }
+                    },
+                    Open::ControlCenter => {
+                        if let Input::Pointer(Pointer::Button {
+                            button: Button::Left,
+                            pressed: true,
+                        }) = input
+                            && let Some(at) = on_menu
+                            && let Some(control_center::Action::Appearance(chosen)) =
+                                control_center.click(at, appearance)
+                        {
+                            info!("control center: appearance {chosen:?}");
+                            app.choose_appearance(chosen);
+                        }
+                        if let Input::Key(key) = input
+                            && key.sym == beize_ui::Keysym::Escape
+                        {
+                            close = true;
+                        }
+                    }
+                }
+            }
+            if close {
+                info!("{which:?} closed");
+                app.close(id);
+                open = None;
+                on_menu = None;
+                beize_menu = Menu::new(beize_menu_entries());
+                redraw_bar = true;
+                // Gone from the screen before logind acts – it may take a
+                // while, and sleep would keep the menu to the wake.
+                app.flush().map_err(|e| e.to_string())?;
+                choose(chosen);
+            }
+        }
+        // A press elsewhere in the shell closes the open menu, as macOS'
+        // (the compositor's grab closes it only for other apps' surfaces).
+        let pressed = |events: &beize_ui::Events| {
+            events.input.iter().any(|i| {
+                matches!(
+                    i,
+                    Input::Pointer(Pointer::Button {
+                        button: Button::Left,
+                        pressed: true,
+                    })
+                )
+            })
+        };
+        let was = open.map(|(o, _)| o);
+        if (pressed(&bar_events) || pressed(&dock_events))
+            && let Some((which, id)) = open.take()
+        {
+            info!("{which:?} closed");
+            app.close(id);
+            on_menu = None;
+            beize_menu = Menu::new(beize_menu_entries());
+            redraw_bar = true;
+        }
+        // The bar's buttons: a press opens their menu, or closes it.
+        for input in &bar_events.input {
+            let Input::Pointer(pointer) = input else {
+                continue;
+            };
+            match *pointer {
+                Pointer::Enter(x, y) | Pointer::Motion(x, y) => on_bar = Some((x, y)),
+                Pointer::Leave => on_bar = None,
+                Pointer::Button {
+                    button: Button::Left,
+                    pressed: true,
+                } => {
+                    let Some(at) = on_bar else {
+                        continue;
+                    };
+                    let Some((pressed, anchor, align)) = buttons.at(at) else {
+                        continue;
+                    };
+                    // Its own button again: closed above, it stays closed.
+                    if was == Some(pressed) {
+                        continue;
+                    }
+                    let size = match pressed {
+                        Open::BeizeMenu => beize_menu.size(app.text()),
+                        Open::ControlCenter => control_center.size(),
+                    };
+                    let popup = Popup {
+                        anchor,
+                        size,
+                        align,
+                    };
+                    match app.popup(bar, &popup) {
+                        Ok(id) => {
+                            info!("{pressed:?} open");
+                            if pressed == Open::ControlCenter {
+                                app.set_input(id, Some(&control_center.input()));
+                            }
+                            open = Some((pressed, id));
+                            redraw_open = false;
+                            redraw_bar = true;
+                        }
+                        Err(e) => warn!("opening {pressed:?}: {e}"),
+                    }
+                }
+                _ => {}
             }
         }
         for input in &dock_events.input {
@@ -219,15 +409,45 @@ fn run() -> Result<(), String> {
                 }
             };
             shown_time = clock::now();
-            let scene = menu_bar(
+            let (scene, drawn) = menu_bar(
                 app.text(),
                 size,
-                active_name.as_deref(),
-                shown_time.clone(),
+                &BarContent {
+                    app: active_name.as_deref(),
+                    time: shown_time.clone(),
+                    network,
+                    open: open.map(|(o, _)| o),
+                },
                 behind,
             );
+            if drawn.centres() != buttons.centres() {
+                // Where to click, for tests (the clock's width moves the
+                // control center's).
+                let [beize, centre] = drawn.centres();
+                info!("menu bar buttons: Beize menu at {beize:?}, control center at {centre:?}");
+            }
+            buttons = drawn;
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
             bar_drawn = true;
+        }
+        if let Some((which, id)) = open
+            && redraw_open
+            && app.ready(id)
+        {
+            redraw_open = false;
+            let size = app.size(id);
+            let (glass, scene) = match which {
+                Open::BeizeMenu => (
+                    Menu::glass(size),
+                    beize_menu.draw(app.text(), size, appearance),
+                ),
+                Open::ControlCenter => (
+                    control_center.glass(),
+                    control_center.draw(app.text(), network, appearance),
+                ),
+            };
+            app.set_glass(id, Some(glass));
+            app.draw(id, &scene).map_err(|e| e.to_string())?;
         }
         dock_shown |= dock_events.configured;
         if dock_shown && redraw_dock && app.ready(dock_panel) {
@@ -242,36 +462,169 @@ fn run() -> Result<(), String> {
             app.desktop_ready();
             ready = true;
             info!("ready: menu bar and dock drawn");
+            // Once, for the journal, after the desktop shows: what logind
+            // lets the Beize menu do.
+            info!("Beize menu may: {}", may());
         }
+    }
+}
+
+/// The Beize menu, as macOS' Apple menu has these: the computer's state,
+/// then the user's session. Log Out names the user, as macOS does.
+fn beize_menu_entries() -> Vec<Entry> {
+    vec![
+        Entry::Item("Sleep".into()),
+        Entry::Item("Restart".into()),
+        Entry::Item("Shut Down".into()),
+        Entry::Separator,
+        Entry::Item(format!("Log Out {}", user_name())),
+    ]
+}
+
+/// The command of the Beize menu's entry `i` (`beize_menu_entries`).
+fn command_at(i: usize) -> Option<Command> {
+    match i {
+        0 => Some(Command::Power(Power::Sleep)),
+        1 => Some(Command::Power(Power::Restart)),
+        2 => Some(Command::Power(Power::ShutDown)),
+        4 => Some(Command::LogOut),
+        _ => None,
+    }
+}
+
+/// What logind lets the Beize menu do now, for the journal: polkit's
+/// answer for this session ("yes" without a password).
+fn may() -> String {
+    [
+        ("sleep", Power::Sleep),
+        ("restart", Power::Restart),
+        ("shut down", Power::ShutDown),
+    ]
+    .iter()
+    .map(|(name, power)| {
+        let answer = login::can(*power).unwrap_or_else(|e| format!("({e})"));
+        format!("{name} {answer}")
+    })
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
+/// Does what the Beize menu chose.
+fn choose(command: Option<Command>) {
+    let Some(command) = command else {
+        return;
+    };
+    info!("Beize menu: {command:?}");
+    let done = match command {
+        Command::Power(power) => login::power(power),
+        Command::LogOut => login::log_out(),
+    };
+    if let Err(e) = done {
+        warn!("{command:?}: {e}");
+    }
+}
+
+/// The user's name as the account has it (its full name, else the login),
+/// as macOS names the user in "Log Out".
+fn user_name() -> String {
+    // SAFETY: getpwuid's entry is read at once, before any other call to it
+    // (the shell has one thread).
+    unsafe {
+        let entry = libc::getpwuid(libc::getuid());
+        if entry.is_null() {
+            return String::new();
+        }
+        let field = |p: *const libc::c_char| {
+            (!p.is_null()).then(|| std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned())
+        };
+        let full = field((*entry).pw_gecos)
+            .and_then(|g| g.split(',').next().map(str::to_owned))
+            .filter(|g| !g.is_empty());
+        full.or_else(|| field((*entry).pw_name)).unwrap_or_default()
     }
 }
 
 /// The bar's glass (`BarLook::Glass`): all of it, square, without a rim –
 /// it runs along the screen's edge –, base glass: no window lies behind it.
 fn bar_glass((w, h): (u32, u32)) -> Glass {
-    Glass {
-        rect: Rect {
-            x: 0.0,
-            y: 0.0,
-            w: w as f32,
-            h: h as f32,
-        },
-        radius: 0.0,
-        rim: false,
-        live: false,
+    let all = Rect {
+        x: 0.0,
+        y: 0.0,
+        w: w as f32,
+        h: h as f32,
+    };
+    Glass::one(all, 0.0, false, Material::Base)
+}
+
+/// What the bar shows.
+struct BarContent<'a> {
+    app: Option<&'a str>,
+    time: Option<String>,
+    network: network::Status,
+    open: Option<Open>,
+}
+
+/// The bar's buttons as drawn: where each lies (its pill), for a press.
+#[derive(Default)]
+struct Buttons {
+    beize_menu: Option<Rect>,
+    control_center: Option<Rect>,
+    width: f32,
+}
+
+impl Buttons {
+    /// Each button's centre, in whole pixels.
+    fn centres(&self) -> [Option<(i32, i32)>; 2] {
+        let centre = |r: Option<Rect>| {
+            r.map(|r| {
+                (
+                    (r.x + r.w / 2.0).round() as i32,
+                    (r.y + r.h / 2.0).round() as i32,
+                )
+            })
+        };
+        [centre(self.beize_menu), centre(self.control_center)]
+    }
+
+    /// The button at `(x, y)` on the bar, what its menu opens below and
+    /// how it lines up: the Beize menu from its button's left edge, the
+    /// control center a gap from the screen's right edge.
+    fn at(&self, (x, y): (f64, f64)) -> Option<(Open, Rect, Align)> {
+        let (x, y) = (x as f32, y as f32);
+        let inside = |r: &Rect| x >= r.x && x < r.x + r.w && y >= 0.0 && y < HEIGHT as f32;
+        if let Some(r) = self.beize_menu.filter(inside) {
+            let anchor = Rect {
+                x: r.x,
+                y: 0.0,
+                w: r.w,
+                h: HEIGHT as f32,
+            };
+            return Some((Open::BeizeMenu, anchor, Align::Left));
+        }
+        if self.control_center.is_some_and(|r| inside(&r)) {
+            let right = self.width - ControlCenter::margin();
+            let anchor = Rect {
+                x: right - 1.0,
+                y: 0.0,
+                w: 1.0,
+                h: HEIGHT as f32,
+            };
+            return Some((Open::ControlCenter, anchor, Align::Right));
+        }
+        None
     }
 }
 
-/// The bar in `size`, on a `backdrop` light or dark: the active app's name
-/// on the left, the time on the right, both centred in the height; the
-/// rest transparent.
+/// The bar in `size`, on a `backdrop` light or dark: Beize's mark and the
+/// active app's name on the left, the network, the control center and the
+/// time on the right, all centred in the height; the rest transparent. And
+/// where its buttons lie.
 fn menu_bar(
     text: &mut Text,
     (w, h): (u32, u32),
-    app: Option<&str>,
-    time: Option<String>,
+    content: &BarContent<'_>,
     backdrop: Appearance,
-) -> Scene {
+) -> (Scene, Buttons) {
     let (w, h) = (w as f32, h as f32);
     let mut scene = Scene::new();
     scene.clear(Rect {
@@ -284,24 +637,81 @@ fn menu_bar(
         Appearance::Light => INK_LIGHT,
         Appearance::Dark => INK_DARK,
     };
-    let style = |weight, color| Style {
+    let pill_color = Color {
+        a: match backdrop {
+            Appearance::Light => 26,
+            Appearance::Dark => 46,
+        },
+        ..Color::rgb(0)
+    };
+    let symbol = SYMBOL as f32;
+    let symbol_y = ((h - symbol) / 2.0).round();
+    // A pill centred on a symbol at `x`, for its button.
+    let pill = |x: f32| Rect {
+        x: (x + symbol / 2.0 - PILL.0 / 2.0).round(),
+        y: ((h - PILL.1) / 2.0).round(),
+        w: PILL.0.round(),
+        h: PILL.1.round(),
+    };
+    let style = |weight| Style {
         family: Family::Sans,
         size: TEXT_SIZE,
         weight,
-        color,
+        color: ink,
     };
-    let mut put = |scene: &mut Scene, s: &str, weight: f32, x: Option<f32>| {
-        let layout = text.layout(s, &style(weight, ink), None);
-        let x = x.unwrap_or(w - MARGIN - layout.width()).round();
-        let y = ((h - layout.height()) / 2.0).round();
-        scene.text(&layout, x, y);
-    };
-    if let Some(app) = app {
+    let centred = |height: f32| ((h - height) / 2.0).round();
+
+    let logo_x = (MARGIN + 4.0).round();
+    let beize_button = pill(logo_x);
+    if content.open == Some(Open::BeizeMenu) {
+        scene.rounded(beize_button, PILL_RADIUS, pill_color);
+    }
+    logo(&mut scene, logo_x, symbol_y, symbol, ink);
+    if let Some(app) = content.app {
         // Bold, as macOS names the active app.
-        put(&mut scene, app, 700.0, Some(MARGIN));
+        let layout = text.layout(app, &style(700.0), None);
+        scene.text(
+            &layout,
+            logo_x + symbol + SYMBOL_GAP,
+            centred(layout.height()),
+        );
     }
-    if let Some(time) = time {
-        put(&mut scene, &time, 500.0, None);
+
+    let mut right = w - MARGIN;
+    if let Some(time) = &content.time {
+        let layout = text.layout(time, &style(500.0), None);
+        right -= layout.width();
+        scene.text(&layout, right.round(), centred(layout.height()));
+        right -= SYMBOL_GAP;
     }
-    scene
+    let cc_x = (right - symbol).round();
+    let cc_button = pill(cc_x);
+    if content.open == Some(Open::ControlCenter) {
+        scene.rounded(cc_button, PILL_RADIUS, pill_color);
+    }
+    scene.symbol("toggle-left-fill", cc_x, symbol_y, SYMBOL, ink);
+    let network_x = (cc_x - SYMBOL_GAP - symbol).round();
+    let network_symbol = if content.network.connected {
+        "globe-simple"
+    } else {
+        "globe-simple-x"
+    };
+    scene.symbol(network_symbol, network_x, symbol_y, SYMBOL, ink);
+    let buttons = Buttons {
+        beize_menu: Some(beize_button),
+        control_center: Some(cc_button),
+        width: w,
+    };
+    (scene, buttons)
+}
+
+/// Beize's mark (the owner, 28.10.: two bars with round ends, slanting up,
+/// one above the other like a B) in a square of `size` at `(x, y)`: two
+/// strokes with round caps, sharp at any size. Drawn on a 16-unit grid.
+fn logo(scene: &mut Scene, x: f32, y: f32, size: f32, color: Color) {
+    let k = size / 16.0;
+    let at = |u: f32, v: f32| [x + u * k, y + v * k];
+    let width = 3.8 * k;
+    scene.stroke(at(4.0, 6.6), at(11.0, 3.8), width, Cap::Round, color);
+    scene.stroke(at(4.0, 12.4), at(12.6, 9.0), width, Cap::Round, color);
 }

@@ -1,6 +1,6 @@
 [package]
 name = "beize-shell"
-description = "Beize's shell: menu bar and dock, later the control center, with Beize UI (ADR 0028)"
+description = "Beize's shell: menu bar, Beize menu, control center and dock, with Beize UI (ADR 0028)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,12 +9,16 @@ license.workspace = true
 
 [dependencies]
 beize-ui = { path = "../beize-ui" }
-# The dock starts apps in the user's service manager.
+# The dock starts apps in the user's service manager; the Beize menu asks
+# logind.
 beize-systemd = { path = "../beize-systemd" }
+# networkd's links (io.systemd.Network).
+beize-varlink = { path = "../beize-varlink" }
 # The local time: glibc's localtime_r with the zone in /etc/localtime.
 libc = "0.2"
-# The minute's timer (timerfd), which also hears when the clock is set.
-rustix = { version = "1.1", default-features = false, features = ["std", "time"] }
+# The minute's timer (timerfd), which also hears when the clock is set;
+# networkd's state files watched (inotify).
+rustix = { version = "1.1", default-features = false, features = ["std", "time", "fs"] }
 tracing = "0.1"
 
 [lints]

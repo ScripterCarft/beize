@@ -19,7 +19,7 @@ use beize_protocols::shell::server::beize_window_v1::{self, BeizeWindowV1};
 use smithay::desktop::Window;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
 use smithay::reexports::wayland_server::{
-    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
+    Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum,
 };
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
@@ -60,6 +60,31 @@ fn send_tone(instance: &BeizeShellV1, tone: Tone) {
         Tone::Light => beize_shell_v1::Tone::Light,
         Tone::Dark => beize_shell_v1::Tone::Dark,
     });
+}
+
+fn send_appearance(instance: &BeizeShellV1, appearance: Appearance) {
+    instance.appearance(match appearance {
+        Appearance::Light => beize_shell_v1::Appearance::Light,
+        Appearance::Dark => beize_shell_v1::Appearance::Dark,
+    });
+}
+
+impl State {
+    /// The user chose `appearance` (the control center): kept for the next
+    /// login, the background and glass drawn anew for it with the next
+    /// frame, and the shell hears it.
+    fn set_appearance(&mut self, appearance: Appearance) {
+        if self.appearance == appearance {
+            return;
+        }
+        tracing::info!("appearance {appearance:?}, chosen");
+        self.appearance = appearance;
+        appearance.keep();
+        for instance in &self.shell_windows.instances {
+            send_appearance(instance, appearance);
+        }
+        self.changed();
+    }
 }
 
 /// What a listed window told the shell's instances.
@@ -221,10 +246,7 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
         data_init: &mut DataInit<'_, State>,
     ) {
         let instance = data_init.init(resource, ());
-        instance.appearance(match state.appearance {
-            Appearance::Light => beize_shell_v1::Appearance::Light,
-            Appearance::Dark => beize_shell_v1::Appearance::Dark,
-        });
+        send_appearance(&instance, state.appearance);
         if let Some(tone) = state.shell_windows.tone {
             send_tone(&instance, tone);
         }
@@ -263,6 +285,12 @@ impl Dispatch<BeizeShellV1, ()> for State {
         match request {
             beize_shell_v1::Request::GetGlass { id, surface } => {
                 data_init.init(id, surface);
+            }
+            beize_shell_v1::Request::SetAppearance { appearance } => {
+                state.set_appearance(match appearance {
+                    WEnum::Value(beize_shell_v1::Appearance::Dark) => Appearance::Dark,
+                    _ => Appearance::Light,
+                });
             }
             beize_shell_v1::Request::Ready => {
                 if let Some(data) = client.get_data::<ClientState>() {

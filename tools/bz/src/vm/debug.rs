@@ -31,7 +31,8 @@ const MARKER: &str = "BZ-DEBUG-";
 /// boot asks for it and runs `commands` on the root shell (`@wait N` pauses
 /// N seconds, `@screendump FILE` saves the screen as PNG, `@keys K…`
 /// presses keys by QEMU name, `ctrl+alt+f2` together, `@mouse DX DY
-/// [click]` moves the mouse), then powers off.
+/// [click]` moves the mouse, `@click X Y` clicks exactly there through the
+/// tablet, as the desktop smoke does), then powers off.
 /// Beize's test programs come along on the test medium
 /// (`/dev/disk/by-id/virtio-beize-test`, EROFS).
 pub fn debug(
@@ -64,6 +65,10 @@ pub fn debug(
     }
     machine.test_medium = super::machine::test_medium(paths)?;
     machine.screen = screen;
+    // `@click` lands on the pixel through it.
+    machine.tablet = true;
+    let (w, h) = screen.unwrap_or((1280, 800));
+    let screen_size = (w as usize, h as usize);
     // By hand the desktop runs too.
     machine.memory_mib = super::machine::DESKTOP_MEMORY_MIB;
     let answers = recovery_key.map_or_else(Answers::none, Answers::recovery_key);
@@ -92,6 +97,15 @@ pub fn debug(
         if let Some(keys) = command.strip_prefix("@keys ") {
             let keys: Vec<&str> = keys.split_whitespace().collect();
             console::keys(&machine.qmp(), &keys)?;
+            continue;
+        }
+        if let Some(at) = command.strip_prefix("@click ") {
+            let (x, y) = at
+                .trim()
+                .split_once(' ')
+                .and_then(|(x, y)| Some((x.parse().ok()?, y.trim().parse().ok()?)))
+                .context("@click X Y")?;
+            console::click(&machine.qmp(), screen_size, (x, y), 1)?;
             continue;
         }
         if let Some(motion) = command.strip_prefix("@mouse ") {

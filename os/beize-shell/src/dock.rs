@@ -25,8 +25,8 @@ use std::path::PathBuf;
 use crate::apps::App;
 use beize_ui::measures::{SCALE, scaled};
 use beize_ui::{
-    AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Rect, Scene, Style,
-    Text, icon,
+    AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect,
+    Scene, Style, Text, icon,
 };
 
 /// Pinned when the desktop starts (ADR 0028 §4); more apps come as Beize
@@ -251,17 +251,13 @@ impl Dock {
     /// Its glass in `(w, h)`: all of it, live, with round corners and a
     /// rim.
     pub fn glass((w, h): (u32, u32)) -> Glass {
-        Glass {
-            rect: Rect {
-                x: 0.0,
-                y: 0.0,
-                w: w as f32,
-                h: h as f32,
-            },
-            radius: RADIUS,
-            rim: true,
-            live: true,
-        }
+        let all = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: w as f32,
+            h: h as f32,
+        };
+        Glass::one(all, RADIUS, true, Material::Live)
     }
 
     /// The dock's content in `(w, h)`, for `appearance`: the rest is

@@ -58,10 +58,11 @@
 
     <request name="get_glass">
       <description summary="glass below a surface">
-        Base glass below part of a panel's surface: the background, blurred
-        once, lifted and tinted (ADR 0028 §6). Its shape is double-buffered
-        state of the surface: it applies with the surface's next commit.
-        One per surface.
+        Base glass below part of a panel's surface or of a popup of one: the
+        background, blurred once, lifted and tinted (ADR 0028 §6). Its shapes
+        are double-buffered state of the surface: they apply with the
+        surface's next commit. One per surface; it may lie in several places
+        (add_shape), as the control center's tiles.
       </description>
       <arg name="id" type="new_id" interface="beize_glass_v1"/>
       <arg name="surface" type="object" interface="wl_surface"/>
@@ -81,6 +82,15 @@
       <description summary="no more news of windows">
         The windows announced so far stay valid until destroyed.
       </description>
+    </request>
+
+    <request name="set_appearance">
+      <description summary="switch to light or dark">
+        The user chose the appearance (the control center): the compositor
+        keeps it, tints the glass and the background for it and tells every
+        instance (appearance).
+      </description>
+      <arg name="appearance" type="uint" enum="appearance"/>
     </request>
 
     <event name="window">
@@ -114,10 +124,11 @@
     <enum name="material">
       <entry name="base" value="0" summary="the background, blurred once: costs next to nothing"/>
       <entry name="live" value="1" summary="what lies behind it, windows too, blurred when it changes"/>
+      <entry name="menu" value="2" summary="live glass tinted thickly, as macOS' menus: calm, what lies behind barely shows"/>
     </enum>
 
     <request name="set_material">
-      <description summary="base or live glass">
+      <description summary="base, live or menu glass">
         Base glass until set otherwise (ADR 0028 §6). Double-buffered as
         the shape.
       </description>
@@ -125,6 +136,29 @@
     </request>
 
     <request name="destroy" type="destructor"/>
+
+    <request name="add_shape">
+      <description summary="more glass">
+        Glass in one more place, as set_shape describes, besides those set
+        before (set_shape starts again with one). Of the same material, and
+        each with a shadow if the glass has one.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="radius" type="fixed"/>
+      <arg name="rim" type="uint"/>
+    </request>
+
+    <request name="set_shadow">
+      <description summary="a shadow below the glass">
+        Whether the compositor draws a soft shadow around each of its shapes
+        (1) or not (0), as macOS' WindowServer gives menus one. None until
+        set. Double-buffered as the shape.
+      </description>
+      <arg name="shadow" type="uint"/>
+    </request>
   </interface>
 
   <interface name="beize_window_v1" version="1">

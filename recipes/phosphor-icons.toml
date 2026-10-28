@@ -17,13 +17,18 @@ unsigned = "Phosphor signs neither its npm releases nor its tags (checked 2026-1
 [build]
 # Each symbol by the name Beize UI asks for (`Scene::symbol`), Phosphor's
 # file name: the regular weight's plain, the others with their weight
-# (terminal-bold.svg), the motifs of Beize's app symbols (`AppIcon`).
+# (terminal-bold.svg), the motifs of Beize's app symbols (`AppIcon`). The
+# shell's: the network (globe-simple, -x; the owner, 28.10.: unfilled), the
+# control center's switch and light/dark (filled, as the mock-ups).
 script = '''
-for name in x square copy-simple; do
+for name in x square copy-simple globe-simple globe-simple-x; do
   install -Dm644 "$SRC/assets/regular/$name.svg" "$PKG/usr/share/beize/symbols/$name.svg"
 done
 for name in terminal-bold; do
   install -Dm644 "$SRC/assets/bold/$name.svg" "$PKG/usr/share/beize/symbols/$name.svg"
+done
+for name in toggle-left-fill circle-half-fill; do
+  install -Dm644 "$SRC/assets/fill/$name.svg" "$PKG/usr/share/beize/symbols/$name.svg"
 done
 '''
 

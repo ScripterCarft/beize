@@ -31,6 +31,8 @@ use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::
 };
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
 use wayland_protocols::xdg::shell::client::{
+    xdg_popup::{self, XdgPopup},
+    xdg_positioner::{self, XdgPositioner},
     xdg_surface::{self, XdgSurface},
     xdg_toplevel::{self, XdgToplevel},
     xdg_wm_base::{self, XdgWmBase},
@@ -45,7 +47,7 @@ use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass};
 use crate::gpu::Gpu;
 use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::Renderer;
-use crate::window::{Role, Window};
+use crate::window::{PopupParent, Role, Window};
 use beize_draw::titlebar::{Appearance, TitleBar};
 use beize_draw::{Scene, Text};
 
@@ -126,6 +128,27 @@ pub struct Panel<'a> {
     /// What the scene leaves transparent (`Scene::clear`) shows what is
     /// below: a panel with round corners.
     pub translucent: bool,
+}
+
+/// A popup of one of the app's windows (`App::popup`): a menu, the control
+/// center. It opens below `anchor` – a rectangle in its parent's
+/// coordinates, the button that opens it – with its left edge at the
+/// anchor's left, or its right edge at the anchor's right (`align`), in
+/// `size`; the compositor keeps it on the screen. Opened by a click, it
+/// holds pointer and keyboard until a click elsewhere closes it
+/// (`Events::closed`) or the app does (`App::close`).
+#[derive(Clone, Copy, Debug)]
+pub struct Popup {
+    pub anchor: beize_draw::Rect,
+    pub size: (u32, u32),
+    pub align: Align,
+}
+
+/// Which edges of a popup and its anchor line up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Right,
 }
 
 /// What the compositor tells of one window.
@@ -380,6 +403,103 @@ impl App {
         })
     }
 
+    /// Opens a popup of the window `parent` (`Popup`), with the click just
+    /// handled; it shows once its first `configured` is drawn. Its content
+    /// is translucent: glass may lie below it (`set_glass`).
+    pub fn popup(&mut self, parent: WindowId, popup: &Popup) -> Result<WindowId> {
+        use xdg_positioner::{Anchor, ConstraintAdjustment, Gravity};
+        let parent = self
+            .windows
+            .iter()
+            .find(|w| w.id == parent)
+            .context("no such window")?
+            .popup_parent();
+        let seat = self.seat.clone();
+        let serial = self.state.serial;
+        self.add(None, true, |globals, qh, surface, id| {
+            let wm_base: XdgWmBase = globals
+                .bind(qh, 1..=6, ())
+                .context("the compositor has no xdg_wm_base")?;
+            let positioner = wm_base.create_positioner(qh, ());
+            let px = |v: u32| i32::try_from(v.max(1)).unwrap_or(i32::MAX);
+            positioner.set_size(px(popup.size.0), px(popup.size.1));
+            let a = popup.anchor;
+            positioner.set_anchor_rect(
+                a.x.round() as i32,
+                a.y.round() as i32,
+                (a.w.round() as i32).max(1),
+                (a.h.round() as i32).max(1),
+            );
+            let (anchor, gravity) = match popup.align {
+                Align::Left => (Anchor::BottomLeft, Gravity::BottomRight),
+                Align::Right => (Anchor::BottomRight, Gravity::BottomLeft),
+            };
+            positioner.set_anchor(anchor);
+            positioner.set_gravity(gravity);
+            positioner.set_constraint_adjustment(
+                ConstraintAdjustment::SlideX | ConstraintAdjustment::FlipY,
+            );
+            let xdg_surface = wm_base.get_xdg_surface(surface, qh, id);
+            let xdg_parent = match &parent {
+                PopupParent::Xdg(xdg) => Some(xdg),
+                PopupParent::Panel(_) => None,
+            };
+            let xdg_popup = xdg_surface.get_popup(xdg_parent, &positioner, qh, id);
+            if let PopupParent::Panel(layer) = &parent {
+                layer.get_popup(&xdg_popup);
+            }
+            positioner.destroy();
+            // Before the first commit, as the protocol wants.
+            if let Some(seat) = &seat {
+                xdg_popup.grab(seat, serial);
+            }
+            Ok(Role::Popup {
+                _wm_base: wm_base,
+                xdg_surface,
+                popup: xdg_popup,
+            })
+        })
+    }
+
+    /// Sends what the app asked of the compositor now, not with the next
+    /// `dispatch`: a menu closed before the app blocks on something else.
+    pub fn flush(&mut self) -> Result<()> {
+        self.queue.flush().context("sending to the compositor")?;
+        Ok(())
+    }
+
+    /// Closes the window `id`: a popup the app is done with (a menu's choice
+    /// made), or one the compositor closed (`Events::closed`).
+    pub fn close(&mut self, id: WindowId) {
+        let Some(i) = self.windows.iter().position(|w| w.id == id) else {
+            return;
+        };
+        let qh = self.queue.handle();
+        if let Some(wl) = self.state.surface(id).map(|s| s.wl.clone())
+            && let Some(desktop) = &mut self.state.desktop
+        {
+            desktop.set_glass(id, &wl, None, &qh);
+        }
+        let window = self.windows.swap_remove(i);
+        let gpu = &self.renderer.gpu;
+        // SAFETY: nothing records now; after the wait the GPU uses nothing
+        // of the window.
+        if let Err(e) = unsafe { gpu.shared.device.device_wait_idle() } {
+            warn!("waiting for the GPU: {e}");
+        }
+        window.unmap();
+        window.destroy(gpu);
+        if let Some(j) = self.state.surfaces.iter().position(|s| s.id == id) {
+            self.state.surfaces.swap_remove(j).wl.destroy();
+        }
+        if self.state.keyboard_on == Some(id) {
+            self.state.keyboard_on = None;
+        }
+        if self.state.pointer_on == Some(id) {
+            self.state.pointer_on = None;
+        }
+    }
+
     /// A new surface with its `role`, its Vulkan surface, and the first
     /// commit, which asks the compositor for a configure.
     fn add(
@@ -498,11 +618,46 @@ impl App {
         }
     }
 
+    /// Where the window `id` takes the pointer: these rectangles (a popup's
+    /// tiles, a menu's shape), or all of it (`None`). The rest is as if not
+    /// there – a click falls through to what lies below, or closes the
+    /// popup. Applies with the next draw.
+    pub fn set_input(&mut self, id: WindowId, rects: Option<&[beize_draw::Rect]>) {
+        let qh = self.queue.handle();
+        let Some(surface) = self.state.surface(id) else {
+            return;
+        };
+        let Some(rects) = rects else {
+            surface.wl.set_input_region(None);
+            return;
+        };
+        let region = self.state.compositor.create_region(&qh, ());
+        for r in rects {
+            region.add(
+                r.x.round() as i32,
+                r.y.round() as i32,
+                r.w.round() as i32,
+                r.h.round() as i32,
+            );
+        }
+        surface.wl.set_input_region(Some(&region));
+        region.destroy();
+    }
+
     /// Brings a window of the desktop to the front, back on the screen if
     /// it was minimized.
     pub fn activate_desktop_window(&mut self, id: DesktopWindowId) {
         if let Some(desktop) = &self.state.desktop {
             desktop.activate(id);
+        }
+    }
+
+    /// Switches the system's appearance (the control center; only the
+    /// shell, `watch_desktop`): the compositor keeps it and tells the shell
+    /// back (`appearance`).
+    pub fn choose_appearance(&mut self, appearance: Appearance) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.choose_appearance(appearance);
         }
     }
 
@@ -890,6 +1045,31 @@ impl Dispatch<XdgToplevel, WindowId> for State {
     }
 }
 
+impl Dispatch<XdgPopup, WindowId> for State {
+    fn event(
+        state: &mut State,
+        _: &XdgPopup,
+        event: xdg_popup::Event,
+        id: &WindowId,
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        let Some(surface) = state.surface_mut(*id) else {
+            return;
+        };
+        match event {
+            // Its size, taken with the xdg_surface's configure that follows;
+            // where it lies is the compositor's.
+            xdg_popup::Event::Configure { width, height, .. } => {
+                surface.next.asked = (width, height);
+            }
+            // A click elsewhere, or the grab was declined.
+            xdg_popup::Event::PopupDone => surface.events.closed = true,
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<ZwlrLayerSurfaceV1, WindowId> for State {
     fn event(
         state: &mut State,
@@ -1038,5 +1218,6 @@ delegate_noop!(State: ignore WlCompositor);
 delegate_noop!(State: ignore WlSurface);
 delegate_noop!(State: ignore WlRegion);
 delegate_noop!(State: ignore ZwlrLayerShellV1);
+delegate_noop!(State: ignore XdgPositioner);
 delegate_noop!(State: WpCursorShapeManagerV1);
 delegate_noop!(State: WpCursorShapeDeviceV1);

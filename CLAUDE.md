@@ -315,18 +315,52 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: 0.5.115 bestätigt, Bildtakt abgeschlossen → Shell)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28: Shell (e) gebaut, Messbau 0.5.116)
 
-**NÄCHSTE AUFGABE: Shell, ADR 0028 „Reihenfolge“ (e) → (f) → (g).** Der Bildtakt ist auf
+**JETZT: Messbau 0.5.116 auswerten** (Shell (e): Beize-Menü, Kontrollzentrum; Tag
+`measure/desktop-0.5.116`, Stick-Dateien in `~/scratch/stick`, `hw-test.sh` Teil 2/6 neu:
+Menü, Klick daneben, Tastatur danach im Terminal, Kontrollzentrum, Hell/Dunkel, Fotos). Prüfen:
+`Beize menu may:` in `shell.log` = „yes“ dreimal (nur tty1 angemeldet), Fotos (Rand, Schatten,
+Kacheln), `appearance … chosen` im Compositor-Log, Warnungen. Danach mit dem Besitzer: weiße
+Schrift auf dem Glas des Kontrollzentrums und ob das Glas dafür angepasst wird (sein Wunsch, „noch
+nicht jetzt“), Bestätigungsdialog für Neustart/Ausschalten, dann (f).
+
+**Shell (e) gebaut 28.10.** (ADR 0028 §3, §5, §6 haben die Einzelheiten und Maße). Entwürfe
+vorher abgenommen (Python-Mock-ups, `beize-design-values`-Notiz): Logo Variante 2, Menü ruhig
+(Menü-Glas 85 %), Kontrollzentrum ohne Panel, Netz-Symbole `globe-simple(-x)`, dunkle Schrift.
+Maße gemessen: Menüs an den HIG-Bildern (2 px/pt), Kontrollzentrum an Apples Pressebild.
+- Compositor: xdg_popup-Grabs (wie anvil/niri; abgelehnte Grabs schließen das Popup; danach
+  Tastatur zurück ans aktive Fenster, `popup_grab_ended`), Popups der Panels platziert, getroffen
+  und mit Glas und Schatten gezeichnet; Glas mit mehreren Formen, Material `menu`, Schatten;
+  `set_appearance` (gemerkt in `~/.config/beize/appearance`).
+- Beize UI: Popups (`App::popup`, `close`, `set_input`, `flush`), `menu` als Baustein.
+- Shell: Logo, Beize-Menü (logind über den System-Bus, `beize_systemd::login`; Abmelden beendet
+  `XDG_SESSION_ID`), Kontrollzentrum (Netz über Varlink `Describe` + inotify auf
+  `/run/systemd/netif` – sd-network ist in libsystemd nicht öffentlich, der Host-`cargo check`
+  linkt nicht und zeigte es nicht, erst `bz build`), Hell/Dunkel.
+- bz: Smoke-Prüfung `menus`, `bz debug '@click X Y'` (Tablet, pixelgenau).
+- **logind-Lücke (belegt):** polkit nimmt für die Shell die Display-Sitzung; logind wählt sie
+  bei `SetType` nicht neu → war der Benutzer vorher anders angemeldet (Smoke: serielle Konsole),
+  „challenge“. Mit Patch in Beizes systemd (vorübergehend) „yes“. Patch + Erklärung in
+  `~/upstream/systemd-logind-display/` (gegen main; systemds KI-Regeln: Besitzer schreibt den
+  PR-Text selbst). Smoke meldet genau diesen Fall als „known“, jeder andere schlägt fehl.
+- Prüf-Agent am Ende: 11 Befunde (u. a. Abmelden traf die falsche Sitzung, durchsichtige Fläche
+  schluckte Klicks, Klick auf Dock/Leiste schloss das Menü nicht, logind blockierte das Öffnen),
+  alle behoben; Größe: echt +52 KiB Compositor, +118 KiB Shell (Rest der `sizes.toml`-Anhebung
+  ist Drift unter der 3-%-Toleranz seit 26.10.), keine lohnende Einsparung.
+- Smoke danach 3 von 4 grün; einmal „the still desktop woke“: der Compositor 1× in 3 s, während
+  run0 im Prüffenster authentifizierte – Ursache nicht belegt, nicht wiederholt (2 Läufe grün).
+  Kommt es wieder: `still_and_signed_out` mit dem Journal des Compositors in dem Fenster prüfen.
+
+**Danach: Shell, ADR 0028 „Reihenfolge“ (f) → (g).** Der Bildtakt ist auf
 Beizes Seite fertig (0.5.115 unten); offen ist dort nur Treiberseitiges (nouveau-Bericht,
 NVK-Stau – Besitzer-Entscheidung, kein Compositor-Code). Wünsche des Besitzers (28.10.):
 Sperrbildschirm, Skripte anlegen (Frage: geht das schon? – im Terminal ja, mit `nano` im
 Image; per Maus nein, es gibt noch keinen Dateimanager und keinen grafischen Editor), Dateien
 auf dem Schreibtisch,
 Kontrollzentrum mit Netz und Bluetooth, Rechtsklick-Menüs. Einordnung laut ADR 0028/VISION:
-- (e) Kontrollzentrum mit Netz-Kachel (networkd über Varlink, `os/beize-varlink`; WLAN mit iwd
-  #17) + Beize-Menü (Sperren, Abmelden, Neustart, Ausschalten über logind). Bluetooth/Ton erst
-  mit PipeWire/BlueZ (#17, M4): „leere Kacheln gibt es nicht“ (§5).
+- (e) ✓ 28.10. (oben). Bluetooth/Ton/Medien erst mit PipeWire/BlueZ (#17, M4): „leere Kacheln
+  gibt es nicht“ (§5) – Vorschlag an den Besitzer: #17 bald, sonst wirkt das Kontrollzentrum leer.
 - (f) App-Menüs (`beize-menu-v1`), Alt+Tab, Snap; Rechtsklick-/Kontextmenüs gehören dazu.
 - (g) Federanimationen.
 - Eigenes ADR je: Sperrbildschirm (Super+L, §7; VISION: 1Password-Sperre daran), grafische
@@ -334,10 +368,10 @@ Kontrollzentrum mit Netz und Bluetooth, Rechtsklick-Menüs. Einordnung laut ADR 
 - Dateien auf dem Schreibtisch, Skripte per Doppelklick: kommen mit dem Dateimanager „Sift“
   (eigene App, zugleich Datei-Dialog, VISION) – noch kein ADR. macOS legt Dateien auf den
   Schreibtisch über den Finder, nicht über die Shell.
-Vorschlag an den Besitzer (noch nicht entschieden): erst (e) wie geplant, weil Beize-Menü und
-Netz-Kachel auf vorhandenen Diensten bauen; der Sperrbildschirm als Nächstes mit eigenem ADR
-(Sicherheitsgrenze: ext-session-lock-v1 wie KWin/sway, vorher prüfen, Anmeldung über PAM); dann (f).
-Vor dem Start: ADR 0028 §5 und „Reihenfolge“ lesen, Plan dem Besitzer vorlegen.
+Offen zur Reihenfolge (Besitzer entscheidet): Sperrbildschirm mit eigenem ADR (Sicherheitsgrenze:
+ext-session-lock-v1 wie KWin/sway, Anmeldung über PAM) vor oder nach (f). Arbeitsweise, die der
+Besitzer bestätigt hat (28.10.): Werte erst messen, Entwürfe als Mock-ups abnehmen lassen, dann
+bauen.
 
 **0.5.115 getestet 28.10. (`~/hw-logs/results-20261028-154745`) – D bestätigt.** Client-Test
 2 späte von 7163 in 30 s, **0 „drawing“** (0.5.114: 10, davon 7 „drawing“); Lasttest 3 spät,

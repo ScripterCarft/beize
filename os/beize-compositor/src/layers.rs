@@ -23,6 +23,7 @@ use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
     WlrLayerShellState,
 };
+use smithay::wayland::shell::xdg::PopupSurface;
 use tracing::{info, warn};
 
 use crate::state::State;
@@ -49,6 +50,12 @@ impl WlrLayerShellHandler for State {
         if let Err(e) = map.map_layer(&LayerSurface::new(surface, namespace)) {
             warn!("a panel: {e}");
         }
+    }
+
+    /// A menu of the shell's: placed now that its parent, the panel, is
+    /// known (`get_popup` comes after the popup was made).
+    fn new_popup(&mut self, _parent: WlrLayerSurface, popup: PopupSurface) {
+        crate::shell::unconstrain(self, &popup);
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
@@ -217,8 +224,16 @@ impl State {
     }
 }
 
+/// Where the panel with the surface `surface` lies, if it is one.
+pub fn place_of(state: &State, surface: &WlSurface) -> Option<Rectangle<i32, Logical>> {
+    let map = layer_map_for_output(state.output.as_ref()?);
+    let panel = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)?;
+    map.layer_geometry(panel)
+}
+
 /// The panel surface under `at` on `layers`, front to back, and where that
-/// surface lies; only panels `shown` at their place.
+/// surface lies; only panels `shown` at their place. A panel's popups – the
+/// shell's menus – reach beyond its place and lie in front of it.
 pub fn surface_under(
     output: &Output,
     layers: &[Layer],
@@ -229,11 +244,20 @@ pub fn surface_under(
     layers.iter().find_map(|&layer| {
         map.layers_on(layer).rev().find_map(|panel| {
             let place = map.layer_geometry(panel)?;
-            if !place.to_f64().contains(at) || !shown(place) {
+            if !shown(place) {
                 return None;
             }
+            let within = at - place.loc.to_f64();
             panel
-                .surface_under(at - place.loc.to_f64(), WindowSurfaceType::ALL)
+                .surface_under(within, WindowSurfaceType::POPUP)
+                .or_else(|| {
+                    place.to_f64().contains(at).then(|| {
+                        panel.surface_under(
+                            within,
+                            WindowSurfaceType::TOPLEVEL | WindowSurfaceType::SUBSURFACE,
+                        )
+                    })?
+                })
                 .map(|(surface, offset)| (surface, (offset + place.loc).to_f64()))
         })
     })

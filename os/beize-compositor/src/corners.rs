@@ -48,6 +48,17 @@ const INACTIVE: Look = Look {
     sigma: 8.0,
     alpha: 0.2,
 };
+/// Below a menu and below the control center's tiles (`Shadow::below_glass`).
+const MENU: Look = Look {
+    offset: 6,
+    sigma: 12.0,
+    alpha: 0.25,
+};
+const TILE: Look = Look {
+    offset: 3,
+    sigma: 8.0,
+    alpha: 0.12,
+};
 
 /// The renderer's part: round corners, shadows and glass (`backdrop`) in
 /// a frame. A trait, as the frame's elements are generic over the renderer
@@ -255,11 +266,13 @@ impl<R: Effects, E: RenderElement<R>> RenderElement<R> for Rounded<E> {
 }
 
 /// A window's shadow: below its frame, drawn again when it moves, changes
-/// size or becomes active or not.
+/// size or becomes active or not. Or the shadow of glass that asked for one
+/// (`backdrop`): a menu's, a tile's of the control center.
 pub struct Shadow {
     id: Id,
     commit: CommitCounter,
     caster: Rectangle<i32, Physical>,
+    radius: i32,
     look: Look,
 }
 
@@ -295,7 +308,32 @@ impl Shadow {
             id,
             commit,
             caster: frame.to_physical(1),
+            radius: RADIUS,
             look: if active { ACTIVE } else { INACTIVE },
+        }
+    }
+
+    /// The shadow below a glass's piece `rect` with corners of `radius`:
+    /// a menu's larger, as Apple's menus cast one (black about 15 % at the
+    /// edge in the HIG's images, fading over some 8 pt; offset and blur
+    /// estimated), a tile's faint (the owner, 28.10., on mock-ups). The
+    /// glass's `id` and `commit` tell when it changes.
+    pub fn below_glass(
+        id: Id,
+        commit: CommitCounter,
+        rect: Rectangle<i32, Physical>,
+        radius: f32,
+        shows: crate::glass::Material,
+    ) -> Shadow {
+        Shadow {
+            id,
+            commit,
+            caster: rect,
+            radius: radius.round() as i32,
+            look: match shows {
+                crate::glass::Material::Menu => MENU,
+                _ => TILE,
+            },
         }
     }
 
@@ -362,7 +400,7 @@ impl<R: Effects> RenderElement<R> for Shadow {
             damage,
             caster,
             cover,
-            RADIUS,
+            self.radius,
             self.look.sigma,
             [0.0, 0.0, 0.0, a],
         );

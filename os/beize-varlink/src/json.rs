@@ -146,6 +146,25 @@ impl<'a> Object<'a> {
         // SAFETY: a valid variant.
         (unsafe { sd_json_variant_is_object(v) } != 0).then_some(Object(v, PhantomData))
     }
+
+    /// The objects in the array `key`; none if it is no array.
+    pub fn objects(&self, key: &str) -> Vec<Object<'a>> {
+        let Some(v) = self.field(key) else {
+            return Vec::new();
+        };
+        // SAFETY: a valid variant; its elements are borrowed from it and
+        // live as long as the object.
+        unsafe {
+            if sd_json_variant_is_array(v) == 0 {
+                return Vec::new();
+            }
+            (0..sd_json_variant_elements(v))
+                .map(|i| sd_json_variant_by_index(v, i))
+                .filter(|e| !e.is_null() && sd_json_variant_is_object(*e) != 0)
+                .map(|e| Object(e, PhantomData))
+                .collect()
+        }
+    }
 }
 
 /// `text` as a JSON string, quotes included.

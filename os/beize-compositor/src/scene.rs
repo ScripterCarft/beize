@@ -11,11 +11,12 @@ use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::{
     WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
-use smithay::backend::renderer::element::{AsRenderElements, Id, Kind};
+use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
 use smithay::output::Output as WlOutput;
-use smithay::utils::{Logical, Physical, Rectangle, Scale, Size};
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 use smithay::wayland::shell::wlr_layer::Layer;
 use tracing::warn;
 
@@ -193,22 +194,26 @@ pub fn panels(
         let Some(place) = map.layer_geometry(panel) else {
             continue;
         };
-        let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> =
-            AsRenderElements::<VkRenderer>::render_elements(
-                panel,
+        let mut elements = Vec::new();
+        // Its popups in front – the shell's menus, the control center –,
+        // each with its glass and shadows, placed as Smithay's
+        // `LayerSurface` places them.
+        for (popup, offset) in PopupManager::popups_for_surface(panel.wl_surface()) {
+            let at = place.loc + offset - popup.geometry().loc;
+            surface_with_glass(
                 renderer,
-                place.loc.to_physical(1),
-                Scale::from(1.0),
-                1.0,
+                popup.wl_surface(),
+                at,
+                backdrop.as_deref_mut(),
+                &mut elements,
             );
+        }
         // The menu bar's own glass gives way to the plate over a fullscreen
         // window.
-        let glass = backdrop
+        let own = backdrop
             .as_deref_mut()
-            .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)))
-            .and_then(|b| b.glass(renderer, panel.wl_surface(), place.loc));
-        let mut elements: Vec<Element> = surfaces.into_iter().map(Element::Surface).collect();
-        elements.extend(glass.map(Element::Glass));
+            .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)));
+        surface_with_glass(renderer, panel.wl_surface(), place.loc, own, &mut elements);
         drawn.push(PanelFrame {
             place,
             upper: matches!(panel.layer(), Layer::Overlay | Layer::Top),
@@ -216,6 +221,30 @@ pub fn panels(
         });
     }
     drawn
+}
+
+/// The surface tree of `surface` at `at`, then the glass it asked for below
+/// it (with a `backdrop`) and that glass's shadows, added to `elements`.
+fn surface_with_glass(
+    renderer: &mut VkRenderer,
+    surface: &WlSurface,
+    at: Point<i32, Logical>,
+    backdrop: Option<&mut Backdrop>,
+    elements: &mut Vec<Element>,
+) {
+    let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> = render_elements_from_surface_tree(
+        renderer,
+        surface,
+        at.to_physical(1),
+        Scale::from(1.0),
+        1.0,
+        Kind::Unspecified,
+    );
+    elements.extend(surfaces.into_iter().map(Element::Surface));
+    if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(renderer, surface, at)) {
+        elements.push(Element::Glass(glass));
+        elements.extend(shadows.into_iter().map(Element::Shadow));
+    }
 }
 
 /// Moves the elements of the panels above the windows (`upper`) or below

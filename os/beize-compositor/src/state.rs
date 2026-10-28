@@ -35,7 +35,9 @@ use smithay::desktop::utils::{
     OutputPresentationFeedback, send_frames_surface_tree,
     surface_presentation_feedback_flags_from_states,
 };
-use smithay::desktop::{LayerSurface, PopupManager, Space, Window, layer_map_for_output};
+use smithay::desktop::{
+    LayerSurface, PopupGrab, PopupManager, Space, Window, layer_map_for_output,
+};
 use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatHandler, SeatState};
@@ -46,6 +48,7 @@ use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
 use smithay::reexports::wayland_server::backend::{
     ClientData, ClientId, DisconnectReason, GlobalId,
 };
@@ -163,6 +166,8 @@ pub struct State {
     /// The shell's view of the windows (`shell_v1`).
     pub shell_windows: crate::shell_v1::ShellWindows,
     pub popups: PopupManager,
+    /// The menu holding pointer and keyboard (`shell`), until it ends.
+    pub popup_grab: Option<PopupGrab<State>>,
     /// What the title bars of other apps' windows share (`decorations`).
     decorations: Decorations,
     /// Light or dark (`backdrop`).
@@ -379,8 +384,9 @@ impl State {
             minimized: Vec::new(),
             shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
+            popup_grab: None,
             decorations: Decorations::default(),
-            appearance: Appearance::from_environment(),
+            appearance: Appearance::chosen(),
             backdrop: None,
             backdrop_for: None,
             backdrops: 0,
@@ -1778,6 +1784,36 @@ impl State {
                 smithay::desktop::WindowSurfaceType::ALL,
             )
             .map(|(surface, offset)| (surface, (offset + location).to_f64()))
+    }
+
+    /// After events: once a menu's grab ended – a click elsewhere, a choice,
+    /// Escape – the keyboard goes back to the active window, as niri gives
+    /// it back. Smithay hands it to the grab's root, which for the shell's
+    /// menus is a panel that takes no keys.
+    pub fn popup_grab_ended(&mut self) {
+        if self.popup_grab.is_none() {
+            return;
+        }
+        // A grab ends once its popups are known gone (Smithay's `has_ended`),
+        // which `cleanup` finds out – cheap, so not left to the next frame.
+        self.popups.cleanup();
+        if !self
+            .popup_grab
+            .as_ref()
+            .is_some_and(|grab| grab.has_ended())
+        {
+            return;
+        }
+        self.popup_grab = None;
+        let active = self
+            .space
+            .elements()
+            .rev()
+            .filter_map(Window::toplevel)
+            .find(|t| t.with_pending_state(|s| s.states.contains(XdgState::Activated)))
+            .map(|t| t.wl_surface().clone());
+        let keyboard = self.keyboard.clone();
+        keyboard.set_focus(self, active, SERIAL_COUNTER.next_serial());
     }
 
     /// Raises `window`, makes it the active one and gives it the keyboard.

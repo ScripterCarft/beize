@@ -183,13 +183,35 @@ Einstellung, die dann zur Laufzeit umschaltet.
 
 - **Links:** das Beize-Menü (Über diesen Rechner, Einstellungen, Ruhezustand, Neustart,
   Ausschalten, Sperren, Abmelden; wie das Apple-Menü), dann der Name der aktiven App, fett.
+  Gebaut 28.10. (e): Beizes Zeichen (Besitzer: zwei schräge Balken mit runden Enden wie ein B,
+  als zwei Striche gezeichnet) öffnet es; heute Ruhezustand, Neustart, Ausschalten, Abmelden über
+  logind auf dem System-Bus (polkit: die aktive lokale Sitzung darf, wie GNOME). Sperren kommt mit
+  dem Sperrbildschirm, „Über diesen Rechner“ und Einstellungen mit ihren Fenstern. Sie handeln
+  sofort; macOS' Rückfrage („Restart…“) kommt mit Dialogen. Abmelden beendet die Sitzung von
+  beize-session (`XDG_SESSION_ID`). Lücke in logind: Für die Shell, die neben der Sitzung läuft,
+  nimmt polkit die Display-Sitzung des Benutzers; logind wählt sie nur beim Start einer Sitzung,
+  nicht bei `SetType` – war der Benutzer vorher anders angemeldet (serielle Konsole, SSH), fragt
+  polkit nach dem Passwort. Patch für upstream vorbereitet (`~/upstream/systemd-logind-display`,
+  der Besitzer schickt ihn); mit der grafischen Anmeldung entsteht die Sitzung ohnehin als
+  Wayland-Sitzung (wie bei GDM).
+- **Menüs** (`beize_ui::menu`, ein Baustein auch für Kontext- und App-Menüs): ein Popup
+  (`xdg_popup` mit Grab: ein Klick daneben schließt es, wie anvil und niri; danach bekommt das
+  aktive Fenster die Tastatur zurück) auf Menü-Glas – lebendig, mit macOS' Menüfarben #F2F2F2 bzw.
+  #2D2D2D zu 85 % getönt (Besitzer: ruhig, kaum durchscheinend; macOS 26 lässt etwa die Hälfte
+  durch), schwache Lichtkante, Schatten nur außen. Maße aus den Menübildern der HIG (genau 2 px
+  je pt) × 1,25: Zeilen 30, oben und unten 6, Text 15 px (wie die Leiste) mit 20 Einzug,
+  Trennlinie 1 px schwarz 7,5 %, Ecken 16 (wie Fenster), mindestens 225 breit. Geschätzt: die
+  Hervorhebung (Akzentblau, 6 eingerückt, Ecken 8), der Schatten. Gewählt wird beim Loslassen
+  über einem Eintrag oder mit Return, Escape oder ein Klick in der Shell schließt. Der Knopf eines
+  offenen Menüs liegt auf einer Pille (macOS 26: 36 × 24 pt).
 - **App-Menüs:** Beize-Apps beschreiben ihre Menüs in Beize UI, und die Shell zeigt sie
   (Protokoll `beize-menu-v1`, wie AppKit das Menü an den WindowServer gibt). Fremde Apps
   liefern unter Wayland keine Menüs (GTK 4 hat das globale Menü entfernt, Qt kann es nur
   über KDEs D-Bus-Menü). Für sie zeigt die Leiste nur ein festes Menü: Name, Fenster der App,
   Beenden. Die Apps behalten ihre eigenen Menüs im Fenster. Das ist ehrlich gesagt der eine
   Punkt, an dem Beize nicht wie macOS sein kann.
-- **Rechts:** Statussymbole (Netz, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
+- **Rechts:** Statussymbole (Netz – Phosphors `globe-simple`, ohne Verbindung `globe-simple-x`,
+  Besitzer 28.10. –, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
   Datum und Uhrzeit wie macOS („Mon 9 Jun 07:36“, 24 Stunden), die Namen von der C-Bibliothek:
   englisch, bis es Sprachen gibt (ADR 0017; Besitzer 25.10.). Sie springt zu Beginn jeder Minute um, auch wenn die Uhr
   gestellt wird (timerfd mit `CANCEL_ON_SET`). Ein Klick auf die Uhr öffnet später die Benachrichtigungen.
@@ -221,16 +243,29 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 ### 5. Kontrollzentrum
 
-Ein Glas-Panel unter der Menüleiste mit Kacheln wie bei macOS. Zuerst baut Schritt 4 den
-Rahmen und die Kacheln, deren Dienst es schon gibt:
+Kacheln aus lebendigem Glas unter dem rechten Ende der Menüleiste, **ohne Panel**: jede schwebt
+für sich, dahinter scheint verschwommen durch, was dort liegt, wie das Kontrollzentrum von
+macOS 26 (Apples Pressebild bestätigt es; Besitzer 28.10.). Ein Popup der Leiste; ein Klick
+daneben schließt es, und daneben fällt er durch (Eingabe-Region nur auf den Kacheln).
 
-- **Netz** (networkd über Varlink `io.systemd.Network`, mit `os/beize-varlink`; WLAN mit
-  iwd kommt mit #17).
-- **Fokus** und **Hell/Dunkel**, sobald es Einstellungen gibt.
-- **Ton, Bluetooth, Helligkeit, Medien** mit PipeWire und BlueZ (#17, M4).
-
-Leere Kacheln für noch fehlende Dienste gibt es nicht. Die Shell zeigt nur, was
-funktioniert.
+- **Raster** gemessen an Apples Pressebild (3840 px, ~3,94 px je pt über die Versalhöhe der
+  Leiste): vier Spalten zu 64 pt mit 12 pt Abstand, 292 pt breit – das Bild bestätigt die Summe –,
+  in Beize × 1,25: Kachel 80, Abstand 15, 15 unter der Leiste und zum Bildschirmrand. Eine Zelle
+  ist ein Kreis, 2 × 1 eine Kapsel, 2 × 2 hat Ecken von 21 pt (26), eine Reihe aus vier (Regler)
+  16,5 pt (21). Runde Knöpfe in Kapseln 36 pt, „an“ ist eine weiße Scheibe mit dem Symbol in
+  Akzentblau.
+- **Anordnung** (Besitzer, 28.10.): Netz oben links (2 × 1), daneben der Mediaplayer (2 × 2),
+  darunter Bluetooth (2 × 1), darunter Hell/Dunkel (1 × 1), dann Helligkeit und Lautstärke je
+  über die ganze Breite. Gebaut 28.10.: **Netz** (networkd über Varlink
+  `io.systemd.Network.Describe`, das jeder fragen darf; Änderungen über inotify auf networkds
+  Zustandsdateien, wie sd-networks Monitor, das libsystemd nicht öffentlich anbietet; virtuelle
+  Geräte zählen nicht) und **Hell/Dunkel** (schaltet zur Laufzeit, §6). Bluetooth, Medien und
+  Lautstärke mit PipeWire und BlueZ (#17, M4), Helligkeit mit ihnen; Fokus mit den
+  Einstellungen.
+- Leere Kacheln für noch fehlende Dienste gibt es nicht: Reihen ohne Kachel rücken zusammen,
+  und das Kontrollzentrum ist so breit wie die belegten Spalten, also rechts unter seinem Knopf.
+- Die Schrift auf dem Glas ist vorerst dunkel auf Hell (hell auf Dunkel); ob sie überall hell
+  wird und das Glas dafür angepasst, bespricht der Besitzer als Nächstes.
 
 ### 6. Material, Animation, Hintergrund
 
@@ -266,8 +301,15 @@ lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   vergleichen kann (Besitzer). Lichtbrechung am Rand wie bei Liquid Glass kommt später.
 - **Erscheinungsbild:** Hell oder Dunkel ist eine Systemeinstellung, nicht eine Eigenschaft
   des Bildes; Vorgabe Hell wie macOS. Das Glas nimmt die Tönung dazu, der Hintergrund seine
-  Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Bis es
-  Einstellungen gibt, zeigt `BEIZE_APPEARANCE=dark` in `~/.config/environment.d` Dunkel.
+  Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Die
+  Kachel im Kontrollzentrum schaltet es zur Laufzeit (`beize_shell_v1.set_appearance`); der
+  Compositor merkt sich die Wahl bis zu den Einstellungen in `~/.config/beize/appearance` (seine
+  `ConfigurationDirectory`, wie GNOME sein Farbschema in dconf). `BEIZE_APPEARANCE=dark` oder
+  `light` in `~/.config/environment.d` geht vor (Tests, Bilder). Apps' eigene Fenster folgen
+  noch nicht.
+- **Menü-Glas** (`beize_glass_v1.material` `menu`, wie NSVisualEffectView `.menu`): lebendiges
+  Glas, dicht getönt (§3, Menüs), mit schwacher Lichtkante; Glas kann Schatten werfen
+  (`set_shadow`) und an mehreren Stellen einer Fläche liegen (`add_shape`, die Kacheln).
 - **Start aus einem Guss** (gebaut 24.10., `os/beize-compositor/src/opening.rs`): Beim
   Übernehmen des Bildschirms setzt der Compositor den Modus sofort mit einem schwarzen Bild, so
   rastet der Monitor ein, während die Shell startet und der Hintergrund dahinter entsteht. Den
@@ -385,7 +427,8 @@ d) Symbole, Hintergrund, lebendiges Glas für das Dock, die Menüleiste ohne Hin
    einem Guss; danach der Lasttest und ein
    Hardware-Test.
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
-   Neustart, Ausschalten über logind).
+   Neustart, Ausschalten über logind). ✓ 28.10. (ohne Sperren: kommt mit dem Sperrbildschirm;
+   dazu Hell/Dunkel zur Laufzeit und Menüs als Baustein in Beize UI)
 f) App-Menüs (`beize-menu-v1`), Alt+Tab, Snap.
 g) Gestaltete Federanimationen (Öffnen, Minimieren ins Dock, Snap).
 

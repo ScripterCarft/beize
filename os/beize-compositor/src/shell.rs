@@ -2,12 +2,18 @@
 //! has it (ADR 0028 §2), the newest on top and active, with the keyboard.
 //! Popups (menus) open where the client asks, kept on the screen.
 //!
-//! Popup grabs (a menu that closes on a click elsewhere) are declined: the
-//! protocol then closes the popup (`popup_done`), which every client
-//! handles. They come with Beize UI's menus. A minimized window comes back
-//! through the shell (`windows`, `shell_v1`).
+//! A menu may grab the pointer and keyboard (`xdg_popup.grab`): it closes
+//! on a click elsewhere, which still goes where it was aimed (Smithay's
+//! `PopupPointerGrab`); then the keyboard goes back to the active window
+//! (`State::popup_grab_ended`). A minimized window comes back through the
+//! shell (`windows`, `shell_v1`).
 
-use smithay::desktop::{PopupKind, find_popup_root_surface, get_popup_toplevel_coords};
+use smithay::desktop::{
+    PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy, find_popup_root_surface,
+    get_popup_toplevel_coords,
+};
+use smithay::input::Seat;
+use smithay::input::pointer::Focus;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::{
     wl_output::WlOutput, wl_seat, wl_surface::WlSurface,
@@ -105,8 +111,63 @@ impl XdgShellHandler for State {
         surface.send_repositioned(token);
     }
 
-    fn grab(&mut self, surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
-        surface.send_popup_done();
+    /// A menu that closes on a click elsewhere: the pointer and keyboard
+    /// stay with it until then, as Smithay's anvil and niri grab. Declined
+    /// – the popup closes at once – unless the click that opened it still
+    /// holds the pointer (`serial`), or the keyboard's grab is the parent
+    /// menu's (a submenu).
+    fn grab(&mut self, surface: PopupSurface, seat: wl_seat::WlSeat, serial: Serial) {
+        // A grab declined dismisses the popup (xdg-shell).
+        let Some(seat) = Seat::<State>::from_resource(&seat) else {
+            surface.send_popup_done();
+            return;
+        };
+        let kind = PopupKind::Xdg(surface.clone());
+        let Ok(root) = find_popup_root_surface(&kind) else {
+            surface.send_popup_done();
+            return;
+        };
+        // A menu closed by its app just before – the Beize menu, when the
+        // same click opens the control center – still holds the pointer
+        // until its next event: let it go first.
+        self.popups.cleanup();
+        if self.popup_grab.as_ref().is_some_and(|g| g.has_ended()) {
+            self.popup_grab = None;
+            if let Some(pointer) = seat.get_pointer() {
+                pointer.unset_grab(self, serial, self.time_msec());
+            }
+            if let Some(keyboard) = seat.get_keyboard() {
+                keyboard.unset_grab(self);
+            }
+        }
+        let mut grab = match self.popups.grab_popup(root, kind, &seat, serial) {
+            Ok(grab) => grab,
+            Err(e) => {
+                warn!("a popup's grab: {e}");
+                surface.send_popup_done();
+                return;
+            }
+        };
+        let earlier = grab.previous_serial().unwrap_or(serial);
+        if let Some(keyboard) = seat.get_keyboard() {
+            if keyboard.is_grabbed() && !(keyboard.has_grab(serial) || keyboard.has_grab(earlier)) {
+                grab.ungrab(PopupUngrabStrategy::All);
+                return;
+            }
+            keyboard.set_focus(self, grab.current_grab(), serial);
+            keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
+        }
+        if let Some(pointer) = seat.get_pointer() {
+            if pointer.is_grabbed()
+                && !(pointer.has_grab(serial)
+                    || pointer.has_grab(grab.previous_serial().unwrap_or_else(|| grab.serial())))
+            {
+                grab.ungrab(PopupUngrabStrategy::All);
+                return;
+            }
+            pointer.set_grab(self, PopupPointerGrab::new(&grab), serial, Focus::Keep);
+        }
+        self.popup_grab = Some(grab);
     }
 }
 
@@ -131,26 +192,28 @@ pub fn committed(state: &mut State, surface: &WlSurface) {
 }
 
 /// Moves the popup so it stays on the screen, as far as its positioner
-/// allows.
-fn unconstrain(state: &State, popup: &PopupSurface) {
+/// allows; its root is a window or a panel (the shell's menus, whose
+/// parent comes later: `layers`).
+pub fn unconstrain(state: &State, popup: &PopupSurface) {
     let kind = PopupKind::Xdg(popup.clone());
     let Ok(root) = find_popup_root_surface(&kind) else {
         return;
     };
-    let Some(window) = state
+    let window_area = state
         .space
         .elements()
         .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &root))
+        .and_then(|window| state.space.element_geometry(window));
+    let Some(root_at) = window_area
+        .map(|area| area.loc)
+        .or_else(|| crate::layers::place_of(state, &root).map(|place| place.loc))
     else {
-        return;
-    };
-    let Some(window_area) = state.space.element_geometry(window) else {
         return;
     };
     // The positioner works relative to the popup's parent.
     let mut target = state.screen_area();
     target.loc -= get_popup_toplevel_coords(&kind);
-    target.loc -= window_area.loc;
+    target.loc -= root_at;
     popup.with_pending_state(|s| {
         s.geometry = s.positioner.get_unconstrained_geometry(target);
     });

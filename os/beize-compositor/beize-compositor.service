@@ -33,11 +33,14 @@ Slice=session.slice
 # MemoryDenyWriteExecute. Mesa keeps the compiled shaders in a cache
 # directory of the compositor's own (~/.cache/beize-compositor, writable
 # as the only place in the home), not in ~/.cache/mesa_shader_cache_db,
-# which every app's Mesa shares.
+# which every app's Mesa shares. The appearance chosen in the control
+# center is kept in ~/.config/beize (ConfigurationDirectory, writable too)
+# until Beize's settings hold it.
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%t
 CacheDirectory=beize-compositor
+ConfigurationDirectory=beize
 Environment=MESA_SHADER_CACHE_DIR=%C/beize-compositor
 PrivateTmp=yes
 PrivateUsers=self
