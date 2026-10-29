@@ -248,8 +248,9 @@ impl Dock {
         Some(Action::Activate(shown.iter().map(|w| w.id).collect()))
     }
 
-    /// Its glass in `(w, h)`: all of it, liquid, with round corners and its
-    /// line of light.
+    /// Its glass in `(w, h)`: all of it, liquid, with round corners, its
+    /// line of light and a shadow (over a white window it is what shows the
+    /// glass, as Apple's).
     pub fn glass((w, h): (u32, u32)) -> Glass {
         let all = Rect {
             x: 0.0,
@@ -257,7 +258,10 @@ impl Dock {
             w: w as f32,
             h: h as f32,
         };
-        Glass::one(all, RADIUS, true, Material::Liquid)
+        Glass {
+            shadow: true,
+            ..Glass::one(all, RADIUS, true, Material::Liquid)
+        }
     }
 
     /// The dock's content in `(w, h)`, for `appearance`: the rest is

@@ -163,7 +163,7 @@ impl ControlCenter {
         self.tiles.iter().map(|&(_, rect, _)| rect).collect()
     }
 
-    /// The tiles' glass: clear, with a rim each and no shadow, the smoke
+    /// The tiles' glass: clear, with a rim and a shadow each, the smoke
     /// around them.
     pub fn glass(&self) -> Glass {
         Glass {
@@ -177,7 +177,7 @@ impl ControlCenter {
                 })
                 .collect(),
             material: Material::Clear,
-            shadow: false,
+            shadow: true,
             smoke: Some(SMOKE),
         }
     }

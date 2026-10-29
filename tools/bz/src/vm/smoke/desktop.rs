@@ -119,6 +119,13 @@ const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
 /// glass – no colour to compare with, but soft: no pixel further than this
 /// from its neighbour in a channel (a gradient's slope, grain, dithering).
 const GLASS_SMOOTH: u8 = 6;
+/// Liquid glass's edge at its sides (`quad.frag`, `SIDE`): its outermost
+/// pixel lies below the screen RIM_OUT px outside and the glass RIM_IN px
+/// inside by at least RIM_BELOW (the mean of the channels; ~13 over the
+/// light background, as Apple's dock's dark edge).
+const RIM_OUT: usize = 3;
+const RIM_IN: usize = 4;
+const RIM_BELOW: f64 = 4.0;
 /// Without a background, the mean of a row changes by less than this
 /// across the bar's lower edge (the scrim's slope; glass there stepped by
 /// some 20).
@@ -1058,6 +1065,9 @@ fn dock_glass(
     drag(qmp, screen, grip, by(grip, behind), true)?;
     park(qmp, screen)?;
     wait_for_live_glass(machine, glass_at, before)?;
+    // For the owner: the dock over the window's blue and white quarters.
+    self::screen(machine, "dock-over-window")?
+        .write_png(&machine.logs.join("dock-over-window.png"))?;
     drag(qmp, screen, by(grip, behind), grip, true)?;
     park(qmp, screen)?;
     wait_for_pattern(shell, machine, moved, grown, "back from the dock")?;
@@ -1281,9 +1291,9 @@ fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -
 /// curve gives for what lies behind – about as light as that over midtones,
 /// not grey smoke (0.5.118's glass came out at a third of it) – and white
 /// ink keeps 3:1 on it (Apple's tiles ~3.4:1, measured); the round tile's
-/// line of light is bright towards the light (upper left) and faint across
-/// from it (upper right). Its screen is in the logs for the owner
-/// (`control-center-liquid.png`).
+/// line of light at its top is never darker than either side of it (a grey
+/// stroke) and brighter than at its side, which has none. Its screen is in
+/// the logs for the owner (`control-center-liquid.png`).
 fn liquid_glass(
     shell: &Shell,
     machine: &Machine,
@@ -1318,8 +1328,8 @@ fn liquid_glass(
         (top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP) as f64 + radius,
     );
     // Where the edge's outward normal points at `degrees` (0 right, 90
-    // down): the brightest pixel across the edge – the line is one pixel
-    // wide, so every pixel from 2.5 px inside to half a pixel out –, and how
+    // down): the brightest pixel across the edge – the line lies ~1.3 px
+    // in, so every pixel from 3.5 px inside to half a pixel out –, and how
     // far it stands above the lighter of the glass 8 px inside and the
     // screen 4 px outside (the mean of the channels).
     let line_at = |image: &Image, degrees: f64| {
@@ -1328,7 +1338,7 @@ fn liquid_glass(
             let p = image.pixel((round.0 + dx * r) as usize, (round.1 + dy * r) as usize);
             (p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3) as i32
         };
-        let peak = (0..=12)
+        let peak = (0..=16)
             .map(|i| at(radius + 0.5 - 0.25 * f64::from(i)))
             .max()
             .unwrap_or(0);
@@ -1347,17 +1357,16 @@ fn liquid_glass(
             contrast >= 3.0,
             "white ink keeps only {contrast:.2}:1 on the capsule"
         );
-        let ((lit, above), (across, across_above)) =
-            (line_at(shown, -151.0), line_at(shown, -45.0));
+        let ((lit, above), (across, across_above)) = (line_at(shown, -90.0), line_at(shown, 0.0));
         ensure!(
             above >= LINE_ABOVE,
-            "the round tile's line of light does not stand above both sides towards the light \
-             ({lit}, {above} over the lighter): a stroke, not light"
+            "the round tile's line of light at its top is darker than a side of it ({lit}, \
+             {above} over the lighter): a stroke, not light"
         );
         ensure!(
             above >= across_above + LINE_LIT_BY,
-            "the round tile's line of light is not brighter towards the light: {lit} upper left, \
-             {across} upper right"
+            "the round tile's line of light is not brighter at its top than at its side: {lit} \
+             at the top, {across} at the side"
         );
         seen.set((tile, lit, across));
         Ok(())
@@ -1370,7 +1379,7 @@ fn liquid_glass(
     say!(
         "  ok: the control center's liquid glass: over {behind:.3} behind it the capsule came \
          out at {tile:.3} ({expected:.3} by its curve, white ink {:.2}:1), its line of light \
-         {lit} towards the light, {across} across",
+         {lit} at the top, {across} at the side",
         1.05 / (tile + 0.05)
     );
     Ok(())
@@ -1386,18 +1395,19 @@ fn liquid_tone(behind: f64) -> f64 {
 }
 
 /// As `quad.frag`'s KNEE and CAP. The screen's tile differs from the curve
-/// by its saturation, the faint lift and the frost's mean against the
-/// screen's: within a quarter of it.
+/// by its saturation, the milk and the frost's mean against the screen's:
+/// within a quarter of it.
 const LIQUID_KNEE: f64 = 0.22;
 const LIQUID_CAP: f64 = 0.27;
 const LIQUID_TOLERANCE: f64 = 0.25;
-/// The line of light, in 8-bit steps (the mean of the channels): upper
-/// left above the lighter of its two sides, and above them by more than
-/// upper right – fitted to Apple's, it adds about four times as much there.
-/// Over the light background, where the glass is pulled down below what is
-/// around it, it stands some 8 steps above them upper left, none upper
-/// right.
-const LINE_ABOVE: i32 = 6;
+/// The line of light, in 8-bit steps (the mean of the channels): at the
+/// top never below the lighter of its two sides, and above them by more
+/// than at the side, which has no line (Apple's: light at the top and the
+/// bottom, a dark edge at the sides). Over the light background, where the
+/// glass is pulled down for its ink, it lies on what is outside it: some
+/// 2 steps above it at the top (Apple's over white: 3), while a line on the
+/// glass would come out ~15 below it.
+const LINE_ABOVE: i32 = 0;
 const LINE_LIT_BY: i32 = 6;
 
 /// The mean relative luminance (linear light) of `xs` × `ys`.
@@ -3102,10 +3112,11 @@ fn menu_bar(screen: &Image) -> Result<()> {
 }
 
 /// The dock in `screen`, centred along the bottom: in its middle row (the
-/// only rows without tiles lie in its round corners) the background runs
-/// soft from the screen's left edge to the dock's rim, which steps away
-/// from it; at its round corner the background shows. Its width says how
-/// many apps it has; that number.
+/// only rows without tiles lie in its round corners) its sides are the
+/// first pair of pixels, mirrored about the middle, darker than what lies
+/// outside and inside them – the glass's dark edge, as Apple's; at its
+/// round corner the background shows. Its width says how many apps it has;
+/// that number.
 fn dock(screen: &Image) -> Result<usize> {
     ensure!(
         screen.height > DOCK_ZONE + MENU_BAR,
@@ -3115,12 +3126,28 @@ fn dock(screen: &Image) -> Result<usize> {
     let top = screen.height - DOCK_ZONE;
     let row = top + DOCK_HEIGHT / 2;
     let centre = screen.width / 2;
-    // Rightwards over the soft background to the first step: the dock.
-    let mut left = 1;
-    while left < centre && soft(screen.pixel(left - 1, row), screen.pixel(left, row)) {
-        left += 1;
-    }
-    ensure!(left < centre, "no dock along the bottom of the screen");
+    let mean = |x: usize| {
+        f64::from(
+            screen
+                .pixel(x, row)
+                .iter()
+                .map(|&c| u32::from(c))
+                .sum::<u32>(),
+        ) / 3.0
+    };
+    // The edge's pixel at `x` dark, the outside lying `outward` of it.
+    let edge = |x: usize, outward: bool| {
+        let (out, inside) = if outward {
+            (x + RIM_OUT, x - RIM_IN)
+        } else {
+            (x - RIM_OUT, x + RIM_IN)
+        };
+        mean(x) + RIM_BELOW <= mean(out).min(mean(inside))
+    };
+    // Rightwards from the screen's left edge to the first such pair.
+    let left = (RIM_OUT..centre - RIM_IN)
+        .find(|&x| edge(x, false) && edge(2 * centre - 1 - x, true))
+        .ok_or_else(|| anyhow::anyhow!("no dock along the bottom of the screen"))?;
     let width = 2 * (centre - left);
     let step = (DOCK_TILE + DOCK_GAP) as f64;
     let tiles = (((width + DOCK_GAP) as f64 - (2 * DOCK_PADDING) as f64) / step).round();
@@ -3741,9 +3768,13 @@ mod tests {
         for y in y0..y0 + DOCK_HEIGHT {
             for x in x0..x0 + width {
                 let corner = round && (x - x0).min(x0 + width - 1 - x) < 3 && y - y0 < 3;
-                let rim = (x - x0).min(x0 + width - 1 - x) < 2 || y - y0 < 2;
+                // The dark edge at the sides, the line of light at the top.
+                let side = (x - x0).min(x0 + width - 1 - x) == 0;
+                let rim = y - y0 == 1;
                 let c = if corner {
                     BACKGROUND
+                } else if side {
+                    [0x50, 0x58, 0x70]
                 } else if rim {
                     [0xe8, 0xf0, 0xff]
                 } else {

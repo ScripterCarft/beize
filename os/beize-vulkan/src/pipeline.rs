@@ -47,7 +47,8 @@ pub struct Quad {
     pub radius: f32,
     /// A `SHADOW`'s blur, the Gaussian's standard deviation in pixels.
     pub sigma: f32,
-    /// A `GRADIENT`'s premultiplied colour at the bottom of `clip`.
+    /// A `GRADIENT`'s premultiplied colour at the bottom of `clip`; a
+    /// `SHADOW`'s shape that hides it (x, y, width, height, with `radius`).
     pub bottom: [f32; 4],
 }
 

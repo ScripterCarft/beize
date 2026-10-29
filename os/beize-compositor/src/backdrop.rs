@@ -141,8 +141,7 @@ impl Appearance {
         match shows {
             glass::Material::Menu => Blur::Kawase(self.menu_material()),
             glass::Material::Base | glass::Material::Live => Blur::Kawase(self.material()),
-            glass::Material::Clear => frost(14.0),
-            glass::Material::Liquid => frost(16.0),
+            glass::Material::Clear | glass::Material::Liquid => frost(FROST),
         }
     }
 
@@ -162,11 +161,14 @@ impl Appearance {
     }
 }
 
+/// Liquid glass's blur, in px: clear, what lies behind still shows in
+/// shapes (the owner, 29.10.: "klar, ganz leicht milchig"; 0.5.119 had 14
+/// below the tiles and 16 below the dock).
+const FROST: f32 = 10.0;
+
 /// Liquid glass's frost (`glass::Material::Clear` and `Liquid`; ADR 0028
-/// §6): a Gaussian of `sigma` px – 14 below the control center's tiles, 16
-/// below the dock, as approved on mock-ups (29.10.) – at half the size: wide
-/// and cheap. Its tone, colour and light are the frame's (`quad.frag`,
-/// `clear_glass`).
+/// §6): a Gaussian of `sigma` px at half the size: wide and cheap. Its tone,
+/// colour and light are the frame's (`quad.frag`, `clear_glass`).
 fn frost(sigma: f32) -> Blur {
     Blur::Gauss(Gauss {
         sigma,

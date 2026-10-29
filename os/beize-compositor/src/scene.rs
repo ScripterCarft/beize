@@ -239,8 +239,8 @@ pub fn panels(
     drawn
 }
 
-/// The surface tree of `surface` at `at`, then the glass it asked for below
-/// it (with a `backdrop`) and that glass's shadows, added to `elements`.
+/// The surface tree of `surface` at `at`, then the glass's shadows and the
+/// glass it asked for below it (with a `backdrop`), added to `elements`.
 fn surface_with_glass(
     renderer: &mut VkRenderer,
     surface: &WlSurface,
@@ -258,8 +258,11 @@ fn surface_with_glass(
     );
     elements.extend(surfaces.into_iter().map(Element::Surface));
     if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(renderer, surface, at)) {
-        elements.push(Element::Glass(glass));
+        // Its shadows in front of it, so they are not part of what it shows
+        // (live glass blurs what was drawn behind it): they fall only outside
+        // it (`draw_shadow`).
         elements.extend(shadows.into_iter().map(Element::Shadow));
+        elements.push(Element::Glass(glass));
     }
 }
 

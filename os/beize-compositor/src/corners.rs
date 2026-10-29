@@ -30,23 +30,27 @@ fn corner() -> i32 {
 }
 
 /// The shadow of the active window and of the others: how far it falls
-/// down, its blur and its darkness.
+/// down, its blur, its darkness and how far its caster is narrowed on
+/// either side (as CSS's negative spread), so none falls beside it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Look {
     offset: i32,
     sigma: f32,
     alpha: f32,
+    inset: i32,
 }
 
 const ACTIVE: Look = Look {
     offset: 10,
     sigma: 14.0,
     alpha: 0.35,
+    inset: 0,
 };
 const INACTIVE: Look = Look {
     offset: 4,
     sigma: 8.0,
     alpha: 0.2,
+    inset: 0,
 };
 /// Below a menu, and below other glass that asks for one
 /// (`Shadow::below_glass`).
@@ -54,11 +58,24 @@ const MENU: Look = Look {
     offset: 6,
     sigma: 12.0,
     alpha: 0.25,
+    inset: 0,
 };
 const TILE: Look = Look {
     offset: 3,
     sigma: 8.0,
     alpha: 0.12,
+    inset: 0,
+};
+/// Below liquid glass: tight and only below it, as macOS 26's dock on a
+/// Mac's screen (the owner's, 29.10.): nothing above its top edge (at it
+/// 2.5 sigmas from the shadow's: under an 8-bit step) nor beside it (the
+/// caster narrowed by a sigma), some 15 % darker within a few pt below it
+/// over light.
+const LIQUID: Look = Look {
+    offset: 4,
+    sigma: 2.0,
+    alpha: 0.18,
+    inset: 2,
 };
 
 /// The renderer's part: round corners, shadows and glass (`backdrop`) in
@@ -321,8 +338,9 @@ impl Shadow {
     /// The shadow below a glass's piece `rect` with corners of `radius`:
     /// a menu's larger, as Apple's menus cast one (black about 15 % at the
     /// edge in the HIG's images, fading over some 8 pt; offset and blur
-    /// estimated), other glass's faint (the owner, 28.10., on mock-ups). The
-    /// glass's `id` and `commit` tell when it changes.
+    /// estimated), liquid glass's tight below it (`LIQUID`), other glass's
+    /// faint (the owner, 28.10., on mock-ups). The glass's `id` and `commit`
+    /// tell when it changes.
     pub fn below_glass(
         id: Id,
         commit: CommitCounter,
@@ -337,6 +355,7 @@ impl Shadow {
             radius: radius.round() as i32,
             look: match shows {
                 crate::glass::Material::Menu => MENU,
+                crate::glass::Material::Clear | crate::glass::Material::Liquid => LIQUID,
                 _ => TILE,
             },
         }
@@ -352,11 +371,17 @@ impl Shadow {
         )
     }
 
-    /// The rectangle that casts it: the frame, moved down by the offset.
+    /// The rectangle that casts it: the frame, moved down by the offset
+    /// and narrowed by the inset.
     fn cast(&self) -> Rectangle<i32, Physical> {
+        let inset = self.look.inset;
         Rectangle::new(
-            (self.caster.loc.x, self.caster.loc.y + self.look.offset).into(),
-            self.caster.size,
+            (
+                self.caster.loc.x + inset,
+                self.caster.loc.y + self.look.offset,
+            )
+                .into(),
+            (self.caster.size.w - 2 * inset, self.caster.size.h).into(),
         )
     }
 }

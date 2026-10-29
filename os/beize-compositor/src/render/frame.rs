@@ -157,8 +157,9 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
 
     /// The shadow of `caster` (the output's space) with corners of
     /// `radius`, blurred by `sigma`, in `color` (premultiplied): in `dst`,
-    /// cut to its `damage`, but not under `cover` – the window, whose
-    /// shadow falls offset below it – which hides it there.
+    /// cut to its `damage`, but not under `cover` – the window or glass,
+    /// whose shadow falls offset below it – which hides it there: its
+    /// quads leave out the straight parts, the shader the round corners.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_shadow(
         &mut self,
@@ -187,18 +188,22 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
                 (cover.size.w, (cover.size.h - 2 * c).max(0)).into(),
             ),
         ];
-        let fb = self.space.framebuffer_rect(caster);
-        let clip = [
-            fb.loc.x as f32,
-            fb.loc.y as f32,
-            fb.size.w as f32,
-            fb.size.h as f32,
-        ];
+        let rect = |r: Rectangle<i32, Physical>| {
+            let fb = self.space.framebuffer_rect(r);
+            [
+                fb.loc.x as f32,
+                fb.loc.y as f32,
+                fb.size.w as f32,
+                fb.size.h as f32,
+            ]
+        };
+        let (clip, hides) = (rect(caster), rect(cover));
         for part in Rectangle::subtract_rects_many(parts, covered) {
             let mut quad = geometry::quad(&self.space, part, None);
             quad.flags = SHADOW;
             quad.color = color;
             quad.clip = clip;
+            quad.bottom = hides;
             quad.radius = radius as f32;
             quad.sigma = sigma;
             self.recorded.quads.push(quad);

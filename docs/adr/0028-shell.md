@@ -331,15 +331,18 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   Glas, dicht getönt (§3, Menüs), mit schwacher Lichtkante; Glas kann Schatten werfen
   (`set_shadow`) und an mehreren Stellen einer Fläche liegen (`add_shape`, die Kacheln).
 - **Flüssiges Glas** (`material` `clear` mit weißer Schrift darauf – die Kacheln des
-  Kontrollzentrums –, `liquid` ohne – das Dock), wie macOS 26' Liquid Glass. Gemessen an Apples
-  Pressebild des Kontrollzentrums (3,94 px je pt, lineares Licht; Profile 1 px senkrecht zur
-  Kante unter 16 Winkeln, mit einem Prüf-Agenten), an Mock-ups abgenommen (29.10., `quad.frag`
-  `clear_glass` nennt jeden Wert). Lebendig, mattiert durch einen Gauß von 14 px (Dock 16) auf
-  halber Größe – der erste Durchgang halbiert beim Lesen, ¼ der Pixel, halbe Taps. Je Pixel im
-  Bild, in linearem Licht:
-  - **gewölbter Rand statt Strich:** über 7 px biegt sich die Fläche zum Rand, ihre Normale
-    kippt nach außen (aus dem Gradienten der Abstandsfunktion); dort zeigt das Glas, was entlang
-    der Normalen weiter außen liegt (Lichtbrechung) – die Tiefe kommt daher;
+  Kontrollzentrums –, `liquid` ohne – das Dock), wie macOS 26' Liquid Glass. Gemessen (lineares
+  Licht, Profile senkrecht zur Kante) an macOS 26' Dock auf einem echten Mac-Bildschirm (2 px je
+  pt, Bildschirmfoto des Besitzers, 29.10.), Apples Glasknöpfen über einem weißen Fenster
+  (Pressebild macOS 27) und dem Kontrollzentrum (Pressebild macOS 26, 3,94 px je pt); das Licht
+  bewusst etwas unter Apples (Besitzer: subtil, minimalistisch, im Dunklen nicht grell); ein
+  Prüf-Agent hat es gegen Apple nachgemessen (`quad.frag` `clear_glass` nennt jeden Wert).
+  Lebendig, mattiert durch einen Gauß von 10 px auf halber Größe – klar, Formen dahinter bleiben
+  erkennbar (0.5.119: 14/16) –, der erste Durchgang halbiert beim Lesen, ¼ der Pixel, halbe
+  Taps. Je Pixel im Bild, in linearem Licht:
+  - **gewölbter Rand:** über 5 px biegt sich die Fläche zum Rand, ihre Normale kippt nach außen
+    (aus dem Gradienten der Abstandsfunktion); dort zeigt das Glas, was entlang der Normalen
+    weiter außen liegt (Lichtbrechung);
   - **eine Tönung je Form** aus dem Mittel dahinter (neun Lesezugriffe auf das mattierte Bild,
     für jedes Pixel der Form gleich, kein Zurücklesen): mit weißer Schrift über Dunklem
     unverändert, über Hellem ab 0,22 sanft gegen 0,27 – Weiß behält ~3,4 : 1 wie bei Apple
@@ -347,15 +350,31 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
     (Chroma × Zug^−0,6, höchstens ×1,3); ohne Schrift nur das Erscheinungsbild. Dunkel ×0,72.
     Die frühere feste Decke (`L/(1+aL)` auf kodierten Werten, 0,52) ist entfernt: sie drückte
     jeden Mittelton auf ein Drittel, das Glas wirkte immer grau;
-  - Chroma ×1,25 in Oklab (Apple ×1,1–1,3), hell ein Hauch Weiß (1,5 %, ohne Schrift 9,5 %);
-  - **Lichtlinie ganz außen** (1,14 px), nach Winkel an Apple angepasst: zum Licht oben links
-    (−151°) +0,36, zur Spiegelung unten rechts (20°) +0,14, dazwischen 0,065; ein Hauch Glanz auf
-    der Wölbung (Blinn-Phong 0,03/0,02, „wenig Glanz“, Besitzer); Licht innen an der unteren
-    Kante, nach ~4 pt weg (0,13). Dunkel das Licht ×0,6. Kein Korn, kein Schatten.
-  Bis es einmal unscharf ist, zeigt es nichts statt des scharfen Hintergrunds. Smoke
+  - Chroma ×1,25 in Oklab (Apple ×1,1–1,3);
+  - **Milch:** 10 % des Wegs zu einem hellen Grau (0,6; dunkel 0,25) – über Dunklem heller
+    (Apples Dock 47 → 83, Beize ~85), Mitteltöne kaum, Weiß ein Hauch grau (Apple 245 von 253,
+    Beize 250). Das Aufhellen gegen Weiß von 0.5.119 ist entfernt: über einem weißen Fenster
+    verschwand das Dock ganz (Befund des Besitzers);
+  - **Seiten:** das äußerste Pixel dunkler als das Dunklere von Glas und Umfeld (×0,65, nach
+    der Normalen hoch vier, so drehen die Ecken von Licht zu Dunkel), dazu überall dunkler, je
+    heller es außen ist (bis 10 %) – Apples Dock: 47 → 12 über Dunklem, 172 → 100 über Hellem,
+    über Weiß 252 → 240 → Glas;
+  - **Lichtlinie** ein Pixel innen (Mitte 1,3 px, Breite 0,6), nur oben (+0,4, Licht von
+    −100°) und unten (+0,35), an den Seiten keine; oben und unten liegt sie auf dem Helleren von
+    Glas und Umfeld (auf heruntergezogenem Glas käme sie sonst als grauer Strich zwischen
+    beiden heraus). Darunter ein Schein, der nach ~2 pt ausläuft (oben 0,12, unten 0,06; Apple
+    über Dunklem: 68 außen, 175 Linie, 140, 113, 106 … 96 Glas). Dunkel das Licht ×0,3.
+  - **Schatten** nur unten (`corners.rs` `LIQUID`: 4 px tiefer, σ 2, 18 %, seitlich um 2 px
+    eingerückt): Apples Dock wirft keinen nach oben und keinen zur Seite, unten ~15 %. Er liegt
+    in der Reihenfolge vor seinem Glas und fällt nur außerhalb der Form (der Shader schneidet
+    die runde Form exakt aus): sonst sähe das lebendige Glas seinen eigenen Schatten und
+    verwischte ihn in die Ecken (grau; beim Bauen gefunden, 29.10.).
+  Kein Korn. Bis es einmal unscharf ist, zeigt es nichts statt des scharfen Hintergrunds. Smoke
   (`liquid_glass`): Tönung der Kapsel über dem hellen Hintergrund nach der Kurve (±25 %),
-  Weiß ≥ 3 : 1, Lichtlinie oben links ≥ 20 Stufen heller als oben rechts. Nicht belegt (keine
-  Referenz): Apples dunkles Erscheinungsbild, Apple über Weiß, Apples Dock.
+  Weiß ≥ 3 : 1, Lichtlinie oben nie unter einer ihrer Seiten und ≥ 6 Stufen heller als an der
+  Seite (Gegenprobe ohne „auf dem Helleren“: rot); das Dock wird an seiner dunklen Kante
+  erkannt; Bild `dock-over-window.png` (Dock über Blau und Weiß des Testfensters). Nicht belegt
+  (keine Referenz): Apples dunkles Erscheinungsbild.
 - **Rauch** (`set_smoke(falloff, strength)`): was hinter den Formen einer Fläche und um sie liegt,
   verwischt – ab dem Rand jeder Form nach außen `t = (1 − d/falloff)^1,6`, σ aus t über die
   Stufen 0; 0,075; 0,15; 0,3; 0,6; 1 × `strength` (Kontrollzentrum: 130 px, 4 px); nur
