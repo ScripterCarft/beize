@@ -2,7 +2,9 @@
 // The backdrop's passes (ADR 0028 §6), drawn once per change, not per frame:
 // Beize's background, computed, and its blur for the base glass – Dual
 // Kawase (Marius Bjørge, ARM, SIGGRAPH 2015; as KWin blurs), its last pass
-// lifting and tinting the colours. A shader of its own, so the one that
+// lifting and tinting the colours; and the Gaussian passes of clear glass
+// and of the smoke around it, the smoke's with a sigma per pixel (as games
+// blur by depth). A shader of its own, so the one that
 // draws every frame (quad.frag) stays small. Out through an sRGB view: in
 // linear light, encoded on the way out.
 
@@ -143,7 +145,81 @@ vec3 tap(vec2 at) {
     return decoded3(textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), at, 0.0).rgb);
 }
 
+// The smoke's blur at its mask's `t` (src/backdrop.rs in the compositor),
+// up to `strength`: from t's place among six steps – 0, 0.075, 0.15, 0.3,
+// 0.6 and 1 of it, as approved on mock-ups (29.10.) –, between them
+// linear. A sum, not a table: NVK has misread a table indexed per pixel
+// (quad.frag, EXTENT).
+float smoke_sigma(float t, float strength) {
+    float at = clamp(t, 0.0, 1.0) * 5.0;
+    return strength * (0.075 * clamp(at, 0.0, 1.0) + 0.075 * clamp(at - 1.0, 0.0, 1.0)
+        + 0.15 * clamp(at - 2.0, 0.0, 1.0) + 0.3 * clamp(at - 3.0, 0.0, 1.0)
+        + 0.4 * clamp(at - 4.0, 0.0, 1.0));
+}
+
+// Below this a Gaussian keeps a pixel as it is (its neighbours' weight
+// under 1/2^24); beyond 3 sigmas it adds less than an 8-bit step.
+const float SIGMA_LEAST = 0.17;
+const int REACH_MOST = 24;
+
+// A texel of the source as stored: encoded.
+vec3 fetch(ivec2 p, ivec2 last) {
+    return texelFetch(sampler2D(textures[nonuniformEXT(texture)], linear),
+                      clamp(p, ivec2(0), last), 0).rgb;
+}
+
+// One pass of a Gaussian blur, across or down (`step`), on the colours as
+// encoded – as the approved mock-ups blurred, and the passes need no
+// conversion per tap. Its weights normalised over the taps taken.
+vec3 gauss(ivec2 step) {
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    ivec2 last = textureSize(sampler2D(textures[nonuniformEXT(texture)], linear), 0) - 1;
+    float sigma = rounding.y;
+    if (bottom.w > 0.0) {
+        float t = textureLod(sampler2D(textures[nonuniformEXT(uint(bottom.z))], linear),
+                             gl_FragCoord.xy * texel, 0.0).r;
+        sigma = smoke_sigma(t, sigma);
+    }
+    vec3 c = fetch(p, last);
+    if (sigma < SIGMA_LEAST) {
+        return c;
+    }
+    int reach = min(int(ceil(3.0 * sigma)), REACH_MOST);
+    float k = -0.5 / (sigma * sigma);
+    float total = 1.0;
+    for (int i = 1; i <= reach; i++) {
+        float w = exp(k * float(i * i));
+        c += w * (fetch(p + i * step, last) + fetch(p - i * step, last));
+        total += 2.0 * w;
+    }
+    return c / total;
+}
+
+// Clear glass's colour, on `c` as encoded (as the approved mock-up
+// computed it): its saturation times `bottom.x` around the luma (ITU-R 601,
+// as PIL's ImageEnhance.Color), then the light held below the ceiling
+// `bottom.y` – L / (1 + a L) with a = 1 / ceiling - 1: dark stays as it
+// is, white comes out at the ceiling, differences in the light stay seen.
+// Computed on linear light, white would come out far lighter (~0.75
+// encoded) and white ink would not read on it.
+vec3 clear(vec3 c) {
+    float gray = dot(c, vec3(0.299, 0.587, 0.114));
+    c = clamp(gray + (c - gray) * bottom.x, 0.0, 1.0);
+    float l = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+    float a = 1.0 / bottom.y - 1.0;
+    return c / (1.0 + a * l);
+}
+
 void main() {
+    if ((flags & (GAUSS_ACROSS | GAUSS_DOWN)) != 0u) {
+        vec3 c = gauss((flags & GAUSS_ACROSS) != 0u ? ivec2(1, 0) : ivec2(0, 1));
+        if ((flags & CLEAR) != 0u) {
+            c = clear(c);
+        }
+        // Stored through the sRGB view: decoded here, so it holds `c`.
+        result = vec4(decoded3(c), 1.0);
+        return;
+    }
     if ((flags & WALLPAPER) != 0u) {
         vec3 c = wallpaper(gl_FragCoord.xy, clip.zw, texture);
         // Dithered against banding in the soft gradient: half an 8-bit

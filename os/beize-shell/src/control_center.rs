@@ -1,7 +1,8 @@
-//! The control center (ADR 0028 §5): tiles of live glass under the menu
+//! The control center (ADR 0028 §5): tiles of clear glass under the menu
 //! bar's right end, without a panel around them – each floats, what lies
-//! behind shows blurred through it, as macOS 26's. A popup of the menu bar
-//! (`App::popup`): a click elsewhere closes it.
+//! behind shows blurred through it and, softer, around it (the smoke), as
+//! macOS 26's. A popup of the menu bar (`App::popup`): a click elsewhere
+//! closes it; the smoke takes no input.
 //!
 //! Its grid is macOS 26's, measured in Apple's press image of it (3840 px,
 //! ~3.94 px per pt by the menu bar's cap height; CLAUDE.md §11): four
@@ -15,13 +16,11 @@
 //! tiles whose service is there show (no empty tiles, §5): network and
 //! light/dark now; Bluetooth, media and volume come with PipeWire and BlueZ
 //! (#17), brightness with them. Rows left empty close up.
-//!
-//! The text on the glass is dark for now on light, light on dark; whether
-//! it turns light everywhere, with the glass tuned for it, is the owner's
-//! next question.
 
 use beize_ui::measures::SCALE;
-use beize_ui::{Appearance, Color, Family, Glass, GlassShape, Material, Rect, Scene, Style, Text};
+use beize_ui::{
+    Appearance, Color, Family, Glass, GlassShape, Material, Rect, Scene, Smoke, Style, Text,
+};
 
 use crate::network::{Kind, Status};
 
@@ -45,25 +44,33 @@ const TITLE: (f32, f32) = (15.0, 540.0);
 const SUBTITLE: (f32, f32) = (13.0, 400.0);
 const LINE_GAP: f32 = 1.5;
 
-const INK_LIGHT: Color = Color::rgb(0x1d1d1f);
-const INK_DARK: Color = Color::rgb(0xffffff);
-const SUB_LIGHT: Color = Color::rgb(0x505055);
-const SUB_DARK: Color = Color::rgb(0xc8c8cc);
+/// The text and symbols on the glass: white in both appearances, the line
+/// below at 70 % (approved on mock-ups, 29.10.) – the clear glass holds its
+/// light down for it.
+const INK: Color = Color::rgb(0xffffff);
+const SUB: Color = Color {
+    r: 0xff,
+    g: 0xff,
+    b: 0xff,
+    a: 178,
+};
 /// A switch that is on: a white disc, its symbol in the accent colour.
 const ON: Color = Color::rgb(0xffffff);
 const ACCENT: Color = Color::rgb(0x007aff);
 /// A switch that is off: a faint disc on the glass.
-const OFF_LIGHT: Color = Color {
-    r: 0,
-    g: 0,
-    b: 0,
-    a: 26,
-};
-const OFF_DARK: Color = Color {
+const OFF: Color = Color {
     r: 0xff,
     g: 0xff,
     b: 0xff,
     a: 38,
+};
+/// The smoke around the tiles: what lies behind and between them blurred,
+/// less and less over 130 px from their edges, by 4 px at most – a window
+/// behind does not show sharp beside them (the owner, 29.10., on mock-ups;
+/// macOS 26's press image blurs there too).
+const SMOKE: Smoke = Smoke {
+    falloff: 130.0,
+    strength: 4.0,
 };
 
 fn px(pt: f32) -> f32 {
@@ -156,7 +163,8 @@ impl ControlCenter {
         self.tiles.iter().map(|&(_, rect, _)| rect).collect()
     }
 
-    /// The tiles' glass: live, with a rim and a faint shadow each.
+    /// The tiles' glass: clear, with a rim each and no shadow, the smoke
+    /// around them.
     pub fn glass(&self) -> Glass {
         Glass {
             shapes: self
@@ -168,8 +176,9 @@ impl ControlCenter {
                     rim: true,
                 })
                 .collect(),
-            material: Material::Live,
-            shadow: true,
+            material: Material::Clear,
+            shadow: false,
+            smoke: Some(SMOKE),
         }
     }
 
@@ -201,10 +210,6 @@ impl ControlCenter {
             w,
             h,
         });
-        let (ink, sub, off) = match appearance {
-            Appearance::Light => (INK_LIGHT, SUB_LIGHT, OFF_LIGHT),
-            Appearance::Dark => (INK_DARK, SUB_DARK, OFF_DARK),
-        };
         for &(tile, r, _) in &self.tiles {
             match tile {
                 Tile::Network => {
@@ -212,7 +217,7 @@ impl ControlCenter {
                     let (disc, symbol, color) = if network.connected {
                         (ON, "globe-simple", ACCENT)
                     } else {
-                        (off, "globe-simple-x", ink)
+                        (OFF, "globe-simple-x", INK)
                     };
                     scene.circle(centre, px(BUTTON) / 2.0, disc);
                     let size = symbol_size(22.0);
@@ -229,8 +234,8 @@ impl ControlCenter {
                         "Not Connected"
                     };
                     let x = r.x + px(TEXT_AT);
-                    let title = text.layout(title, &style(TITLE, ink), None);
-                    let state = text.layout(state, &style(SUBTITLE, sub), None);
+                    let title = text.layout(title, &style(TITLE, INK), None);
+                    let state = text.layout(state, &style(SUBTITLE, SUB), None);
                     let gap = px(LINE_GAP);
                     let block = title.height() + gap + state.height();
                     let y = (r.y + (r.h - block) / 2.0).round();
@@ -244,7 +249,7 @@ impl ControlCenter {
                         scene.circle(centre, r.w / 2.0, ON);
                         ACCENT
                     } else {
-                        ink
+                        INK
                     };
                     // A pixel larger each way than at `SIZE` (owner, 28.10.).
                     let size = symbol_size(30.0) + 2;

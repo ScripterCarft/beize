@@ -20,12 +20,23 @@ use crate::Rect;
 use crate::app::{State, WindowId};
 
 /// Glass below parts of a window (`App::set_glass`): where it lies, what it
-/// shows, and whether each of its shapes casts a shadow.
+/// shows, whether each of its shapes casts a shadow, and the smoke around
+/// them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Glass {
     pub shapes: Vec<GlassShape>,
     pub material: Material,
     pub shadow: bool,
+    pub smoke: Option<Smoke>,
+}
+
+/// What lies behind a glass's shapes and around them, blurred by the
+/// compositor beyond the window: less and less over `falloff` px from their
+/// edges, by `strength` px at most (beize_glass_v1.set_smoke).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Smoke {
+    pub falloff: f32,
+    pub strength: f32,
 }
 
 /// One place of a glass: a rectangle in the window's coordinates with round
@@ -46,6 +57,9 @@ pub enum Material {
     Live,
     /// Live, tinted thickly: calm, as macOS' menus.
     Menu,
+    /// Live, blurred little, untinted, its light held down so white ink
+    /// reads on it: the control center's tiles.
+    Clear,
 }
 
 impl Glass {
@@ -55,6 +69,7 @@ impl Glass {
             shapes: vec![GlassShape { rect, radius, rim }],
             material,
             shadow: false,
+            smoke: None,
         }
     }
 }
@@ -154,8 +169,14 @@ impl Desktop {
             Material::Base => beize_glass_v1::Material::Base,
             Material::Live => beize_glass_v1::Material::Live,
             Material::Menu => beize_glass_v1::Material::Menu,
+            Material::Clear => beize_glass_v1::Material::Clear,
         });
         proxy.set_shadow(u32::from(glass.shadow));
+        let smoke = glass.smoke.unwrap_or(Smoke {
+            falloff: 0.0,
+            strength: 0.0,
+        });
+        proxy.set_smoke(f64::from(smoke.falloff), f64::from(smoke.strength));
     }
 
     /// The windows, in the order they opened.

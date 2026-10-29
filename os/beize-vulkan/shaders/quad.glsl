@@ -35,6 +35,9 @@ const uint ENCODE = 1024u;
 const uint STROKE = 2048u;
 const uint ROUND = 4096u;
 const uint TRIANGLE = 8192u;
+const uint GAUSS_ACROSS = 16384u;
+const uint GAUSS_DOWN = 32768u;
+const uint CLEAR = 65536u;
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer Quads {
     Quad quads[];

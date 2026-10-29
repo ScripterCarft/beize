@@ -1,10 +1,12 @@
 //! Where the shell wants glass (beize-shell-v1, `beize_glass_v1`; ADR 0028
 //! §6): rounded rectangles below parts of a panel or of its popup – one
-//! below a menu, several below the control center's tiles –, base, live or
-//! menu glass, with a shadow or not, as macOS' WindowServer draws a
-//! material below a view. Shapes, material and shadow are the surface's
-//! double-buffered state, applied with its commit (Smithay's cached state);
-//! the glass itself is drawn by `backdrop`.
+//! below a menu, several below the control center's tiles –, base, live,
+//! menu or clear glass, with a shadow or not, as macOS' WindowServer draws
+//! a material below a view; around the shapes a smoke if asked for: what
+//! lies behind blurred less and less away from them. Shapes, material,
+//! shadow and smoke are the surface's double-buffered state, applied with
+//! its commit (Smithay's cached state); the glass itself is drawn by
+//! `backdrop`.
 
 use beize_protocols::shell::server::beize_glass_v1::{self, BeizeGlassV1};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -35,15 +37,33 @@ pub enum Material {
     Live,
     /// Live, tinted thickly: a menu's.
     Menu,
+    /// Live, blurred little, untinted, its light held down for white ink:
+    /// the control center's tiles.
+    Clear,
 }
 
+/// The smoke around a glass's shapes (`beize_glass_v1.set_smoke`): over
+/// `falloff` px from their edges, blurred by `strength` px at most.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Smoke {
+    pub falloff: f32,
+    pub strength: f32,
+}
+
+/// The most a smoke reaches and blurs: twice what the control center asks
+/// (130 px, 4 px), so its kernel and the region it reads stay small
+/// whatever a client asks.
+const MAX_FALLOFF: f32 = 260.0;
+pub const MAX_STRENGTH: f32 = 8.0;
+
 /// A surface's glass, double-buffered: its shapes (none: no glass), what
-/// it shows, and whether each shape casts a shadow.
+/// it shows, whether each shape casts a shadow, and the smoke around them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GlassState {
     pub shapes: Vec<Shape>,
     pub material: Material,
     pub shadow: bool,
+    pub smoke: Option<Smoke>,
 }
 
 impl Cacheable for GlassState {
@@ -111,12 +131,21 @@ impl Dispatch<BeizeGlassV1, WlSurface> for State {
                 let material = match material {
                     WEnum::Value(beize_glass_v1::Material::Live) => Material::Live,
                     WEnum::Value(beize_glass_v1::Material::Menu) => Material::Menu,
+                    WEnum::Value(beize_glass_v1::Material::Clear) => Material::Clear,
                     _ => Material::Base,
                 };
                 set_pending(surface, |state| state.material = material);
             }
             beize_glass_v1::Request::SetShadow { shadow } => {
                 set_pending(surface, |state| state.shadow = shadow != 0);
+            }
+            beize_glass_v1::Request::SetSmoke { falloff, strength } => {
+                let (falloff, strength) = (falloff as f32, strength as f32);
+                let smoke = (falloff > 0.0 && strength > 0.0).then(|| Smoke {
+                    falloff: falloff.min(MAX_FALLOFF),
+                    strength: strength.min(MAX_STRENGTH),
+                });
+                set_pending(surface, |state| state.smoke = smoke);
             }
             _ => {}
         }

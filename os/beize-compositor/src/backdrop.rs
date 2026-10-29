@@ -6,7 +6,11 @@
 //! appearance (Microsoft's Mica works so), made when a panel first asks
 //! for it. A frame adds to the glass only grain and a rim of light, per
 //! pixel (`GLASS`), where the shell asked for it (`glass`). Live glass
-//! shows what lies behind it, windows too (`LiveGlass`).
+//! shows what lies behind it, windows too (`LiveGlass`); clear glass, the
+//! control center's, is live glass blurred by a Gaussian, untinted, its
+//! light held down (`Appearance::clear`). Around a glass's shapes a smoke
+//! may lie, live glass of its own behind the panel: what lies there blurred
+//! less and less away from them, through a mask (`Backdrop::smoke`).
 //!
 //! The menu bar has no background, as macOS' since 26: a faint darkening
 //! scrim within it, from its top edge to nothing at its bottom – barely
@@ -19,7 +23,7 @@
 //! shows the bar opaque there).
 
 use crate::error::{Context, Result, error};
-use crate::render::{Material, VkRenderer, VkTexture};
+use crate::render::{Blur, Clear, Gauss, Material, VkRenderer, VkTexture};
 use beize_draw::measures;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
@@ -33,7 +37,7 @@ use smithay::wayland::compositor::with_states;
 use std::sync::{Arc, Mutex};
 
 use crate::corners::{Effects, Shadow};
-use crate::glass::{self, GlassState, Shape};
+use crate::glass::{self, GlassState, Shape, Smoke};
 use beize_vulkan::pipeline::corner_extent;
 
 /// Light or dark: the background's colours, the glass's tint, and the
@@ -132,18 +136,42 @@ impl Appearance {
         }
     }
 
-    /// The material a glass showing `shows` is drawn through.
-    fn material_for(self, shows: glass::Material) -> Material {
+    /// Clear glass, the control center's tiles (approved on mock-ups,
+    /// 29.10.): a Gaussian of 6 px, no tint, saturation times 1.5, and the
+    /// light held below a ceiling – white behind comes out at 0.52 on light,
+    /// 0.50 on dark (encoded), so white ink keeps a contrast of 3.7 and 4.0
+    /// over white. Over light content it stays grey smoked glass: the ink
+    /// stays white (the owner).
+    fn clear(self) -> Blur {
+        let ceiling = match self {
+            Appearance::Light => 0.52,
+            Appearance::Dark => 0.50,
+        };
+        Blur::Gauss(Gauss {
+            sigma: 6.0,
+            mask: None,
+            clear: Some(Clear {
+                saturation: 1.5,
+                ceiling,
+            }),
+        })
+    }
+
+    /// How a glass showing `shows` blurs what lies behind it.
+    fn blur_for(self, shows: glass::Material) -> Blur {
         match shows {
-            glass::Material::Menu => self.menu_material(),
-            glass::Material::Base | glass::Material::Live => self.material(),
+            glass::Material::Menu => Blur::Kawase(self.menu_material()),
+            glass::Material::Base | glass::Material::Live => Blur::Kawase(self.material()),
+            glass::Material::Clear => self.clear(),
         }
     }
 
     /// The rim of light along the glass (premultiplied): softer on dark,
-    /// and faint on a menu's (the owner, 28.10.: light, but not white).
+    /// faint on a menu's (the owner, 28.10.: light, but not white), on clear
+    /// glass as approved with it (29.10.).
     fn rim(self, shows: glass::Material) -> [f32; 4] {
         let a = match (self, shows) {
+            (_, glass::Material::Clear) => 0.7,
             (Appearance::Light, glass::Material::Menu) => 0.3,
             (Appearance::Dark, glass::Material::Menu) => 0.12,
             (Appearance::Light, _) => 0.6,
@@ -286,11 +314,12 @@ impl Backdrop {
             }],
             bounds: rect,
             shows: glass::Material::Live,
-            texture: self.picture.clone(),
+            texture: Some(self.picture.clone()),
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Plate),
             region: None,
             blur: None,
+            smoke: None,
         }
     }
 
@@ -332,37 +361,17 @@ impl Backdrop {
 
     /// The glass below `surface`, a panel or a popup of one at `at`, if it
     /// asked for one, and the shadows of its shapes if it wants them: base
-    /// glass (made now if no panel asked before); live and menu glass get
-    /// what lies behind them from `LiveGlass`.
+    /// glass (made now if no panel asked before); live, menu and clear glass
+    /// get what lies behind them from `LiveGlass`.
     pub fn glass(
         &mut self,
         renderer: &mut VkRenderer,
         surface: &WlSurface,
         at: Point<i32, Logical>,
     ) -> Option<(Glass, Vec<Shadow>)> {
-        let (state, drawn) = with_states(surface, |states| {
-            let state = states.cached_state.get::<GlassState>().current().clone();
-            states
-                .data_map
-                .insert_if_missing_threadsafe(|| Mutex::new(Drawn::default()));
-            let drawn = states.data_map.get::<Mutex<Drawn>>().and_then(|drawn| {
-                let mut drawn = drawn.lock().ok()?;
-                let key = (!state.shapes.is_empty()).then(|| {
-                    let shapes = state.shapes.clone();
-                    (shapes, state.material, state.shadow, at, self.generation)
-                });
-                if drawn.last != key {
-                    drawn.last = key;
-                    drawn.commit.increment();
-                }
-                while drawn.shadows.len() < state.shapes.len() {
-                    drawn.shadows.push(Id::new());
-                }
-                Some((drawn.id.clone(), drawn.commit, drawn.shadows.clone()))
-            });
-            (state, drawn)
-        });
-        let (id, commit, shadow_ids) = drawn?;
+        let (state, drawn) = self.drawn(surface, at);
+        let drawn = drawn?;
+        let (id, commit, shadow_ids) = (drawn.id, drawn.commit, drawn.shadows);
         let pieces: Vec<Piece> = state
             .shapes
             .iter()
@@ -382,12 +391,14 @@ impl Backdrop {
             .collect();
         let bounds = pieces.iter().map(|p| p.rect).reduce(|a, b| a.merge(b))?;
         let live = state.material != glass::Material::Base;
-        // Live glass reads the background until `LiveGlass` gives it what
-        // lies behind it, in the same frame.
-        let texture = if live {
-            self.picture.clone()
-        } else {
-            self.base(renderer)?
+        // Live and menu glass read the background until `LiveGlass` gives
+        // them what lies behind them, in the same frame. Clear glass reads
+        // nothing until then: the background, sharp and untinted, would
+        // show through it as something it is not.
+        let texture = match state.material {
+            glass::Material::Base => Some(self.base(renderer)?),
+            glass::Material::Live | glass::Material::Menu => Some(self.picture.clone()),
+            glass::Material::Clear => None,
         };
         let shadows = if state.shadow {
             pieces
@@ -409,17 +420,96 @@ impl Backdrop {
             live: live.then(|| Behind::Panel(surface.clone())),
             region: None,
             blur: None,
+            smoke: None,
         };
         Some((glass, shadows))
     }
+
+    /// The smoke around the glass below `surface` at `at`, if it asked for
+    /// one: what lies behind its shapes and `falloff` around them (on the
+    /// screen), blurred through its mask by `LiveGlass` – live glass of its
+    /// own, square, without rim or grain, to lie behind the panel. Until it
+    /// is blurred it shows nothing: never the sharp background over what
+    /// lies behind it.
+    pub fn smoke(&mut self, surface: &WlSurface, at: Point<i32, Logical>) -> Option<Glass> {
+        let (state, drawn) = self.drawn(surface, at);
+        let (drawn, smoke) = (drawn?, state.smoke?);
+        let shapes: Vec<_> = state
+            .shapes
+            .iter()
+            .map(|shape| {
+                let mut rect = shape.rect;
+                rect.loc += at;
+                (rect.to_physical(1), shape.radius)
+            })
+            .collect();
+        let bounds = shapes.iter().map(|s| s.0).reduce(|a, b| a.merge(b))?;
+        let reach = smoke.falloff.ceil() as i32;
+        let region = Rectangle::new(
+            (bounds.loc.x - reach, bounds.loc.y - reach).into(),
+            (bounds.size.w + 2 * reach, bounds.size.h + 2 * reach).into(),
+        )
+        .intersection(Rectangle::from_size(self.size))?;
+        Some(Glass {
+            id: drawn.smoke,
+            commit: drawn.commit,
+            pieces: vec![Piece {
+                rect: region,
+                radius: 0.0,
+                rim: [0.0; 4],
+            }],
+            bounds: region,
+            shows: state.material,
+            texture: None,
+            covers: Rectangle::from_size(self.size),
+            live: Some(Behind::Smoke(surface.clone())),
+            region: None,
+            blur: None,
+            smoke: Some(Mask { shapes, smoke }),
+        })
+    }
+
+    /// The glass state of `surface` at `at`, and its ids and commit, which
+    /// counts each change of what it is drawn for.
+    fn drawn(&self, surface: &WlSurface, at: Point<i32, Logical>) -> (GlassState, Option<Ids>) {
+        with_states(surface, |states| {
+            let state = states.cached_state.get::<GlassState>().current().clone();
+            states
+                .data_map
+                .insert_if_missing_threadsafe(|| Mutex::new(Drawn::default()));
+            let ids = states.data_map.get::<Mutex<Drawn>>().and_then(|drawn| {
+                let mut drawn = drawn.lock().ok()?;
+                let key = (!state.shapes.is_empty()).then(|| {
+                    let shapes = state.shapes.clone();
+                    let look = (state.material, state.shadow, state.smoke);
+                    (shapes, look, at, self.generation)
+                });
+                if drawn.last != key {
+                    drawn.last = key;
+                    drawn.commit.increment();
+                }
+                while drawn.shadows.len() < state.shapes.len() {
+                    drawn.shadows.push(Id::new());
+                }
+                Some(Ids {
+                    id: drawn.id.clone(),
+                    smoke: drawn.smoke.clone(),
+                    commit: drawn.commit,
+                    shadows: drawn.shadows.clone(),
+                })
+            });
+            (state, ids)
+        })
+    }
 }
 
-/// What live glass lies below: a panel that asked for it, or the menu bar
-/// over a fullscreen window (`plate`).
+/// What live glass lies below: a panel that asked for it, the menu bar
+/// over a fullscreen window (`plate`), or the smoke around a panel's glass.
 #[derive(Clone, PartialEq)]
 pub enum Behind {
     Panel(WlSurface),
     Plate,
+    Smoke(WlSurface),
 }
 
 /// How light `wallpaper` is behind the menu bar, the scrim over it as a
@@ -469,13 +559,20 @@ fn scrim(renderer: &mut VkRenderer) -> Result<TextureBuffer<VkTexture>> {
 }
 
 /// What a glass is drawn for: its shapes, its material, whether they cast
-/// shadows, the surface's place and the backdrop's generation.
-type DrawnFor = (Vec<Shape>, glass::Material, bool, Point<i32, Logical>, u64);
+/// shadows and its smoke, the surface's place and the backdrop's
+/// generation.
+type DrawnFor = (
+    Vec<Shape>,
+    (glass::Material, bool, Option<Smoke>),
+    Point<i32, Logical>,
+    u64,
+);
 
 /// What a surface's glass was last drawn for, in its data, and the ids of
-/// its shapes' shadows.
+/// its smoke and its shapes' shadows.
 struct Drawn {
     id: Id,
+    smoke: Id,
     commit: CommitCounter,
     last: Option<DrawnFor>,
     shadows: Vec<Id>,
@@ -485,11 +582,84 @@ impl Default for Drawn {
     fn default() -> Drawn {
         Drawn {
             id: Id::new(),
+            smoke: Id::new(),
             commit: CommitCounter::default(),
             last: None,
             shadows: Vec::new(),
         }
     }
+}
+
+/// A surface's glass's ids and commit (`Drawn`).
+struct Ids {
+    id: Id,
+    smoke: Id,
+    commit: CommitCounter,
+    shadows: Vec<Id>,
+}
+
+/// What a smoke's mask is made of: the glass's shapes on the screen with
+/// their corners' radius, and how the smoke falls off around them.
+#[derive(Clone, Debug, PartialEq)]
+struct Mask {
+    shapes: Vec<(Rectangle<i32, Physical>, f32)>,
+    smoke: Smoke,
+}
+
+/// A smoke's mask holds a value for each square of this many pixels: it
+/// changes slowly (its reach is 130 px), the filter stretches it smoothly.
+const MASK_STEP: i32 = 4;
+/// How the smoke thins from a shape's edge: t = (1 - d / falloff)^1.6 –
+/// at once, no plateau around the shapes (approved on mock-ups, 29.10.).
+const SMOKE_FALL: f32 = 1.6;
+
+/// The smoke's mask over `region` (`backdrop.frag`, `smoke_sigma`): t for
+/// each `MASK_STEP` square, at its centre.
+fn smoke_mask(
+    renderer: &mut VkRenderer,
+    mask: &Mask,
+    region: Rectangle<i32, Physical>,
+) -> Result<VkTexture> {
+    let w = (region.size.w + MASK_STEP - 1) / MASK_STEP;
+    let h = (region.size.h + MASK_STEP - 1) / MASK_STEP;
+    let (sx, sy) = (
+        region.size.w as f32 / w as f32,
+        region.size.h as f32 / h as f32,
+    );
+    let mut values = Vec::with_capacity((w * h).max(0) as usize);
+    for j in 0..h {
+        let y = region.loc.y as f32 + (j as f32 + 0.5) * sy;
+        for i in 0..w {
+            let x = region.loc.x as f32 + (i as f32 + 0.5) * sx;
+            values.push((smoke_at(mask, x, y) * 255.0).round() as u8);
+        }
+    }
+    renderer.mask_texture(&values, (w, h).into())
+}
+
+/// The smoke's t at `(x, y)` on the screen: 1 on the shapes, thinning to 0
+/// at `falloff` from the nearest.
+fn smoke_at(mask: &Mask, x: f32, y: f32) -> f32 {
+    let d = mask
+        .shapes
+        .iter()
+        .map(|&(rect, radius)| rounded_distance(x, y, rect, radius))
+        .fold(f32::INFINITY, f32::min)
+        .max(0.0);
+    (1.0 - d / mask.smoke.falloff)
+        .clamp(0.0, 1.0)
+        .powf(SMOKE_FALL)
+}
+
+/// The signed distance of `(x, y)` to `rect` with circular corners of
+/// `radius`, negative inside: the continuous corner the shader draws lies
+/// within a pixel of it, far below the smoke's reach.
+fn rounded_distance(x: f32, y: f32, rect: Rectangle<i32, Physical>, radius: f32) -> f32 {
+    let (hw, hh) = (rect.size.w as f32 / 2.0, rect.size.h as f32 / 2.0);
+    let r = radius.min(hw).min(hh).max(0.0);
+    let qx = (x - (rect.loc.x as f32 + hw)).abs() - (hw - r);
+    let qy = (y - (rect.loc.y as f32 + hh)).abs() - (hh - r);
+    qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
 }
 
 /// One place of a glass on the screen: a rectangle with round corners of
@@ -509,10 +679,12 @@ pub struct Glass {
     pieces: Vec<Piece>,
     /// All of them.
     bounds: Rectangle<i32, Physical>,
-    /// Its material, tinted for the appearance.
+    /// Its material, tinted for the appearance; of a smoke, the glass's it
+    /// lies around.
     shows: glass::Material,
-    /// A blurred copy of what lies in `covers` (the screen's coordinates).
-    texture: VkTexture,
+    /// A blurred copy of what lies in `covers` (the screen's coordinates);
+    /// none for clear glass and a smoke until first blurred.
+    texture: Option<VkTexture>,
     covers: Rectangle<i32, Physical>,
     /// Live glass: what it lies below (`LiveGlass`).
     live: Option<Behind>,
@@ -522,7 +694,9 @@ pub struct Glass {
     region: Option<Rectangle<i32, Physical>>,
     /// Live glass blurred again in this frame: by the frame itself, of what
     /// it drew behind it (`Effects::blur_behind`).
-    blur: Option<Arc<Mutex<Blur>>>,
+    blur: Option<Arc<Mutex<LiveBlur>>>,
+    /// A smoke (`Backdrop::smoke`): what its mask is made of.
+    smoke: Option<Mask>,
 }
 
 impl Glass {
@@ -531,10 +705,22 @@ impl Glass {
         self.live.as_ref()
     }
 
+    /// Whether it may stay as it is when its panel goes (`keep_panels`):
+    /// not clear glass or a smoke, whose last blur would be stale over what
+    /// lies behind it by then.
+    pub fn keeps(&self) -> bool {
+        self.smoke.is_none() && self.shows != glass::Material::Clear
+    }
+
     /// Stays as it is: no longer live, its panel gone (`keep_panels`).
     pub fn freeze(&mut self) {
         self.live = None;
         self.blur = None;
+    }
+
+    /// Drawn as clear glass: its lens, sheen and glow, no grain.
+    fn clear(&self) -> bool {
+        self.smoke.is_none() && self.shows == glass::Material::Clear
     }
 }
 
@@ -557,9 +743,10 @@ impl Element for Glass {
     }
 
     /// All of each piece but its corners: what lies below is not drawn – but
-    /// when the frame blurs it again, which reads what lies below.
+    /// when the frame blurs it again, which reads what lies below, or when
+    /// it has nothing to show.
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        if self.blur.is_some() {
+        if self.blur.is_some() || self.texture.is_none() {
             return OpaqueRegions::default();
         }
         let origin = self.geometry(scale).loc;
@@ -597,15 +784,25 @@ impl<R: Effects> RenderElement<R> for Glass {
             && let Ok(mut blur) = blur.lock()
         {
             let blur = &mut *blur;
-            match R::blur_behind(frame, dst, blur.material, &blur.chain, &mut blur.copy) {
+            match R::blur_behind(frame, dst, &blur.how, &blur.chain, &mut blur.copy) {
                 Ok(glass) => {
-                    texture = glass;
+                    texture = Some(glass);
                     covers = dst;
                     blur.drawn = true;
                 }
                 Err(e) => tracing::warn!("live glass: {e:?}"),
             }
         }
+        // Clear glass and a smoke show nothing rather than a stand-in.
+        let Some(texture) = texture else {
+            return Ok(());
+        };
+        let clear = self.clear();
+        let grain = if clear || self.smoke.is_some() {
+            0.0
+        } else {
+            GRAIN
+        };
         for piece in &self.pieces {
             let shape = Rectangle::new(piece.rect.loc + origin, piece.rect.size);
             // The damage, given within `dst`, within the piece.
@@ -625,8 +822,9 @@ impl<R: Effects> RenderElement<R> for Glass {
                 piece.radius,
                 &texture,
                 covers,
-                GRAIN,
+                grain,
                 piece.rim,
+                clear,
             );
         }
         Ok(())
@@ -639,8 +837,8 @@ const LIVE_MARGIN: i32 = 64;
 
 /// What live glass blurs through, kept from one change to the next: its
 /// `LiveGlass` prepares it, the frame that blurs draws it (`Glass::draw`).
-pub struct Blur {
-    material: Material,
+pub struct LiveBlur {
+    how: Blur,
     /// The pictures of the blur; the last is the glass.
     chain: Vec<VkTexture>,
     /// What lies behind, copied from the frame (in the screen's format).
@@ -669,13 +867,17 @@ struct Seen {
 /// the same over the background alone.
 pub struct LiveGlass {
     behind: Behind,
-    /// Where it reads, on the screen: the glass and `LIVE_MARGIN` around.
+    /// Where it reads, on the screen: the glass and `LIVE_MARGIN` around –
+    /// a smoke, only itself.
     region: Option<Rectangle<i32, Physical>>,
     /// The appearance and material it was blurred for last.
     look: Option<(Appearance, glass::Material)>,
     /// What lay behind it in the region at the last frame, back to front.
     seen: Vec<Seen>,
-    blur: Arc<Mutex<Blur>>,
+    blur: Arc<Mutex<LiveBlur>>,
+    /// A smoke's mask, what it was made of and over which region: made
+    /// again only when one of them changes.
+    mask: Option<(Mask, Rectangle<i32, Physical>, VkTexture)>,
     id: Id,
     commit: CommitCounter,
 }
@@ -688,12 +890,13 @@ impl LiveGlass {
             region: None,
             look: None,
             seen: Vec::new(),
-            blur: Arc::new(Mutex::new(Blur {
-                material: Appearance::Light.material(),
+            blur: Arc::new(Mutex::new(LiveBlur {
+                how: Blur::Kawase(Appearance::Light.material()),
                 chain: Vec::new(),
                 copy: None,
                 drawn: false,
             })),
+            mask: None,
             id: Id::new(),
             commit: CommitCounter::default(),
         }
@@ -707,9 +910,30 @@ impl LiveGlass {
     /// fullscreen window lies below it (`plated`).
     pub fn wanted(&self, plated: bool) -> bool {
         match &self.behind {
-            Behind::Panel(surface) => surface.is_alive(),
+            Behind::Panel(surface) | Behind::Smoke(surface) => surface.is_alive(),
             Behind::Plate => plated,
         }
+    }
+
+    /// The smoke's mask for `mask` over `region`, made again if either
+    /// changed; whether it was.
+    fn mask_for(
+        &mut self,
+        renderer: &mut VkRenderer,
+        mask: &Mask,
+        region: Rectangle<i32, Physical>,
+    ) -> Result<bool> {
+        if self
+            .mask
+            .as_ref()
+            .is_some_and(|(m, r, _)| m == mask && *r == region)
+        {
+            return Ok(false);
+        }
+        self.mask = None;
+        let texture = smoke_mask(renderer, mask, region)?;
+        self.mask = Some((mask.clone(), region, texture));
+        Ok(true)
     }
 
     /// Readies the panel's glass `glass` on a `screen` for this frame, with
@@ -724,9 +948,15 @@ impl LiveGlass {
         appearance: Appearance,
     ) -> Result<()> {
         let s = glass.bounds;
+        // A smoke blurs nothing where it ends: it reads no further.
+        let margin = if glass.smoke.is_some() {
+            0
+        } else {
+            LIVE_MARGIN
+        };
         let around = Rectangle::new(
-            (s.loc.x - LIVE_MARGIN, s.loc.y - LIVE_MARGIN).into(),
-            (s.size.w + 2 * LIVE_MARGIN, s.size.h + 2 * LIVE_MARGIN).into(),
+            (s.loc.x - margin, s.loc.y - margin).into(),
+            (s.size.w + 2 * margin, s.size.h + 2 * margin).into(),
         );
         let region = around
             .intersection(Rectangle::from_size(screen))
@@ -744,26 +974,42 @@ impl LiveGlass {
             .collect();
         let changed = changed_in(&self.seen, &seen, behind, region);
         self.seen = seen;
-        let mut blur = self
-            .blur
+        let masked = match &glass.smoke {
+            Some(mask) => self.mask_for(renderer, mask, region)?,
+            None => false,
+        };
+        let blur = self.blur.clone();
+        let mut blur = blur
             .lock()
             .map_err(|_| error("live glass's blur poisoned"))?;
         let look = (appearance, glass.shows);
-        let again =
-            changed || !blur.drawn || self.region != Some(region) || self.look != Some(look);
+        let again = changed
+            || masked
+            || !blur.drawn
+            || self.region != Some(region)
+            || self.look != Some(look);
         self.region = Some(region);
         self.look = Some(look);
         if again {
-            blur.material = appearance.material_for(glass.shows);
+            blur.how = match (&glass.smoke, &self.mask) {
+                (Some(smoke), Some((_, _, mask))) => Blur::Gauss(Gauss {
+                    sigma: smoke.smoke.strength,
+                    mask: Some(mask.clone()),
+                    clear: None,
+                }),
+                _ => appearance.blur_for(glass.shows),
+            };
             let size = (region.size.w, region.size.h).into();
-            renderer.prepare_glass(size, blur.material, &mut blur.chain)?;
+            let blur = &mut *blur;
+            renderer.prepare_glass(size, &blur.how, &mut blur.chain)?;
             blur.drawn = false;
             self.commit.increment();
             // The frame gives it the new blur (`Glass::draw`); should that
-            // fail, it shows the background it came with.
+            // fail, it shows the background it came with – clear glass and
+            // a smoke nothing.
             glass.blur = Some(self.blur.clone());
         } else if let Some(last) = blur.chain.last() {
-            glass.texture = last.clone();
+            glass.texture = Some(last.clone());
             glass.covers = region;
         }
         glass.region = Some(region);
@@ -799,4 +1045,57 @@ fn changed_in<E: Element>(
                     .any(|d| Rectangle::new(d.loc + n.geometry.loc, d.size).overlaps(region))
             })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The control center's two tiles (0.5.117): a capsule and a circle
+    /// below it, the smoke as the shell asks for it.
+    fn tiles() -> Mask {
+        Mask {
+            shapes: vec![
+                (Rectangle::new((2376, 46).into(), (164, 75).into()), 37.5),
+                (Rectangle::new((2376, 135).into(), (75, 75).into()), 37.5),
+            ],
+            smoke: Smoke {
+                falloff: 130.0,
+                strength: 4.0,
+            },
+        }
+    }
+
+    #[test]
+    fn smoke_is_whole_on_the_tiles_and_thins_to_nothing_at_its_falloff() {
+        let mask = tiles();
+        // On a tile, and in the gap below its left end, 7 px from each.
+        assert_eq!(smoke_at(&mask, 2400.0, 80.0), 1.0);
+        let gap = smoke_at(&mask, 2413.5, 128.0);
+        assert!(
+            (gap - (1.0 - 7.0 / 130.0_f32).powf(1.6)).abs() < 1e-4,
+            "{gap}"
+        );
+        // Left of the capsule's straight part: the mock-up's formula.
+        let at = |d: f32| smoke_at(&mask, 2376.0 - d, 83.5);
+        assert!((at(65.0) - 0.5_f32.powf(1.6)).abs() < 1e-4);
+        assert_eq!(at(130.0), 0.0);
+        assert_eq!(at(200.0), 0.0);
+        // Thinner the further away, never back.
+        let ts: Vec<f32> = (0..=130).map(|d| at(d as f32)).collect();
+        assert!(ts.windows(2).all(|w| w[1] <= w[0]));
+    }
+
+    #[test]
+    fn a_round_corner_is_measured_from_its_arc() {
+        let r = Rectangle::new((0, 0).into(), (100, 100).into());
+        assert_eq!(rounded_distance(50.0, 50.0, r, 0.0), -50.0);
+        assert!((rounded_distance(150.0, 50.0, r, 20.0) - 50.0).abs() < 1e-4);
+        // Diagonally off the corner: from the arc's centre (20, 20).
+        let d = rounded_distance(-10.0, -10.0, r, 20.0);
+        assert!((d - (30.0 * 2.0_f32.sqrt() - 20.0)).abs() < 1e-4, "{d}");
+        // A radius beyond half the side: a circle.
+        let c = Rectangle::new((0, 0).into(), (40, 40).into());
+        assert!((rounded_distance(20.0, -10.0, c, 99.0) - 10.0).abs() < 1e-4);
+    }
 }

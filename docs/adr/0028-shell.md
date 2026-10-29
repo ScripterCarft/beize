@@ -250,10 +250,14 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 ### 5. Kontrollzentrum
 
-Kacheln aus lebendigem Glas unter dem rechten Ende der Menüleiste, **ohne Panel**: jede schwebt
-für sich, dahinter scheint verschwommen durch, was dort liegt, wie das Kontrollzentrum von
-macOS 26 (Apples Pressebild bestätigt es; Besitzer 28.10.). Ein Popup der Leiste; ein Klick
-daneben schließt es, und daneben fällt er durch (Eingabe-Region nur auf den Kacheln).
+Kacheln aus klarem Glas (§6) unter dem rechten Ende der Menüleiste, **ohne Panel**: jede
+schwebt für sich, dahinter scheint verschwommen durch, was dort liegt, wie das Kontrollzentrum
+von macOS 26 (Apples Pressebild bestätigt es; Besitzer 28.10.). Um die Kacheln liegt Rauch
+(§6): auch zwischen und neben ihnen ist, was dahinter liegt, verwischt, ab ihrem Rand nach außen
+weich auslaufend über 130 px, bis unter die Leiste – ein Fenster dahinter macht sie nicht
+schwer lesbar (Besitzer 29.10., an Mock-ups; Apples Pressebild zeigt es so). Kein Schatten.
+Ein Popup der Leiste; ein Klick daneben schließt es, und daneben fällt er durch (Eingabe-Region
+nur auf den Kacheln; das Popup wächst nicht mit dem Rauch).
 
 - **Raster** gemessen an Apples Pressebild (3840 px, ~3,94 px je pt über die Versalhöhe der
   Leiste): vier Spalten zu 64 pt mit 12 pt Abstand, 292 pt breit – das Bild bestätigt die Summe –,
@@ -273,15 +277,16 @@ daneben schließt es, und daneben fällt er durch (Eingabe-Region nur auf den Ka
   Einstellungen.
 - Leere Kacheln für noch fehlende Dienste gibt es nicht: Reihen ohne Kachel rücken zusammen,
   und das Kontrollzentrum ist so breit wie die belegten Spalten, also rechts unter seinem Knopf.
-- Die Schrift auf dem Glas ist vorerst dunkel auf Hell (hell auf Dunkel); ob sie überall hell
-  wird und das Glas dafür angepasst, bespricht der Besitzer als Nächstes.
+- Die Schrift auf dem Glas ist in beiden Erscheinungsbildern weiß, die Zeile darunter zu 70 %;
+  das klare Glas hält dafür das Licht dahinter unten. Über hellem Inhalt bleibt es graues
+  Rauchglas, die Schrift springt nicht um (Besitzer 29.10.).
 
 ### 6. Material, Animation, Hintergrund
 
 Die drei Stufen der VISION, umgesetzt im Renderer des Compositors. Das Material zeichnet
 der Compositor, nicht die App, wie macOS' WindowServer und Windows' DWM: Die Shell sagt über
-`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, Grund- oder
-lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
+`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, das Material,
+Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
 
 - **Grundglas** (heute keine Fläche; gerechnet erst, wenn eine Fläche es will): Der
   Hintergrund wird einmal pro Wechsel
@@ -307,7 +312,8 @@ lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   zum Licht (oben links), schwächer auf der Gegenseite, dazwischen fast keine – wie Apples
   Liquid Glass; je Pixel aus der Abstandsfunktion der Ecken, kostet praktisch nichts.
   Gleichmäßig rundum ist ein Schalter im Shader (`RIM_FOLLOWS_LIGHT`), damit man es später
-  vergleichen kann (Besitzer). Lichtbrechung am Rand wie bei Liquid Glass kommt später.
+  vergleichen kann (Besitzer). Lichtbrechung am Rand wie bei Liquid Glass hat bisher nur das
+  klare Glas (Linse, unten).
 - **Erscheinungsbild:** Hell oder Dunkel ist eine Systemeinstellung, nicht eine Eigenschaft
   des Bildes; Vorgabe Hell wie macOS. Das Glas nimmt die Tönung dazu, der Hintergrund seine
   Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Die
@@ -319,6 +325,25 @@ lebendiges Glas; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
 - **Menü-Glas** (`beize_glass_v1.material` `menu`, wie NSVisualEffectView `.menu`): lebendiges
   Glas, dicht getönt (§3, Menüs), mit schwacher Lichtkante; Glas kann Schatten werfen
   (`set_shadow`) und an mehreren Stellen einer Fläche liegen (`add_shape`, die Kacheln).
+- **Klares Glas** (`material` `clear`, die Kacheln des Kontrollzentrums; Werte am 29.10. an
+  Mock-ups abgenommen): lebendig, aber nur Gauß σ 6 px, keine Tönung; auf den kodierten Werten
+  Sättigung ×1,5 und die Helligkeit gestaucht, `L/(1+aL)` mit `a = 1/Decke − 1` – Dunkles bleibt,
+  Weiß kommt bei der Decke an (0,52 hell, 0,50 dunkel: weiße Schrift hat über Weiß noch Kontrast
+  3,7 bzw. 4,0); linear gerechnet käme Weiß bei ~0,75 an. Dazu je Pixel im Bild: eine Linse
+  (innerhalb 10 px vom Rand zeigt es, was entlang der Normalen weiter außen liegt, um bis 9 px,
+  `(1 − innen/10)² · 9`), weißer Glanz 5 % oben bis 0 bei 35 % der Höhe, innerer Schein 16 % über
+  4 px und die Lichtkante 0,7, beide zum Licht oben links hin heller; kein Korn. Bis es einmal
+  unscharf ist, zeigt es nichts statt des scharfen Hintergrunds.
+- **Rauch** (`set_smoke(falloff, strength)`): was hinter den Formen einer Fläche und um sie liegt,
+  verwischt – ab dem Rand jeder Form nach außen `t = (1 − d/falloff)^1,6`, σ aus t über die
+  Stufen 0; 0,075; 0,15; 0,3; 0,6; 1 × `strength` (Kontrollzentrum: 130 px, 4 px); nur
+  Unschärfe, keine Tönung, kein Rand, kein Korn. Ein eigenes lebendiges Glas hinter der Leiste
+  (deren Schrift bleibt scharf), vor Fenstern; die Maske t rechnet die CPU nur bei Änderung von
+  Formen oder Lage (¼ Auflösung), dann zwei trennbare Gauß-Pässe mit σ je Pixel (wie die
+  Tiefenunschärfe in Spielen; keine gemischten Kawase-Stufen, die Blöcke und Geisterkanten
+  hinterlassen wie gestapelte CSS-`backdrop-filter`), nur wenn sich dahinter etwas ändert – sonst
+  ein Textur-Quad je Bild. Ohne gültige Unschärfe zeichnet er nichts und deckt nichts; stürzt die
+  Shell ab, bleiben Rauch und klares Glas nicht stehen.
 - **Start aus einem Guss** (gebaut 24.10., `os/beize-compositor/src/opening.rs`): Beim
   Übernehmen des Bildschirms setzt der Compositor den Modus sofort mit einem schwarzen Bild, so
   rastet der Monitor ein, während die Shell startet und der Hintergrund dahinter entsteht. Den

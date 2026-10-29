@@ -1269,8 +1269,173 @@ fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -
         "  ok: the control center, opened while the Escape that closed the Beize menu was held, \
          stayed when it was let go"
     );
+    control_center_smoke(shell, machine, qmp, screen, centre)
+}
+
+/// The control center's clear glass and the smoke around it (ADR 0028 §5,
+/// §6), over the terminal maximized behind it and full of text: beside and
+/// between its tiles the text blurs; where the smoke ends – 112 to 130 px
+/// from them, a blur below a hundredth of a pixel – the screen is as it was,
+/// so no seam, no grain and never the background shows there; the bar's ink
+/// stays sharp over it (the smoke lies behind the bar). Its screens are in
+/// the logs for the owner (`control-center-smoke-*.png`). The terminal's
+/// text cursor sits below the last line, far from where it compares.
+fn control_center_smoke(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    centre: (i32, i32),
+) -> Result<()> {
+    let (_, lines) = shell.capture(PLACED)?;
+    let ((x, y), (w, _)) = lines
+        .iter()
+        .rev()
+        .find_map(|l| placement(l, "beize-terminal"))
+        .ok_or_else(|| anyhow::anyhow!("no terminal's window was placed"))?;
+    // Where the drag with the menu open left its title bar (`menus`).
+    let grip = by(
+        (i32::try_from(x + w / 2)?, i32::try_from(y + TITLE_BAR / 2)?),
+        MENU_DRAG_BY,
+    );
+    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
+    let top = MENU_BAR + CONTROL_CENTER_GAP;
+    let behind = (screen.0 - BAR_MARGIN - 4, top + CONTROL_CENTER_TILE / 2);
+    let dark = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3 < WINDOW_DARK;
+    click(qmp, screen, grip, 2)?;
+    park(qmp, screen)?;
+    wait_until_screen(machine, "smoke-maximized", |shown| {
+        let p = shown.pixel(behind.0, behind.1);
+        ensure!(
+            dark(p),
+            "the terminal is not maximized behind the control center: {p:?}"
+        );
+        Ok(())
+    })?;
+    let (unit, _) = terminals(shell)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no terminal runs"))?;
+    // Lines of text across the screen, written to the shell's terminal.
+    let (_, said) = shell.capture(&format!(
+        "d=/sys/fs/cgroup$(systemctl --user show -P ControlGroup '{unit}'); t=; \
+         for p in $(cat \"$d/cgroup.procs\"); do [ \"$(cat /proc/$p/comm)\" = bash ] && \
+         t=/proc/$p/fd/1; done; l=$(printf 'Wm#8%.0s' $(seq 60)); \
+         [ -n \"$t\" ] && for i in $(seq 40); do echo \"$l\"; done > \"$t\"; \
+         echo BEIZE-TEXT-${{t:+written}}"
+    ))?;
+    ensure!(
+        said.iter().any(|l| l == "BEIZE-TEXT-written"),
+        "no text went to the terminal's shell: {said:?}"
+    );
+    thread::sleep(Duration::from_secs(1));
+    let closed = self::screen(machine, "smoke-closed")?;
+    // Beside the round tile, right of it; the bar's clock, left of the
+    // control center's pill (its half, 27 px, and 8 px between); where the
+    // smoke ends, left of the tiles.
+    let beside = (
+        left + CONTROL_CENTER_TILE + 10..screen.0 - BAR_MARGIN - 10,
+        {
+            let round = top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+            round + 5..round + CONTROL_CENTER_TILE - 5
+        },
+    );
+    let clock_end = usize::try_from(centre.0)? - 35;
+    let clock = (clock_end - 100..clock_end, 8..24);
+    let fading = (left - 128..left - 112, MENU_BAR + TITLE_BAR + 8..330);
+    for (what, (xs, ys)) in [("beside the tiles", &beside), ("where it ends", &fading)] {
+        let there = detail(&closed, xs.clone(), ys.clone());
+        ensure!(
+            there >= TEXT_DETAIL,
+            "the terminal shows no text {what} ({there:.1}): the check would prove nothing"
+        );
+    }
+    click(qmp, screen, centre, 1)?;
+    wait_for_shell_count(shell, "ControlCenter open", 3)?;
+    let sharp = detail(&closed, beside.0.clone(), beside.1.clone());
+    wait_until_screen(machine, "smoke", |shown| {
+        let blurred = detail(shown, beside.0.clone(), beside.1.clone());
+        ensure!(
+            blurred < sharp * SMOKE_KEEPS,
+            "the text beside the tiles is not blurred: detail {blurred:.1}, {sharp:.1} without"
+        );
+        Ok(())
+    })?;
+    thread::sleep(Duration::from_millis(500));
+    let open = self::screen(machine, "smoke-open")?;
+    open.write_png(&machine.logs.join("control-center-smoke-light.png"))?;
+    let (xs, ys) = &fading;
+    let (mut most, mut differ) = (0, 0);
+    for py in ys.clone() {
+        for px in xs.clone() {
+            let (a, b) = (closed.pixel(px, py), open.pixel(px, py));
+            let d = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
+            most = most.max(d);
+            differ += usize::from(d > 0);
+        }
+    }
+    let all = xs.len() * ys.len();
+    ensure!(
+        most <= 1 && differ * 50 <= all,
+        "where the smoke ends the screen changed: by up to {most}, in {differ} of {all} pixels \
+         (a seam, grain or the background)"
+    );
+    let (ink_before, ink) = (
+        detail(&closed, clock.0.clone(), clock.1.clone()),
+        detail(&open, clock.0.clone(), clock.1.clone()),
+    );
+    ensure!(
+        ink > ink_before * 0.9,
+        "the bar's clock is blurred over the smoke: detail {ink:.1}, {ink_before:.1} without"
+    );
+    // For the owner: the same in dark.
+    let tile = (
+        i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
+        i32::try_from(top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP + CONTROL_CENTER_TILE / 2)?,
+    );
+    let (darks, lights) = (
+        shell_count(shell, "appearance Dark")?,
+        shell_count(shell, "appearance Light")?,
+    );
+    click(qmp, screen, tile, 1)?;
+    wait_for_shell_count(shell, "appearance Dark", darks + 1)?;
+    thread::sleep(Duration::from_millis(500));
+    self::screen(machine, "smoke-dark")?
+        .write_png(&machine.logs.join("control-center-smoke-dark.png"))?;
+    click(qmp, screen, tile, 1)?;
+    wait_for_shell_count(shell, "appearance Light", lights + 1)?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "ControlCenter closed", 3)?;
+    say!(
+        "  ok: over a terminal the control center's smoke blurred the text beside its tiles \
+         (detail {sharp:.1} -> {:.1}), left it as it was where it ends ({differ} of {all} \
+         pixels by 1 at most) and the bar's clock sharp",
+        detail(&open, beside.0.clone(), beside.1.clone())
+    );
     Ok(())
 }
+
+/// How much the screen changes from pixel to pixel in `xs` × `ys`: the
+/// mean step in brightness (the mean of the channels) to the right
+/// neighbour – text has many, a blur few.
+fn detail(screen: &Image, xs: std::ops::Range<usize>, ys: std::ops::Range<usize>) -> f64 {
+    let brightness = |p: [u8; 3]| p.iter().map(|&c| f64::from(c)).sum::<f64>() / 3.0;
+    let (mut sum, mut n) = (0.0, 0.0);
+    for y in ys {
+        for x in xs.start..xs.end.saturating_sub(1) {
+            sum += (brightness(screen.pixel(x + 1, y)) - brightness(screen.pixel(x, y))).abs();
+            n += 1.0;
+        }
+    }
+    sum / f64::max(n, 1.0)
+}
+
+/// Text shows at least this much detail (`detail`): a terminal's glyphs on
+/// its dark ground, many times more than its ground alone.
+const TEXT_DETAIL: f64 = 8.0;
+/// The smoke beside the tiles keeps less than this share of the text's
+/// detail (a Gaussian of 1.5 to 3 px there).
+const SMOKE_KEEPS: f64 = 0.5;
 
 /// How often the shell said `line`.
 fn shell_count(shell: &Shell, line: &str) -> Result<usize> {

@@ -125,10 +125,11 @@
       <entry name="base" value="0" summary="the background, blurred once: costs next to nothing"/>
       <entry name="live" value="1" summary="what lies behind it, windows too, blurred when it changes"/>
       <entry name="menu" value="2" summary="live glass tinted thickly, as macOS' menus: calm, what lies behind barely shows"/>
+      <entry name="clear" value="3" summary="live glass blurred little, untinted, its light held down so white ink reads on it: the control center's"/>
     </enum>
 
     <request name="set_material">
-      <description summary="base, live or menu glass">
+      <description summary="base, live, menu or clear glass">
         Base glass until set otherwise (ADR 0028 §6). Double-buffered as
         the shape.
       </description>
@@ -158,6 +159,20 @@
         set. Double-buffered as the shape.
       </description>
       <arg name="shadow" type="uint"/>
+    </request>
+
+    <request name="set_smoke">
+      <description summary="what lies around the glass, blurred">
+        Whether what lies behind the glass's shapes and around them is
+        blurred too, beyond the surface: from each shape's edge outwards,
+        less and less over falloff px, by strength px (the Gaussian's
+        standard deviation) at most – a smoke that keeps what lies behind
+        from showing sharp between the shapes. It lies behind the panel
+        too, and takes no input. A falloff or strength of 0: none, as until
+        set. Double-buffered as the shape.
+      </description>
+      <arg name="falloff" type="fixed"/>
+      <arg name="strength" type="fixed"/>
     </request>
   </interface>
 

@@ -81,7 +81,7 @@ struct Pass {
     /// Drawn with the backdrop's shader (`beize_vulkan::pipeline`).
     backdrop: bool,
     /// What it reads, kept until the GPU is done with it.
-    reads: Option<VkTexture>,
+    reads: Vec<VkTexture>,
 }
 
 /// How the base glass is made of the backdrop (ADR 0028 §6): blurred by
@@ -96,6 +96,37 @@ pub struct Material {
     pub offset: f32,
     pub saturation: f32,
     pub tint: [f32; 4],
+}
+
+/// How glass blurs what lies behind it: base, live and menu glass by Dual
+/// Kawase (`Material`), clear glass and the smoke around it by a Gaussian
+/// (`Gauss`).
+#[derive(Clone)]
+pub enum Blur {
+    Kawase(Material),
+    Gauss(Gauss),
+}
+
+/// A Gaussian blur in two passes at full size – across, then down –, on
+/// the colours as encoded: by `sigma` px, or per pixel by a `mask` (8 bits,
+/// stretched over the source; `backdrop.frag`, `smoke_sigma`) up to it. A
+/// Gaussian, not Kawase stages mixed by the mask: those leave blocks and
+/// ghost edges, as stacked CSS backdrop filters do. Then clear glass's
+/// colour, if `clear`.
+#[derive(Clone)]
+pub struct Gauss {
+    pub sigma: f32,
+    pub mask: Option<VkTexture>,
+    pub clear: Option<Clear>,
+}
+
+/// Clear glass's colour (`beize_vulkan::pipeline::CLEAR`): its saturation
+/// times `saturation`, its light held below `ceiling` (what white behind it
+/// comes out as, encoded).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clear {
+    pub saturation: f32,
+    pub ceiling: f32,
 }
 
 /// Where the CPU's time went in the submissions since it was last taken
@@ -383,9 +414,15 @@ impl VkRenderer {
             quads,
             blend,
             backdrop: false,
-            reads: None,
+            reads: Vec::new(),
         });
         Ok(texture)
+    }
+
+    /// An 8-bit texture of `size` holding `values`, a byte a texel, rows
+    /// tightly packed: a smoke's mask (`backdrop`).
+    pub fn mask_texture(&mut self, values: &[u8], size: Size<i32, Buffer>) -> Result<VkTexture> {
+        self.memory_texture(values, size.w.max(0) as usize, Fourcc::R8, size)
     }
 
     /// Beize's background for a screen of `size`, in `appearance` (0
@@ -401,7 +438,7 @@ impl VkRenderer {
         quad.flags = beize_vulkan::pipeline::WALLPAPER;
         quad.texture = appearance;
         quad.clip = [0.0, 0.0, size.w as f32, size.h as f32];
-        self.backdrop_pass(&texture, quad, None);
+        self.backdrop_pass(&texture, quad);
         Ok(texture)
     }
 
@@ -415,12 +452,13 @@ impl VkRenderer {
         material: Material,
         chain: &mut Vec<VkTexture>,
     ) -> Result<VkTexture> {
-        self.prepare_glass(source.0.size, material, chain)?;
+        let blur = Blur::Kawase(material);
+        self.prepare_glass(source.0.size, &blur, chain)?;
         // Drawn again in this submission: the passes queued before for these
         // pictures are superseded.
         self.passes
             .retain(|p| !chain.iter().any(|t| Arc::ptr_eq(&p.texture.0, &t.0)));
-        let passes = glass_passes(source, material, chain)?;
+        let passes = glass_passes(source, &blur, chain)?;
         let glass = passes
             .last()
             .map(|p| p.texture.clone())
@@ -429,15 +467,15 @@ impl VkRenderer {
         Ok(glass)
     }
 
-    /// The pictures the glass of a `size` source is drawn through (`Material`),
+    /// The pictures the glass of a `size` source is drawn through (`blur`),
     /// in `chain`: kept where they have the step's size, else made.
     pub fn prepare_glass(
         &mut self,
         size: Size<i32, Buffer>,
-        material: Material,
+        blur: &Blur,
         chain: &mut Vec<VkTexture>,
     ) -> Result<()> {
-        let sizes = glass_sizes(size, material)?;
+        let sizes = glass_sizes(size, blur)?;
         for (step, &size) in sizes.iter().enumerate() {
             let fits = chain
                 .get(step)
@@ -474,13 +512,13 @@ impl VkRenderer {
         Ok(texture)
     }
 
-    fn backdrop_pass(&mut self, texture: &VkTexture, quad: Quad, reads: Option<VkTexture>) {
+    fn backdrop_pass(&mut self, texture: &VkTexture, quad: Quad) {
         self.passes.push(Pass {
             texture: texture.clone(),
             quads: vec![quad],
             blend: vec![false],
             backdrop: true,
-            reads,
+            reads: Vec::new(),
         });
     }
 
@@ -796,9 +834,14 @@ impl VkRenderer {
 
 /// A quad over a whole picture of `size`, reading all of `source` (a
 /// pass of the backdrop).
-/// The sizes of the glass's steps from a `size` source (`Material`): Dual
-/// Kawase halvings, then doublings back.
-fn glass_sizes(size: Size<i32, Buffer>, material: Material) -> Result<Vec<Size<i32, Buffer>>> {
+/// The sizes of the glass's steps from a `size` source (`blur`): Dual
+/// Kawase halvings, then doublings back; a Gaussian's two passes at the
+/// source's size.
+fn glass_sizes(size: Size<i32, Buffer>, blur: &Blur) -> Result<Vec<Size<i32, Buffer>>> {
+    let material = match blur {
+        Blur::Kawase(material) => material,
+        Blur::Gauss(_) => return Ok(vec![size, size]),
+    };
     if material.down == 0 {
         return Err(error("glass without blur"));
     }
@@ -815,12 +858,16 @@ fn glass_sizes(size: Size<i32, Buffer>, material: Material) -> Result<Vec<Size<i
 
 /// The passes that draw the glass of `source` through `chain`, prepared
 /// for its size (`prepare_glass`); the last pass's picture is the glass.
-fn glass_passes(source: &VkTexture, material: Material, chain: &[VkTexture]) -> Result<Vec<Pass>> {
+fn glass_passes(source: &VkTexture, blur: &Blur, chain: &[VkTexture]) -> Result<Vec<Pass>> {
     use beize_vulkan::pipeline::{BLUR_DOWN, BLUR_UP, MATERIAL};
-    let sizes = glass_sizes(source.0.size, material)?;
+    let sizes = glass_sizes(source.0.size, blur)?;
     if chain.len() != sizes.len() || chain.iter().zip(&sizes).any(|(t, s)| t.0.size != *s) {
         return Err(error("the glass's pictures do not fit its source"));
     }
+    let material = match blur {
+        Blur::Kawase(material) => *material,
+        Blur::Gauss(gauss) => return Ok(gauss_passes(source, gauss, chain)),
+    };
     let mut passes = Vec::with_capacity(sizes.len());
     let mut from = source.clone();
     for (step, texture) in chain.iter().enumerate() {
@@ -842,11 +889,47 @@ fn glass_passes(source: &VkTexture, material: Material, chain: &[VkTexture]) -> 
             quads: vec![quad],
             blend: vec![false],
             backdrop: true,
-            reads: Some(from),
+            reads: vec![from],
         });
         from = texture.clone();
     }
     Ok(passes)
+}
+
+/// A Gaussian's two passes of `source` into `chain`'s two pictures, each
+/// of its size: across, then down – with clear glass's colour on the last.
+fn gauss_passes(source: &VkTexture, gauss: &Gauss, chain: &[VkTexture]) -> Vec<Pass> {
+    use beize_vulkan::pipeline::{CLEAR, GAUSS_ACROSS, GAUSS_DOWN};
+    let mut passes = Vec::with_capacity(2);
+    let mut from = source.clone();
+    for (step, texture) in chain.iter().enumerate() {
+        let mut quad = pass_quad(texture.0.size, Some(&from));
+        quad.flags = if step == 0 { GAUSS_ACROSS } else { GAUSS_DOWN };
+        quad.sigma = gauss.sigma;
+        let mut reads = vec![from];
+        if let Some(mask) = &gauss.mask {
+            // A slot of the texture array: exact in an f32 below 2^24.
+            quad.bottom[2] = mask.0.gpu.slot as f32;
+            quad.bottom[3] = 1.0;
+            reads.push(mask.clone());
+        }
+        if step + 1 == chain.len()
+            && let Some(clear) = gauss.clear
+        {
+            quad.flags |= CLEAR;
+            quad.bottom[0] = clear.saturation;
+            quad.bottom[1] = clear.ceiling;
+        }
+        passes.push(Pass {
+            texture: texture.clone(),
+            quads: vec![quad],
+            blend: vec![false],
+            backdrop: true,
+            reads,
+        });
+        from = texture.clone();
+    }
+    passes
 }
 
 fn pass_quad(size: Size<i32, Buffer>, source: Option<&VkTexture>) -> Quad {

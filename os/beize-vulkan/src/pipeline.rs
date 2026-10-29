@@ -99,6 +99,18 @@ pub const ROUND: u32 = 4096;
 /// A triangle in `color`, as `STROKE`: its corners `bottom[0..2]`,
 /// `bottom[2..4]` and `texel`.
 pub const TRIANGLE: u32 = 8192;
+/// A pass of a Gaussian blur from the texture (`backdrop`), across or down,
+/// on the colours as encoded: by `sigma` – or, with `bottom[3]` 1, per
+/// pixel by the mask in slot `bottom[2]` (its red, the smoke's) up to
+/// `sigma`.
+pub const GAUSS_ACROSS: u32 = 16384;
+pub const GAUSS_DOWN: u32 = 32768;
+/// Clear glass (ADR 0028 §6). With `GAUSS_DOWN`: its colour, on the colours
+/// as encoded – saturation times `bottom[0]`, the light held below the
+/// ceiling `bottom[1]`. With `GLASS`: its lens, sheen, glow and rim instead
+/// of grain and the plain rim, `bottom[0..2]` the glass texture's step per
+/// pixel (normalised).
+pub const CLEAR: u32 = 65536;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.

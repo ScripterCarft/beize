@@ -259,9 +259,58 @@ vec4 glass(vec4 sampled) {
     return base * (1.0 - color.a * r) + color * r;
 }
 
+// Clear glass (`CLEAR`, the control center's tiles), its look as approved
+// on mock-ups (29.10.): no grain; a lens – within LENS px of the edge it
+// shows what lies further out along the edge's normal, the more the nearer
+// the edge, by up to LENS_SHIFT px –, a faint white sheen at the top, an
+// inner glow and the rim, both brighter where the edge faces the light (top
+// left). All on the colours as encoded, as the mock-up mixed them.
+const float LENS = 10.0;
+const float LENS_SHIFT = 9.0;
+const float SHEEN = 0.05;
+const float SHEEN_DOWN_TO = 0.35;
+const float GLOW = 0.16;
+const float GLOW_WIDTH = 4.0;
+const float RIM_WIDTH = 1.5;
+const vec2 CLEAR_LIGHT = vec2(-0.70710678, -0.70710678);
+
+vec4 clear_glass() {
+    vec2 p = gl_FragCoord.xy;
+    float d = edge_distance(p, clip, rounding.x);
+    float shown = clamp(0.5 - d, 0.0, 1.0);
+    float within = max(-d, 0.0);
+    // The edge's direction, outwards: the distance's gradient; only where
+    // the lens, the glow or the rim needs it.
+    vec2 n = vec2(0.0);
+    if (within < LENS) {
+        n = vec2(
+            edge_distance(p + vec2(0.5, 0.0), clip, rounding.x)
+                - edge_distance(p - vec2(0.5, 0.0), clip, rounding.x),
+            edge_distance(p + vec2(0.0, 0.5), clip, rounding.x)
+                - edge_distance(p - vec2(0.0, 0.5), clip, rounding.x));
+        n /= max(length(n), 1e-4);
+    }
+    float bend = clamp(1.0 - within / LENS, 0.0, 1.0);
+    vec2 at = uv * texel + n * (bend * bend * LENS_SHIFT) * bottom.xy;
+    vec3 c = textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), at, 0.0).rgb;
+    float down = (p.y - clip.y) / max(clip.w, 1.0);
+    c = mix(c, vec3(1.0), clamp(1.0 - down / SHEEN_DOWN_TO, 0.0, 1.0) * SHEEN);
+    float facing = dot(n, CLEAR_LIGHT);
+    float toward = max(facing, 0.0) + 0.45 * max(-facing, 0.0);
+    c = mix(c, vec3(1.0), clamp(1.0 - within / GLOW_WIDTH, 0.0, 1.0) * shown * toward * GLOW);
+    // The rim in `color` (premultiplied), a ring RIM_WIDTH px inside.
+    float ring = (shown - clamp(0.5 - (d + RIM_WIDTH), 0.0, 1.0)) * toward;
+    c = c * (1.0 - color.a * ring) + color.rgb * ring;
+    return vec4(c, 1.0) * shown;
+}
+
 void main() {
     if ((flags & SHADOW) != 0u) {
         result = color * shadow(gl_FragCoord.xy, clip, rounding.x, rounding.y);
+        return;
+    }
+    if ((flags & CLEAR) != 0u) {
+        result = clear_glass();
         return;
     }
     if ((flags & GLASS) != 0u) {

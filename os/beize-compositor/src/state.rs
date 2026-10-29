@@ -682,9 +682,14 @@ impl State {
         }
         let area = self.window_area();
         let mut panels = std::mem::take(&mut self.panels_last);
-        for element in panels.iter_mut().flat_map(|p| p.elements.iter_mut()) {
-            if let Element::Glass(glass) = element {
-                glass.freeze();
+        for panel in &mut panels {
+            panel
+                .elements
+                .retain(|e| !matches!(e, Element::Glass(glass) if !glass.keeps()));
+            for element in &mut panel.elements {
+                if let Element::Glass(glass) = element {
+                    glass.freeze();
+                }
             }
         }
         let timer = self

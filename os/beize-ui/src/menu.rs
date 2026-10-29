@@ -147,6 +147,7 @@ impl Menu {
             }],
             material: Material::Menu,
             shadow: true,
+            smoke: None,
         }
     }
 

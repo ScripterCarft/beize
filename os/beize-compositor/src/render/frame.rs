@@ -25,12 +25,12 @@ use super::geometry::{self, Mapping, Quad, Space};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
-use super::{Material, Pass, Upload, VkRenderer};
+use super::{Blur, Pass, Upload, VkRenderer};
 use crate::error::{Context, Error, Result, error};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
-use beize_vulkan::pipeline::{Attachment, GLASS, Pipelines, SHADOW, corner_extent};
+use beize_vulkan::pipeline::{Attachment, CLEAR, GLASS, Pipelines, SHADOW, corner_extent};
 
 /// Round corners for what a frame draws (`VkFrame::set_rounding`), in the
 /// framebuffer: the rectangle, the radius, the corners' squares.
@@ -209,7 +209,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     /// Glass (ADR 0028 §6) in the rounded rectangle `shape` (the output's
     /// space) with corners of `radius`: `glass` – a blurred copy of what
     /// lies in `covers`, smaller – read where it lies, with `grain` and a
-    /// `rim` of light (premultiplied; alpha 0: none). In `dst`, cut to its
+    /// `rim` of light (premultiplied; alpha 0: none); or, `clear`, with
+    /// clear glass's lens, sheen, glow and that rim. In `dst`, cut to its
     /// `damage`; opaque but at the corners.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_glass(
@@ -222,6 +223,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        clear: bool,
     ) {
         let size = glass.0.size;
         if covers.size.w <= 0 || covers.size.h <= 0 {
@@ -263,6 +265,17 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             quad.clip = clip;
             quad.radius = radius;
             quad.sigma = grain;
+            if clear {
+                // The lens's step: a pixel of the screen in the glass's
+                // normalised coordinates.
+                quad.flags |= CLEAR;
+                quad.bottom = [
+                    1.0 / covers.size.w as f32,
+                    1.0 / covers.size.h as f32,
+                    0.0,
+                    0.0,
+                ];
+            }
             // Opaque but where its corners let what is below show.
             let blend = corners.iter().any(|c| overlaps(&quad, c));
             self.recorded.quads.push(quad);
@@ -280,7 +293,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     pub fn blur_behind(
         &mut self,
         region: Rectangle<i32, Physical>,
-        material: Material,
+        blur: &Blur,
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture> {
@@ -298,7 +311,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             *copy = Some(self.renderer.copy_texture_for(target, size)?);
         }
         let copy = copy.clone().context("live glass's copy")?;
-        let passes = super::glass_passes(&copy, material, chain)?;
+        let passes = super::glass_passes(&copy, blur, chain)?;
         let glass = passes
             .last()
             .map(|p| p.texture.clone())
@@ -555,7 +568,7 @@ pub(super) fn record_passes(
         );
         pass.texture.0.filled.store(true, Ordering::Relaxed);
         pass.texture.used(submission);
-        if let Some(read) = &pass.reads {
+        for read in &pass.reads {
             read.used(submission);
         }
     }

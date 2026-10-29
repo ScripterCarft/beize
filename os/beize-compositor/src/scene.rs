@@ -195,6 +195,9 @@ pub fn panels(
             continue;
         };
         let mut elements = Vec::new();
+        // The smoke around a glass lies behind the panel – the bar's ink
+        // stays sharp over it –, in front of what lies below.
+        let mut smokes = Vec::new();
         // Its popups in front – the shell's menus, the control center –,
         // each with its glass and shadows, placed as Smithay's
         // `LayerSurface` places them.
@@ -207,13 +210,26 @@ pub fn panels(
                 backdrop.as_deref_mut(),
                 &mut elements,
             );
+            smokes.extend(
+                backdrop
+                    .as_deref_mut()
+                    .and_then(|b| b.smoke(popup.wl_surface(), at)),
+            );
         }
         // The menu bar's own glass gives way to the plate over a fullscreen
         // window.
-        let own = backdrop
+        let mut own = backdrop
             .as_deref_mut()
             .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)));
-        surface_with_glass(renderer, panel.wl_surface(), place.loc, own, &mut elements);
+        surface_with_glass(
+            renderer,
+            panel.wl_surface(),
+            place.loc,
+            own.as_deref_mut(),
+            &mut elements,
+        );
+        smokes.extend(own.and_then(|b| b.smoke(panel.wl_surface(), place.loc)));
+        elements.extend(smokes.into_iter().map(Element::Glass));
         drawn.push(PanelFrame {
             place,
             upper: matches!(panel.layer(), Layer::Overlay | Layer::Top),

@@ -9,7 +9,7 @@
 //! its window geometry for its own shadow – keep theirs, as on GNOME; a
 //! maximized window has neither, its edges are the screen's.
 
-use crate::render::{Material, VkFrame, VkRenderer, VkTexture};
+use crate::render::{Blur, VkFrame, VkRenderer, VkTexture};
 use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
@@ -48,7 +48,8 @@ const INACTIVE: Look = Look {
     sigma: 8.0,
     alpha: 0.2,
 };
-/// Below a menu and below the control center's tiles (`Shadow::below_glass`).
+/// Below a menu, and below other glass that asks for one
+/// (`Shadow::below_glass`).
 const MENU: Look = Look {
     offset: 6,
     sigma: 12.0,
@@ -90,13 +91,14 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        clear: bool,
     );
     /// Blurs what the frame drew so far in `region` (live glass,
     /// `VkFrame::blur_behind`); the glass, ready for what is drawn after.
     fn blur_behind(
         frame: &mut Self::Frame<'_, '_>,
         region: Rectangle<i32, Physical>,
-        material: Material,
+        blur: &Blur,
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture, Self::Error>;
@@ -106,11 +108,11 @@ impl Effects for VkRenderer {
     fn blur_behind(
         frame: &mut VkFrame<'_, '_>,
         region: Rectangle<i32, Physical>,
-        material: Material,
+        blur: &Blur,
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture, Self::Error> {
-        frame.blur_behind(region, material, chain, copy)
+        frame.blur_behind(region, blur, chain, copy)
     }
 
     fn set_rounding(
@@ -143,8 +145,9 @@ impl Effects for VkRenderer {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        clear: bool,
     ) {
-        frame.draw_glass(dst, damage, shape, radius, glass, covers, grain, rim);
+        frame.draw_glass(dst, damage, shape, radius, glass, covers, grain, rim, clear);
     }
 }
 
@@ -316,7 +319,7 @@ impl Shadow {
     /// The shadow below a glass's piece `rect` with corners of `radius`:
     /// a menu's larger, as Apple's menus cast one (black about 15 % at the
     /// edge in the HIG's images, fading over some 8 pt; offset and blur
-    /// estimated), a tile's faint (the owner, 28.10., on mock-ups). The
+    /// estimated), other glass's faint (the owner, 28.10., on mock-ups). The
     /// glass's `id` and `commit` tell when it changes.
     pub fn below_glass(
         id: Id,
