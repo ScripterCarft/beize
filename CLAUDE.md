@@ -315,29 +315,41 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: Glas + Rauch des Kontrollzentrums gebaut, Leistung messen)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: 0.5.118 gemessen, Glas wird neu gestaltet)
 
-**JETZT: Leistung des neuen Glases auf Hardware mit dem Besitzer prüfen** (sein Auftrag 29.10.:
-„am Ende Performance mit mir prüfen und sehr gut optimieren, wenn's langsamer ist“). Gebaut und
-gepusht 939ebc2 (ADR 0028 §5/§6 haben Werte und Aufbau): `clear` + `set_smoke` im Protokoll,
-Rauch als eigenes lebendiges Glas (`Behind::Smoke`, Maske auf der CPU ¼ Auflösung, zwei
-Gauß-Pässe mit σ je Pixel, `backdrop.frag` `gauss`), Kachelglas σ 6 + Farbe auf kodierten Werten,
-Linse/Glanz/Schein/Rand in `quad.frag` (`CLEAR`; Linsen-Maßstab als Wert vom CPU statt `dFdx`).
-Abweichung vom Mock: Unschärfe auf kodierten Werten wie das Mock (auch billiger, keine Umrechnung
-je Tap). Smoke `menus` → `control_center_smoke` (Terminal maximiert mit Text dahinter; Detail
-neben den Kacheln 18,5 → 4,1, am Rauchende 0 von 4128 Pixeln anders, Uhr scharf), drei
-Gegenproben rot (ohne Rauch, Rauch vor der Leiste, Körnung); Bilder `control-center-smoke-*.png`.
-Kosten (gerechnet, nicht gemessen): unverändert dahinter ein Textur-Quad je Bild (der Rauch deckt
-seine Region, dahinter wird dann nichts gezeichnet); ändert sich etwas dahinter: Kopie ~424×340 +
-2 Pässe à ≤25 Taps, Kachelglas ~292×304 + 2 Pässe à 37 Taps. **Messbau 0.5.118** (Tag `measure/desktop-0.5.118`, d84f4b1 auf `main` ca5f5d4, Bau +
-Smoke grün 169 s; Stick-Dateien in `~/scratch/stick`; wartet auf „Release fertig“, dann
-nach D: kopieren). **Messplan (Besitzer bestätigt 29.10.):** hw-test Teil 5b „Last mit Kontrollzentrum“ (vorderstes Fenster unter den Schalter
-gezogen, Kontrollzentrum offen = schlimmster Fall, jedes Bild neu weichgezeichnet) gegen Teil 5;
-Teil 2d fragt das Aussehen über dem Terminal ab;
-Vergleich `pacing:` GPU-ms Median/Max, späte Bilder, busy, `glass`-Teil. Hebel, falls langsamer:
-bilineare Taps (halbiert die Taps, auf kodierten Werten exakt), Kachelglas-Gauß auf halber
-Größe, Rauch nur neu wenn sich in seiner Region etwas ändert (schon so). Danach Mock-Abnahme am
-Screenshot (Normale: Gradient statt Mittelpunkt), dann Menü/Dock nur wenn er will.
+**JETZT: Glas neu gestalten, näher an Apple** (Besitzer 29.10. nach dem Test von 0.5.118): „zu
+wenig wie bei Apple. Es ist meist dunkel, und das Dock nutzt noch ein anderes.“ **Das Beize-Menü
+gefällt ihm** (Menü-Glas: Kawase, #F2F2F2/#2D2D2D zu 85 %, schwacher Rand, Schatten – nicht
+anfassen, höchstens als Maßstab). Ziel: ein Glas für Kontrollzentrum und Dock (und was später
+kommt), heller/klarer wie macOS 26 Liquid Glass, nicht das „graue Rauchglas“ der Decke 0,52/0,50.
+Vorgehen wie bewährt: zuerst an Apples Bildern messen (`~/scratch/apple/x`, Pressebilder
+Control Center/hero/Safari; HIG-Bilder `~/scratch/apple/hig`), Varianten als Mock-ups (Python,
+Vorlage `~/scratch/glass-mock/glass2.py` + `veil.py`, Grundlage echte Bildschirmfotos) dem
+Besitzer zur Abnahme, erst dann bauen. Fotos des Besitzers von 0.5.118 (Teil 2d, hell/dunkel über
+dem Terminal): `~/hw-logs/results-20261029-110942/Screenshot 2026-10-29 at 11.11.1{0,6}.png` –
+zuerst ansehen. Offene Fragen an ihn: was „wie Apple“ genau heißt (heller? mehr Durchsicht?
+Weiß-Tönung statt Stauchung? Rauch behalten?), und ob Dock und Kontrollzentrum dasselbe Material
+bekommen. Die Weiß-Schrift-Entscheidung (Schrift weiß in beiden Modi) hing an der Decke – bei
+hellerem Glas neu abwägen (macOS: dunkle Schrift auf hellem Glas im hellen Modus).
+
+**Leistung 0.5.118 gemessen (`~/hw-logs/results-20261029-110942`), kein Handlungsbedarf:**
+Lasttest Teil 5 (Kontrollzentrum zu) gegen 5b (offen über einem laufenden Fenster, jedes Bild neu
+weichgezeichnet = schlimmster Fall): GPU median 0,43 → 0,54 ms (+0,11), max 2,46 → 2,69; busy
+14 → 17 %; CPU `glass` 0,00 ms; späte Bilder 2 → 2 (beide „display“, bekannt NVK); Bilder
+114 975 → 114 993 von 115 200. Das neue Glas ist also billig; bleibt die Technik (Gauß-Pässe mit
+σ je Pixel, Maske auf der CPU) für das neue Material, sind die Hebel (bilineare Taps, halbe
+Größe) nicht nötig. Nicht geprüft: ob das Fenster in 5b wirklich unter dem Kontrollzentrum lag
+(Fotos/Ablauf nachfragen). Rest der Auswertung (Client-Test, FIFO, syncobj, Resize, Warnungen,
+85 „late frame“-Zeilen gesamt) steht noch aus – im neuen Chat kurz durchsehen.
+
+**Stand des Codes:** 939ebc2 (Glas + Rauch, ADR 0028 §5/§6 beschreibt es), Messbau
+`measure/desktop-0.5.118` (d84f4b1; hw-test Teil 2d Aussehen, Teil 5b Last mit
+Kontrollzentrum). Aufbau, auf dem das neue Material aufsetzen kann: `beize_glass_v1` Material
+`clear` + `set_smoke`; Rauch als eigenes lebendiges Glas (`Behind::Smoke`, `backdrop.rs`
+`smoke`/`smoke_mask`); `render::Blur::{Kawase, Gauss}`; `backdrop.frag` `gauss`/`clear` (Farbe auf
+kodierten Werten), `quad.frag` `clear_glass` (Linse, Glanz, Schein, Rand); Smoke-Prüfung
+`control_center_smoke` (Detail-Maß, Rauchende pixelgleich, Uhr scharf) mit Gegenproben. Das Dock
+nutzt weiter `Material::Live` (Kawase, Tönung `Appearance::material`, Sättigung 1,8).
 
 **0.5.117 ausgewertet 29.10. (`~/hw-logs/results-20261028-222824`).** Alles bestanden: logind
 „yes“ dreimal, keine Warnungen, Last 114 944/115 200, rotiert 86 247, syncobj 30/30. Befund des
