@@ -125,11 +125,12 @@
       <entry name="base" value="0" summary="the background, blurred once: costs next to nothing"/>
       <entry name="live" value="1" summary="what lies behind it, windows too, blurred when it changes"/>
       <entry name="menu" value="2" summary="live glass tinted thickly, as macOS' menus: calm, what lies behind barely shows"/>
-      <entry name="clear" value="3" summary="live glass blurred little, untinted, its light held down so white ink reads on it: the control center's"/>
+      <entry name="clear" value="3" summary="liquid glass, its tone held so white ink reads on it: the control center's"/>
+      <entry name="liquid" value="4" summary="liquid glass without ink on it: the dock's"/>
     </enum>
 
     <request name="set_material">
-      <description summary="base, live, menu or clear glass">
+      <description summary="base, live, menu, clear or liquid glass">
         Base glass until set otherwise (ADR 0028 §6). Double-buffered as
         the shape.
       </description>

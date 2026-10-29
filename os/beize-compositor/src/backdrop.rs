@@ -6,9 +6,9 @@
 //! appearance (Microsoft's Mica works so), made when a panel first asks
 //! for it. A frame adds to the glass only grain and a rim of light, per
 //! pixel (`GLASS`), where the shell asked for it (`glass`). Live glass
-//! shows what lies behind it, windows too (`LiveGlass`); clear glass, the
-//! control center's, is live glass blurred by a Gaussian, untinted, its
-//! light held down (`Appearance::clear`). Around a glass's shapes a smoke
+//! shows what lies behind it, windows too (`LiveGlass`); liquid glass, the
+//! control center's and the dock's, is live glass frosted by a Gaussian
+//! (`frost`), its tone, colour and light the frame's (`quad.frag`). Around a glass's shapes a smoke
 //! may lie, live glass of its own behind the panel: what lies there blurred
 //! less and less away from them, through a mask (`Backdrop::smoke`).
 //!
@@ -23,7 +23,7 @@
 //! shows the bar opaque there).
 
 use crate::error::{Context, Result, error};
-use crate::render::{Blur, Clear, Gauss, Material, VkRenderer, VkTexture};
+use crate::render::{Blur, Gauss, Liquid, Material, VkRenderer, VkTexture};
 use beize_draw::measures;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
@@ -136,33 +136,13 @@ impl Appearance {
         }
     }
 
-    /// Clear glass, the control center's tiles (approved on mock-ups,
-    /// 29.10.): a Gaussian of 6 px, no tint, saturation times 1.5, and the
-    /// light held below a ceiling – white behind comes out at 0.52 on light,
-    /// 0.50 on dark (encoded), so white ink keeps a contrast of 3.7 and 4.0
-    /// over white. Over light content it stays grey smoked glass: the ink
-    /// stays white (the owner).
-    fn clear(self) -> Blur {
-        let ceiling = match self {
-            Appearance::Light => 0.52,
-            Appearance::Dark => 0.50,
-        };
-        Blur::Gauss(Gauss {
-            sigma: 6.0,
-            mask: None,
-            clear: Some(Clear {
-                saturation: 1.5,
-                ceiling,
-            }),
-        })
-    }
-
     /// How a glass showing `shows` blurs what lies behind it.
     fn blur_for(self, shows: glass::Material) -> Blur {
         match shows {
             glass::Material::Menu => Blur::Kawase(self.menu_material()),
             glass::Material::Base | glass::Material::Live => Blur::Kawase(self.material()),
-            glass::Material::Clear => self.clear(),
+            glass::Material::Clear => frost(14.0),
+            glass::Material::Liquid => frost(16.0),
         }
     }
 
@@ -171,7 +151,8 @@ impl Appearance {
     /// glass as approved with it (29.10.).
     fn rim(self, shows: glass::Material) -> [f32; 4] {
         let a = match (self, shows) {
-            (_, glass::Material::Clear) => 0.7,
+            // Liquid glass's line of light is its own (`quad.frag`).
+            (_, glass::Material::Clear | glass::Material::Liquid) => 0.0,
             (Appearance::Light, glass::Material::Menu) => 0.3,
             (Appearance::Dark, glass::Material::Menu) => 0.12,
             (Appearance::Light, _) => 0.6,
@@ -179,6 +160,19 @@ impl Appearance {
         };
         [a, a, a, a]
     }
+}
+
+/// Liquid glass's frost (`glass::Material::Clear` and `Liquid`; ADR 0028
+/// §6): a Gaussian of `sigma` px – 14 below the control center's tiles, 16
+/// below the dock, as approved on mock-ups (29.10.) – at half the size: wide
+/// and cheap. Its tone, colour and light are the frame's (`quad.frag`,
+/// `clear_glass`).
+fn frost(sigma: f32) -> Blur {
+    Blur::Gauss(Gauss {
+        sigma,
+        mask: None,
+        half: true,
+    })
 }
 
 /// Where the chosen appearance is kept (`Appearance::keep`).
@@ -314,6 +308,7 @@ impl Backdrop {
             }],
             bounds: rect,
             shows: glass::Material::Live,
+            dark: self.appearance == Appearance::Dark,
             texture: Some(self.picture.clone()),
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Plate),
@@ -392,13 +387,13 @@ impl Backdrop {
         let bounds = pieces.iter().map(|p| p.rect).reduce(|a, b| a.merge(b))?;
         let live = state.material != glass::Material::Base;
         // Live and menu glass read the background until `LiveGlass` gives
-        // them what lies behind them, in the same frame. Clear glass reads
+        // them what lies behind them, in the same frame. Liquid glass reads
         // nothing until then: the background, sharp and untinted, would
         // show through it as something it is not.
         let texture = match state.material {
             glass::Material::Base => Some(self.base(renderer)?),
             glass::Material::Live | glass::Material::Menu => Some(self.picture.clone()),
-            glass::Material::Clear => None,
+            glass::Material::Clear | glass::Material::Liquid => None,
         };
         let shadows = if state.shadow {
             pieces
@@ -415,6 +410,7 @@ impl Backdrop {
             pieces,
             bounds,
             shows: state.material,
+            dark: self.appearance == Appearance::Dark,
             texture,
             covers: Rectangle::from_size(self.size),
             live: live.then(|| Behind::Panel(surface.clone())),
@@ -460,6 +456,7 @@ impl Backdrop {
             }],
             bounds: region,
             shows: state.material,
+            dark: self.appearance == Appearance::Dark,
             texture: None,
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Smoke(surface.clone())),
@@ -682,6 +679,8 @@ pub struct Glass {
     /// Its material, tinted for the appearance; of a smoke, the glass's it
     /// lies around.
     shows: glass::Material,
+    /// Drawn for the dark appearance.
+    dark: bool,
     /// A blurred copy of what lies in `covers` (the screen's coordinates);
     /// none for clear glass and a smoke until first blurred.
     texture: Option<VkTexture>,
@@ -712,15 +711,34 @@ impl Glass {
         self.smoke.is_none() && self.shows != glass::Material::Clear
     }
 
-    /// Stays as it is: no longer live, its panel gone (`keep_panels`).
+    /// Stays as it is: no longer live, its panel gone (`keep_panels`) –
+    /// showing its last blur, if a frame drew one.
     pub fn freeze(&mut self) {
+        if let Some(blur) = &self.blur
+            && let Ok(blur) = blur.lock()
+            && blur.drawn
+            && let Some(last) = blur.chain.last()
+        {
+            self.texture = Some(last.clone());
+            self.covers = self.region.unwrap_or(self.bounds);
+        }
         self.live = None;
         self.blur = None;
     }
 
-    /// Drawn as clear glass: its lens, sheen and glow, no grain.
-    fn clear(&self) -> bool {
-        self.smoke.is_none() && self.shows == glass::Material::Clear
+    /// Drawn as liquid glass: with white ink on it (the control center's
+    /// tiles) or none (the dock), no grain.
+    fn liquid(&self) -> Option<Liquid> {
+        let ink = match self.shows {
+            _ if self.smoke.is_some() => return None,
+            glass::Material::Clear => true,
+            glass::Material::Liquid => false,
+            _ => return None,
+        };
+        Some(Liquid {
+            ink,
+            dark: self.dark,
+        })
     }
 }
 
@@ -793,12 +811,12 @@ impl<R: Effects> RenderElement<R> for Glass {
                 Err(e) => tracing::warn!("live glass: {e:?}"),
             }
         }
-        // Clear glass and a smoke show nothing rather than a stand-in.
+        // Liquid glass and a smoke show nothing rather than a stand-in.
         let Some(texture) = texture else {
             return Ok(());
         };
-        let clear = self.clear();
-        let grain = if clear || self.smoke.is_some() {
+        let liquid = self.liquid();
+        let grain = if liquid.is_some() || self.smoke.is_some() {
             0.0
         } else {
             GRAIN
@@ -824,7 +842,7 @@ impl<R: Effects> RenderElement<R> for Glass {
                 covers,
                 grain,
                 piece.rim,
-                clear,
+                liquid,
             );
         }
         Ok(())
@@ -995,7 +1013,7 @@ impl LiveGlass {
                 (Some(smoke), Some((_, _, mask))) => Blur::Gauss(Gauss {
                     sigma: smoke.smoke.strength,
                     mask: Some(mask.clone()),
-                    clear: None,
+                    half: false,
                 }),
                 _ => appearance.blur_for(glass.shows),
             };
@@ -1005,7 +1023,7 @@ impl LiveGlass {
             blur.drawn = false;
             self.commit.increment();
             // The frame gives it the new blur (`Glass::draw`); should that
-            // fail, it shows the background it came with – clear glass and
+            // fail, it shows the background it came with – liquid glass and
             // a smoke nothing.
             glass.blur = Some(self.blur.clone());
         } else if let Some(last) = blur.chain.last() {

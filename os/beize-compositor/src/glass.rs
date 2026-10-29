@@ -1,7 +1,7 @@
 //! Where the shell wants glass (beize-shell-v1, `beize_glass_v1`; ADR 0028
 //! §6): rounded rectangles below parts of a panel or of its popup – one
 //! below a menu, several below the control center's tiles –, base, live,
-//! menu or clear glass, with a shadow or not, as macOS' WindowServer draws
+//! menu or liquid glass, with a shadow or not, as macOS' WindowServer draws
 //! a material below a view; around the shapes a smoke if asked for: what
 //! lies behind blurred less and less away from them. Shapes, material,
 //! shadow and smoke are the surface's double-buffered state, applied with
@@ -37,9 +37,11 @@ pub enum Material {
     Live,
     /// Live, tinted thickly: a menu's.
     Menu,
-    /// Live, blurred little, untinted, its light held down for white ink:
-    /// the control center's tiles.
+    /// Liquid glass with white ink on it, its tone held for the ink: the
+    /// control center's tiles.
     Clear,
+    /// Liquid glass without ink on it: the dock.
+    Liquid,
 }
 
 /// The smoke around a glass's shapes (`beize_glass_v1.set_smoke`): over
@@ -132,6 +134,7 @@ impl Dispatch<BeizeGlassV1, WlSurface> for State {
                     WEnum::Value(beize_glass_v1::Material::Live) => Material::Live,
                     WEnum::Value(beize_glass_v1::Material::Menu) => Material::Menu,
                     WEnum::Value(beize_glass_v1::Material::Clear) => Material::Clear,
+                    WEnum::Value(beize_glass_v1::Material::Liquid) => Material::Liquid,
                     _ => Material::Base,
                 };
                 set_pending(surface, |state| state.material = material);

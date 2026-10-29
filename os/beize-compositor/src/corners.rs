@@ -9,7 +9,7 @@
 //! its window geometry for its own shadow – keep theirs, as on GNOME; a
 //! maximized window has neither, its edges are the screen's.
 
-use crate::render::{Blur, VkFrame, VkRenderer, VkTexture};
+use crate::render::{Blur, Liquid, VkFrame, VkRenderer, VkTexture};
 use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
@@ -91,7 +91,7 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
-        clear: bool,
+        liquid: Option<Liquid>,
     );
     /// Blurs what the frame drew so far in `region` (live glass,
     /// `VkFrame::blur_behind`); the glass, ready for what is drawn after.
@@ -145,9 +145,11 @@ impl Effects for VkRenderer {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
-        clear: bool,
+        liquid: Option<Liquid>,
     ) {
-        frame.draw_glass(dst, damage, shape, radius, glass, covers, grain, rim, clear);
+        frame.draw_glass(
+            dst, damage, shape, radius, glass, covers, grain, rim, liquid,
+        );
     }
 }
 

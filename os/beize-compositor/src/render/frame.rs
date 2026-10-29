@@ -25,7 +25,7 @@ use super::geometry::{self, Mapping, Quad, Space};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
-use super::{Blur, Pass, Upload, VkRenderer};
+use super::{Blur, Liquid, Pass, Upload, VkRenderer};
 use crate::error::{Context, Error, Result, error};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
@@ -209,8 +209,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     /// Glass (ADR 0028 §6) in the rounded rectangle `shape` (the output's
     /// space) with corners of `radius`: `glass` – a blurred copy of what
     /// lies in `covers`, smaller – read where it lies, with `grain` and a
-    /// `rim` of light (premultiplied; alpha 0: none); or, `clear`, with
-    /// clear glass's lens, sheen, glow and that rim. In `dst`, cut to its
+    /// `rim` of light (premultiplied; alpha 0: none); or, `liquid`, as
+    /// liquid glass – its curved edge, tone and line of light. In `dst`, cut to its
     /// `damage`; opaque but at the corners.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_glass(
@@ -223,7 +223,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
-        clear: bool,
+        liquid: Option<Liquid>,
     ) {
         let size = glass.0.size;
         if covers.size.w <= 0 || covers.size.h <= 0 {
@@ -265,15 +265,15 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             quad.clip = clip;
             quad.radius = radius;
             quad.sigma = grain;
-            if clear {
-                // The lens's step: a pixel of the screen in the glass's
-                // normalised coordinates.
+            if let Some(liquid) = liquid {
+                // A pixel of the screen in the glass's normalised
+                // coordinates: the refraction's and the tone's step.
                 quad.flags |= CLEAR;
                 quad.bottom = [
                     1.0 / covers.size.w as f32,
                     1.0 / covers.size.h as f32,
-                    0.0,
-                    0.0,
+                    if liquid.ink { 1.0 } else { 0.0 },
+                    if liquid.dark { 1.0 } else { 0.0 },
                 ];
             }
             // Opaque but where its corners let what is below show.

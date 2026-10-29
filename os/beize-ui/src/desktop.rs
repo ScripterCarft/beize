@@ -53,13 +53,16 @@ pub struct GlassShape {
 pub enum Material {
     /// The background, blurred once: costs next to nothing.
     Base,
-    /// What lies behind it, windows too – the dock's.
+    /// What lies behind it, windows too.
     Live,
     /// Live, tinted thickly: calm, as macOS' menus.
     Menu,
-    /// Live, blurred little, untinted, its light held down so white ink
-    /// reads on it: the control center's tiles.
+    /// Liquid glass, as macOS 26's: what lies behind frosted, a curved edge
+    /// with a line of light, its tone held so white ink reads on it – the
+    /// control center's tiles.
     Clear,
+    /// Liquid glass without ink on it: the dock's.
+    Liquid,
 }
 
 impl Glass {
@@ -170,6 +173,7 @@ impl Desktop {
             Material::Live => beize_glass_v1::Material::Live,
             Material::Menu => beize_glass_v1::Material::Menu,
             Material::Clear => beize_glass_v1::Material::Clear,
+            Material::Liquid => beize_glass_v1::Material::Liquid,
         });
         proxy.set_shadow(u32::from(glass.shadow));
         let smoke = glass.smoke.unwrap_or(Smoke {

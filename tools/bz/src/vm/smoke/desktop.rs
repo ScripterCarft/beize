@@ -1034,8 +1034,11 @@ fn dock_glass(
 ) -> Result<()> {
     // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
     // shows through, blurred – base glass would stay as it was. Then back.
+    // Left of the middle, over the window's blue quarter: in the middle its
+    // blue and white blur into about what the background was there; between
+    // the dots of the dock's two apps.
     let glass_at = (
-        screen.0 / 2,
+        screen.0 / 2 - 20,
         screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE + 1,
     );
     let file = machine.logs.join("dock-glass-screen.ppm");
@@ -1269,7 +1272,153 @@ fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -
         "  ok: the control center, opened while the Escape that closed the Beize menu was held, \
          stayed when it was let go"
     );
+    liquid_glass(shell, machine, qmp, screen, centre)?;
     control_center_smoke(shell, machine, qmp, screen, centre)
+}
+
+/// The control center's liquid glass over the light background (ADR 0028
+/// §6), where nothing else lies: the network capsule's tone is the one its
+/// curve gives for what lies behind – about as light as that over midtones,
+/// not grey smoke (0.5.118's glass came out at a third of it) – and white
+/// ink keeps 3:1 on it (Apple's tiles ~3.4:1, measured); the round tile's
+/// line of light is bright towards the light (upper left) and faint across
+/// from it (upper right). Its screen is in the logs for the owner
+/// (`control-center-liquid.png`).
+fn liquid_glass(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    centre: (i32, i32),
+) -> Result<()> {
+    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
+    let top = MENU_BAR + CONTROL_CENTER_GAP;
+    let capsule = (
+        left..left + CONTROL_CENTER_WIDTH,
+        top..top + CONTROL_CENTER_TILE,
+    );
+    // Right of the capsule's text, more than its curved edge inside.
+    let clear_of_ink = (
+        left + CONTROL_CENTER_WIDTH - 28..left + CONTROL_CENTER_WIDTH - 18,
+        top + 30..top + 45,
+    );
+    let closed = self::screen(machine, "liquid-closed")?;
+    let behind = mean_luminance(&closed, capsule.0.clone(), capsule.1.clone());
+    ensure!(
+        behind > LIQUID_KNEE + 0.05,
+        "behind the control center the screen is not light ({behind:.3}): the check would prove \
+         nothing"
+    );
+    let expected = liquid_tone(behind);
+    click(qmp, screen, centre, 1)?;
+    wait_for_shell_count(shell, "ControlCenter open", 3)?;
+    let radius = CONTROL_CENTER_TILE as f64 / 2.0;
+    let round = (
+        left as f64 + radius,
+        (top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP) as f64 + radius,
+    );
+    // Where the edge's outward normal points at `degrees` (0 right, 90
+    // down): the brightest pixel across the edge – the line is one pixel
+    // wide, so every pixel from 2.5 px inside to half a pixel out –, and how
+    // far it stands above the lighter of the glass 8 px inside and the
+    // screen 4 px outside (the mean of the channels).
+    let line_at = |image: &Image, degrees: f64| {
+        let (dx, dy) = (degrees.to_radians().cos(), degrees.to_radians().sin());
+        let at = |r: f64| {
+            let p = image.pixel((round.0 + dx * r) as usize, (round.1 + dy * r) as usize);
+            (p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3) as i32
+        };
+        let peak = (0..=12)
+            .map(|i| at(radius + 0.5 - 0.25 * f64::from(i)))
+            .max()
+            .unwrap_or(0);
+        (peak, peak - at(radius - 8.0).max(at(radius + 4.0)))
+    };
+    let seen = std::cell::Cell::new((0.0, 0, 0));
+    wait_until_screen(machine, "liquid", |shown| {
+        let tile = mean_luminance(shown, clear_of_ink.0.clone(), clear_of_ink.1.clone());
+        let contrast = 1.05 / (tile + 0.05);
+        ensure!(
+            (tile - expected).abs() <= expected * LIQUID_TOLERANCE,
+            "the capsule's tone is {tile:.3} over {behind:.3} behind it, not {expected:.3} \
+             (its curve)"
+        );
+        ensure!(
+            contrast >= 3.0,
+            "white ink keeps only {contrast:.2}:1 on the capsule"
+        );
+        let ((lit, above), (across, across_above)) =
+            (line_at(shown, -151.0), line_at(shown, -45.0));
+        ensure!(
+            above >= LINE_ABOVE,
+            "the round tile's line of light does not stand above both sides towards the light \
+             ({lit}, {above} over the lighter): a stroke, not light"
+        );
+        ensure!(
+            above >= across_above + LINE_LIT_BY,
+            "the round tile's line of light is not brighter towards the light: {lit} upper left, \
+             {across} upper right"
+        );
+        seen.set((tile, lit, across));
+        Ok(())
+    })?;
+    self::screen(machine, "liquid-open")?
+        .write_png(&machine.logs.join("control-center-liquid.png"))?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "ControlCenter closed", 3)?;
+    let (tile, lit, across) = seen.get();
+    say!(
+        "  ok: the control center's liquid glass: over {behind:.3} behind it the capsule came \
+         out at {tile:.3} ({expected:.3} by its curve, white ink {:.2}:1), its line of light \
+         {lit} towards the light, {across} across",
+        1.05 / (tile + 0.05)
+    );
+    Ok(())
+}
+
+/// Liquid glass's tone with white ink on it (`quad.frag`, `clear_glass`):
+/// what lies behind as it is up to KNEE, above eased towards CAP.
+fn liquid_tone(behind: f64) -> f64 {
+    if behind <= LIQUID_KNEE {
+        return behind;
+    }
+    LIQUID_KNEE + (LIQUID_CAP - LIQUID_KNEE) * (1.0 - (-(behind - LIQUID_KNEE) / 0.15).exp())
+}
+
+/// As `quad.frag`'s KNEE and CAP. The screen's tile differs from the curve
+/// by its saturation, the faint lift and the frost's mean against the
+/// screen's: within a quarter of it.
+const LIQUID_KNEE: f64 = 0.22;
+const LIQUID_CAP: f64 = 0.27;
+const LIQUID_TOLERANCE: f64 = 0.25;
+/// The line of light, in 8-bit steps (the mean of the channels): upper
+/// left above the lighter of its two sides, and above them by more than
+/// upper right – fitted to Apple's, it adds about four times as much there.
+/// Over the light background, where the glass is pulled down below what is
+/// around it, it stands some 8 steps above them upper left, none upper
+/// right.
+const LINE_ABOVE: i32 = 6;
+const LINE_LIT_BY: i32 = 6;
+
+/// The mean relative luminance (linear light) of `xs` × `ys`.
+fn mean_luminance(screen: &Image, xs: std::ops::Range<usize>, ys: std::ops::Range<usize>) -> f64 {
+    let decoded = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let (mut sum, mut n) = (0.0, 0.0);
+    for y in ys {
+        for x in xs.clone() {
+            let [r, g, b] = screen.pixel(x, y);
+            sum += 0.2126 * decoded(r) + 0.7152 * decoded(g) + 0.0722 * decoded(b);
+            n += 1.0;
+        }
+    }
+    sum / f64::max(n, 1.0)
 }
 
 /// The control center's clear glass and the smoke around it (ADR 0028 §5,
@@ -1351,7 +1500,7 @@ fn control_center_smoke(
         );
     }
     click(qmp, screen, centre, 1)?;
-    wait_for_shell_count(shell, "ControlCenter open", 3)?;
+    wait_for_shell_count(shell, "ControlCenter open", 4)?;
     let sharp = detail(&closed, beside.0.clone(), beside.1.clone());
     wait_until_screen(machine, "smoke", |shown| {
         let blurred = detail(shown, beside.0.clone(), beside.1.clone());
@@ -1405,7 +1554,7 @@ fn control_center_smoke(
     click(qmp, screen, tile, 1)?;
     wait_for_shell_count(shell, "appearance Light", lights + 1)?;
     keys(qmp, &["esc"])?;
-    wait_for_shell_count(shell, "ControlCenter closed", 3)?;
+    wait_for_shell_count(shell, "ControlCenter closed", 4)?;
     say!(
         "  ok: over a terminal the control center's smoke blurred the text beside its tiles \
          (detail {sharp:.1} -> {:.1}), left it as it was where it ends ({differ} of {all} \

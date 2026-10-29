@@ -225,7 +225,7 @@ Einstellung, die dann zur Laufzeit umschaltet.
 
 ### 4. Dock (unten)
 
-Schwebend, mittig, mit runden Ecken, aus Grundglas: angeheftete Apps, dann laufende Apps mit
+Schwebend, mittig, mit runden Ecken, aus flüssigem Glas (§6): angeheftete Apps, dann laufende Apps mit
 Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 - **Vorgaben wie macOS:** keine Vergrößerung beim Überfahren, nicht automatisch
@@ -244,13 +244,13 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
   Beize größer (Besitzer, 25.10.; `beize-draw` `measures`): 90 hoch, Symbole 56 px dicht
   nebeneinander, ringsum 17 px zum Rand, der Punkt schwarz mittig darunter.
 - Beizes Apps zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol
-  eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf Glas mit Lichtkante (siehe 6),
-  der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
+  eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf flüssigem Glas ohne Schrift
+  (`liquid`, siehe 6), dasselbe wie das Kontrollzentrum (Besitzer 29.10.), der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 
 ### 5. Kontrollzentrum
 
-Kacheln aus klarem Glas (§6) unter dem rechten Ende der Menüleiste, **ohne Panel**: jede
+Kacheln aus flüssigem Glas (§6) unter dem rechten Ende der Menüleiste, **ohne Panel**: jede
 schwebt für sich, dahinter scheint verschwommen durch, was dort liegt, wie das Kontrollzentrum
 von macOS 26 (Apples Pressebild bestätigt es; Besitzer 28.10.). Um die Kacheln liegt Rauch
 (§6): auch zwischen und neben ihnen ist, was dahinter liegt, verwischt, ab ihrem Rand nach außen
@@ -277,9 +277,13 @@ nur auf den Kacheln; das Popup wächst nicht mit dem Rauch).
   Einstellungen.
 - Leere Kacheln für noch fehlende Dienste gibt es nicht: Reihen ohne Kachel rücken zusammen,
   und das Kontrollzentrum ist so breit wie die belegten Spalten, also rechts unter seinem Knopf.
-- Die Schrift auf dem Glas ist in beiden Erscheinungsbildern weiß, die Zeile darunter zu 70 %;
-  das klare Glas hält dafür das Licht dahinter unten. Über hellem Inhalt bleibt es graues
-  Rauchglas, die Schrift springt nicht um (Besitzer 29.10.).
+- Die Schrift auf dem Glas ist in beiden Erscheinungsbildern weiß, die Zeile darunter zu 70 %
+  (Apple 54 %, gemessen; über Beizes hellerem Hintergrund 70 %, Besitzer 29.10.); das Glas hält
+  dafür seine Helligkeit über Hellem (§6), die Schrift springt nicht um.
+- Der Knopf in der Leiste liegt, solange es offen ist, auf einer flachen Pille, kein Glas: Weiß
+  zu 28 % unter weißer Schrift – heller als die Leiste wie Apples (dort ~1,45-mal so hell wie
+  dahinter, gemessen) –, Schwarz zu 10 % unter dunkler (Besitzer 29.10., an Mock-ups); ebenso unter
+  dem Beize-Menü.
 
 ### 6. Material, Animation, Hintergrund
 
@@ -299,7 +303,8 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   darunter wird nichts gezeichnet. Hintergrund und Blur haben einen eigenen Shader
   (`backdrop.frag`), damit der Shader jedes Bildes klein bleibt.
 - **Lebendiges Glas** (Dock – Besitzer, 24.10.: Fenster dahinter scheinen verschwommen durch
-  wie bei macOS –, Menüleiste über Vollbild, Kontrollzentrum, Menüs, später Suche): was dahinter liegt – Fenster, ihre
+  wie bei macOS –, Menüleiste über Vollbild, Kontrollzentrum, Menüs, später Suche; Dock und
+  Kontrollzentrum als flüssiges Glas, unten): was dahinter liegt – Fenster, ihre
   Schatten, der Hintergrund –, im selben Durchgang wie das Bild. Der Compositor zeichnet dafür die
   Elemente hinter dem Glas (das Glas und 64 px darum, für den Rand des Blurs) in ein eigenes
   kleines Bild mit eigener Schadensverfolgung, nie aus dem Bildschirmpuffer, in dem das Glas
@@ -312,8 +317,8 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   zum Licht (oben links), schwächer auf der Gegenseite, dazwischen fast keine – wie Apples
   Liquid Glass; je Pixel aus der Abstandsfunktion der Ecken, kostet praktisch nichts.
   Gleichmäßig rundum ist ein Schalter im Shader (`RIM_FOLLOWS_LIGHT`), damit man es später
-  vergleichen kann (Besitzer). Lichtbrechung am Rand wie bei Liquid Glass hat bisher nur das
-  klare Glas (Linse, unten).
+  vergleichen kann (Besitzer). Flüssiges Glas (unten) hat stattdessen seine eigene Lichtlinie
+  und Lichtbrechung.
 - **Erscheinungsbild:** Hell oder Dunkel ist eine Systemeinstellung, nicht eine Eigenschaft
   des Bildes; Vorgabe Hell wie macOS. Das Glas nimmt die Tönung dazu, der Hintergrund seine
   Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Die
@@ -325,15 +330,32 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
 - **Menü-Glas** (`beize_glass_v1.material` `menu`, wie NSVisualEffectView `.menu`): lebendiges
   Glas, dicht getönt (§3, Menüs), mit schwacher Lichtkante; Glas kann Schatten werfen
   (`set_shadow`) und an mehreren Stellen einer Fläche liegen (`add_shape`, die Kacheln).
-- **Klares Glas** (`material` `clear`, die Kacheln des Kontrollzentrums; Werte am 29.10. an
-  Mock-ups abgenommen): lebendig, aber nur Gauß σ 6 px, keine Tönung; auf den kodierten Werten
-  Sättigung ×1,5 und die Helligkeit gestaucht, `L/(1+aL)` mit `a = 1/Decke − 1` – Dunkles bleibt,
-  Weiß kommt bei der Decke an (0,52 hell, 0,50 dunkel: weiße Schrift hat über Weiß noch Kontrast
-  3,7 bzw. 4,0); linear gerechnet käme Weiß bei ~0,75 an. Dazu je Pixel im Bild: eine Linse
-  (innerhalb 10 px vom Rand zeigt es, was entlang der Normalen weiter außen liegt, um bis 9 px,
-  `(1 − innen/10)² · 9`), weißer Glanz 5 % oben bis 0 bei 35 % der Höhe, innerer Schein 16 % über
-  4 px und die Lichtkante 0,7, beide zum Licht oben links hin heller; kein Korn. Bis es einmal
-  unscharf ist, zeigt es nichts statt des scharfen Hintergrunds.
+- **Flüssiges Glas** (`material` `clear` mit weißer Schrift darauf – die Kacheln des
+  Kontrollzentrums –, `liquid` ohne – das Dock), wie macOS 26' Liquid Glass. Gemessen an Apples
+  Pressebild des Kontrollzentrums (3,94 px je pt, lineares Licht; Profile 1 px senkrecht zur
+  Kante unter 16 Winkeln, mit einem Prüf-Agenten), an Mock-ups abgenommen (29.10., `quad.frag`
+  `clear_glass` nennt jeden Wert). Lebendig, mattiert durch einen Gauß von 14 px (Dock 16) auf
+  halber Größe – der erste Durchgang halbiert beim Lesen, ¼ der Pixel, halbe Taps. Je Pixel im
+  Bild, in linearem Licht:
+  - **gewölbter Rand statt Strich:** über 7 px biegt sich die Fläche zum Rand, ihre Normale
+    kippt nach außen (aus dem Gradienten der Abstandsfunktion); dort zeigt das Glas, was entlang
+    der Normalen weiter außen liegt (Lichtbrechung) – die Tiefe kommt daher;
+  - **eine Tönung je Form** aus dem Mittel dahinter (neun Lesezugriffe auf das mattierte Bild,
+    für jedes Pixel der Form gleich, kein Zurücklesen): mit weißer Schrift über Dunklem
+    unverändert, über Hellem ab 0,22 sanft gegen 0,27 – Weiß behält ~3,4 : 1 wie bei Apple
+    (Apples Focus-Kachel 0,255, gemessen); wo heruntergezogen, wird die Farbe tiefer statt grau
+    (Chroma × Zug^−0,6, höchstens ×1,3); ohne Schrift nur das Erscheinungsbild. Dunkel ×0,72.
+    Die frühere feste Decke (`L/(1+aL)` auf kodierten Werten, 0,52) ist entfernt: sie drückte
+    jeden Mittelton auf ein Drittel, das Glas wirkte immer grau;
+  - Chroma ×1,25 in Oklab (Apple ×1,1–1,3), hell ein Hauch Weiß (1,5 %, ohne Schrift 9,5 %);
+  - **Lichtlinie ganz außen** (1,14 px), nach Winkel an Apple angepasst: zum Licht oben links
+    (−151°) +0,36, zur Spiegelung unten rechts (20°) +0,14, dazwischen 0,065; ein Hauch Glanz auf
+    der Wölbung (Blinn-Phong 0,03/0,02, „wenig Glanz“, Besitzer); Licht innen an der unteren
+    Kante, nach ~4 pt weg (0,13). Dunkel das Licht ×0,6. Kein Korn, kein Schatten.
+  Bis es einmal unscharf ist, zeigt es nichts statt des scharfen Hintergrunds. Smoke
+  (`liquid_glass`): Tönung der Kapsel über dem hellen Hintergrund nach der Kurve (±25 %),
+  Weiß ≥ 3 : 1, Lichtlinie oben links ≥ 20 Stufen heller als oben rechts. Nicht belegt (keine
+  Referenz): Apples dunkles Erscheinungsbild, Apple über Weiß, Apples Dock.
 - **Rauch** (`set_smoke(falloff, strength)`): was hinter den Formen einer Fläche und um sie liegt,
   verwischt – ab dem Rand jeder Form nach außen `t = (1 − d/falloff)^1,6`, σ aus t über die
   Stufen 0; 0,075; 0,15; 0,3; 0,6; 1 × `strength` (Kontrollzentrum: 130 px, 4 px); nur

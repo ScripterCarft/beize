@@ -259,30 +259,102 @@ vec4 glass(vec4 sampled) {
     return base * (1.0 - color.a * r) + color * r;
 }
 
-// Clear glass (`CLEAR`, the control center's tiles), its look as approved
-// on mock-ups (29.10.): no grain; a lens – within LENS px of the edge it
-// shows what lies further out along the edge's normal, the more the nearer
-// the edge, by up to LENS_SHIFT px –, a faint white sheen at the top, an
-// inner glow and the rim, both brighter where the edge faces the light (top
-// left). All on the colours as encoded, as the mock-up mixed them.
-const float LENS = 10.0;
-const float LENS_SHIFT = 9.0;
-const float SHEEN = 0.05;
-const float SHEEN_DOWN_TO = 0.35;
-const float GLOW = 0.16;
-const float GLOW_WIDTH = 4.0;
-const float RIM_WIDTH = 1.5;
-const vec2 CLEAR_LIGHT = vec2(-0.70710678, -0.70710678);
+// Liquid glass (`CLEAR`: the control center's tiles and the dock; ADR 0028
+// §6), its look approved on mock-ups (29.10.) and fitted to Apple's macOS 26
+// control center, measured on its press image (3.94 px per pt) in linear
+// light. The glass texture is what lies behind, frosted (a Gaussian at half
+// size, `backdrop.frag`). Per pixel, in linear light:
+// - a rounded edge: over BEVEL px the surface curves down to the rim, its
+//   normal tilting out; there the glass shows what lies further out along
+//   the normal (refraction) – the depth, no line drawn;
+// - one tone for the whole shape from the mean behind it (TONE_AT, nine
+//   reads of the frosted texture, the same for every pixel of the shape):
+//   with white ink on it (`bottom.z` 1) unchanged over dark, eased towards
+//   CAP over light so the ink keeps about 3.4:1 (Apple's, measured), its
+//   colour deeper rather than grey where it is pulled down; without ink
+//   (the dock) only the appearance's;
+// - chroma times SATURATION (Apple's tiles x1.1 to 1.3 of what is around);
+// - a thin line of light at the very outside, bright towards the light
+//   (upper left) and its reflection (lower right), faint between – Apple's
+//   rim, its strength by angle fitted at sixteen –, on the lighter of the
+//   glass and what lies just outside it; a breath of shine on the
+//   curve; light gathered inside the lower edge, gone within ~4 pt.
+// `bottom.xy` is the glass texture's step per pixel (normalised), `bottom.w`
+// 1 in the dark appearance.
+const float BEVEL = 7.0;
+const float REFRACT = 0.9;
+const float SATURATION = 1.25;
+const float KNEE = 0.22;
+const float CAP = 0.27;
+const float EASE = 0.15;
+const float DEEPEN = 0.6;
+const float DEEP_MOST = 1.3;
+// Dark: the tone times DARK_TONE, the light added times DARK_LIGHT.
+const float DARK_TONE = 0.72;
+const float DARK_LIGHT = 0.6;
+// Light: a faint lift towards white, more where no ink lies (the dock).
+const float LIFT = 0.015;
+const float LIFT_PLAIN = 0.08;
+// The line of light: its width, the light's and the reflection's direction
+// (outward normals) and how fast each falls off around it, and what is
+// left between.
+const float LINE_WIDTH = 1.14;
+const vec2 LINE_KEY = vec2(-0.87462, -0.48481);     // -151 degrees
+const vec2 LINE_BACK = vec2(0.93969, 0.34202);      // 20 degrees
+const float LINE_KEY_LIGHT = 0.36;
+const float LINE_BACK_LIGHT = 0.14;
+const float LINE_SIDE = 0.065;
+const float LINE_FALL = 1.2;
+// Where the line reads what lies just outside the glass, in px.
+const float LINE_OUTSIDE = 2.0;
+// The shine on the curve: Blinn-Phong, the key light from the upper left,
+// its reflection from the lower right (unit half vectors with the view).
+const vec3 SHINE_KEY = vec3(-0.32366, -0.41193, 0.85180);
+const vec3 SHINE_BACK = vec3(0.35704, 0.41655, 0.83607);
+const float SHINE_KEY_LIGHT = 0.03;
+const float SHINE_BACK_LIGHT = 0.02;
+const float SHINE_POWER = 90.0;
+// Light gathered inside the lower edge (outward normal at 80 degrees).
+const vec2 GATHER = vec2(0.17365, 0.98481);
+const float GATHER_LIGHT = 0.13;
+const float GATHER_WIDTH = 2.8;
+// Where the tone is read: three by three across the shape.
+const float TONE_AT[3] = float[](0.2, 0.5, 0.8);
+
+vec3 decoded3(vec3 c) {
+    return vec3(decoded(c.r), decoded(c.g), decoded(c.b));
+}
+
+float relative_luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The frosted texture, linear, at the screen's pixel `q` (the fragment at
+// `p` reads `at`).
+vec3 frosted(vec2 at, vec2 p, vec2 q) {
+    vec2 there = at + (q - p) * bottom.xy;
+    return decoded3(textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), there, 0.0).rgb);
+}
+
+// What one shine adds on the curve, `normal` its unit normal (z towards the
+// viewer): Blinn-Phong above what the flat glass would show.
+float shine(vec3 normal, vec3 half_vector, float light) {
+    float flat_glass = pow(half_vector.z, SHINE_POWER);
+    float s = pow(max(dot(normal, half_vector), 0.0), SHINE_POWER);
+    return light * clamp((s - flat_glass) / (1.0 - flat_glass), 0.0, 1.0);
+}
 
 vec4 clear_glass() {
     vec2 p = gl_FragCoord.xy;
     float d = edge_distance(p, clip, rounding.x);
     float shown = clamp(0.5 - d, 0.0, 1.0);
     float within = max(-d, 0.0);
+    bool ink = bottom.z > 0.5;
+    bool dark = bottom.w > 0.5;
     // The edge's direction, outwards: the distance's gradient; only where
-    // the lens, the glow or the rim needs it.
+    // the curve, the line or the gathered light reach.
     vec2 n = vec2(0.0);
-    if (within < LENS) {
+    if (within < BEVEL + 1.0) {
         n = vec2(
             edge_distance(p + vec2(0.5, 0.0), clip, rounding.x)
                 - edge_distance(p - vec2(0.5, 0.0), clip, rounding.x),
@@ -290,18 +362,57 @@ vec4 clear_glass() {
                 - edge_distance(p - vec2(0.0, 0.5), clip, rounding.x));
         n /= max(length(n), 1e-4);
     }
-    float bend = clamp(1.0 - within / LENS, 0.0, 1.0);
-    vec2 at = uv * texel + n * (bend * bend * LENS_SHIFT) * bottom.xy;
-    vec3 c = textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), at, 0.0).rgb;
-    float down = (p.y - clip.y) / max(clip.w, 1.0);
-    c = mix(c, vec3(1.0), clamp(1.0 - down / SHEEN_DOWN_TO, 0.0, 1.0) * SHEEN);
-    float facing = dot(n, CLEAR_LIGHT);
-    float toward = max(facing, 0.0) + 0.45 * max(-facing, 0.0);
-    c = mix(c, vec3(1.0), clamp(1.0 - within / GLOW_WIDTH, 0.0, 1.0) * shown * toward * GLOW);
-    // The rim in `color` (premultiplied), a ring RIM_WIDTH px inside.
-    float ring = (shown - clamp(0.5 - (d + RIM_WIDTH), 0.0, 1.0)) * toward;
-    c = c * (1.0 - color.a * ring) + color.rgb * ring;
-    return vec4(c, 1.0) * shown;
+    float tilt = pow(clamp(1.0 - within / BEVEL, 0.0, 1.0), 1.3);
+    vec2 at = uv * texel;
+    vec3 c = frosted(at, p, p + n * (tilt * BEVEL * REFRACT));
+
+    // The tone: the same for all of the shape.
+    float behind = 0.0;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            vec2 q = clip.xy + clip.zw * vec2(TONE_AT[i], TONE_AT[j]);
+            behind += relative_luminance(frosted(at, p, q));
+        }
+    }
+    behind = max(behind / 9.0, 1e-4);
+    float target = behind;
+    if (ink && behind > KNEE) {
+        target = KNEE + (CAP - KNEE) * (1.0 - exp(-(behind - KNEE) / EASE));
+    }
+    float pulled = target / behind;
+    float gain = pulled * (dark ? DARK_TONE : 1.0);
+    float deeper = pulled < 1.0 ? min(pow(pulled, -DEEPEN), DEEP_MOST) : 1.0;
+    vec3 lab = oklab(c * gain);
+    lab.yz *= SATURATION * deeper;
+    c = max(linear_rgb(lab), 0.0);
+    float lift = dark ? 0.0 : LIFT + (ink ? 0.0 : LIFT_PLAIN);
+    c += lift * (1.0 - c);
+
+    // The light: the line at the very outside, the shine on the curve, the
+    // light gathered inside the lower edge.
+    float line = exp(-pow((within - LINE_WIDTH * 0.45) / (LINE_WIDTH * 0.5), 2.0)) * shown;
+    float along = LINE_SIDE
+        + LINE_KEY_LIGHT * pow(max(dot(n, LINE_KEY), 0.0), LINE_FALL)
+        + LINE_BACK_LIGHT * pow(max(dot(n, LINE_BACK), 0.0), LINE_FALL);
+    vec3 normal = vec3(n * tilt, sqrt(max(1.0 - tilt * tilt, 0.0)));
+    float light = dark ? DARK_LIGHT : 1.0;
+    float added = shine(normal, SHINE_KEY, SHINE_KEY_LIGHT)
+        + shine(normal, SHINE_BACK, SHINE_BACK_LIGHT)
+        + GATHER_LIGHT * pow(max(dot(n, GATHER), 0.0), 1.2) * exp(-within / GATHER_WIDTH);
+    c += added * light * (1.0 - c);
+    // The line lies on the lighter of the glass and what is just outside
+    // it: an edge catching the light is never darker than either side.
+    // Over light content, where the glass is pulled down, on the glass it
+    // would come out between the two – a grey stroke. Apple's, measured,
+    // always stands above both.
+    if (line > 0.002) {
+        vec3 outside = frosted(at, p, p + n * LINE_OUTSIDE);
+        vec3 under = relative_luminance(outside) > relative_luminance(c) ? outside : c;
+        vec3 lit = under + along * light * (1.0 - under);
+        c = mix(c, lit, line);
+    }
+    c = clamp(c, 0.0, 1.0);
+    return vec4(encoded(c.r), encoded(c.g), encoded(c.b), 1.0) * shown;
 }
 
 void main() {

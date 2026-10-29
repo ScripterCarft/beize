@@ -41,30 +41,6 @@ vec3 encoded3(vec3 c) {
     return vec3(encoded(c.r), encoded(c.g), encoded(c.b));
 }
 
-// Oklab (Björn Ottosson): mixed there, colours keep their lightness and hue
-// instead of turning muddy between two.
-vec3 oklab(vec3 rgb) {
-    vec3 lms = rgb * mat3(
-        0.4122214708, 0.5363325363, 0.0514459929,
-        0.2119034982, 0.6806995451, 0.1073969566,
-        0.0883024619, 0.2817188376, 0.6299787005);
-    return pow(max(lms, 0.0), vec3(1.0 / 3.0)) * mat3(
-        0.2104542553, 0.7936177850, -0.0040720468,
-        1.9779984951, -2.4285922050, 0.4505937099,
-        0.0259040371, 0.7827717662, -0.8086757660);
-}
-
-vec3 linear_rgb(vec3 lab) {
-    vec3 lms = lab * mat3(
-        1.0, 0.3963377774, 0.2158037573,
-        1.0, -0.1055613458, -0.0638541728,
-        1.0, -0.0894841775, -1.2914855480);
-    return (lms * lms * lms) * mat3(
-        4.0767416621, -3.3077115913, 0.2309699292,
-        -1.2684380046, 2.6097574011, -0.3413193965,
-        -0.0041960863, -0.7034186147, 1.7076147010);
-}
-
 // Beize's background: one motif, light and dark (the appearance, 0 or 1),
 // the same places in other colours. Four points of colour, each fading as a
 // Gaussian, under four bands that flow across – the upper edge of each
@@ -162,25 +138,36 @@ float smoke_sigma(float t, float strength) {
 const float SIGMA_LEAST = 0.17;
 const int REACH_MOST = 24;
 
-// A texel of the source as stored: encoded.
-vec3 fetch(ivec2 p, ivec2 last) {
+// A texel of the source as stored: encoded. Halving (`halving`), the mean of
+// the source's two by two texels below the target's texel `p`: one
+// bilinear read at their shared corner.
+vec3 fetch(ivec2 p, ivec2 last, bool halving) {
+    if (halving) {
+        vec2 size = vec2(last + 1);
+        vec2 at = clamp(vec2(p) * 2.0 + 1.0, vec2(1.0), size - 1.0);
+        return textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), at / size, 0.0).rgb;
+    }
     return texelFetch(sampler2D(textures[nonuniformEXT(texture)], linear),
                       clamp(p, ivec2(0), last), 0).rgb;
 }
 
 // One pass of a Gaussian blur, across or down (`step`), on the colours as
 // encoded – as the approved mock-ups blurred, and the passes need no
-// conversion per tap. Its weights normalised over the taps taken.
+// conversion per tap. Its weights normalised over the taps taken. With
+// `bottom.x` 2 the pass also halves its source in both directions (liquid
+// glass: a wide blur at a quarter of the pixels and half the taps); its
+// sigma is then in the target's texels.
 vec3 gauss(ivec2 step) {
     ivec2 p = ivec2(gl_FragCoord.xy);
     ivec2 last = textureSize(sampler2D(textures[nonuniformEXT(texture)], linear), 0) - 1;
+    bool halving = bottom.x > 1.5;
     float sigma = rounding.y;
     if (bottom.w > 0.0) {
         float t = textureLod(sampler2D(textures[nonuniformEXT(uint(bottom.z))], linear),
                              gl_FragCoord.xy * texel, 0.0).r;
         sigma = smoke_sigma(t, sigma);
     }
-    vec3 c = fetch(p, last);
+    vec3 c = fetch(p, last, halving);
     if (sigma < SIGMA_LEAST) {
         return c;
     }
@@ -189,33 +176,15 @@ vec3 gauss(ivec2 step) {
     float total = 1.0;
     for (int i = 1; i <= reach; i++) {
         float w = exp(k * float(i * i));
-        c += w * (fetch(p + i * step, last) + fetch(p - i * step, last));
+        c += w * (fetch(p + i * step, last, halving) + fetch(p - i * step, last, halving));
         total += 2.0 * w;
     }
     return c / total;
 }
 
-// Clear glass's colour, on `c` as encoded (as the approved mock-up
-// computed it): its saturation times `bottom.x` around the luma (ITU-R 601,
-// as PIL's ImageEnhance.Color), then the light held below the ceiling
-// `bottom.y` – L / (1 + a L) with a = 1 / ceiling - 1: dark stays as it
-// is, white comes out at the ceiling, differences in the light stay seen.
-// Computed on linear light, white would come out far lighter (~0.75
-// encoded) and white ink would not read on it.
-vec3 clear(vec3 c) {
-    float gray = dot(c, vec3(0.299, 0.587, 0.114));
-    c = clamp(gray + (c - gray) * bottom.x, 0.0, 1.0);
-    float l = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
-    float a = 1.0 / bottom.y - 1.0;
-    return c / (1.0 + a * l);
-}
-
 void main() {
     if ((flags & (GAUSS_ACROSS | GAUSS_DOWN)) != 0u) {
         vec3 c = gauss((flags & GAUSS_ACROSS) != 0u ? ivec2(1, 0) : ivec2(0, 1));
-        if ((flags & CLEAR) != 0u) {
-            c = clear(c);
-        }
         // Stored through the sRGB view: decoded here, so it holds `c`.
         result = vec4(decoded3(c), 1.0);
         return;

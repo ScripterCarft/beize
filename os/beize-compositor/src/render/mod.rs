@@ -107,26 +107,28 @@ pub enum Blur {
     Gauss(Gauss),
 }
 
-/// A Gaussian blur in two passes at full size – across, then down –, on
-/// the colours as encoded: by `sigma` px, or per pixel by a `mask` (8 bits,
-/// stretched over the source; `backdrop.frag`, `smoke_sigma`) up to it. A
-/// Gaussian, not Kawase stages mixed by the mask: those leave blocks and
-/// ghost edges, as stacked CSS backdrop filters do. Then clear glass's
-/// colour, if `clear`.
+/// A Gaussian blur in two passes – across, then down –, on the colours as
+/// encoded: by `sigma` px, or per pixel by a `mask` (8 bits, stretched over
+/// the source; `backdrop.frag`, `smoke_sigma`) up to it. A Gaussian, not
+/// Kawase stages mixed by the mask: those leave blocks and ghost edges, as
+/// stacked CSS backdrop filters do. `half`: at half the size, the first
+/// pass halving the source as it reads it (liquid glass's wide frost: a
+/// quarter of the pixels, half the taps; its result is soft enough for the
+/// frame's filter to scale it up).
 #[derive(Clone)]
 pub struct Gauss {
     pub sigma: f32,
     pub mask: Option<VkTexture>,
-    pub clear: Option<Clear>,
+    pub half: bool,
 }
 
-/// Clear glass's colour (`beize_vulkan::pipeline::CLEAR`): its saturation
-/// times `saturation`, its light held below `ceiling` (what white behind it
-/// comes out as, encoded).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Clear {
-    pub saturation: f32,
-    pub ceiling: f32,
+/// How liquid glass is drawn (`beize_vulkan::pipeline::CLEAR`): with white
+/// ink on it – its tone held for the ink – or none (the dock), in the dark
+/// appearance or not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Liquid {
+    pub ink: bool,
+    pub dark: bool,
 }
 
 /// Where the CPU's time went in the submissions since it was last taken
@@ -840,6 +842,10 @@ impl VkRenderer {
 fn glass_sizes(size: Size<i32, Buffer>, blur: &Blur) -> Result<Vec<Size<i32, Buffer>>> {
     let material = match blur {
         Blur::Kawase(material) => material,
+        Blur::Gauss(gauss) if gauss.half => {
+            let half = ((size.w + 1) / 2, (size.h + 1) / 2).into();
+            return Ok(vec![half, half]);
+        }
         Blur::Gauss(_) => return Ok(vec![size, size]),
     };
     if material.down == 0 {
@@ -897,28 +903,29 @@ fn glass_passes(source: &VkTexture, blur: &Blur, chain: &[VkTexture]) -> Result<
 }
 
 /// A Gaussian's two passes of `source` into `chain`'s two pictures, each
-/// of its size: across, then down – with clear glass's colour on the last.
+/// of its size: across, then down – the first halving the source if `half`.
 fn gauss_passes(source: &VkTexture, gauss: &Gauss, chain: &[VkTexture]) -> Vec<Pass> {
-    use beize_vulkan::pipeline::{CLEAR, GAUSS_ACROSS, GAUSS_DOWN};
+    use beize_vulkan::pipeline::{GAUSS_ACROSS, GAUSS_DOWN};
     let mut passes = Vec::with_capacity(2);
     let mut from = source.clone();
     for (step, texture) in chain.iter().enumerate() {
         let mut quad = pass_quad(texture.0.size, Some(&from));
         quad.flags = if step == 0 { GAUSS_ACROSS } else { GAUSS_DOWN };
-        quad.sigma = gauss.sigma;
+        // In the target's texels: half as many at half the size.
+        quad.sigma = if gauss.half {
+            gauss.sigma / 2.0
+        } else {
+            gauss.sigma
+        };
+        if gauss.half && step == 0 {
+            quad.bottom[0] = 2.0;
+        }
         let mut reads = vec![from];
         if let Some(mask) = &gauss.mask {
             // A slot of the texture array: exact in an f32 below 2^24.
             quad.bottom[2] = mask.0.gpu.slot as f32;
             quad.bottom[3] = 1.0;
             reads.push(mask.clone());
-        }
-        if step + 1 == chain.len()
-            && let Some(clear) = gauss.clear
-        {
-            quad.flags |= CLEAR;
-            quad.bottom[0] = clear.saturation;
-            quad.bottom[1] = clear.ceiling;
         }
         passes.push(Pass {
             texture: texture.clone(),

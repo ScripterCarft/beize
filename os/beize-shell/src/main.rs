@@ -62,8 +62,11 @@ const MARGIN: f32 = 20.0;
 const SYMBOL: u32 = 18;
 const SYMBOL_GAP: f32 = 22.0;
 const GLOBE: u32 = 20;
-/// The pill below an open menu's button, round at the ends, black at 18 %
-/// on white ink, 10 % on dark: 36 pt wide under the Beize menu (measured in
+/// The pill below an open menu's button, round at the ends, flat, no
+/// glass: white at 28 % below white ink – lighter than the bar, as Apple's
+/// (its open control-center button: the backdrop about 1.45 times as light,
+/// measured; the owner, 29.10., on mock-ups) –, black at 10 % below dark
+/// ink, where the bar is light. 36 pt wide under the Beize menu (measured in
 /// the HIG's menu-bar image); under the control center's the owner's
 /// 54 × 28 px (28.10.; Apple's 46.5 × 24 pt at `SCALE`, 58 × 30, filled
 /// the bar). The control center's button is its pill: the clock and the
@@ -651,12 +654,15 @@ fn menu_bar(
         Appearance::Light => INK_LIGHT,
         Appearance::Dark => INK_DARK,
     };
-    let pill_color = Color {
-        a: match backdrop {
-            Appearance::Light => 26,
-            Appearance::Dark => 46,
+    let pill_color = match backdrop {
+        Appearance::Light => Color {
+            a: 26,
+            ..Color::rgb(0)
         },
-        ..Color::rgb(0)
+        Appearance::Dark => Color {
+            a: 71,
+            ..Color::rgb(0xff_ff_ff)
+        },
     };
     let symbol = SYMBOL as f32;
     let symbol_y = ((h - symbol) / 2.0).round();

@@ -102,14 +102,15 @@ pub const TRIANGLE: u32 = 8192;
 /// A pass of a Gaussian blur from the texture (`backdrop`), across or down,
 /// on the colours as encoded: by `sigma` – or, with `bottom[3]` 1, per
 /// pixel by the mask in slot `bottom[2]` (its red, the smoke's) up to
-/// `sigma`.
+/// `sigma`. With `bottom[0]` 2 it halves its source in both directions as
+/// it reads it, `sigma` in the target's texels.
 pub const GAUSS_ACROSS: u32 = 16384;
 pub const GAUSS_DOWN: u32 = 32768;
-/// Clear glass (ADR 0028 §6). With `GAUSS_DOWN`: its colour, on the colours
-/// as encoded – saturation times `bottom[0]`, the light held below the
-/// ceiling `bottom[1]`. With `GLASS`: its lens, sheen, glow and rim instead
-/// of grain and the plain rim, `bottom[0..2]` the glass texture's step per
-/// pixel (normalised).
+/// With `GLASS`: liquid glass (ADR 0028 §6; the control center's tiles, the
+/// dock) instead of grain and the plain rim – its curved edge, tone, line
+/// of light. `bottom[0..2]` the glass texture's step per pixel
+/// (normalised), `bottom[2]` 1 with white ink on it, `bottom[3]` 1 in the
+/// dark appearance.
 pub const CLEAR: u32 = 65536;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
