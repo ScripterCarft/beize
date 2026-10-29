@@ -315,41 +315,51 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: 0.5.118 gemessen, Glas wird neu gestaltet)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: flüssiges Glas gebaut, Messbau 0.5.119)
 
-**JETZT: Glas neu gestalten, näher an Apple** (Besitzer 29.10. nach dem Test von 0.5.118): „zu
-wenig wie bei Apple. Es ist meist dunkel, und das Dock nutzt noch ein anderes.“ **Das Beize-Menü
-gefällt ihm** (Menü-Glas: Kawase, #F2F2F2/#2D2D2D zu 85 %, schwacher Rand, Schatten – nicht
-anfassen, höchstens als Maßstab). Ziel: ein Glas für Kontrollzentrum und Dock (und was später
-kommt), heller/klarer wie macOS 26 Liquid Glass, nicht das „graue Rauchglas“ der Decke 0,52/0,50.
-Vorgehen wie bewährt: zuerst an Apples Bildern messen (`~/scratch/apple/x`, Pressebilder
-Control Center/hero/Safari; HIG-Bilder `~/scratch/apple/hig`), Varianten als Mock-ups (Python,
-Vorlage `~/scratch/glass-mock/glass2.py` + `veil.py`, Grundlage echte Bildschirmfotos) dem
-Besitzer zur Abnahme, erst dann bauen. Fotos des Besitzers von 0.5.118 (Teil 2d, hell/dunkel über
-dem Terminal): `~/hw-logs/results-20261029-110942/Screenshot 2026-10-29 at 11.11.1{0,6}.png` –
-zuerst ansehen. Offene Fragen an ihn: was „wie Apple“ genau heißt (heller? mehr Durchsicht?
-Weiß-Tönung statt Stauchung? Rauch behalten?), und ob Dock und Kontrollzentrum dasselbe Material
-bekommen. Die Weiß-Schrift-Entscheidung (Schrift weiß in beiden Modi) hing an der Decke – bei
-hellerem Glas neu abwägen (macOS: dunkle Schrift auf hellem Glas im hellen Modus).
+**JETZT: Messbau 0.5.119 testen** (Tag `measure/desktop-0.5.119` = e1f8a06 auf `main` 156f655,
+Branch `measure/desktop` lokal neu, Besitzer force-pusht; Smoke grün 16/16; Stick-Dateien in
+`~/scratch/stick`). Ablauf wie immer: Besitzer baut das Release, „Release fertig“ → Claude
+kopiert nach D:, Besitzer testet, Claude wertet aus. **Auswerten:** Teil 2d (Fotos: Kacheln über
+Hintergrund und Terminal, hell/dunkel, Leistenknopf, Dock – Lichtlinie sauber, kein grauer Strich,
+nicht grau-dunkel?) und **Leistung Teil 5 gegen 5b** (Besitzer: „keine Leistung verlieren“;
+0.5.118: GPU median 0,43 → 0,54 ms, busy 14 → 17 %). Erwartung: 5b eher billiger (Gauß auf halber
+Größe, σ 7 statt 6 auf voller; neu je Pixel der Kacheln 9+2 Lesezugriffe, nur wo gezeichnet).
+Danach mit dem Besitzer: (f) per ADR 0028 „Reihenfolge“ (unten).
 
-**Leistung 0.5.118 gemessen (`~/hw-logs/results-20261029-110942`), kein Handlungsbedarf:**
-Lasttest Teil 5 (Kontrollzentrum zu) gegen 5b (offen über einem laufenden Fenster, jedes Bild neu
-weichgezeichnet = schlimmster Fall): GPU median 0,43 → 0,54 ms (+0,11), max 2,46 → 2,69; busy
-14 → 17 %; CPU `glass` 0,00 ms; späte Bilder 2 → 2 (beide „display“, bekannt NVK); Bilder
-114 975 → 114 993 von 115 200. Das neue Glas ist also billig; bleibt die Technik (Gauß-Pässe mit
-σ je Pixel, Maske auf der CPU) für das neue Material, sind die Hebel (bilineare Taps, halbe
-Größe) nicht nötig. Nicht geprüft: ob das Fenster in 5b wirklich unter dem Kontrollzentrum lag
-(Fotos/Ablauf nachfragen). Rest der Auswertung (Client-Test, FIFO, syncobj, Resize, Warnungen,
-85 „late frame“-Zeilen gesamt) steht noch aus – im neuen Chat kurz durchsehen.
+**Flüssiges Glas gebaut 29.10. (156f655; ADR 0028 §4–§6 hat alle Werte und Herkunft).** Der
+Besitzer fand das Glas von 0.5.118 „zu wenig wie Apple, meist dunkel, das Dock ein anderes“.
+Gemessen an Apples Pressebild des Kontrollzentrums (lineares Licht, Kantenprofile unter 16
+Winkeln), über vier Mock-up-Runden abgenommen (`~/scratch/glass-mock/liquid.py`,
+`review/proposal.py` `A_5`, Prüf-Agent gegen Apple: Abweichung 3,31 → 2,12 %L), dann gebaut:
+- ein Material für Kacheln (`clear`, weiße Schrift) und Dock (neu `liquid`, ohne Schrift):
+  Gauß 14/16 px auf halber Größe, gewölbter Rand 7 px mit Lichtbrechung, eine Tönung je Form aus
+  dem Mittel dahinter (Weiß 3,5 : 1 wie Apple, tiefer statt grau), Lichtlinie 1 px ganz außen.
+  **Entfernt:** die feste Decke `L/(1+aL)` (`backdrop.frag` `clear`, `render::Clear`) – sie
+  drückte Mitteltöne auf ein Drittel; das alte Dock-Glas (`Material::Live` + Tönung).
+- Befund beim Bauen (belegt in der VM, Pixelprofile): die Linie auf das Glas addiert landet über
+  hellem Inhalt **zwischen** abgedunkeltem Glas und hellerem Umfeld = grauer Strich. Apples steht
+  immer über beiden Seiten → Linie liegt auf dem Helleren von Glas und dem, was 2 px außen liegt
+  (auf Apples Bild unverändert genau).
+- Leistenknopf offen: flache Pille Weiß 28 % (unter weißer Schrift), kein Glas (Besitzer).
+- Gefrorenes Glas (Shell-Neustart) behält seinen letzten Blur (`Glass::freeze`).
+- Smoke `liquid_glass` (vor `control_center_smoke`): Tönung der Kapsel nach der Kurve ±25 %,
+  Weiß ≥ 3 : 1, Linie oben links über beiden Seiten und weiter darüber als oben rechts; drei
+  Gegenproben rot (alte Kurve 0,138 statt 0,261; Linie nur auf dem Glas −13; gleichmäßige Linie
+  220 gegen 225). Die erste Linienprüfung tastete mit gerundetem Mittelpunkt und traf die 1-px-Linie
+  diagonal nicht – Gegenprobe blieb grün, Messung korrigiert. Dock-Live-Prüfung tastete genau auf
+  der Naht der Viertel des Testclients (Blau+Weiß verwischt ≈ Hintergrund) → 20 px links davon.
+- Nicht belegt (keine Referenz): Apples dunkles Erscheinungsbild, Apple über Weiß, Apples Dock.
+  Das Dock über einem weißen Fenster hat keine Kante außer der Linie (Apple dort: offen).
+- Vergleichsbild für den Besitzer (sein Foto 0.5.118 gegen VM 0.5.119):
+  `~/scratch/glass-mock/vergleich-echt.py`.
 
-**Stand des Codes:** 939ebc2 (Glas + Rauch, ADR 0028 §5/§6 beschreibt es), Messbau
-`measure/desktop-0.5.118` (d84f4b1; hw-test Teil 2d Aussehen, Teil 5b Last mit
-Kontrollzentrum). Aufbau, auf dem das neue Material aufsetzen kann: `beize_glass_v1` Material
-`clear` + `set_smoke`; Rauch als eigenes lebendiges Glas (`Behind::Smoke`, `backdrop.rs`
-`smoke`/`smoke_mask`); `render::Blur::{Kawase, Gauss}`; `backdrop.frag` `gauss`/`clear` (Farbe auf
-kodierten Werten), `quad.frag` `clear_glass` (Linse, Glanz, Schein, Rand); Smoke-Prüfung
-`control_center_smoke` (Detail-Maß, Rauchende pixelgleich, Uhr scharf) mit Gegenproben. Das Dock
-nutzt weiter `Material::Live` (Kawase, Tönung `Appearance::material`, Sättigung 1,8).
+**Offener Befund CI (nicht vom Glas):** der nächtliche volle Lauf auf 9c0fd13 (29.10. 10:00) fiel
+in „with the screen off a client drew 6 frames in 3 s, not at most 5“ – im Runner gleichzeitig
+RCU-Stall und virtio-net-Watchdog (vCPU-Stau, #41). Die Prüfung zählt einen Takt in der VM
+(`OFF_FRAMES_MOST`), was die Regel „in der VM nur Protokoll, Takt auf Hardware“ verletzt →
+auf Protokoll umstellen (Besitzer entscheidet wann). Deshalb **nicht gepusht**: main 156f655 +
+Doku nur lokal; Regel des Besitzers: Push erst nach grünem vorigem Lauf.
 
 **0.5.117 ausgewertet 29.10. (`~/hw-logs/results-20261028-222824`).** Alles bestanden: logind
 „yes“ dreimal, keine Warnungen, Last 114 944/115 200, rotiert 86 247, syncobj 30/30. Befund des
