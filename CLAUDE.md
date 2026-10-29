@@ -315,53 +315,51 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: flüssiges Glas gebaut, Messbau 0.5.119)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29 abends: Glas neu nach Apples Dock, Messbau 0.5.120)
 
-**JETZT: Messbau 0.5.119 auf den Stick, dann testen** (Tag `measure/desktop-0.5.119` = e1f8a06
-auf `main` 156f655, Branch `measure/desktop` lokal neu; Smoke grün 16/16; Stick-Dateien fertig in
-`~/scratch/stick`: `hw-test.sh` vom Tag + die vier Testprogramme). Anleitung an den Besitzer
-29.10. gegeben (docs/hardware.md A). Der nächste Chat tut **zuerst**, sobald der Besitzer
+**JETZT: Messbau 0.5.120 auf den Stick, dann testen** (Tag `measure/desktop-0.5.120` = e247a7b
+auf `main` 6aa3779, Branch `measure/desktop` lokal neu; Smoke grün; Stick-Dateien fertig in
+`~/scratch/stick`: `hw-test.sh` vom Tag + die vier Testprogramme). Sobald der Besitzer
 „Release fertig“ sagt:
-1. prüfen: `build/out/desktop/release/0.5.119/` hat 6 Dateien, `git branch --show-current` = main;
-2. `cp -r build/out/desktop/release/0.5.119 /mnt/d/beize-0.5.119` und
-   `cp ~/scratch/stick/* /mnt/d/beize-test/` (überschreibt Skript und Programme; die
-   `results-*` dort bleiben); `D:\beize-0.5.118` löschen darf nur der Besitzer (Befehl nennen:
-   `Remove-Item -Recurse D:\beize-0.5.118`);
-3. dem Besitzer sagen: Stick fertig, docs/hardware.md B/C (Teil 2d und 5/5b).
-**Auswerten:** Teil 2d (Fotos: Kacheln über Hintergrund und Terminal, hell/dunkel, Leistenknopf,
-Dock – Lichtlinie sauber, kein grauer Strich, nicht grau-dunkel?) und **Leistung Teil 5 gegen 5b**
-(Besitzer: „keine Leistung verlieren“; 0.5.118: GPU median 0,43 → 0,54 ms, busy 14 → 17 %).
-Erwartung: 5b eher billiger (Gauß auf halber Größe, σ 7 statt 6 auf voller; neu je Pixel der
-Kacheln 9+2 Lesezugriffe, nur wo gezeichnet). **Danach (Besitzer hat es 29.10. an den nächsten
-Chat gegeben):** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller
-Lauf grün, dann pushen. Dann (f) per ADR 0028 „Reihenfolge“ (unten).
+1. prüfen: `build/out/desktop/release/0.5.120/` hat 6 Dateien, `git branch --show-current` = main;
+2. Stick in WSL einhängen, falls `/mnt/d` fehlt (nach WSL-Start gesteckt):
+   `sudo -n mkdir -p /mnt/d && sudo -n mount -t drvfs D: /mnt/d`; dann
+   `cp -r build/out/desktop/release/0.5.120 /mnt/d/beize-0.5.120` und
+   `cp ~/scratch/stick/* /mnt/d/beize-test/`, mit `cmp` prüfen, `sudo -n umount /mnt/d`;
+   alte `D:\beize-0.5.11x` löschen darf nur der Besitzer (Befehl nennen);
+3. dem Besitzer sagen: Stick fertig, docs/hardware.md B/C, wichtig Teil 2d (Glas) und 2g (Dock
+   über dem weißen Viertel des Testfensters, Foto).
+**Auswerten:** Fotos 2d/2g gegen Apple (Mac-Bildschirmfoto des Besitzers
+`~/scratch/glass2/mac.png`, Werte in ADR 0028 §6), Leistung Teil 5 gegen 5b (0.5.119: GPU median
+0,42 → 0,55 ms, busy 14 → 17 %; 0.5.120 sollte gleich oder billiger sein: Gauß 10 statt 14/16).
+**Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller Lauf
+grün, dann pushen (main 156f655..6aa3779 + Doku nur lokal). Dann (f) per ADR 0028 „Reihenfolge“.
+Offen als eigener Schritt (Besitzer gefragt, nicht entschieden): Kontrollzentrum über sehr Hellem
+wie Apple mit dunkler Schrift statt grau gezogenem Glas.
 
-**Flüssiges Glas gebaut 29.10. (156f655; ADR 0028 §4–§6 hat alle Werte und Herkunft).** Der
-Besitzer fand das Glas von 0.5.118 „zu wenig wie Apple, meist dunkel, das Dock ein anderes“.
-Gemessen an Apples Pressebild des Kontrollzentrums (lineares Licht, Kantenprofile unter 16
-Winkeln), über vier Mock-up-Runden abgenommen (`~/scratch/glass-mock/liquid.py`,
-`review/proposal.py` `A_5`, Prüf-Agent gegen Apple: Abweichung 3,31 → 2,12 %L), dann gebaut:
-- ein Material für Kacheln (`clear`, weiße Schrift) und Dock (neu `liquid`, ohne Schrift):
-  Gauß 14/16 px auf halber Größe, gewölbter Rand 7 px mit Lichtbrechung, eine Tönung je Form aus
-  dem Mittel dahinter (Weiß 3,5 : 1 wie Apple, tiefer statt grau), Lichtlinie 1 px ganz außen.
-  **Entfernt:** die feste Decke `L/(1+aL)` (`backdrop.frag` `clear`, `render::Clear`) – sie
-  drückte Mitteltöne auf ein Drittel; das alte Dock-Glas (`Material::Live` + Tönung).
-- Befund beim Bauen (belegt in der VM, Pixelprofile): die Linie auf das Glas addiert landet über
-  hellem Inhalt **zwischen** abgedunkeltem Glas und hellerem Umfeld = grauer Strich. Apples steht
-  immer über beiden Seiten → Linie liegt auf dem Helleren von Glas und dem, was 2 px außen liegt
-  (auf Apples Bild unverändert genau).
-- Leistenknopf offen: flache Pille Weiß 28 % (unter weißer Schrift), kein Glas (Besitzer).
-- Gefrorenes Glas (Shell-Neustart) behält seinen letzten Blur (`Glass::freeze`).
-- Smoke `liquid_glass` (vor `control_center_smoke`): Tönung der Kapsel nach der Kurve ±25 %,
-  Weiß ≥ 3 : 1, Linie oben links über beiden Seiten und weiter darüber als oben rechts; drei
-  Gegenproben rot (alte Kurve 0,138 statt 0,261; Linie nur auf dem Glas −13; gleichmäßige Linie
-  220 gegen 225). Die erste Linienprüfung tastete mit gerundetem Mittelpunkt und traf die 1-px-Linie
-  diagonal nicht – Gegenprobe blieb grün, Messung korrigiert. Dock-Live-Prüfung tastete genau auf
-  der Naht der Viertel des Testclients (Blau+Weiß verwischt ≈ Hintergrund) → 20 px links davon.
-- Nicht belegt (keine Referenz): Apples dunkles Erscheinungsbild, Apple über Weiß, Apples Dock.
-  Das Dock über einem weißen Fenster hat keine Kante außer der Linie (Apple dort: offen).
-- Vergleichsbild für den Besitzer (sein Foto 0.5.118 gegen VM 0.5.119):
-  `~/scratch/glass-mock/vergleich-echt.py`.
+**Glas neu 29.10. abends (6aa3779; ADR 0028 §6 hat alle Werte und Herkunft).** 0.5.119 gemessen
+(`~/hw-logs/results-20261029-173050`: alles bestanden, Last 115 045, mit Kontrollzentrum
+114 919; GPU median 0,42 → 0,55 ms wie 0.5.118). Befund des Besitzers: über einer weißen Fläche
+ist das Dock ganz weiß, kein Glas mehr; Linie zu dünn und pixelig; er will Apple-Glas – klar, ganz
+leicht milchig, oben/unten Licht, seitlich leicht dunkel wie Schatten, subtil, im Dunklen nicht
+grell. Gemessen an seinem Mac-Bildschirmfoto (macOS 26' Dock, 2 px je pt) und Apples Glasknöpfen
+über Weiß (macOS 27), gebaut, ein Prüf-Agent hat gegen Apple nachgemessen:
+- **Ursache Weiß:** das Aufhellen gegen Weiß (`LIFT_PLAIN`) – entfernt; jetzt Milch zu hellem Grau.
+- Seiten: äußerstes Pixel dunkler als das Dunklere von Glas und Umfeld (Agent: nur das Glas
+  abzudunkeln blieb über Dunklem heller als das Umfeld); Linie nur oben/unten, auf dem Helleren;
+  Schein darunter ~2 pt; **entfernt:** Blinn-Phong-Glanz, Licht innen unten, Innenschatten.
+- **Fehler gefunden und behoben:** lebendiges Glas verwischte seinen eigenen Schatten (er lag in
+  der Reihenfolge dahinter, unter den runden Ecken gezeichnet) → graue Ecken über Weiß. Schatten
+  jetzt vor dem Glas, der Shader schneidet die runde Form exakt aus (gilt für alle Schatten).
+- Schatten flüssigen Glases eigener `LIQUID` (nur unten, seitlich eingerückt): der allgemeine
+  (σ 8) reichte 21 px nach oben auf Fenster über dem Dock (Smoke `resized`/`maximized` rot).
+- Smoke: Dock an seiner dunklen Kante erkannt (Unit-Test angepasst), Linienprüfung oben gegen
+  Seite (Gegenprobe ohne „auf dem Helleren“ rot, knapp: 220 gegen 221; jetzt 230 gut),
+  neues Bild `dock-over-window.png` (Dock über Blau/Weiß des Testfensters).
+- Nicht belegt: Apples dunkles Erscheinungsbild (Dunkel nach Agent-Empfehlung, geschätzt).
+- Lehren: Mock-ups maßen das Licht über Weiß, wo es unsichtbar ist – die Seitenlinie war daher
+  falsch abgestimmt; Profile über dunklem UND hellem Grund nehmen. Smoke-Fehlschläge nach einer
+  Optik-Änderung zuerst im Bild ansehen: zwei waren echte Befunde (Schatten oben, graue Ecken).
 
 **Offener Befund CI (nicht vom Glas):** der nächtliche volle Lauf auf 9c0fd13 (29.10. 10:00) fiel
 in „with the screen off a client drew 6 frames in 3 s, not at most 5“ – im Runner gleichzeitig
