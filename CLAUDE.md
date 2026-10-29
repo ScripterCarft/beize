@@ -317,22 +317,53 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: 0.5.117 ausgewertet, Glas des Kontrollzentrums neu)
 
-**JETZT: neues Glas + Rauch fürs Kontrollzentrum, Entwurf wartet auf den Besitzer.** Wunsch
-(29.10.): hinter den Kacheln verwischt es nicht – ein Fenster dahinter macht sie schwer lesbar.
-Apples Pressebild (macOS 26, `~/scratch/apple/x`): Hintergrund hinter und zwischen den Kacheln
-verwischt, weich auslaufend ohne Kante, bis unter die Leiste; Kacheln ohne Schatten. Plan:
-- **Rauch** (neues Material): nur Unschärfe, ohne Tönung/Rand/Schatten, ab dem Rand jeder
-  Kachel nach außen schwächer (variable Unschärfe aus den Kawase-Stufen, kein Überblenden),
-  unter der Leiste gezeichnet (Uhr bleibt scharf); Besitzer wählte Stärke 4 (σ ≈ 4 px am
-  Kachelrand), Auslauf 130 px. Popup größer, Eingabe nur auf den Kacheln.
-- **Kachelglas neu** (Besitzer: kein Milchglas, durchlässiger, dunkler, hell ≈ dunkel, weiße
-  Schrift überall): Unschärfe σ ~6 statt ~20, Sättigung 1,5, statt fester Tönung Helligkeit
-  gestaucht `L/(1+aL)` (Weiß → 0,44 hell / 0,40 dunkel, Dunkles bleibt), ×0,94, Glanz oben 7 %,
-  Lichtrand, kein Schatten. Mock-ups: Scratchpad-Skripte `veil.py`, `glass2.py` (Python,
-  Screenshots aus `~/hw-logs/results-20261028-222824`). Offen beim Besitzer: Abnahme; über
-  hellem Inhalt graues Rauchglas oder Schrift auf Schwarz wie Apple.
-- **Danach (Besitzer, 29.10.):** EIN Agent prüft Design + Umsetzungsplan gegen den
-  Compositor-Code (Stabilität, Artefakte, Optik) **vor** dem Bau; Agenten sind teuer.
+**JETZT: neues Glas + Rauch fürs Kontrollzentrum BAUEN** (Entwurf abgenommen 29.10., Prüf-Agent
+durch, Plan unten korrigiert). Nur Kontrollzentrum; Menü/Dock später, wenn es dem Besitzer
+gefällt. Wunsch: hinter den Kacheln verwischt nichts, ein Fenster dahinter macht sie schwer
+lesbar. Apples Pressebild (macOS 26, `~/scratch/apple/x`): hinter/zwischen den Kacheln
+verwischt, weich auslaufend, bis unter die Leiste; kein Schatten. Mock-ups (Python, maßgeblich
+für die Formeln): `~/scratch/glass-mock/` (`veil.py`, `glass2.py`, Bilder `glas-*.png`).
+Abgenommene Werte:
+- **Rauch:** nur Unschärfe (keine Tönung/Rand/Schatten/Körnung), ab dem Rand jeder Kachel nach
+  außen: t = (1 − d/130)^1,6, σ aus t per Index-Interpolation über σ = 4·{0; .075; .15; .3; .6; 1}
+  (also max 4 px), unter der Leiste (Uhr scharf). Popup wächst NICHT, Eingabe nur auf Kacheln.
+- **Kachelglas `clear` (Variante 1):** Gauß σ 6, dann auf **kodierten** Werten (sRGB, wie das
+  Mock): Sättigung ×1,5, Helligkeit `Le/(1+a·Le)`, a = 1/Decke − 1, Decke 0,52 hell / 0,50
+  dunkel (Weiß-Kontrast 3,7/4,0), keine Tönung, dim 1,0; Glanz weiß 5 % oben → 0 bei 35 % der
+  Höhe; innerer Schein 16 % → 0 über 4 px × Lichtfaktor; Lichtrand 0,7; **Linse**: innerhalb
+  10 px vom Rand liest es entlang der Normalen weiter außen, Versatz (1 − innen/10)²·9 px. Kein
+  Schatten, Schrift weiß in beiden Modi (über hellem Inhalt bleibt es graues Rauchglas, kein
+  Umspringen der Schrift – Besitzer).
+**Korrigierter Plan (Prüf-Agent 29.10., Belege im Code nachgesehen):**
+1. Protokoll **ohne Versionssprung** (XML: „grows without new versions“): `material.clear = 3`,
+   Request `set_smoke(falloff, strength)`, doppelt gepuffert in `GlassState`, im `Drawn`-Schlüssel
+   (`backdrop.rs` ~350/473), sonst steigt der Commit nicht.
+2. Rauch als **eigenes Glass-Element** wie `plate` (ein Stück = Region, Radius 0, kein Rand,
+   Körnung 0) mit **eigenem `Behind::Smoke(surface)`** (auch `wanted()`): mit `Behind::Panel`
+   teilten Rauch und Kachelglas eine LiveGlass → Region wechselt jeden Frame → Dauer-Unschärfe,
+   Flackern. Region = Formen + Auslauf, auf den Schirm geschnitten. In `scene::panels` NACH
+   `surface_with_glass(panel…)` anhängen → hinter der Leiste, vor Plate/Fenstern.
+3. **Kein Hintergrundbild-Fallback:** LiveGlass startet mit `self.picture` (scharfes
+   Hintergrundbild) – beim Rauch würde das Fenster überdecken, wenn `prepare_glass`/`blur_behind`
+   scheitern oder `keep_panels` einfriert. Rauch ohne gültige Unschärfe zeichnet nichts und
+   meldet keine deckende Region; Rauch (und Kachelglas) nicht in `kept`.
+4. **Keine Mischung aus Kawase-Stufen** (Blockmuster, Geisterkanten wie bei gestapelten
+   CSS-backdrop-filtern): Maske t auf der CPU bei Änderung von Formen/Lage/Auslauf (1/4
+   Auflösung, hochgeladen wie der Scrim, `backdrop.rs` ~455), dann **trennbare Gauß-Pässe mit σ
+   pro Pixel** (h + v, Kern ⌈3σ⌉ ≤ 12, Gewichte normiert; Standard der Tiefenunschärfe in
+   Spielen), nur bei Änderung wie LiveGlass → pro Frame ein Textur-Quad.
+5. Kachelglas `clear`: dieselben Gauß-Pässe mit σ 6 (oder Kawase, dann Impulsantwort messen),
+   MATERIAL-Pass für `clear`: `encoded3` → Sättigung + Stauchung → `decoded3` (linear gerechnet
+   wäre Weiß kodiert ~0,75, Kontrast ~1,8 statt 3,7). Glanz/Schein/Linse/Rand im GLASS-Pfad
+   hinter einem Flag; Linsen-Maßstab über `dFdx(uv)`. Eigene Randwerte für `clear` (heute
+   Licht (−0,6; −0,8), facing², 0,6). Mock nahm als Normale die Richtung vom Mittelpunkt, der
+   Shader-Gradient ist physikalisch richtig – am Screenshot vom Besitzer abnehmen lassen.
+6. Shell: `clear`, `set_smoke(130, 4)`, Schatten aus, `INK_LIGHT` weg. Smoke `menus`: Terminal
+   hinter dem Kontrollzentrum, Zeile zwischen/neben Kacheln verwischt (Cursor-Blinken
+   ausschließen), Pixel jenseits 130 px bis ±1 gleich ohne Kontrollzentrum (findet Nähte,
+   Körnung, Hintergrund-Fallback), Leistentinte unverändert; Gegenproben rot.
+Optional später: Rauch beim Öffnen 120–150 ms einblenden. Zeiten in der VM (lavapipe) nur als
+Protokoll, Takt auf Hardware.
 
 **0.5.117 ausgewertet 29.10. (`~/hw-logs/results-20261028-222824`).** Alles bestanden: logind
 „yes“ dreimal, keine Warnungen, Last 114 944/115 200, rotiert 86 247, syncobj 30/30. Befund des
