@@ -317,15 +317,24 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
 ## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: flüssiges Glas gebaut, Messbau 0.5.119)
 
-**JETZT: Messbau 0.5.119 testen** (Tag `measure/desktop-0.5.119` = e1f8a06 auf `main` 156f655,
-Branch `measure/desktop` lokal neu, Besitzer force-pusht; Smoke grün 16/16; Stick-Dateien in
-`~/scratch/stick`). Ablauf wie immer: Besitzer baut das Release, „Release fertig“ → Claude
-kopiert nach D:, Besitzer testet, Claude wertet aus. **Auswerten:** Teil 2d (Fotos: Kacheln über
-Hintergrund und Terminal, hell/dunkel, Leistenknopf, Dock – Lichtlinie sauber, kein grauer Strich,
-nicht grau-dunkel?) und **Leistung Teil 5 gegen 5b** (Besitzer: „keine Leistung verlieren“;
-0.5.118: GPU median 0,43 → 0,54 ms, busy 14 → 17 %). Erwartung: 5b eher billiger (Gauß auf halber
-Größe, σ 7 statt 6 auf voller; neu je Pixel der Kacheln 9+2 Lesezugriffe, nur wo gezeichnet).
-Danach mit dem Besitzer: (f) per ADR 0028 „Reihenfolge“ (unten).
+**JETZT: Messbau 0.5.119 auf den Stick, dann testen** (Tag `measure/desktop-0.5.119` = e1f8a06
+auf `main` 156f655, Branch `measure/desktop` lokal neu; Smoke grün 16/16; Stick-Dateien fertig in
+`~/scratch/stick`: `hw-test.sh` vom Tag + die vier Testprogramme). Anleitung an den Besitzer
+29.10. gegeben (docs/hardware.md A). Der nächste Chat tut **zuerst**, sobald der Besitzer
+„Release fertig“ sagt:
+1. prüfen: `build/out/desktop/release/0.5.119/` hat 6 Dateien, `git branch --show-current` = main;
+2. `cp -r build/out/desktop/release/0.5.119 /mnt/d/beize-0.5.119` und
+   `cp ~/scratch/stick/* /mnt/d/beize-test/` (überschreibt Skript und Programme; die
+   `results-*` dort bleiben); `D:\beize-0.5.118` löschen darf nur der Besitzer (Befehl nennen:
+   `Remove-Item -Recurse D:\beize-0.5.118`);
+3. dem Besitzer sagen: Stick fertig, docs/hardware.md B/C (Teil 2d und 5/5b).
+**Auswerten:** Teil 2d (Fotos: Kacheln über Hintergrund und Terminal, hell/dunkel, Leistenknopf,
+Dock – Lichtlinie sauber, kein grauer Strich, nicht grau-dunkel?) und **Leistung Teil 5 gegen 5b**
+(Besitzer: „keine Leistung verlieren“; 0.5.118: GPU median 0,43 → 0,54 ms, busy 14 → 17 %).
+Erwartung: 5b eher billiger (Gauß auf halber Größe, σ 7 statt 6 auf voller; neu je Pixel der
+Kacheln 9+2 Lesezugriffe, nur wo gezeichnet). **Danach (Besitzer hat es 29.10. an den nächsten
+Chat gegeben):** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller
+Lauf grün, dann pushen. Dann (f) per ADR 0028 „Reihenfolge“ (unten).
 
 **Flüssiges Glas gebaut 29.10. (156f655; ADR 0028 §4–§6 hat alle Werte und Herkunft).** Der
 Besitzer fand das Glas von 0.5.118 „zu wenig wie Apple, meist dunkel, das Dock ein anderes“.
@@ -358,7 +367,7 @@ Winkeln), über vier Mock-up-Runden abgenommen (`~/scratch/glass-mock/liquid.py`
 in „with the screen off a client drew 6 frames in 3 s, not at most 5“ – im Runner gleichzeitig
 RCU-Stall und virtio-net-Watchdog (vCPU-Stau, #41). Die Prüfung zählt einen Takt in der VM
 (`OFF_FRAMES_MOST`), was die Regel „in der VM nur Protokoll, Takt auf Hardware“ verletzt →
-auf Protokoll umstellen (Besitzer entscheidet wann). Deshalb **nicht gepusht**: main 156f655 +
+auf Protokoll umstellen (Besitzer 29.10.: im nächsten Chat, nach dem Stick). Deshalb **nicht gepusht**: main 156f655 +
 Doku nur lokal; Regel des Besitzers: Push erst nach grünem vorigem Lauf.
 
 **0.5.117 ausgewertet 29.10. (`~/hw-logs/results-20261028-222824`).** Alles bestanden: logind
