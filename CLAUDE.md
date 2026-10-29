@@ -315,25 +315,34 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-28 spät: Shell (e) nachgebessert, Messbau 0.5.117)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29: 0.5.117 ausgewertet, Glas des Kontrollzentrums neu)
 
-**JETZT: Messbau 0.5.117 auswerten, sobald der Besitzer getestet hat.** Release fertig und
-schon auf dem Stick (28.10. 22:25: `D:\beize-0.5.117`, SHA256SUMS geprüft OK; `D:\beize-test`
-mit Skript + Testprogrammen); Branch + Tag vom Besitzer gepusht (1121851). Also gleich bei
-„Ergebnisse“ einsteigen. Tag
-`measure/desktop-0.5.117` (`measure/desktop` = 1121851, ein Commit auf `main` 4d3870d; gebaut,
-Smoke grün 173 s). Stick-Dateien (`hw-test.sh` aus dem Tag + Testprogramme) liegen in
-`~/scratch/stick`. Ablauf wie immer: **Besitzer** macht das Release (docs/hardware.md A) und
-Force-Push von `measure/desktop` + Tag, sagt „Release fertig“ → Claude kopiert das Release
-nach `D:\beize-0.5.117` und `~/scratch/stick/*` nach `D:\beize-test` (Prüfsumme der .efi
-prüfen) → Besitzer testet → Claude kopiert den neuesten `D:\beize-test\results-*` (nach
-20261028-185707) nach `~/hw-logs/` und wertet aus. Neu in Teil 2/6: d) Pille rund mit Luft zu
-Globus/Uhr, Kacheln kleiner und bündig mit der Uhr; e) Fenster an der Titelleiste ziehen,
-während Beize-Menü bzw. Kontrollzentrum offen ist (Menü zu, Fenster wandert sofort mit);
-f) Kontrollzentrum mit Esc zu, sofort Klick aufs Beize-Zeichen (muss beim ersten Klick
-aufgehen). Prüfen: Fotos, `Beize menu may:` = „yes“ dreimal, Zählung open/closed, Warnungen,
-Bildtakt wie 0.5.116. CI des Pushs 4d3870d bei Übergabe noch offen: `gh run list -L 2` prüfen
-(der Lauf davor, 471279c, war rot: `cargo deny` – behoben in ee35195).
+**JETZT: neues Glas + Rauch fürs Kontrollzentrum, Entwurf wartet auf den Besitzer.** Wunsch
+(29.10.): hinter den Kacheln verwischt es nicht – ein Fenster dahinter macht sie schwer lesbar.
+Apples Pressebild (macOS 26, `~/scratch/apple/x`): Hintergrund hinter und zwischen den Kacheln
+verwischt, weich auslaufend ohne Kante, bis unter die Leiste; Kacheln ohne Schatten. Plan:
+- **Rauch** (neues Material): nur Unschärfe, ohne Tönung/Rand/Schatten, ab dem Rand jeder
+  Kachel nach außen schwächer (variable Unschärfe aus den Kawase-Stufen, kein Überblenden),
+  unter der Leiste gezeichnet (Uhr bleibt scharf); Besitzer wählte Stärke 4 (σ ≈ 4 px am
+  Kachelrand), Auslauf 130 px. Popup größer, Eingabe nur auf den Kacheln.
+- **Kachelglas neu** (Besitzer: kein Milchglas, durchlässiger, dunkler, hell ≈ dunkel, weiße
+  Schrift überall): Unschärfe σ ~6 statt ~20, Sättigung 1,5, statt fester Tönung Helligkeit
+  gestaucht `L/(1+aL)` (Weiß → 0,44 hell / 0,40 dunkel, Dunkles bleibt), ×0,94, Glanz oben 7 %,
+  Lichtrand, kein Schatten. Mock-ups: Scratchpad-Skripte `veil.py`, `glass2.py` (Python,
+  Screenshots aus `~/hw-logs/results-20261028-222824`). Offen beim Besitzer: Abnahme; über
+  hellem Inhalt graues Rauchglas oder Schrift auf Schwarz wie Apple.
+- **Danach (Besitzer, 29.10.):** EIN Agent prüft Design + Umsetzungsplan gegen den
+  Compositor-Code (Stabilität, Artefakte, Optik) **vor** dem Bau; Agenten sind teuer.
+
+**0.5.117 ausgewertet 29.10. (`~/hw-logs/results-20261028-222824`).** Alles bestanden: logind
+„yes“ dreimal, keine Warnungen, Last 114 944/115 200, rotiert 86 247, syncobj 30/30. Befund des
+Besitzers: Menü mit Esc zu, sofort Kontrollzentrum auf → ging wieder zu (belegt im Log, 6×:
+zu 0,01–0,34 s nach dem Esc). Ursache: das Kontrollzentrum schloss auf **jedes** Esc-Ereignis,
+auch das Loslassen, das Wayland an den neuen Tastaturfokus schickt (Smithay wie Weston/Mutter);
+das Menü nur auf Drücken. Behoben (Shell: nur Drücken/Wiederholen), Smoke `menus` hält Esc über
+QMP (`console::hold`), Gegenprobe rot. Vermuteter zweiter Fall (Wiederholung läuft nach dem
+Schließen des Popups weiter) per Gegenprobe **widerlegt** (der Compositor sendet beim Ende des
+Grabs noch `leave`) – Änderung wieder entfernt.
 
 **0.5.116 ausgewertet 28.10. abends (`~/hw-logs/results-20261028-185707`).** Alles bestanden:
 logind „yes“ dreimal, Hell/Dunkel ~60× geschaltet (`appearance … chosen`), keine Warnungen;
