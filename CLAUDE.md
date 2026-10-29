@@ -329,9 +329,11 @@ neben den Kacheln 18,5 → 4,1, am Rauchende 0 von 4128 Pixeln anders, Uhr schar
 Gegenproben rot (ohne Rauch, Rauch vor der Leiste, Körnung); Bilder `control-center-smoke-*.png`.
 Kosten (gerechnet, nicht gemessen): unverändert dahinter ein Textur-Quad je Bild (der Rauch deckt
 seine Region, dahinter wird dann nichts gezeichnet); ändert sich etwas dahinter: Kopie ~424×340 +
-2 Pässe à ≤25 Taps, Kachelglas ~292×304 + 2 Pässe à 37 Taps. **Messplan (Besitzer bestätigt
-noch):** Messbau 0.5.118 mit hw-test-Teil „Last mit offenem Kontrollzentrum“ (12 Fenster
-laufen dahinter = schlimmster Fall, jedes Bild neu weichgezeichnet) gegen denselben Lauf zu;
+2 Pässe à ≤25 Taps, Kachelglas ~292×304 + 2 Pässe à 37 Taps. **Messbau 0.5.118** (Tag `measure/desktop-0.5.118`, d84f4b1 auf `main` ca5f5d4, Bau +
+Smoke grün 169 s; Stick-Dateien in `~/scratch/stick`; wartet auf „Release fertig“, dann
+nach D: kopieren). **Messplan (Besitzer bestätigt 29.10.):** hw-test Teil 5b „Last mit Kontrollzentrum“ (vorderstes Fenster unter den Schalter
+gezogen, Kontrollzentrum offen = schlimmster Fall, jedes Bild neu weichgezeichnet) gegen Teil 5;
+Teil 2d fragt das Aussehen über dem Terminal ab;
 Vergleich `pacing:` GPU-ms Median/Max, späte Bilder, busy, `glass`-Teil. Hebel, falls langsamer:
 bilineare Taps (halbiert die Taps, auf kodierten Werten exakt), Kachelglas-Gauß auf halber
 Größe, Rauch nur neu wenn sich in seiner Region etwas ändert (schon so). Danach Mock-Abnahme am
