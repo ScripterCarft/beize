@@ -69,7 +69,7 @@ use crate::paths::Paths;
 use crate::say;
 use crate::vm::console::{
     Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, click, drag, german_presses,
-    keys, screendump, swipe,
+    hold, keys, screendump, swipe,
 };
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
@@ -1077,7 +1077,8 @@ fn dock_glass(
 /// center's button opens that. Its light/dark tile switches the appearance
 /// and back; the compositor keeps the choice. With the menu open, a drag
 /// on a window's title bar closes it and moves the window (owner, 28.10.:
-/// the press went to the menu's grab, the move was refused). The screens of
+/// the press went to the menu's grab, the move was refused). The release of
+/// an Escape that closed the menu leaves the control center open. The screens of
 /// the open
 /// menus are in the logs for the owner (`beize-menu.png`,
 /// `control-center-*.png`).
@@ -1245,7 +1246,36 @@ fn menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -
     say!(
         "  ok: with the Beize menu open, a drag on a window's title bar closed it and moved the window"
     );
+
+    // Escape closes the menu, the control center opens while it is still
+    // held: its release goes to the control center, which stays (owner,
+    // 29.10.: it closed on the release).
+    click(qmp, screen, beize, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu open", 5)?;
+    hold(qmp, "esc", true)?;
+    wait_for_shell_count(shell, "BeizeMenu closed", 5)?;
+    click(qmp, screen, centre, 1)?;
+    wait_for_shell_count(shell, "ControlCenter open", 2)?;
+    hold(qmp, "esc", false)?;
+    thread::sleep(Duration::from_secs(1));
+    let closed = shell_count(shell, "ControlCenter closed")?;
+    ensure!(
+        closed == 1,
+        "the control center closed when the Escape that closed the Beize menu was let go"
+    );
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "ControlCenter closed", 2)?;
+    say!(
+        "  ok: the control center, opened while the Escape that closed the Beize menu was held, \
+         stayed when it was let go"
+    );
     Ok(())
+}
+
+/// How often the shell said `line`.
+fn shell_count(shell: &Shell, line: &str) -> Result<usize> {
+    let (_, lines) = shell.capture(SHELL_SAID)?;
+    Ok(lines.iter().filter(|l| *l == line).count())
 }
 
 /// How far the drag with the Beize menu open moves the terminal: clear of

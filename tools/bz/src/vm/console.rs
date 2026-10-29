@@ -295,6 +295,14 @@ pub(super) fn keys(socket: &Path, keys: &[&str]) -> Result<()> {
     Keyboard::connect(socket)?.press(keys)
 }
 
+/// Puts `key` down (QEMU key name), or lets it go: held across other
+/// input, as a hand that clicks before it lets go of a key.
+pub(super) fn hold(socket: &Path, key: &str, down: bool) -> Result<()> {
+    Keyboard::connect(socket)?.execute(&format!(
+        r#"{{"execute": "input-send-event", "arguments": {{"events": [{{"type": "key", "data": {{"down": {down}, "key": {{"type": "qcode", "data": "{key}"}}}}}}]}}}}"#
+    ))
+}
+
 /// Moves the machine's mouse by `dx`, `dy` and, if `click`, clicks its left
 /// button there.
 pub(super) fn mouse(socket: &Path, dx: i32, dy: i32, click: bool) -> Result<()> {

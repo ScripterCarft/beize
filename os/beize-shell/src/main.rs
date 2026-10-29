@@ -35,7 +35,7 @@ use std::process::ExitCode;
 
 use beize_systemd::login::{self, Power};
 use beize_ui::draw::Cap;
-use beize_ui::input::{Button, Pointer};
+use beize_ui::input::{Button, KeyState, Pointer};
 use beize_ui::menu::{Entry, Menu, Outcome};
 use beize_ui::{
     Align, App, Appearance, Color, Edge, Family, Glass, Input, Material, Panel, Popup, Rect, Scene,
@@ -280,8 +280,12 @@ fn run() -> Result<(), String> {
                             info!("control center: appearance {chosen:?}");
                             app.choose_appearance(chosen);
                         }
+                        // Pressed, as the Beize menu's (`Menu::input`): the
+                        // release of an Escape that closed that menu comes
+                        // here when this opened while it was held.
                         if let Input::Key(key) = input
                             && key.sym == beize_ui::Keysym::Escape
+                            && key.state != KeyState::Released
                         {
                             close = true;
                         }
