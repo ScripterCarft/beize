@@ -315,27 +315,23 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-29 abends: Glas neu nach Apples Dock, Messbau 0.5.120)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-30 abends: 0.5.120 ausgewertet, Glas-Feinschliff)
 
-**JETZT: Messbau 0.5.120 auf den Stick, dann testen** (Tag `measure/desktop-0.5.120` = e247a7b
-auf `main` 6aa3779, Branch `measure/desktop` lokal neu; Smoke grün; Stick-Dateien fertig in
-`~/scratch/stick`: `hw-test.sh` vom Tag + die vier Testprogramme). Sobald der Besitzer
-„Release fertig“ sagt:
-1. prüfen: `build/out/desktop/release/0.5.120/` hat 6 Dateien, `git branch --show-current` = main;
-2. Stick in WSL einhängen, falls `/mnt/d` fehlt (nach WSL-Start gesteckt):
-   `sudo -n mkdir -p /mnt/d && sudo -n mount -t drvfs D: /mnt/d`; dann
-   `cp -r build/out/desktop/release/0.5.120 /mnt/d/beize-0.5.120` und
-   `cp ~/scratch/stick/* /mnt/d/beize-test/`, mit `cmp` prüfen, `sudo -n umount /mnt/d`;
-   alte `D:\beize-0.5.11x` löschen darf nur der Besitzer (Befehl nennen);
-3. dem Besitzer sagen: Stick fertig, docs/hardware.md B/C, wichtig Teil 2d (Glas) und 2g (Dock
-   über dem weißen Viertel des Testfensters, Foto).
-**Auswerten:** Fotos 2d/2g gegen Apple (Mac-Bildschirmfoto des Besitzers
-`~/scratch/glass2/mac.png`, Werte in ADR 0028 §6), Leistung Teil 5 gegen 5b (0.5.119: GPU median
-0,42 → 0,55 ms, busy 14 → 17 %; 0.5.120 sollte gleich oder billiger sein: Gauß 10 statt 14/16).
-**Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller Lauf
-grün, dann pushen (main 156f655..6aa3779 + Doku nur lokal). Dann (f) per ADR 0028 „Reihenfolge“.
-Offen als eigener Schritt (Besitzer gefragt, nicht entschieden): Kontrollzentrum über sehr Hellem
-wie Apple mit dunkler Schrift statt grau gezogenem Glas.
+**JETZT: Besitzer sieht sich die vier Glas-Werte an, dann Messbau 0.5.121** (noch nicht getaggt).
+**Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten; am 30.10. auch
+lokal einmal rot, im zweiten Lauf grün), voller Lauf grün, dann pushen (main 156f655.. nur lokal).
+Dann (f) per ADR 0028 „Reihenfolge“. Offen als eigener Schritt (Besitzer gefragt, nicht
+entschieden): Kontrollzentrum über sehr Hellem wie Apple mit dunkler Schrift statt grau gezogenem Glas.
+
+**0.5.120 ausgewertet 30.10. (`~/hw-logs/results-20261030-211756`).** Alles bestanden, keine
+Warnungen: Client 4799/4800 (max 5 ms), Last 114 892, rotiert 86 271, mit Kontrollzentrum 114 954,
+syncobj 30/30, FIFO 12 doppelte vblanks (bekannt, nouveau); GPU median 0,39 → 0,53 ms mit
+Kontrollzentrum, busy 14 → 17 %, wie 0.5.119. Befunde des Besitzers, kleine Änderungen, kein
+Redesign (ADR 0028 §5/§6): Schatten `LIQUID` 3 px, σ 1,5, 12 % (war 4, 2, 18 %); Seitenkante
+`SIDE` 0,45 (war 0,35); Pille Weiß 24 % (war 28 %); graues Pixel über der oberen Lichtlinie
+(Ursache: Glaston auf dem äußersten Pixel; nur auf der langen Geraden der Kapsel sichtbar, an
+Kreisen nur ein Punkt): dort zeigt Glas mit Schrift jetzt, was außen liegt. Smoke prüft es über
+Hellem und über dunklem Fenster, beide Gegenproben rot.
 
 **Glas neu 29.10. abends (6aa3779; ADR 0028 §6 hat alle Werte und Herkunft).** 0.5.119 gemessen
 (`~/hw-logs/results-20261029-173050`: alles bestanden, Last 115 045, mit Kontrollzentrum

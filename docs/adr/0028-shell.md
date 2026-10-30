@@ -281,8 +281,8 @@ nur auf den Kacheln; das Popup wächst nicht mit dem Rauch).
   (Apple 54 %, gemessen; über Beizes hellerem Hintergrund 70 %, Besitzer 29.10.); das Glas hält
   dafür seine Helligkeit über Hellem (§6), die Schrift springt nicht um.
 - Der Knopf in der Leiste liegt, solange es offen ist, auf einer flachen Pille, kein Glas: Weiß
-  zu 28 % unter weißer Schrift – heller als die Leiste wie Apples (dort ~1,45-mal so hell wie
-  dahinter, gemessen) –, Schwarz zu 10 % unter dunkler (Besitzer 29.10., an Mock-ups); ebenso unter
+  zu 24 % unter weißer Schrift – heller als die Leiste wie Apples (dort ~1,45-mal so hell wie
+  dahinter, gemessen) –, Schwarz zu 10 % unter dunkler (Besitzer 29.10./30.10.); ebenso unter
   dem Beize-Menü.
 
 ### 6. Material, Animation, Hintergrund
@@ -355,24 +355,28 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
     (Apples Dock 47 → 83, Beize ~85), Mitteltöne kaum, Weiß ein Hauch grau (Apple 245 von 253,
     Beize 250). Das Aufhellen gegen Weiß von 0.5.119 ist entfernt: über einem weißen Fenster
     verschwand das Dock ganz (Befund des Besitzers);
-  - **Seiten:** das äußerste Pixel dunkler als das Dunklere von Glas und Umfeld (×0,65, nach
+  - **Seiten:** das äußerste Pixel dunkler als das Dunklere von Glas und Umfeld (×0,55, nach
     der Normalen hoch vier, so drehen die Ecken von Licht zu Dunkel), dazu überall dunkler, je
     heller es außen ist (bis 10 %) – Apples Dock: 47 → 12 über Dunklem, 172 → 100 über Hellem,
     über Weiß 252 → 240 → Glas;
   - **Lichtlinie** ein Pixel innen (Mitte 1,3 px, Breite 0,6), nur oben (+0,4, Licht von
     −100°) und unten (+0,35), an den Seiten keine; oben und unten liegt sie auf dem Helleren von
     Glas und Umfeld (auf heruntergezogenem Glas käme sie sonst als grauer Strich zwischen
-    beiden heraus). Darunter ein Schein, der nach ~2 pt ausläuft (oben 0,12, unten 0,06; Apple
+    beiden heraus). Über der oberen Linie zeigt Glas mit Schrift, was außen liegt: sonst steht
+    dort ein graues Pixel, sichtbar an der geraden Oberkante der Kapsel (Besitzer, 30.10.).
+    Darunter ein Schein, der nach ~2 pt ausläuft (oben 0,12, unten 0,06; Apple
     über Dunklem: 68 außen, 175 Linie, 140, 113, 106 … 96 Glas). Dunkel das Licht ×0,3.
-  - **Schatten** nur unten (`corners.rs` `LIQUID`: 4 px tiefer, σ 2, 18 %, seitlich um 2 px
-    eingerückt): Apples Dock wirft keinen nach oben und keinen zur Seite, unten ~15 %. Er liegt
+  - **Schatten** nur unten (`corners.rs` `LIQUID`: 3 px tiefer, σ 1,5, 12 %, seitlich um 2 px
+    eingerückt; Besitzer 30.10.: subtiler als Apples): Apples Dock wirft keinen nach oben und
+    keinen zur Seite, unten ~15 %. Er liegt
     in der Reihenfolge vor seinem Glas und fällt nur außerhalb der Form (der Shader schneidet
     die runde Form exakt aus): sonst sähe das lebendige Glas seinen eigenen Schatten und
     verwischte ihn in die Ecken (grau; beim Bauen gefunden, 29.10.).
   Kein Korn. Bis es einmal unscharf ist, zeigt es nichts statt des scharfen Hintergrunds. Smoke
   (`liquid_glass`): Tönung der Kapsel über dem hellen Hintergrund nach der Kurve (±25 %),
   Weiß ≥ 3 : 1, Lichtlinie oben nie unter einer ihrer Seiten und ≥ 6 Stufen heller als an der
-  Seite (Gegenprobe ohne „auf dem Helleren“: rot); das Dock wird an seiner dunklen Kante
+  Seite (Gegenprobe ohne „auf dem Helleren“: rot), über der oberen Linie der Kapsel kein Grau,
+  über Hellem und über einem dunklen Fenster (Gegenproben: rot); das Dock wird an seiner dunklen Kante
   erkannt; Bild `dock-over-window.png` (Dock über Blau und Weiß des Testfensters). Nicht belegt
   (keine Referenz): Apples dunkles Erscheinungsbild.
 - **Rauch** (`set_smoke(falloff, strength)`): was hinter den Formen einer Fläche und um sie liegt,

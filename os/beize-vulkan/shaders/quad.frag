@@ -310,7 +310,7 @@ const float VEIL_DARK = 0.25;
 // the fourth: the corners turn from light to dark), and by EDGE over a
 // white outside, from nothing below EDGE_FROM to all of it at EDGE_TO
 // (relative luminance), read EDGE_OUTSIDE px out.
-const float SIDE = 0.35;
+const float SIDE = 0.45;
 const float EDGE = 0.10;
 const float EDGE_FROM = 0.45;
 const float EDGE_TO = 0.9;
@@ -422,11 +422,17 @@ vec4 clear_glass() {
             // glass and what lies just outside it: an edge catching the
             // light is never darker than either side – on glass pulled down
             // for its ink it would come out between the two, a grey stroke
-            // (Apple's dock over light: 142 outside, 225 on the line).
+            // (Apple's dock over light: 142 outside, 225 on the line). Above
+            // the top line, glass with ink shows what lies outside: its tone
+            // would stand there as a grey pixel, along a capsule's straight
+            // top (Apple's: nothing between outside and the line).
             float line = exp(-pow((within - LINE_AT) / LINE_WIDTH, 2.0));
             float facing = min(pow(up, LINE_FALL) + pow(down, LINE_FALL), 1.0);
             vec3 lighter = relative_luminance(outside) > relative_luminance(c) ? outside : c;
             vec3 under = mix(c, lighter, line * facing);
+            if (ink && within < LINE_AT) {
+                under = mix(under, outside, pow(up, LINE_FALL));
+            }
             float lit = LINE_KEY_LIGHT * pow(up, LINE_FALL)
                 + LINE_BACK_LIGHT * pow(down, LINE_FALL);
             c = under + line * lit * light * (1.0 - under);

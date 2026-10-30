@@ -1368,6 +1368,12 @@ fn liquid_glass(
             "the round tile's line of light is not brighter at its top than at its side: {lit} \
              at the top, {across} at the side"
         );
+        let (edge, outside) = (along_top(shown, left, top), along_top(shown, left, top - 3));
+        ensure!(
+            edge >= outside - TOP_EDGE_BELOW,
+            "the capsule's outermost pixel at its top is {edge}, {outside} outside it: the \
+             glass's grey above the line of light"
+        );
         seen.set((tile, lit, across));
         Ok(())
     })?;
@@ -1409,6 +1415,19 @@ const LIQUID_TOLERANCE: f64 = 0.25;
 /// glass would come out ~15 below it.
 const LINE_ABOVE: i32 = 0;
 const LINE_LIT_BY: i32 = 6;
+/// How far the outermost pixel along a capsule's top may lie below the
+/// screen outside it, in the same steps: the frost's mean against the
+/// screen's (the owner saw the glass's grey there, 30.10.).
+const TOP_EDGE_BELOW: i32 = 2;
+
+/// A row's mean of the channels along the top of the capsule at `left`.
+fn along_top(image: &Image, left: usize, y: usize) -> i32 {
+    let mid = left + CONTROL_CENTER_WIDTH / 2;
+    let sum: u32 = (mid - 10..mid + 10)
+        .map(|x| image.pixel(x, y).iter().map(|&c| u32::from(c)).sum::<u32>())
+        .sum();
+    (sum / 60) as i32
+}
 
 /// The mean relative luminance (linear light) of `xs` × `ys`.
 fn mean_luminance(screen: &Image, xs: std::ops::Range<usize>, ys: std::ops::Range<usize>) -> f64 {
@@ -1523,6 +1542,18 @@ fn control_center_smoke(
     thread::sleep(Duration::from_millis(500));
     let open = self::screen(machine, "smoke-open")?;
     open.write_png(&machine.logs.join("control-center-smoke-light.png"))?;
+    // Over the dark window the glass is lighter than what is outside: above
+    // the top line it would stand as a grey row, more than half way up to it.
+    let (edge, outside, lit) = (
+        along_top(&open, left, top),
+        along_top(&open, left, top - 3),
+        along_top(&open, left, top + 1),
+    );
+    ensure!(
+        (edge - outside) * 2 < lit - outside,
+        "over the dark window the capsule's outermost pixel at its top is {edge}, between \
+         {outside} outside it and {lit} on the line: the glass's grey above the line of light"
+    );
     let (xs, ys) = &fading;
     let (mut most, mut differ) = (0, 0);
     for py in ys.clone() {

@@ -68,13 +68,13 @@ const TILE: Look = Look {
 };
 /// Below liquid glass: tight and only below it, as macOS 26's dock on a
 /// Mac's screen (the owner's, 29.10.): nothing above its top edge (at it
-/// 2.5 sigmas from the shadow's: under an 8-bit step) nor beside it (the
-/// caster narrowed by a sigma), some 15 % darker within a few pt below it
-/// over light.
+/// 2 sigmas from the shadow's: under an 8-bit step) nor beside it (the
+/// caster narrowed by a sigma); smaller and fainter than Apple's, some 10 %
+/// darker within 2 pt below it over light (the owner, 30.10., on hardware).
 const LIQUID: Look = Look {
-    offset: 4,
-    sigma: 2.0,
-    alpha: 0.18,
+    offset: 3,
+    sigma: 1.5,
+    alpha: 0.12,
     inset: 2,
 };
 
