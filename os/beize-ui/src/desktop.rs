@@ -101,8 +101,20 @@ struct Entry {
     pending: DesktopWindow,
 }
 
+/// The switcher (Alt+Tab) as the compositor last said (`App::desktop_switcher`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SwitcherNews {
+    pub entries: Vec<DesktopWindowId>,
+    pub selected: Option<DesktopWindowId>,
+    /// The room it may take.
+    pub room: (u32, u32),
+}
+
 pub(crate) struct Desktop {
     shell: BeizeShellV1,
+    /// The switcher's entries before it shows, and it while it does.
+    switcher_entries: Vec<DesktopWindowId>,
+    pub(crate) switcher: Option<SwitcherNews>,
     entries: Vec<Entry>,
     next: u64,
     /// The list or the appearance changed since the app last heard.
@@ -124,6 +136,8 @@ impl Desktop {
     pub(crate) fn new(shell: BeizeShellV1) -> Desktop {
         Desktop {
             shell,
+            switcher_entries: Vec::new(),
+            switcher: None,
             entries: Vec::new(),
             next: 0,
             changed: false,
@@ -140,6 +154,38 @@ impl Desktop {
     pub(crate) fn activate(&self, id: DesktopWindowId) {
         if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
             entry.proxy.activate();
+        }
+    }
+
+    pub(crate) fn switcher_hover(&self, id: DesktopWindowId) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.switcher_hover();
+        }
+    }
+
+    pub(crate) fn switcher_choose(&self, id: DesktopWindowId) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.switcher_choose();
+        }
+    }
+
+    /// The windows' pictures on `surface`, with its next commit.
+    pub(crate) fn show_thumbnails(
+        &self,
+        surface: &WlSurface,
+        pictures: &[(DesktopWindowId, Rect)],
+    ) {
+        self.shell.clear_thumbnails(surface);
+        for (id, r) in pictures {
+            if let Some(entry) = self.entries.iter().find(|e| e.pending.id == *id) {
+                entry.proxy.show_thumbnail(
+                    surface,
+                    r.x.round() as i32,
+                    r.y.round() as i32,
+                    r.w.round() as i32,
+                    r.h.round() as i32,
+                );
+            }
         }
     }
 
@@ -254,6 +300,40 @@ impl Dispatch<BeizeShellV1, ()> for State {
                 }
                 return;
             }
+            beize_shell_v1::Event::SwitcherEntry { window } => {
+                if let Some(entry) = desktop.entries.iter().find(|e| e.proxy == window) {
+                    desktop.switcher_entries.push(entry.pending.id);
+                }
+                return;
+            }
+            beize_shell_v1::Event::SwitcherShow { width, height } => {
+                let size = |n: i32| u32::try_from(n).unwrap_or(0);
+                desktop.switcher = Some(SwitcherNews {
+                    entries: std::mem::take(&mut desktop.switcher_entries),
+                    selected: None,
+                    room: (size(width), size(height)),
+                });
+                desktop.changed = true;
+                return;
+            }
+            beize_shell_v1::Event::SwitcherSelect { window } => {
+                let id = desktop
+                    .entries
+                    .iter()
+                    .find(|e| e.proxy == window)
+                    .map(|e| e.pending.id);
+                if let Some(switcher) = &mut desktop.switcher {
+                    switcher.selected = id;
+                    desktop.changed = true;
+                }
+                return;
+            }
+            beize_shell_v1::Event::SwitcherEnd => {
+                desktop.switcher = None;
+                desktop.switcher_entries.clear();
+                desktop.changed = true;
+                return;
+            }
             beize_shell_v1::Event::MenuBarBackdrop { tone } => {
                 let tone = match tone {
                     WEnum::Value(beize_shell_v1::Tone::Dark) => Appearance::Dark,
@@ -350,8 +430,13 @@ impl Dispatch<BeizeWindowV1, ()> for State {
                 desktop.changed = true;
             }
             beize_window_v1::Event::Closed => {
+                let id = entry.pending.id;
                 entry.proxy.destroy();
                 desktop.entries.remove(i);
+                desktop.switcher_entries.retain(|e| *e != id);
+                if let Some(switcher) = &mut desktop.switcher {
+                    switcher.entries.retain(|e| *e != id);
+                }
                 desktop.changed = true;
             }
             _ => {}

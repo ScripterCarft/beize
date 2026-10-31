@@ -30,6 +30,7 @@ mod clock;
 mod control_center;
 mod dock;
 mod network;
+mod switcher;
 
 use std::collections::HashMap;
 use std::process::ExitCode;
@@ -47,6 +48,7 @@ use tracing::{info, warn};
 
 use control_center::ControlCenter;
 use dock::{Action, Dock};
+use switcher::Switcher;
 
 const HEIGHT: u32 = measures::MENU_BAR;
 /// The bar's text on a light background and on a dark one.
@@ -198,6 +200,10 @@ fn run() -> Result<(), String> {
     // drawn.
     let mut asking: Option<(WindowId, Dialog, Command)> = None;
     let mut redraw_asking = false;
+    // Alt+Tab's window while it shows, whether it waits to be drawn, and the
+    // desktop's windows it names.
+    let mut switching: Option<(WindowId, Switcher)> = None;
+    let mut redraw_switching = false;
     loop {
         let mut watches = vec![Watch::Read(minutes.fd())];
         watches.extend(monitor.as_ref().map(|m| Watch::Read(m.fd())));
@@ -207,6 +213,7 @@ fn run() -> Result<(), String> {
         let dock_events = dispatched.take(dock_panel);
         let open_events = open.map(|(_, id)| dispatched.take(id));
         let asking_events = asking.as_ref().map(|(id, ..)| dispatched.take(*id));
+        let switching_events = switching.as_ref().map(|(id, _)| dispatched.take(*id));
         if bar_events.closed || dock_events.closed {
             // Its screen went: a failure, so the service manager starts the
             // shell again.
@@ -260,6 +267,70 @@ fn run() -> Result<(), String> {
                 info!("menu bar: {}", name.as_deref().unwrap_or("(no app)"));
                 active_name = name;
                 redraw_bar = true;
+            }
+        }
+        // Alt+Tab: its window follows what the compositor says.
+        if dispatched.desktop {
+            match (app.desktop_switcher(), &mut switching) {
+                (None, Some((id, _))) => {
+                    app.close(*id);
+                    switching = None;
+                }
+                (Some(news), None) => {
+                    let mut switcher = Switcher::new(news.room);
+                    switcher.update(news.entries, news.selected);
+                    let overlay = Overlay {
+                        namespace: "switcher",
+                        size: switcher.size(),
+                        keyboard: false,
+                    };
+                    match app.overlay(&overlay) {
+                        Ok(id) => {
+                            switching = Some((id, switcher));
+                            redraw_switching = false;
+                        }
+                        Err(e) => warn!("the switcher: {e}"),
+                    }
+                }
+                (Some(news), Some((id, switcher))) => {
+                    let before = switcher.size();
+                    redraw_switching |= switcher.update(news.entries, news.selected);
+                    if switcher.size() != before {
+                        // Drawn once the compositor configures the new size.
+                        app.set_panel_size(*id, switcher.size());
+                        redraw_switching = false;
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+        if let (Some(events), Some((_, switcher))) = (&switching_events, &mut switching) {
+            redraw_switching |= events.configured;
+            for input in &events.input {
+                match input {
+                    // Moved, not only there: a pointer lying where the window
+                    // opens selects nothing.
+                    Input::Pointer(Pointer::Motion(x, y)) => {
+                        if let Some(window) = switcher.pointer(Some((*x, *y))) {
+                            app.switcher_hover(window);
+                        }
+                    }
+                    Input::Pointer(Pointer::Enter(x, y)) => {
+                        switcher.pointer(Some((*x, *y)));
+                    }
+                    Input::Pointer(Pointer::Leave) => {
+                        switcher.pointer(None);
+                    }
+                    Input::Pointer(Pointer::Button {
+                        button: Button::Left,
+                        pressed: false,
+                    }) => {
+                        if let Some(window) = switcher.under() {
+                            app.switcher_choose(window);
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
         // The open menu: what happened to it.
@@ -589,6 +660,35 @@ fn run() -> Result<(), String> {
             let size = app.size(id);
             app.set_glass(id, Some(Dialog::glass(size)));
             let scene = dialog.draw(app.text(), size, appearance);
+            app.draw(id, &scene).map_err(|e| e.to_string())?;
+        }
+        if let Some((id, switcher)) = &switching
+            && redraw_switching
+            && app.ready(*id)
+        {
+            redraw_switching = false;
+            let id = *id;
+            let size = app.size(id);
+            app.set_glass(id, Some(Switcher::glass(size)));
+            app.show_thumbnails(id, &switcher.pictures());
+            let windows = app.desktop_windows();
+            let scene = switcher.draw(
+                app.text(),
+                size,
+                appearance,
+                |wanted| windows.iter().find(|w| w.id == wanted).cloned(),
+                &mut names,
+            );
+            info!(
+                "switcher: {}x{} with {} windows, the first picture at {:?}",
+                size.0,
+                size.1,
+                switcher.pictures().len(),
+                switcher
+                    .pictures()
+                    .first()
+                    .map(|(_, r)| (r.x, r.y, r.w, r.h))
+            );
             app.draw(id, &scene).map_err(|e| e.to_string())?;
         }
         dock_shown |= dock_events.configured;

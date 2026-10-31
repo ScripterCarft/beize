@@ -519,6 +519,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
 
     screen_comes_back(&shell, &machine, moved, grown)?;
     snap(&shell, &machine, &qmp, screen, moved, grown)?;
+    switcher(&shell, &machine, &qmp, screen)?;
     fullscreen(&shell, &machine, &qmp, screen, moved, grown)?;
     dock_glass(&shell, &machine, &qmp, screen, moved, grown)?;
     frames(&shell)?;
@@ -1132,6 +1133,114 @@ fn context_menus(
     wait_for_terminals(shell, count)?;
     park(qmp, screen)?;
     say!("  ok: the dock's tile opened its menu, New Window a window, and Alt+F4 closed it");
+    Ok(())
+}
+
+/// Alt+Tab (ADR 0028 §7), with the client's window in front of the two
+/// terminals: a tap goes to the window before and back, whatever shows. Held,
+/// the switcher shows the client's live picture in its first tile; Escape
+/// changes nothing; Tab, Tab, Shift+Tab selects, the release of Alt chooses; a
+/// click on a tile chooses.
+fn switcher(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let compositor_count = |line: &str| -> Result<usize> {
+        let (_, lines) = shell.capture(&format!(
+            "journalctl --user -b -u beize-compositor.service -o cat | grep -c -x '{line}' \
+             | sed 's/^/BEIZE-COUNT /'"
+        ))?;
+        Ok(lines
+            .iter()
+            .find_map(|l| l.strip_prefix("BEIZE-COUNT ")?.trim().parse().ok())
+            .unwrap_or(0))
+    };
+    let chose = |app: &str| format!("switcher chose {app}");
+    let tap = |app: &str| -> Result<()> {
+        let before = compositor_count(&chose(app))?;
+        keys(qmp, &["alt+tab"])?;
+        wait_for_said(shell, &chose(app), before + 1)
+    };
+    tap("beize-terminal")?;
+    tap("beize-testclient")?;
+    say!("  ok: Alt+Tab went to the window used before, and again back");
+
+    // Held: shown, the client's picture in the first tile.
+    let shown = compositor_count("switcher shown")?;
+    hold(qmp, "alt", true)?;
+    keys(qmp, &["tab"])?;
+    wait_for_said(shell, "switcher shown", shown + 1)?;
+    let line = wait_for_shell_line(shell, |l| l.starts_with("switcher: "))?;
+    // "switcher: WxH with N windows, the first picture at Some((x, y, w, h))"
+    let numbers: Vec<f64> = line
+        .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    ensure!(numbers.len() == 7, "the switcher said {line:?}");
+    let (w, h) = (numbers[0] as usize, numbers[1] as usize);
+    ensure!(
+        numbers[2] == 3.0,
+        "the switcher has not 3 windows: {line:?}"
+    );
+    let area_h = screen.1 - MENU_BAR - DOCK_ZONE;
+    let (left, top) = ((screen.0 - w) / 2, MENU_BAR + (area_h - h) / 2);
+    let picture = (
+        left + numbers[3] as usize,
+        top + numbers[4] as usize,
+        numbers[5] as usize,
+        numbers[6] as usize,
+    );
+    let (cx, cy) = (picture.0 + picture.2 / 2, picture.1 + picture.3 / 2);
+    // Two thirds out from the middle of the picture lie the client's four
+    // colours; the window's own height keeps them inside however it fits.
+    let (dx, dy) = (picture.2 / 8, picture.3 / 8);
+    wait_until_screen(machine, "switcher", |shown| {
+        for (at, colour) in [
+            ((cx - dx, cy - dy), QUADRANTS[0]),
+            ((cx + dx, cy - dy), QUADRANTS[1]),
+            ((cx - dx, cy + dy), QUADRANTS[2]),
+            ((cx + dx, cy + dy), QUADRANTS[3]),
+        ] {
+            let p = shown.pixel(at.0, at.1);
+            ensure!(
+                same(p, colour),
+                "the switcher's first tile does not show the client: {p:?} at {at:?}, not {colour:?}"
+            );
+        }
+        Ok(())
+    })?;
+    self::screen(machine, "switcher-open")?.write_png(&machine.logs.join("switcher.png"))?;
+    // Escape: nothing chosen, nothing raised.
+    let chosen = compositor_count(&chose("beize-terminal"))?;
+    keys(qmp, &["esc"])?;
+    wait_for_said(shell, "switcher hidden", shown + 1)?;
+    hold(qmp, "alt", false)?;
+    thread::sleep(Duration::from_millis(300));
+    ensure!(
+        compositor_count(&chose("beize-terminal"))? == chosen,
+        "Escape chose a window"
+    );
+    // Tab, Tab, Shift+Tab: on the second window; Alt let go chooses it.
+    hold(qmp, "alt", true)?;
+    keys(qmp, &["tab", "tab", "shift+tab"])?;
+    hold(qmp, "alt", false)?;
+    wait_for_said(shell, &chose("beize-terminal"), chosen + 1)?;
+    tap("beize-testclient")?;
+    // A click on the last tile chooses its terminal.
+    let shown = compositor_count("switcher shown")?;
+    hold(qmp, "alt", true)?;
+    keys(qmp, &["tab"])?;
+    wait_for_said(shell, "switcher shown", shown + 1)?;
+    thread::sleep(Duration::from_millis(300));
+    let step = picture.2 + 16 + 10;
+    let tile = (i32::try_from(cx + 2 * step)?, i32::try_from(cy)?);
+    let chosen = compositor_count(&chose("beize-terminal"))?;
+    click(qmp, screen, tile, 1)?;
+    wait_for_said(shell, &chose("beize-terminal"), chosen + 1)?;
+    hold(qmp, "alt", false)?;
+    park(qmp, screen)?;
+    tap("beize-testclient")?;
+    say!(
+        "  ok: held, the switcher showed the client's live picture in its first tile; Escape \
+         chose nothing, the release of Alt the selected window, a click its tile"
+    );
     Ok(())
 }
 

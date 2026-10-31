@@ -20,7 +20,9 @@ pub use app::{Align, App, Dispatched, Edge, Events, Overlay, Panel, Popup, Watch
 pub use beize_draw::{
     AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, measures, text,
 };
-pub use desktop::{DesktopWindow, DesktopWindowId, Glass, GlassShape, Material, Smoke};
+pub use desktop::{
+    DesktopWindow, DesktopWindowId, Glass, GlassShape, Material, Smoke, SwitcherNews,
+};
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;
 /// The pointer's images by name (cursor-shape-v1, the CSS names).

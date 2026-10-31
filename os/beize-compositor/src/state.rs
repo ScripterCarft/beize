@@ -168,6 +168,8 @@ pub struct State {
     pub popups: PopupManager,
     /// The menu holding pointer and keyboard (`shell`), until it ends.
     pub popup_grab: Option<PopupGrab<State>>,
+    /// Alt+Tab, while it is open (`switcher`).
+    pub switcher: Option<crate::switcher::Switcher>,
     /// The overlay with the keyboard (`layers`), and the one that had it when
     /// it opened, so it is given once.
     pub overlay_keyboard: Option<WlSurface>,
@@ -397,6 +399,7 @@ impl State {
             shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
             popup_grab: None,
+            switcher: None,
             overlay_keyboard: None,
             overlay_opened: None,
             glass_managers: Vec::new(),
@@ -485,6 +488,7 @@ impl State {
 
     /// Another session took the screen and the input devices.
     pub fn pause(&mut self) {
+        self.switcher_end();
         self.libinput.suspend();
         if let Some(gpu) = &mut self.gpu {
             gpu.pause();
@@ -968,6 +972,12 @@ impl State {
             .then(|| self.band(Side::Top))
             .flatten()
             .filter(|_| !hide_upper || revealed == Some(Side::Top));
+        // The windows the switcher's overlay may show pictures of.
+        let thumbnailed = if self.switcher.as_ref().is_some_and(|s| s.shown) {
+            self.numbered_windows()
+        } else {
+            Vec::new()
+        };
         let (Some(gpu), Some(output)) = (&mut self.gpu, &self.output) else {
             return;
         };
@@ -1036,7 +1046,14 @@ impl State {
         // The panels as the shell drew them, or those kept of a shell that
         // failed; lent to this frame and taken back after it.
         if self.kept.is_none() {
-            self.panels_last = scene::panels(gpu.renderer(), output, self.backdrop.as_mut(), plate);
+            self.panels_last = scene::panels(
+                gpu.renderer(),
+                output,
+                self.backdrop.as_mut(),
+                plate,
+                &thumbnailed,
+                &mut self.decorations,
+            );
         }
         let source = match &mut self.kept {
             Some(kept) => &mut kept.panels,

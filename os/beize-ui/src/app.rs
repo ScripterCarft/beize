@@ -43,7 +43,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 use crate::clipboard::Clipboard;
-use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass, Glasses};
+use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass, Glasses, SwitcherNews};
 use crate::gpu::Gpu;
 use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::Renderer;
@@ -739,6 +739,40 @@ impl App {
     pub fn activate_desktop_window(&mut self, id: DesktopWindowId) {
         if let Some(desktop) = &self.state.desktop {
             desktop.activate(id);
+        }
+    }
+
+    /// The switcher (Alt+Tab) while the compositor shows it (`watch_desktop`).
+    pub fn desktop_switcher(&self) -> Option<SwitcherNews> {
+        self.state.desktop.as_ref()?.switcher.clone()
+    }
+
+    /// The pointer moved onto a window's tile in the switcher.
+    pub fn switcher_hover(&mut self, id: DesktopWindowId) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.switcher_hover(id);
+        }
+    }
+
+    /// A click on a window's tile in the switcher: it is chosen.
+    pub fn switcher_choose(&mut self, id: DesktopWindowId) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.switcher_choose(id);
+        }
+    }
+
+    /// The compositor draws these windows' live pictures on `id`, each in its
+    /// rectangle; applies with its next draw.
+    pub fn show_thumbnails(
+        &mut self,
+        id: WindowId,
+        pictures: &[(DesktopWindowId, beize_draw::Rect)],
+    ) {
+        let Some(wl) = self.state.surface(id).map(|s| s.wl.clone()) else {
+            return;
+        };
+        if let Some(desktop) = &self.state.desktop {
+            desktop.show_thumbnails(&wl, pictures);
         }
     }
 

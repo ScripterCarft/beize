@@ -24,6 +24,7 @@ use tracing::warn;
 use crate::apps;
 use crate::decorations::Hit;
 use crate::state::State;
+use crate::switcher::SwitcherKey;
 use crate::windows::Arrow;
 
 pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
@@ -65,6 +66,8 @@ enum Action {
     Screenshot,
     Close,
     Arrow(Arrow),
+    SwitcherStart(isize),
+    Switcher(SwitcherKey),
 }
 
 fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
@@ -84,6 +87,21 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
                 } else {
                     FilterResult::Forward
                 };
+            }
+            // While the switcher is open it has every key but the modifiers
+            // and the VT's: a modifier stays whole for the window, so none
+            // stays held when the keyboard moves on.
+            if state.switcher.is_some() {
+                let sym = keysym.modified_sym();
+                if sym.is_modifier_key() {
+                    return FilterResult::Forward;
+                }
+                state.taken_keys.insert(code);
+                let vt = Keysym::XF86_Switch_VT_1.raw()..=Keysym::XF86_Switch_VT_12.raw();
+                if vt.contains(&sym.raw()) {
+                    return FilterResult::Intercept(action(modifiers, sym, None));
+                }
+                return FilterResult::Intercept(switcher_key(sym).map(Action::Switcher));
             }
             match action(
                 modifiers,
@@ -120,7 +138,24 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
             }
         }
         Some(Action::Arrow(arrow)) => state.arrow_key(arrow),
+        Some(Action::SwitcherStart(by)) => state.switcher_start(by),
+        Some(Action::Switcher(key)) => state.switcher_key(key),
         None => {}
+    }
+    // Alt let go, which went to the window whole: the choice.
+    if state.switcher.is_some() && !keyboard.modifier_state().alt {
+        state.switcher_choose();
+    }
+}
+
+/// What a key does while the switcher is open.
+fn switcher_key(sym: Keysym) -> Option<SwitcherKey> {
+    match sym {
+        Keysym::Tab | Keysym::Right => Some(SwitcherKey::Step(1)),
+        Keysym::ISO_Left_Tab | Keysym::Left => Some(SwitcherKey::Step(-1)),
+        Keysym::Return | Keysym::KP_Enter => Some(SwitcherKey::Choose),
+        Keysym::Escape => Some(SwitcherKey::Cancel),
+        _ => None,
     }
 }
 
@@ -144,6 +179,17 @@ fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Opt
     let only_alt = modifiers.alt && !modifiers.ctrl && !modifiers.shift && !modifiers.logo;
     if only_alt && sym == Keysym::F4 {
         return Some(Action::Close);
+    }
+    if only_alt && sym == Keysym::Tab {
+        return Some(Action::SwitcherStart(1));
+    }
+    if modifiers.alt
+        && modifiers.shift
+        && !modifiers.ctrl
+        && !modifiers.logo
+        && sym == Keysym::ISO_Left_Tab
+    {
+        return Some(Action::SwitcherStart(-1));
     }
     if only_super {
         let arrow = match sym {
@@ -356,6 +402,17 @@ mod tests {
         let alt = held(false, true, false);
         assert_eq!(action(&alt, Keysym::F4, None), Some(Action::Close));
         assert_eq!(action(&none, Keysym::F4, None), None);
+        assert_eq!(
+            action(&alt, Keysym::Tab, None),
+            Some(Action::SwitcherStart(1))
+        );
+        assert_eq!(
+            action(&held(false, true, true), Keysym::ISO_Left_Tab, None),
+            Some(Action::SwitcherStart(-1))
+        );
+        assert_eq!(action(&none, Keysym::Tab, None), None);
+        assert_eq!(switcher_key(Keysym::Tab), Some(SwitcherKey::Step(1)));
+        assert_eq!(switcher_key(Keysym::a), None);
         assert_eq!(
             action(&logo, Keysym::Left, None),
             Some(Action::Arrow(Arrow::Left))

@@ -189,6 +189,7 @@ pub fn rounded(window: &Window, frame: Rectangle<i32, Logical>) -> bool {
 pub struct Rounded<E> {
     inner: E,
     frame: Option<Rectangle<i32, Physical>>,
+    radius: f32,
 }
 
 impl<E> Rounded<E> {
@@ -196,7 +197,14 @@ impl<E> Rounded<E> {
         Rounded {
             inner,
             frame: frame.map(|f| f.to_physical(1)),
+            radius: RADIUS as f32,
         }
+    }
+
+    /// With corners of `radius`, not a window's (a window's picture).
+    pub fn with_radius(mut self, radius: f32) -> Rounded<E> {
+        self.radius = radius;
+        self
     }
 }
 
@@ -275,7 +283,7 @@ impl<R: Effects, E: RenderElement<R>> RenderElement<R> for Rounded<E> {
         };
         // Where it is drawn: elsewhere when relocated (behind live glass).
         rect.loc += dst.loc - self.inner.geometry(Scale::from(1.0)).loc;
-        R::set_rounding(frame, Some((rect, RADIUS as f32)));
+        R::set_rounding(frame, Some((rect, self.radius)));
         let drawn = self.inner.draw(frame, src, dst, damage, opaque_regions);
         R::set_rounding(frame, None);
         drawn

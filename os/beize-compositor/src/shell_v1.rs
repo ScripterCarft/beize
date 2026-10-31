@@ -21,6 +21,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::Sta
 use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum,
 };
+use smithay::utils::Rectangle;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
@@ -227,6 +228,57 @@ impl State {
         });
     }
 
+    /// The listed windows with their numbers.
+    pub fn numbered_windows(&self) -> Vec<(u64, Window)> {
+        self.listed_windows()
+            .into_iter()
+            .filter_map(|w| Some((with_listed(&w, |l| l.number)?, w)))
+            .collect()
+    }
+
+    /// The handle of `window` on `instance`.
+    fn handle_on(window: &Window, instance: &BeizeShellV1) -> Option<BeizeWindowV1> {
+        with_listed(window, |listed| {
+            listed
+                .handles
+                .iter()
+                .find(|h| h.id().same_client_as(&instance.id()))
+                .cloned()
+        })
+        .flatten()
+    }
+
+    /// The shell shows the switcher: `entries`, `selected` of them, in the
+    /// room the windows have.
+    pub fn tell_switcher_show(&mut self, entries: &[Window], selected: &Window) {
+        let room = self.window_area().size;
+        for instance in &self.shell_windows.instances {
+            for window in entries {
+                if let Some(handle) = Self::handle_on(window, instance) {
+                    instance.switcher_entry(&handle);
+                }
+            }
+            instance.switcher_show(room.w, room.h);
+            if let Some(handle) = Self::handle_on(selected, instance) {
+                instance.switcher_select(&handle);
+            }
+        }
+    }
+
+    pub fn tell_switcher_select(&mut self, window: &Window) {
+        for instance in &self.shell_windows.instances {
+            if let Some(handle) = Self::handle_on(window, instance) {
+                instance.switcher_select(&handle);
+            }
+        }
+    }
+
+    pub fn tell_switcher_end(&mut self) {
+        for instance in &self.shell_windows.instances {
+            instance.switcher_end();
+        }
+    }
+
     /// The listed window `number`.
     fn listed(&self, number: u64) -> Option<Window> {
         self.space
@@ -290,6 +342,9 @@ impl Dispatch<BeizeShellV1, ()> for State {
                     _ => Appearance::Light,
                 });
             }
+            beize_shell_v1::Request::ClearThumbnails { surface } => {
+                crate::switcher::set_pending(&surface, |t| t.0.clear());
+            }
             beize_shell_v1::Request::Ready => {
                 if let Some(data) = client.get_data::<ClientState>() {
                     data.ready.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -326,6 +381,20 @@ impl Dispatch<BeizeWindowV1, u64> for State {
         };
         match request {
             beize_window_v1::Request::Activate => state.bring_back(window),
+            beize_window_v1::Request::SwitcherHover => state.switcher_hover(&window),
+            beize_window_v1::Request::SwitcherChoose => state.switcher_click(&window),
+            beize_window_v1::Request::ShowThumbnail {
+                surface,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if width > 0 && height > 0 {
+                    let place = Rectangle::new((x, y).into(), (width, height).into());
+                    crate::switcher::set_pending(&surface, |t| t.0.push((*number, place)));
+                }
+            }
             beize_window_v1::Request::Close => {
                 if let Some(toplevel) = window.toplevel() {
                     toplevel.send_close();

@@ -497,8 +497,14 @@ impl State {
 
     /// A window that is gone, placed, minimized or not yet placed.
     pub fn window_destroyed(&mut self, surface: &WlSurface) {
-        let window = self.window_for(surface);
+        let window = self.window_for(surface).or_else(|| {
+            self.minimized
+                .iter()
+                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+                .cloned()
+        });
         if let Some(window) = &window {
+            self.switcher_window_gone(window);
             self.unlist_window(window);
             self.space.unmap_elem(window);
         }

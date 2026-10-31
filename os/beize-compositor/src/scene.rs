@@ -11,6 +11,7 @@ use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::{
     WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
+use smithay::backend::renderer::element::utils::RescaleRenderElement;
 use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
@@ -36,6 +37,7 @@ mod element {
     use smithay::backend::renderer::element::solid::SolidColorRenderElement;
     use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
     use smithay::backend::renderer::element::texture::TextureRenderElement;
+    use smithay::backend::renderer::element::utils::RescaleRenderElement;
     use smithay::render_elements;
 
     use crate::backdrop::Glass;
@@ -55,6 +57,8 @@ mod element {
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
         SnapPreview=Rounded<SolidColorRenderElement>,
+        Thumbnail=Rounded<RescaleRenderElement<WaylandSurfaceRenderElement<R>>>,
+        ThumbnailBar=Rounded<RescaleRenderElement<TextureRenderElement<<R as RendererSuper>::TextureId>>>,
         Shadow=Shadow,
         Glass=Glass,
         Wallpaper=TextureRenderElement<<R as RendererSuper>::TextureId>,
@@ -202,13 +206,87 @@ pub struct PanelFrame {
     pub elements: Vec<Element>,
 }
 
+/// The corners of a window's picture (`thumbnail`).
+const THUMBNAIL_RADIUS: f32 = 8.0;
+
+/// `window`'s live picture, its title bar with it, scaled down to fit `place`
+/// and centred, added to `elements`. By its geometry, so the shadow a GTK
+/// surface reaches past it for stays out. Its surfaces keep their ids: the
+/// damage tracker takes several instances of one, and they count as shown,
+/// which keeps a buffer read here held (`hold_read`) and its app's frames
+/// going while it shows.
+fn thumbnail(
+    renderer: &mut VkRenderer,
+    decorations: &mut Decorations,
+    window: &Window,
+    place: Rectangle<i32, Logical>,
+    elements: &mut Vec<Element>,
+) {
+    let Some(toplevel) = window.toplevel() else {
+        return;
+    };
+    let geometry = window.geometry();
+    let bar = crate::decorations::bar_height(window);
+    let (w, h) = (geometry.size.w, geometry.size.h + bar);
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let scale = (f64::from(place.size.w) / f64::from(w))
+        .min(f64::from(place.size.h) / f64::from(h))
+        .min(1.0);
+    let shown = Size::<i32, Logical>::from((
+        (f64::from(w) * scale).round() as i32,
+        (f64::from(h) * scale).round() as i32,
+    ));
+    let frame = Rectangle::new(
+        Point::from((
+            place.loc.x + (place.size.w - shown.w) / 2,
+            place.loc.y + (place.size.h - shown.h) / 2,
+        )),
+        shown,
+    );
+    // Where its content's corner goes: everything scales about it.
+    let content_at = frame.loc + Point::from((0, (f64::from(bar) * scale).round() as i32));
+    let origin = content_at.to_physical(1);
+    let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> = render_elements_from_surface_tree(
+        renderer,
+        toplevel.wl_surface(),
+        (content_at - geometry.loc).to_physical(1),
+        Scale::from(1.0),
+        1.0,
+        Kind::Unspecified,
+    );
+    elements.extend(surfaces.into_iter().map(|surface| {
+        Element::Thumbnail(
+            Rounded::new(
+                RescaleRenderElement::from_element(surface, origin, scale),
+                Some(frame),
+            )
+            .with_radius(THUMBNAIL_RADIUS),
+        )
+    }));
+    let at = Rectangle::new(content_at, geometry.size);
+    for (_, title) in decorations.elements(renderer, &[(window.clone(), at)]) {
+        elements.push(Element::ThumbnailBar(
+            Rounded::new(
+                RescaleRenderElement::from_element(title, origin, scale),
+                Some(frame),
+            )
+            .with_radius(THUMBNAIL_RADIUS),
+        ));
+    }
+}
+
 /// The panels, front to back, each with the glass it asked for below it
-/// (with a `backdrop`; the menu bar's gives way to the `plate`).
+/// (with a `backdrop`; the menu bar's gives way to the `plate`), and on an
+/// overlay the windows' pictures it asked for (of `numbered`).
 pub fn panels(
     renderer: &mut VkRenderer,
     output: &WlOutput,
     mut backdrop: Option<&mut Backdrop>,
     plate: Option<Rectangle<i32, Logical>>,
+    numbered: &[(u64, Window)],
+    decorations: &mut Decorations,
 ) -> Vec<PanelFrame> {
     let map = layer_map_for_output(output);
     let mut drawn = Vec::new();
@@ -238,6 +316,14 @@ pub fn panels(
                     .as_deref_mut()
                     .and_then(|b| b.smoke(popup.wl_surface(), at)),
             );
+        }
+        if panel.layer() == Layer::Overlay && !numbered.is_empty() {
+            for (number, at) in crate::switcher::current(panel.wl_surface()) {
+                if let Some((_, window)) = numbered.iter().find(|(n, _)| *n == number) {
+                    let place = Rectangle::new(place.loc + at.loc, at.size);
+                    thumbnail(renderer, decorations, window, place, &mut elements);
+                }
+            }
         }
         // The menu bar's own glass gives way to the plate over a fullscreen
         // window.

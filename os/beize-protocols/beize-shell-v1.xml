@@ -85,6 +85,39 @@
       </description>
       <arg name="window" type="new_id" interface="beize_window_v1"/>
     </event>
+
+    <event name="switcher_entry">
+      <description summary="a window of the switcher (Alt+Tab)">
+        The windows of a switcher about to show, in its order. A window closed
+        meanwhile leaves it with its closed event.
+      </description>
+      <arg name="window" type="object" interface="beize_window_v1"/>
+    </event>
+
+    <event name="switcher_show">
+      <description summary="show the switcher">
+        Its entries are complete; it has this room at most.
+      </description>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="switcher_select">
+      <description summary="the selected window"/>
+      <arg name="window" type="object" interface="beize_window_v1"/>
+    </event>
+
+    <event name="switcher_end">
+      <description summary="the switcher is over"/>
+    </event>
+
+    <request name="clear_thumbnails">
+      <description summary="no windows' pictures on a surface">
+        None of the pictures asked for before (beize_window_v1.show_thumbnail)
+        with the surface's next commit.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
   </interface>
 
   <interface name="beize_window_v1" version="1">
@@ -128,6 +161,27 @@
         Shows it again if it is minimized, raises it and gives it the
         keyboard.
       </description>
+    </request>
+
+    <request name="switcher_hover">
+      <description summary="select it in the switcher"/>
+    </request>
+
+    <request name="switcher_choose">
+      <description summary="choose it in the switcher, which ends"/>
+    </request>
+
+    <request name="show_thumbnail">
+      <description summary="the window's live picture on a surface">
+        As DwmRegisterThumbnail: the compositor draws the window, scaled down
+        to fit the rectangle in the shell's surface and centred, in front of
+        it. Double-buffered: applies with the surface's next commit.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
     </request>
 
     <request name="close">
