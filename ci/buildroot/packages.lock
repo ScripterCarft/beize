@@ -34,6 +34,7 @@ diffutils 1:3.12-1ubuntu0.1 amd64 pool/main/d/diffutils/diffutils_3.12-1ubuntu0.
 dosfstools 4.2-1.2build1 amd64 pool/main/d/dosfstools/dosfstools_4.2-1.2build1_amd64.deb 6b1b2bba6458ca4444cae467db7faff6fd2f350373a95be23333d76dd019c58f
 dpkg 1.23.7ubuntu1 amd64 pool/main/d/dpkg/dpkg_1.23.7ubuntu1_amd64.deb 6e0ee5877c0d27b0d8fbe36387035e8f03074eed055112595ab2e85ac8b5711e
 dpkg-dev 1.23.7ubuntu1 all pool/main/d/dpkg/dpkg-dev_1.23.7ubuntu1_all.deb 507b526fd78f9dff89696bbc3085af3117059f37fd281542778ac8b97be44690
+efitools 1.9.2-5 amd64 pool/universe/e/efitools/efitools_1.9.2-5_amd64.deb 38d782edd52e8ceff35cc448f97f0305891f5cae8bcef84ec2338600c568ab02
 erofs-utils 1.9.1-1 amd64 pool/universe/e/erofs-utils/erofs-utils_1.9.1-1_amd64.deb e06b009c4e53e6cbb848ac98dd2d1862eaa3daa1a63e4e860e59f482acf616b5
 fdisk 2.41.3-3ubuntu2.2 amd64 pool/main/u/util-linux/fdisk_2.41.3-3ubuntu2.2_amd64.deb 1789910902f6c260e5345440fd86b00ac0f34c69795a6f2be67cd4ab3e38fa2b
 findutils 4.10.0-3build2 amd64 pool/main/f/findutils/findutils_4.10.0-3build2_amd64.deb 546d6b0c2b2f5c61494ee5d11aa1b49476213af27a66edd9e05bb3ef00940557

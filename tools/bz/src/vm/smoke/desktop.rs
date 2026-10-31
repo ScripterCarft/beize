@@ -283,12 +283,12 @@ const SCREEN_OFF_SLACK: Duration = Duration::from_secs(5);
 /// some 150 takes 45.
 const FADE_LOOKED_AT: Duration = Duration::from_secs(3);
 const FADE_DARKER: f64 = 20.0;
-/// How long a client draws with the screen off, and how many frames it may
-/// draw then: hidden windows hear "frame done" once a second
-/// (`HIDDEN_FRAMES`, os/beize-compositor/src/state.rs), with the first and
-/// one at the edge. In the screen's pace it drew some 60 a second.
+/// How long a client draws with the screen off, and how many frames tell
+/// the screen's pace, some 60 a second, from a hidden window's, one
+/// (`HIDDEN_FRAMES`, os/beize-compositor/src/state.rs). No exact count: the
+/// VM's vCPUs stall (#41), CI once saw 6 for the expected 5.
 const OFF_DRAWING: Duration = Duration::from_secs(3);
-const OFF_FRAMES_MOST: usize = 5;
+const OFF_FRAMES_MOST: usize = 20;
 
 /// The load test's scene (os/beize-ui, `beize-load-test`): its windows, how
 /// long it runs, and how many frames each window must have drawn at least
@@ -2310,8 +2310,8 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
         .find_map(|l| l.strip_prefix("drawing: ")?.split_once(' ')?.0.parse().ok())
         .with_context(|| format!("the client said nothing of its drawing: {lines:?}"))?;
     ensure!(
-        drawn <= OFF_FRAMES_MOST,
-        "with the screen off a client drew {drawn} frames in {} s, not at most \
+        (1..=OFF_FRAMES_MOST).contains(&drawn),
+        "with the screen off a client drew {drawn} frames in {} s, not between 1 and \
          {OFF_FRAMES_MOST}",
         OFF_DRAWING.as_secs()
     );

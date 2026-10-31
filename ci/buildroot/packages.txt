@@ -78,6 +78,8 @@ zstd
 openssl
 python3-virt-firmware
 sbsigntool
+# sign-efi-sig-list: sbvarsign writes the month one too low and takes no date
+efitools
 
 # Images
 cryptsetup-bin

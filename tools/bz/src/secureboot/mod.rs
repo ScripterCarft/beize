@@ -45,10 +45,6 @@ pub const ENROLL_FILES: [&str; 4] = ["PK.auth", "KEK.auth", "db.auth", "dbx.auth
 /// enrollment files. beize-tpm checks the measured state against it before
 /// it re-binds the root partition (ADR 0010); built into the signed UKI.
 pub const PROFILE_FILES: [&str; 4] = ["PK.esl", "KEK.esl", "db.esl", "beize-db.esl"];
-/// Attributes of the Secure Boot variables, as systemd-boot sets them; the
-/// signature covers them.
-const VARIABLE_ATTRS: &str =
-    "NON_VOLATILE,BOOTSERVICE_ACCESS,RUNTIME_ACCESS,TIME_BASED_AUTHENTICATED_WRITE_ACCESS";
 
 /// A committed object: file name and pinned SHA-256.
 type Pinned = (&'static str, &'static str);
@@ -197,8 +193,8 @@ impl Keys {
             generate_update_key(&dir)?;
         }
         test_module_cert(paths)?;
-        // Signed once for these keys and lists, as the owner's are: sbvarsign
-        // dates each signature by the clock, and every image would differ.
+        // Dated like the signed binaries, so the same build gives the same
+        // files whatever day it runs; signed once for these keys and lists.
         let enroll = dir.join("enroll");
         let mut inputs = Fingerprint::new()?
             .text(&format!("{profile:?}"))
@@ -209,7 +205,8 @@ impl Keys {
         let stamp = Stamp::new(paths, "test-enrollment", inputs, &[&enroll]);
         if !stamp.is_current() {
             stamp.clear()?;
-            enrollment_files(&dir, &enroll, &microsoft_dir(paths), profile)?;
+            let date = utc_date(Some(BUILD_EPOCH))?;
+            enrollment_files(&dir, &enroll, &microsoft_dir(paths), profile, &date)?;
             stamp.write()?;
         }
         Ok(Self {
@@ -380,7 +377,7 @@ pub fn new_keys(store: &Store, public: &Path, microsoft: &Path, profile: Profile
     generate_cert_key(&memory.0, "db", "Beize Secure Boot signing key")?;
     generate_pcr_key(&memory.0)?;
     let enroll = memory.0.join("enroll");
-    enrollment_files(&memory.0, &enroll, microsoft, profile)?;
+    enrollment_files(&memory.0, &enroll, microsoft, profile, &utc_date(None)?)?;
 
     util::step("Storing the private keys");
     store_secrets(
@@ -505,8 +502,15 @@ pub fn verify_update(public: &Path, file: &Path, signature: &Path) -> Result<()>
 /// Writes the signed variable updates systemd-boot enrolls into `out`: PK
 /// (signed by itself), KEK (signed by PK), db (signed by KEK) and
 /// Microsoft's dbx; plus the unsigned lists as the profile ([`PROFILE_FILES`]).
-/// `keys` holds PK and KEK with private keys and db's certificate.
-fn enrollment_files(keys: &Path, out: &Path, microsoft: &Path, profile: Profile) -> Result<()> {
+/// `keys` holds PK and KEK with private keys and db's certificate; `date` is
+/// the signatures' date, from [`utc_date`].
+fn enrollment_files(
+    keys: &Path,
+    out: &Path,
+    microsoft: &Path,
+    profile: Profile,
+    date: &str,
+) -> Result<()> {
     tree::recreate(out)?;
     let scratch = out.join("lists");
     fs::create_dir_all(&scratch)?;
@@ -551,19 +555,26 @@ fn enrollment_files(keys: &Path, out: &Path, microsoft: &Path, profile: Profile)
             .iter()
             .zip([(PK_KEY, PK_CERT), (PK_KEY, PK_CERT), (KEK_KEY, KEK_CERT)])
     {
+        // Without -t it would take local time; EFI's is UTC.
+        let auth = out.join(format!("{var}.auth"));
         util::output(
-            Command::new("sbvarsign")
-                .arg("--key")
+            Command::new("sign-efi-sig-list")
+                .args(["-t", date, "-k"])
                 .arg(keys.join(signer_key))
-                .arg("--cert")
+                .arg("-c")
                 .arg(keys.join(signer_cert))
-                .args(["--attr", VARIABLE_ATTRS])
-                .arg("--output")
-                .arg(out.join(format!("{var}.auth")))
                 .arg(var)
-                .arg(list),
+                .arg(list)
+                .arg(&auth),
         )
         .with_context(|| format!("signing the {var} update"))?;
+        let signed = signature_date(&fs::read(&auth)?)?;
+        ensure!(
+            signed == date,
+            "{var}.auth is dated {signed}, not {date} as asked"
+        );
+        // Public, and it leaves them readable by its owner only.
+        fs::set_permissions(&auth, fs::Permissions::from_mode(0o644))?;
     }
     let (dbx, sha256) = MICROSOFT_DBX;
     fs::copy(
@@ -572,6 +583,33 @@ fn enrollment_files(keys: &Path, out: &Path, microsoft: &Path, profile: Profile)
     )?;
     fs::remove_dir_all(&scratch)?;
     Ok(())
+}
+
+/// `epoch`, or the clock's present, in UTC as `sign-efi-sig-list -t` takes it.
+fn utc_date(epoch: Option<u64>) -> Result<String> {
+    let mut date = Command::new("date");
+    date.arg("-u");
+    if let Some(epoch) = epoch {
+        date.arg(format!("-d@{epoch}"));
+    }
+    Ok(util::output(date.arg("+%Y-%m-%d %H:%M:%S"))?.trim().to_owned())
+}
+
+/// The date a variable update carries: the EFI_TIME that begins its
+/// EFI_VARIABLE_AUTHENTICATION_2, in the form of [`utc_date`]. OVMF takes a
+/// wrong one, other firmware may refuse it (sbvarsign's month was one too
+/// low for years, its year rejected by AMI's until 2020).
+fn signature_date(auth: &[u8]) -> Result<String> {
+    ensure!(auth.len() >= 16, "too short for a variable update");
+    ensure!(
+        auth[7..16].iter().all(|&byte| byte == 0),
+        "its date has a pad, nanoseconds or a time zone"
+    );
+    let year = u16::from_le_bytes([auth[0], auth[1]]);
+    let [month, day, hour, minute, second] = [auth[2], auth[3], auth[4], auth[5], auth[6]];
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
+    ))
 }
 
 /// An EFI signature list holding one X.509 certificate (DER).
@@ -699,6 +737,38 @@ mod tests {
 
     fn repo_microsoft_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../keys/microsoft")
+    }
+
+    #[test]
+    fn signature_date_reads_efi_time() {
+        // 2026-10-31 09:34:23, as an EFI_TIME and the rest of a header.
+        let mut auth = vec![0xea, 0x07, 10, 31, 9, 34, 23];
+        auth.extend([0; 9]);
+        assert_eq!(signature_date(&auth).unwrap(), "2026-10-31 09:34:23");
+        auth[15] = 1;
+        assert!(signature_date(&auth).is_err());
+        assert!(signature_date(&auth[..15]).is_err());
+    }
+
+    #[test]
+    fn enrollment_files_carry_the_date_asked_for() {
+        assert_eq!(utc_date(Some(0)).unwrap(), "1970-01-01 00:00:00");
+        let dir = std::env::temp_dir().join(format!("bz-date-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let keys = dir.join("keys");
+        fs::create_dir_all(&keys).unwrap();
+        for name in ["PK", "KEK", "db"] {
+            generate_cert_key(&keys, name, "Beize TEST ONLY date").unwrap();
+        }
+        // January, the month sbvarsign could not write.
+        let date = "2027-01-31 23:59:58";
+        let out = dir.join("out");
+        enrollment_files(&keys, &out, &repo_microsoft_dir(), Profile::WithWindows, date).unwrap();
+        for file in ["PK.auth", "KEK.auth", "db.auth"] {
+            let auth = fs::read(out.join(file)).unwrap();
+            assert_eq!(signature_date(&auth).unwrap(), date, "{file}");
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
