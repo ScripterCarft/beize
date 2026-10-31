@@ -315,14 +315,25 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: efitools statt sbvarsign, Messbau 0.5.123)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: efitools, Pille abgenommen, weiter mit (f))
 
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: Messbau 0.5.123 (Pille) wartet auf „Release fertig“ des Besitzers** (`docs/hardware.md` A),
-dann kopieren wie gehabt (`sudo -n mount -t drvfs D: /mnt/d`, `cmp`, aushängen; Skript aus dem Tag,
-Stick-Dateien `~/scratch/stick`), er testet, Chat wertet aus. Die CI nach dem Push prüfen.
+**JETZT: zuerst die CI auf `main` prüfen (`gh run list`), sie war bei Übergabe nicht grün belegt.** Der
+Lauf auf 99ef246 fiel in `cargo fmt` (eigener Fehler, efitools-Commit), dahinter lag `clippy` aus 7cd76de;
+beides behoben, lokal alle Schritte des Jobs plus Build und Smoke grün. Der neue Buildroot lief in der CI
+(Job grün), „Build and boot“ mit efitools aber **noch nie**: dort zeigt sich erst, ob Datum und Bildschirm
+aus halten. **Vor jedem Push `fmt`, `clippy` (auch `-p beize-compositor`), `test`, `deny` per `./bz exec`
+laufen lassen:** `bz smoke` prüft nichts davon. Pushen geht nur mit entsperrtem 1Password, sonst der Besitzer.
+Ist sie grün: (f) per ADR 0028 „Reihenfolge“.
+
+**0.5.123 ausgewertet 31.10. (`~/hw-logs/results-20261031-133613`), Besitzer: „alles gut“, Pille abgenommen.**
+Client 4798/4800 (max 5 ms), Last 114 961, rotiert 86 262, mit Kontrollzentrum 114 977, syncobj 30/30, FIFO 13
+doppelte vblanks (bekannt, nouveau); GPU median 0,38 / 0,48 ms, `blur` 0,10 / 0,19, busy 13 / 16 %, spät 3 / 4,
+keine Warnungen. Nur ein Foto, Kontrollzentrum hell; `system-journal.log` fehlt, der Kernel-Teil am Ende lief
+nicht (Ursache nicht geprüft). `nvlddmkm` 153: 0 seit 30.10. 22:23. Alte `D:\beize-0.5.121`/`122` löscht der Besitzer.
+Smithay PR #2244 (Timeline-Handles) am 29.10. gemergt; `[patch]` bleibt bis zur Version nach 0.7.0.
 0.5.121/122 ausgewertet 31.10. (`~/hw-logs/results-20261031-101005`,
 `-101802`), je ein Lauf: Last GPU median 0,39 → 0,37 ms, max 2,93 → 1,25, `blur` 0,12 → 0,10, busy
 14 → 13 %, Bilder 114 960 / 114 928, spät 1 / 1; mit Kontrollzentrum GPU 0,54 → 0,50, `blur` 0,23 → 0,19,
@@ -343,7 +354,7 @@ nur per Code-Prüfung (keine Validation-Layer). Nicht belegt: Hardware-Filter.
 
 **Weiter:** Grafik-Timeouts: der Besitzer installiert einen neuen NVIDIA-Treiber, Datum notieren; nach
 schweren Läufen selbst nachsehen (`docs/hardware.md`, „Unter Beobachtung“; beim Neubau 31.10. 0).
-Dann (f) per ADR 0028 „Reihenfolge“. Offen als eigener Schritt (Besitzer gefragt, nicht entschieden):
+Offen als eigener Schritt (Besitzer gefragt, nicht entschieden):
 Kontrollzentrum über sehr Hellem wie Apple mit dunkler Schrift statt grau gezogenem Glas.
 
 **Datum 31.10. gelöst (13f63de, Besitzer: efitools).** `sbvarsign` schrieb den Monat eins zu niedrig
@@ -356,7 +367,7 @@ keine Änderung nötig; efitools trifft echte Firmware erst bei einem neuen Schl
 sbsigntools: `~/upstream/sbsigntools-month-patch/`, an `sbsigntools@groups.io`, sendet der Besitzer.
 **Bildschirm aus:** Grenze 1–20 Bilder in 3 s statt ≤ 5, unterscheidet nur das Tempo (hidden 1/s, Bildschirm
 ~60/s; Gegenprobe `HIDDEN_FRAMES` 16 ms: 188 Bilder, rot). Warum die CI 6 statt 5 sah, bleibt ungeklärt.
-Pille: Grau 225 zu 34 % (02bbbdf), Smoke grün, Hardware steht aus.
+Pille: Grau 225 zu 34 % (02bbbdf).
 
 **0.5.120 ausgewertet 30.10. (`~/hw-logs/results-20261030-211756`).** Alles bestanden, keine
 Warnungen: Client 4799/4800 (max 5 ms), Last 114 892, rotiert 86 271, mit Kontrollzentrum 114 954,
