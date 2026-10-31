@@ -278,8 +278,8 @@ in die Endfassung einarbeiten, keine Nachträge.
   `only_root_grows`). Vorab: `systemd-repart --definitions=… --dry-run=yes <Kopie>`.
 - systemd-Konsolenzeilen enthalten ANSI-Codes **mitten im Text** → `strip_ansi`.
 - Bit-gleiche Bauten: alles, was eine Zeit schreibt, bekommt `SOURCE_DATE_EPOCH`
-  (systemd-sbsign, mkfs.vfat, mtools) oder normalisierte mtimes (cpio). `sbvarsign` kann das
-  nicht: die `.auth` der Test-Schlüssel werden deshalb nur einmal je Schlüsselsatz signiert.
+  (systemd-sbsign, mkfs.vfat, mtools) oder normalisierte mtimes (cpio). Die `.auth` der
+  Test-Schlüssel tragen `BUILD_EPOCH` (`sign-efi-sig-list -t`).
 - Smoke tippt in der initrd über QMP echte Tasten (Scancodes, die Keymap entscheidet):
   Tasten, bevor die Abfrage tty1 geöffnet hat, gehen verloren – daher `PASSWORD_PAUSE`
   (500 ms) nach dem Prompt auf der seriellen Konsole, auch vor jedem Tippen über QMP.
@@ -315,13 +315,15 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-30 nachts: Glas effizienter, Messbauten 0.5.121/122)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: efitools statt sbvarsign, Messbau 0.5.123)
 
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: `sbvarsign` mit dem Besitzer durchgehen, vielleicht ein anderes Paket statt des fehlerhaften;
-dann Schritte 5 und 6 unten.** 0.5.121/122 ausgewertet 31.10. (`~/hw-logs/results-20261031-101005`,
+**JETZT: Messbau 0.5.123 (Pille) wartet auf „Release fertig“ des Besitzers** (`docs/hardware.md` A),
+dann kopieren wie gehabt (`sudo -n mount -t drvfs D: /mnt/d`, `cmp`, aushängen; Skript aus dem Tag,
+Stick-Dateien `~/scratch/stick`), er testet, Chat wertet aus. Die CI nach dem Push prüfen.
+0.5.121/122 ausgewertet 31.10. (`~/hw-logs/results-20261031-101005`,
 `-101802`), je ein Lauf: Last GPU median 0,39 → 0,37 ms, max 2,93 → 1,25, `blur` 0,12 → 0,10, busy
 14 → 13 %, Bilder 114 960 / 114 928, spät 1 / 1; mit Kontrollzentrum GPU 0,54 → 0,50, `blur` 0,23 → 0,19,
 max 2,11 → 1,64, busy 17 → 16 %, Bilder 114 831 / 114 955, spät 15 / 6 (Einzellauf, fast alles „display“);
@@ -339,31 +341,22 @@ Bilder ≤ 2 Stufen, außer zwei Pixeln mit 6 auf der Lichtlinie des Docks im Du
 nicht geklärt). Gegenprobe Rand 24 px: nur 129 Pixel, ≤ 2 Stufen (dort wenig empfindlich). Synchronisation
 nur per Code-Prüfung (keine Validation-Layer). Nicht belegt: Hardware-Filter.
 
-**Weiter:**
-4. **Grafik-Timeouts:** Der Besitzer installiert einen neuen NVIDIA-Treiber: Datum notieren. Nach
-   schweren Läufen selbst nachsehen (`docs/hardware.md`, „Unter Beobachtung“).
-5. `sbvarsign` (unten) lösen, Stempel `test-enrollment` löschen, voller Smoke grün.
-6. Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller Lauf grün, dann `main`
-   pushen und CI selbst prüfen. Force-Push `measure/desktop` macht nur der Besitzer, für Tests unnötig.
+**Weiter:** Grafik-Timeouts: der Besitzer installiert einen neuen NVIDIA-Treiber, Datum notieren; nach
+schweren Läufen selbst nachsehen (`docs/hardware.md`, „Unter Beobachtung“; beim Neubau 31.10. 0).
+Dann (f) per ADR 0028 „Reihenfolge“. Offen als eigener Schritt (Besitzer gefragt, nicht entschieden):
+Kontrollzentrum über sehr Hellem wie Apple mit dunkler Schrift statt grau gezogenem Glas.
 
-**Befund 31.10., nicht Glas: `sbvarsign` schreibt den Monat eins zu niedrig, belegt.** Quelle
-sbsigntools `src/sbvarsign.c` `set_timestamp`: `timestamp->Month = tm->tm_mon;` (0–11, EFI_TIME will
-1–12; upstream `master` noch so, belegt 31.10.; das Jahr wurde dort 2020 behoben, der Mirror ist alt). Immer so, seit Beizes Start; der „31.9.“ ist der erste unmögliche Tag seither.
-`virt-fw-vars` scheitert dann. Unmöglich auch: **ganzer Januar (Monat 0)**, 29.–31.3., 31.5., 31.7.,
-31.12. `bz` ruft es nur auf (`secureboot/mod.rs`) und hat das nie gegengeprüft. Vorschlag an den
-Besitzer, nicht entschieden: `sign-efi-sig-list` aus efitools 1.9.2-5 (universe), mit `-t` und UTC, denn
-ohne `-t` schreibt es Ortszeit (gemessen: Monat richtig, Stunde +1). Signatur 107 Byte kleiner: Einschreiben
-muss der Smoke belegen. `virt-fw-vars --output-auth` signiert nicht; `bootctl` nur ein Zertifikat, ins ESP.
-Buildroot-Änderung baut alles neu (~2,5 h). `keys/secureboot/PK.auth` des Besitzers: Monat 9, Tag 9, gültig,
-also harmlos. Pille 31.10.: Grau 225 zu 34 %, nur `cargo check`, Smoke und Hardware stehen aus. Die Test-Schlüssel in
-`build/` tragen das Datum jetzt: Stempel `test-enrollment` ab 1.11. löschen. Messbauten lokal mit
-nicht committeter Toleranz geprüft: 121 und 122 grün. Die Schlüssel des Besitzers sind eingespielt,
-frisch eingespielte tragen denselben falschen Monat; Prüfung auf echter Firmware steht aus.
-
-**Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten; am 30.10. auch
-lokal einmal rot, im zweiten Lauf grün), voller Lauf grün, dann pushen (main 156f655.. nur lokal).
-Dann (f) per ADR 0028 „Reihenfolge“. Offen als eigener Schritt (Besitzer gefragt, nicht
-entschieden): Kontrollzentrum über sehr Hellem wie Apple mit dunkler Schrift statt grau gezogenem Glas.
+**Datum 31.10. gelöst (13f63de, Besitzer: efitools).** `sbvarsign` schrieb den Monat eins zu niedrig
+(`Month = tm_mon`, upstream noch so; das Jahr 2020 behoben, weil AMI-Firmware ein ungültiges ablehnte).
+Jetzt `sign-efi-sig-list -t` (efitools 1.9.2-5): Test-Schlüssel mit `BUILD_EPOCH`, bit-gleich und ohne
+Kalender (gemessen), eigene Schlüssel mit der Uhr in UTC; `bz` liest das Datum aus jeder Datei zurück.
+Gegenproben rot: Signatur mit `-a` (systemd-boot schreibt nicht ein), falsches Datum (`bz` lehnt ab).
+**Nur OVMF belegt:** `keys/secureboot/*.auth` des Besitzers bleiben von `sbvarsign`, Monat 9, Tag 9, gültig,
+keine Änderung nötig; efitools trifft echte Firmware erst bei einem neuen Schlüsselsatz. Einzeiler für
+sbsigntools: `~/upstream/sbsigntools-month-patch/`, an `sbsigntools@groups.io`, sendet der Besitzer.
+**Bildschirm aus:** Grenze 1–20 Bilder in 3 s statt ≤ 5, unterscheidet nur das Tempo (hidden 1/s, Bildschirm
+~60/s; Gegenprobe `HIDDEN_FRAMES` 16 ms: 188 Bilder, rot). Warum die CI 6 statt 5 sah, bleibt ungeklärt.
+Pille: Grau 225 zu 34 % (02bbbdf), Smoke grün, Hardware steht aus.
 
 **0.5.120 ausgewertet 30.10. (`~/hw-logs/results-20261030-211756`).** Alles bestanden, keine
 Warnungen: Client 4799/4800 (max 5 ms), Last 114 892, rotiert 86 271, mit Kontrollzentrum 114 954,
@@ -398,13 +391,6 @@ grell. Gemessen an seinem Mac-Bildschirmfoto (macOS 26' Dock, 2 px je pt) und Ap
 - Lehren: Mock-ups maßen das Licht über Weiß, wo es unsichtbar ist – die Seitenlinie war daher
   falsch abgestimmt; Profile über dunklem UND hellem Grund nehmen. Smoke-Fehlschläge nach einer
   Optik-Änderung zuerst im Bild ansehen: zwei waren echte Befunde (Schatten oben, graue Ecken).
-
-**Offener Befund CI (nicht vom Glas):** der nächtliche volle Lauf auf 9c0fd13 (29.10. 10:00) fiel
-in „with the screen off a client drew 6 frames in 3 s, not at most 5“ – im Runner gleichzeitig
-RCU-Stall und virtio-net-Watchdog (vCPU-Stau, #41). Die Prüfung zählt einen Takt in der VM
-(`OFF_FRAMES_MOST`), was die Regel „in der VM nur Protokoll, Takt auf Hardware“ verletzt →
-auf Protokoll umstellen (Besitzer 29.10.: im nächsten Chat, nach dem Stick). Deshalb **nicht gepusht**: main 156f655 +
-Doku nur lokal; Regel des Besitzers: Push erst nach grünem vorigem Lauf.
 
 **0.5.117 ausgewertet 29.10. (`~/hw-logs/results-20261028-222824`).** Alles bestanden: logind
 „yes“ dreimal, keine Warnungen, Last 114 944/115 200, rotiert 86 247, syncobj 30/30. Befund des
