@@ -13,7 +13,7 @@ use std::ffi::{CStr, c_char};
 use std::sync::{Arc, Mutex};
 
 use ash::vk;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::error::{Context, Result, error};
 
@@ -241,6 +241,10 @@ pub unsafe fn create(
         .device_name_as_c_str()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "the GPU".into());
+    info!(
+        "{name}: {} bits of sub-texel precision",
+        limits.sub_texel_precision_bits
+    );
     if props.properties.api_version < vk::API_VERSION_1_3 {
         return Err(error(format!("{name} has no Vulkan 1.3")));
     }

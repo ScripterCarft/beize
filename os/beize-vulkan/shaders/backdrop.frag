@@ -153,10 +153,14 @@ vec3 fetch(ivec2 p, ivec2 last, bool halving) {
 
 // One pass of a Gaussian blur, across or down (`step`), on the colours as
 // encoded – as the approved mock-ups blurred, and the passes need no
-// conversion per tap. Its weights normalised over the taps taken. With
-// `bottom.x` 2 the pass also halves its source in both directions (liquid
-// glass: a wide blur at a quarter of the pixels and half the taps); its
-// sigma is then in the target's texels.
+// conversion per tap. Its weights normalised over the taps taken, each from
+// the one before (GPU Gems 3, ch. 40), no exp per tap. Two neighbours read
+// at once where the filter can: their weighted mean is one bilinear read
+// between them (Rong Guodong), exact as the filter mixes the colours as
+// encoded too. With `bottom.x` 2 the pass also halves its source in both
+// directions (liquid glass: a wide blur at a quarter of the pixels and half
+// the taps), its reads taken singly: a bilinear read covers two by two
+// texels only; its sigma is then in the target's texels.
 vec3 gauss(ivec2 step) {
     ivec2 p = ivec2(gl_FragCoord.xy);
     ivec2 last = textureSize(sampler2D(textures[nonuniformEXT(texture)], linear), 0) - 1;
@@ -172,12 +176,37 @@ vec3 gauss(ivec2 step) {
         return c;
     }
     int reach = min(int(ceil(3.0 * sigma)), REACH_MOST);
-    float k = -0.5 / (sigma * sigma);
+    // exp(k i²): the weight of tap i, what takes it to the next, and what
+    // takes that one on.
+    float a = exp(-0.5 / (sigma * sigma));
+    float w = a;
+    float r = a * a * a;
+    float b = a * a;
     float total = 1.0;
-    for (int i = 1; i <= reach; i++) {
-        float w = exp(k * float(i * i));
-        c += w * (fetch(p + i * step, last, halving) + fetch(p - i * step, last, halving));
-        total += 2.0 * w;
+    if (halving) {
+        for (int i = 1; i <= reach; i++) {
+            c += w * (fetch(p + i * step, last, true) + fetch(p - i * step, last, true));
+            total += 2.0 * w;
+            w *= r;
+            r *= b;
+        }
+        return c / total;
+    }
+    vec2 size = vec2(last + 1);
+    vec2 centre = vec2(p) + 0.5;
+    for (int i = 1; i <= reach; i += 2) {
+        float next = i < reach ? w * r : 0.0;
+        float both = w + next;
+        vec2 by = vec2(step) * (float(i) + next / both);
+        c += both * (textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
+                                (centre + by) / size, 0.0).rgb
+            + textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
+                         (centre - by) / size, 0.0).rgb);
+        total += 2.0 * both;
+        w *= r;
+        r *= b;
+        w *= r;
+        r *= b;
     }
     return c / total;
 }
