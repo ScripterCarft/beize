@@ -315,19 +315,41 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: efitools, Pille abgenommen, weiter mit (f))
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: Shell (f) gebaut, Messbau 0.5.124 wartet, dann (g))
 
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: zuerst die CI auf `main` prüfen (`gh run list`), sie war bei Übergabe nicht grün belegt.** Der
-Lauf auf 99ef246 fiel in `cargo fmt` (eigener Fehler, efitools-Commit), dahinter lag `clippy` aus 7cd76de;
-beides behoben, lokal alle Schritte des Jobs plus Build und Smoke grün. Der neue Buildroot lief in der CI
-(Job grün), „Build and boot“ mit efitools aber **noch nie**: dort zeigt sich erst, ob Datum und Bildschirm
-aus halten. **Vor jedem Push `fmt`, `clippy` (auch `-p beize-compositor`), `test`, `deny` per `./bz exec`
-laufen lassen:** `bz smoke` prüft nichts davon. Pushen geht nur mit entsperrtem 1Password, sonst der Besitzer.
-Der Lauf 41205590706 auf 65dfab0 baut seit dem neuen Buildroot alles neu (Schätzung ~2,5 h): nicht darauf warten.
-Ist sie grün: (f) per ADR 0028 „Reihenfolge“.
+**JETZT: Messbau 0.5.124 (Tag `measure/desktop-0.5.124`): Besitzer sagt „Release fertig“, Claude kopiert auf
+den Stick (hardware.md), Besitzer testet; Teil 2/6 ist neu und prüft alles aus (f) auf NVK.** Auswerten:
+Vorschauen in Alt+Tab (lineares Verkleinern, nur in der VM gesehen), Maße von Dialog, Switcher und
+Vorschau (geschätzt), Dmabuf-Pfad der Vorschauen, `nvlddmkm` 153. Danach (g) Federanimationen.
+**CI:** Lauf 41205590706 auf 65dfab0 grün, aber nur schneller Smoke; Datum (efitools) und Bildschirm aus zeigt
+erst der nächste volle Lauf (Nacht), nachsehen. Vor jedem Push `fmt`, `clippy`, `test`, `deny` per `./bz exec`:
+`bz smoke` prüft nichts davon. Pushen geht nur mit entsperrtem 1Password, sonst der Besitzer.
+
+**Shell (f) gebaut 31.10.** (120d4f0..c2cf797; ADR 0028 §1–§4, §7 haben die Entscheidungen.) Plan und Ergebnis je
+von einem Prüf-Agenten geprüft, alle Befunde behoben. Besitzer: Bestätigungsdialog ja, Schrift im
+Kontrollzentrum bleibt hell, Apps/Paketverwaltung später (keine offene Frage mehr).
+- **Snap, Alt+F4:** `windows.rs`, xdg `tiled` als einziger Zustand, Vorschau hinter dem Fenster. Smoke `snap`.
+- **Glas für alle:** `beize-app-v1` (`glass.rs`), einer App bleibt es auf ihrer Fläche, 8 Popups mit Glas je Bild, verworfen
+  sobald nicht mehr gezeigt; jede App hört das Erscheinungsbild. Rechtsklick im Terminal und am Dock. Smoke `context_menus`.
+- **Bestätigung:** `beize_ui::dialog`, Overlay (`App::overlay`, `PanelFrame.overlay`). Tastatur beim Öffnen und nach
+  Klick darauf, ein Klick aufs Fenster nimmt sie: nie Exclusive, sonst startet Tippen den Rechner neu. Smoke
+  `confirmation`; Abmelden im Smoke läuft jetzt über Menü und Dialog.
+- **Alt+Tab:** `switcher.rs` (Compositor: Tasten, nie Modifikatoren abfangen), `os/beize-shell/src/switcher.rs`, Vorschau
+  `scene::thumbnail` (`RescaleRenderElement`, Ids der Fläche bleiben). Smoke `switcher`.
+- **App-Menüs:** `app_menu.rs`, nur das aktive Fenster, nur bei Änderung, Budget 16 KiB: ein voller Socket beendet die Shell.
+  Smoke `app_menus`, auch mit neu gestarteter Shell.
+- Gegenproben rot, jede aus dem erwarteten Grund: Vorschau eckig, Terminal-Menü ohne Glas, ohne Vorschauen, Klick behält
+  die Tastatur des Dialogs, Alt+F4 am Dialog vorbei, keine Menüs für neue Shell, Alt-Loslassen wählt nicht.
+- Nicht gebaut: `show_window_menu` (Rechtsklick auf Titelleisten), „Im Dock behalten“, Schreibtisch-Menü (ADR 0028 §3, §4).
+- Smoke: `the still desktop woke` war 31.10. einmal die Uhr (ntp-daemon stellt 867 ms, `CANCEL_ON_SET` weckt die Shell zu
+  Recht): misst jetzt neu. Der Compositor-Fall (1 Wecker im Hauptthread, 28.10., einmal 31.10.) bleibt **unbelegt**; kommt er
+  wieder: mit Trace-Log messen. Einmal rot ohne Bezug: „the failed start neither restarted…“, im nächsten Lauf grün, Ursache offen.
+- Lehren: `Pointer::Enter` und wiederholte `Motion` ohne Ortsänderung sind keine Bewegung (Menü sprang zurück); Python-Bearbeitung
+  nach `cargo fmt` scheitert an umgebrochenen Stellen: Anker prüfen, `bz build` bricht bei `sizes.toml` ab und der Smoke testet
+  dann das alte Abbild: Ausgabe von `build` lesen.
 
 **Reihenfolge des Besitzers (31.10.): erst die Shell fertig, dann Optimierung.** Keine Optimierung
 dazwischen, auch nicht die Dauer des Smoke-Tests (~175 s), die CI-Dauer oder das Glas; sie kommen danach.

@@ -61,7 +61,8 @@ Prüfung 30.10. ohne Fund: Beize steuert Lüfter, Takt und Spannung nicht (GSP-F
 nicht auf BIOS, VBIOS oder SSD-Firmware; 0 MCE/AER in 28 Messläufen. Nicht gemessen: GPU-Temperatur
 und -Lüfter unter nouveau (nicht lesbar). Der einmalige Lüfterausfall (erst nach Stromtrennung
 weg) gilt dem Besitzer als sporadisch; käme er wieder: LEDs fotografieren, zuerst Netzteil prüfen.
-Vor 0.6 muss der IRQ-Fix `kernel/measure/0002-*` auf `main`.
+Vor 0.6 muss der IRQ-Fix `kernel/measure/0002-*` auf `main`, und ohne `0001-*` (EDID) hat `main` keine 240 Hz:
+beide warten auf upstream, Besitzer entscheidet zu 0.6.
 
 ## Desktop testen (Messbau)
 

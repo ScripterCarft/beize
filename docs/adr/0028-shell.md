@@ -54,8 +54,10 @@ reservierte Ränder; Smithay bringt es mit, COSMIC, KDE und niri nutzen es) und 
 privilegiertes Protokoll **`beize-shell-v1`** (`os/beize-protocols`, nach dem Vorbild von
 ext-foreign-toplevel-list und wlr-foreign-toplevel-management): die Fensterliste mit App-ID,
 Titel und Zustand (aktiv, minimiert), das Aktivieren, das ein minimiertes Fenster
-zurückholt, das Erscheinungsbild (hell, dunkel) und Glas unter einer Fläche
-(`beize_glass_v1`, Abschnitt 6); der Ursprung von Animationen kommt mit (g).
+zurückholt, Schließen, das Erscheinungsbild (hell, dunkel), Alt+Tab (Abschnitt 7); der
+Ursprung von Animationen kommt mit (g). **`beize-app-v1`** bekommt jede App, wie AppKit es dem
+WindowServer gibt: Glas unter Popups (`beize_glass_v1`, Abschnitt 6; einer App bleibt es auf
+ihrer Fläche, höchstens 32 Formen, kein Rauch), das Erscheinungsbild, ihre Menüs (Abschnitt 3).
 Minimiert wird vom Fenster aus (`xdg_toplevel.set_minimized`). Beize UI hält die Verbindung
 einer App mit allen ihren Fenstern (`App`, wie NSApplication), so sind Menüleiste und Dock zwei
 Fenster eines Prozesses auf einer Verbindung. Beides bekommt nur die
@@ -119,6 +121,14 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   den oberen Rand, füllt es die Fläche zwischen Menüleiste und Dock, wie seit macOS 15
   („Fenster an die Menüleiste ziehen, um den Bildschirm zu füllen“; Besitzer, 24.10.). Ein
   Doppelklick auf die Titelleiste maximiert. Snap-Layouts wie bei Windows 11 kommen später.
+  Die Zone ist der äußerste Pixel des Bildschirms bzw. der Streifen der Menüleiste, keine
+  getunte Breite; dahinter zeigt eine runde Vorschau (Weiß 20 %, geschätzt), wohin es geht.
+  Einziger Zustand ist xdg `tiled` auf drei Seiten, der Ort kommt mit dem Commit, der es
+  bestätigt, wie beim Maximieren. Eine Hälfte behält Ecken und Schatten (macOS), keine
+  Abstände (Windows). Weggezogen hat das Fenster nach 4 px seine alte Größe unter dem Zeiger;
+  am Rand in der Größe geändert, schwebt es in dieser Größe. Pfeile: rechts aus der linken
+  Hälfte (und umgekehrt) und unten zurück an den Ort von vorher, wie Windows; unten auf einem
+  schwebenden Fenster tut nichts (Windows minimiert).
 - **Echtes Vollbild** (Besitzer, 24.10., wie macOS; als eigener Schritt nach der Menüleiste):
   Fremde Apps fordern es an (F11 im Browser, Videos, Spiele; `xdg_toplevel.set_fullscreen`)
   und müssen es wirklich bekommen: das ganze Bild, über Menüleiste und Dock hinweg, die dann
@@ -211,12 +221,29 @@ Einstellung, die dann zur Laufzeit umschaltet.
   die Leiste). Der Knopf des Kontrollzentrums ist seine Pille: Uhr und Globus halten 8 px Abstand
   von ihr (Apple ~6 pt bis zum nächsten Symbol). Die Leiste hat 20 px an den Enden (Besitzer;
   macOS 12 pt × 1,25 = 15), der Globus ist 20 px groß (Kugel ~16).
-- **App-Menüs:** Beize-Apps beschreiben ihre Menüs in Beize UI, und die Shell zeigt sie
-  (Protokoll `beize-menu-v1`, wie AppKit das Menü an den WindowServer gibt). Fremde Apps
+- **App-Menüs:** Beize-Apps beschreiben ihre Menüs in Beize UI (`App::set_menus`), und die
+  Shell zeigt sie (`beize_app_menu_v1`, wie AppKit das Menü an den WindowServer gibt; der
+  Compositor hält sie am Fenster und vermittelt, die Shell spricht nie mit der App; eine neu
+  gestartete Shell hört sie wieder). Fremde Apps
   liefern unter Wayland keine Menüs (GTK 4 hat das globale Menü entfernt, Qt kann es nur
-  über KDEs D-Bus-Menü). Für sie zeigt die Leiste nur ein festes Menü: Name, Fenster der App,
-  Beenden. Die Apps behalten ihre eigenen Menüs im Fenster. Das ist ehrlich gesagt der eine
-  Punkt, an dem Beize nicht wie macOS sein kann.
+  über KDEs D-Bus-Menü). Das Menü am fetten Namen hat jede App: ihre Fenster, Beenden.
+  Fremde Apps haben nur dieses und behalten ihre eigenen Menüs im Fenster. Das ist ehrlich
+  gesagt der eine Punkt, an dem Beize nicht wie macOS sein kann. Ist ein Menü offen, führt
+  Bewegung auf einen Nachbarn und die Pfeiltasten dorthin (macOS). Kürzel zeigt das Menü nur,
+  die App behandelt sie selbst.
+- **Rechtsklick-Menüs:** derselbe Baustein auf Glas, an einer Stelle der App
+  (`App::context_popup`), deaktivierte Einträge und Kürzel. Terminal: Kopieren, Einfügen, Alles
+  auswählen, Neues Fenster; hat ein Programm die Maus, gilt Shift+Rechtsklick (VTE, Alacritty).
+  Ein Klick aufs eigene Fenster schließt das Menü und wirkt wie ohne Menü. Nicht gebaut:
+  Rechtsklick auf Titelleisten (`show_window_menu`, kommt mit eigenem Schritt) und auf den
+  Schreibtisch (nichts anzubieten bis Sift).
+- **Bestätigung** (Besitzer, 31.10.): Neustart, Ausschalten und Abmelden fragen zuerst, die
+  Einträge tragen die Auslassungspunkte wie bei macOS; Ruhezustand handelt sofort. Ein Dialog-Stil
+  in `beize_ui::dialog`, auf einem Overlay (über allem, auch über Vollbild, kein Streifen).
+  Kein 60-s-Countdown wie bei macOS und GNOME: Unbeaufsichtigt passiert nichts. Tastatur beim
+  Öffnen und nach einem Klick auf ihn; ein Klick auf ein Fenster nimmt sie ihm, sodass Tippen nie
+  einen Dialog hinter einem aktiv wirkenden Fenster beantwortet (Prüf-Agent; macOS' Alerts
+  sperren das System auch nicht). Maße geschätzt.
 - **Rechts:** Statussymbole (Netz – Phosphors `globe-simple`, ohne Verbindung `globe-simple-x`,
   Besitzer 28.10. –, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
   Datum und Uhrzeit wie macOS („Mon 9 Jun 07:36“, 24 Stunden), die Namen von der C-Bibliothek:
@@ -247,6 +274,8 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
   eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf flüssigem Glas ohne Schrift
   (`liquid`, siehe 6), dasselbe wie das Kontrollzentrum (Besitzer 29.10.), der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
+- **Rechtsklick auf eine Kachel** (macOS' Dock-Menü), mittig darüber: ihre Fenster, Neues
+  Fenster, Beenden; läuft sie nicht: Öffnen. „Im Dock behalten“ braucht einen Speicher, kommt später.
 
 ### 5. Kontrollzentrum
 
@@ -434,6 +463,19 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
 Super gehört der Shell, keine App bekommt Super-Kürzel. Damit ist der Punkt aus ADR 0027 §9
 erledigt: Strg+Shift+C/V im Terminal ist endgültig.
 
+**Alt+Tab:** Die Tasten bleiben im Compositor: Das Loslassen von Alt beendet es, was ein Client
+verpassen könnte (KWin, GNOME). Reihenfolge von vorn nach hinten, dann die minimierten, zuletzt
+minimierte zuerst; es startet auf dem ersten nicht aktiven Fenster; gehoben wird erst bei der
+Wahl. Tab, Shift+Tab, Pfeile, Return, Escape; Modifikatoren bleiben für das Fenster ganz, damit
+keiner hängen bleibt. Zu sehen ist es erst nach 150 ms (gnome-shell `POPUP_DELAY_TIMEOUT`), ein
+schnelles Alt+Tab blitzt nicht. Ohne Shell wechselt es trotzdem. Die Shell zeichnet Kacheln auf
+Menü-Glas (schrumpfen, bis alle passen; Maße geschätzt), der Compositor das lebende Bild des
+Fensters hinein (`show_thumbnail`, Vorbild `DwmRegisterThumbnail`): nach der Fenstergeometrie
+skaliert, mit Titelleiste. Die Flächen behalten ihre Ids (Smithays Damage-Tracker erlaubt mehrere
+Instanzen), gelten damit als gezeigt: Ihr Puffer bleibt gehalten, die App bekommt Bilder.
+Verkleinert wird linear; ob das reicht, zeigt die Hardware. Ein bewegter Zeiger wählt eine
+Kachel, ein nur daliegender nicht (GNOME); ein Klick nimmt sie.
+
 ### 8. Symbole
 
 Vektorsymbole (SVG) werden mit **resvg** gerastert (Rust, ausgereift, in Typst und vielen
@@ -509,7 +551,7 @@ d) Symbole, Hintergrund, lebendiges Glas für das Dock, die Menüleiste ohne Hin
 e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, Abmelden,
    Neustart, Ausschalten über logind). ✓ 28.10. (ohne Sperren: kommt mit dem Sperrbildschirm;
    dazu Hell/Dunkel zur Laufzeit und Menüs als Baustein in Beize UI)
-f) App-Menüs (`beize-menu-v1`), Alt+Tab, Snap.
+f) App-Menüs (`beize-app-v1`), Alt+Tab, Snap, dazu Rechtsklick-Menüs und die Bestätigung. ✓ 31.10.
 g) Gestaltete Federanimationen (Öffnen, Minimieren ins Dock, Snap).
 
 Suche, Benachrichtigungen, Sperrbildschirm und die grafische Anmeldung bekommen je ein
