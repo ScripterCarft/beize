@@ -320,9 +320,9 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen. Treiber jetzt 32.0.16.1742; 0 seit 30.10. 22:23.
 
-**JETZT: Messbau 0.5.126.** Tag `measure/desktop-0.5.126`, Testprogramme und Skript in `~/scratch/stick`. Beim Besitzer:
-Release (`docs/hardware.md` A), „Release fertig“ → Claude kopiert `D:\beize-0.5.126` und `D:\beize-test`, Teil 2 auswerten, Fotos ansehen,
-`nvlddmkm` zählen. **Menü-Glas: Besitzer hat zu 80 % nichts gesagt, 0.5.126 hat wieder 85 %; fragen.** `main` lokal vor `origin`, Push beim Besitzer.
+**JETZT: Der Besitzer testet 0.5.126.** Auf dem Stick (`D:\beize-0.5.126`, `D:\beize-test`, cmp geprüft). Es hat Menü-Glas 85 %; `main` hat seit dem
+31.10. 80 % (sein Ja, gesehen auf 0.5.125, in `menu_material`), das sieht er erst im nächsten Build. Die Ergebnisse auswerten (`D:\beize-test\results-*` nach
+`~/hw-logs`), `nvlddmkm` 153 zählen. `main` lokal vor `origin`; Push macht der Besitzer (1Password), danach CI selbst prüfen.
 
 **0.5.125 ausgewertet (`~/hw-logs/results-20261031-215941`):** Client 4798/4800, Last 115 005, rotiert 86 261, GPU 0,38, `blur` 0,10, busy 14 %, syncobj
 30/30, keine Warnungen. **Offen, unbelegt:** Teil 5b nur 112 133 Bilder, Fenster 1–11 standen 877 ms, das gezogene nicht, GPU 4,8, `blur` 3,33 ms,
@@ -333,10 +333,24 @@ Vollbild: offenes Menü hält seine Leiste (`layers::reveal`, Aufdecken beim Gra
 Gegenproben rot: Menü hält nicht, kein Umriss, Super+R tot. Der Strich der Vorschau kam nach dem Smoke, ohne eigene Prüfung (Besitzer). Einmal
 rot: `the still desktop woke` (Compositor 1×, jetzt 3 von ~20 Läufen, weiter unbelegt).
 
-**Auftrag des Besitzers (31.10. abends), erst sein Feedback zu 0.5.126:**
-1. Tests aufräumen: heraus, was er schon akzeptiert hat oder nur einmal sehen muss (Liste mit Gründen zuerst); `hw-test.sh` und Smoke schlanker.
-2. Performance einmal ansehen: Pfeil hoch im Terminal (seine Beobachtung, noch nicht untersucht).
-3. Aufräumen, schlank und production ready: die `.md` kürzen (viel ist geklärt, §11 vor allem), auch die `.rustup`-Dateien ansehen (was dort liegt, zuerst klären).
+**AUFTRAG DES BESITZERS FÜR DEN NÄCHSTEN CHAT (31.10. nachts), hat Vorrang vor allem anderen in §11: Fehler finden und beheben, KEIN Design.**
+Wörtlich: „der nächste Chat fixt vor allem erstmal die ganzen Fehler, also kein Design mehr, der muss Fehler fixen mit anderen Hilfsagenten und wirklich mal
+analysieren, woher die komischen Sachen kommen. Kein Verhalten darf der mehr hinnehmen, er macht es ready. Er soll alles finden, erstmal AM CODE.“
+- **Erst am Code suchen**, Hilfsagenten ausdrücklich erlaubt und gewünscht: je Bereich (Compositor, Shell, Beize UI, Terminal, Vulkan-Schicht, Dienste, `bz`, Tests) lesen und Ursachen belegen.
+  Erst die vollständige Befundliste mit Beleg (Datei, Mechanismus, Folge), dann beheben. Keine neuen Features, keine Werte oder Looks ändern (`beize-owner-approves-looks`).
+- **Nichts mehr hinnehmen:** „bekannt“, „einmal rot“, „unbelegt“ und „Treiber“ sind keine Antwort. Für jedes Eigenartige die Ursache finden, oder belegen, warum es nicht Beize ist.
+- **Ausgangsliste (nicht vollständig):**
+  1. `the still desktop woke`: Compositor wacht 1× auf (3 von ~20 Läufen), unbelegt.
+  2. Einmal rot „the failed start neither restarted nor reached the emergency gate within 60s“, Ursache offen.
+  3. Teil 5b: Fenster 1–11 stehen 877 ms beim Ziehen an den oberen Rand, GPU 4,8 ms, 34 späte Bilder; vermutet: Vorschau und „frame done“ verdeckter Fenster. In 0.5.126 nachmessen.
+  4. Prüfen, ob die Vorschau Fenster dahinter als verdeckt behandelt (`Glass::opaque_regions` vor dem ersten `blur`, `take_shown`, `HIDDEN_FRAMES`).
+  5. RCU-Stalls in der VM (#41), auch in grünen Läufen; Unter Last 351 ms Resize in der VM, warum gerade dort.
+  6. Pfeil hoch im Terminal (Performance, seine Beobachtung, nie untersucht); lange Befehlszeilen in `beize-terminal` (unbelegt, 27.10.); `prompt.rs` „told“-Drossel, vom Besitzer als unsauber bezeichnet.
+  7. App mit Tastaturfokus kann ohne Eingabe ein Menü öffnen, das die Tastatur hält (`shell::grab`); aktive App kann die Shell mit wechselnden Menüs oder Titeln belasten.
+  8. „Super+Right“ im Menü geht aus der linken Hälfte zurück statt nach rechts. Ohne Hintergrund keine Vorschau.
+  9. `system-journal.log` fehlte bei 0.5.123 (Ursache nicht geprüft). Doppelte vblanks und Flip-Ereignisse: nouveau belegen oder Beizes Anteil finden.
+  10. `bz smoke` führt fmt, clippy, test, deny nicht aus: Ein Unit-Test war seit 4ab8dde rot, erst vor dem Commit bemerkt. Die Abfolge absichern.
+- **Danach, nur wenn der Besitzer es sagt:** Tests schlanker (Liste mit Gründen zuerst), `.md` kürzen, `.rustup` ansehen, Entscheidung zu den nouveau-Fixes vor 0.6 (Punkt unten).
 
 **Verfeinerung nach Mock-ups (31.10., 4ab8dde, bd802ba, d5951ac; ADR 0028 hat die Entscheidungen).** Drei Runden, Besitzer: Menüleiste
 13 px je Seite (auf seinem Mac gemessen), Pille Weiß 12 % (Kontrollzentrum bleibt Grau 34 %: ungefragt, ansprechen falls unruhig); Kürzel

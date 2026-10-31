@@ -216,7 +216,7 @@ Einstellung, die dann zur Laufzeit umschaltet.
   (Besitzer, 28.10.; der Compositor lässt den Zeiger vor dem Klick los, sonst lief er durch
   Smithays Grab ohne Klick-Grab, und das Verschieben wurde abgelehnt); danach bekommt das
   aktive Fenster die Tastatur zurück) auf Menü-Glas – lebendig, mit macOS' Menüfarben #F2F2F2 bzw.
-  #2D2D2D zu 85 % getönt (Besitzer: ruhig, kaum durchscheinend; macOS 26 lässt etwa die Hälfte
+  #2D2D2D zu 80 % getönt (Besitzer, 31.10.: ruhig, kaum durchscheinend; macOS 26 lässt etwa die Hälfte
   durch), schwache Lichtkante, Schatten nur außen. Maße aus den Menübildern der HIG (genau 2 px
   je pt) × 1,25: Zeilen 30, oben und unten 6, Text 15 px (wie die Leiste) mit 20 Einzug,
   Trennlinie 1 px schwarz 7,5 %, Ecken 16 (wie Fenster), mindestens 225 breit. Geschätzt: die

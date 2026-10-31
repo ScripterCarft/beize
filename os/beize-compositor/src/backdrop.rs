@@ -122,15 +122,15 @@ impl Appearance {
 
     /// A menu's glass (`glass::Material::Menu`): as the appearance's, but
     /// tinted thickly with macOS' menu colours – #F2F2F2 and #2D2D2D,
-    /// measured in Apple's menus (HIG, 2 px per pt) – at 85 %: calm, what
-    /// lies behind barely shows (the owner, 28.10., on mock-ups; macOS 26
-    /// lets about half through).
+    /// measured in Apple's menus (HIG, 2 px per pt) – at 80 %: calm, what
+    /// lies behind barely shows (the owner, 31.10., on his screen with
+    /// 0.5.125; macOS 26 lets about half through).
     fn menu_material(self) -> Material {
         let tint = match self {
             Appearance::Light => [0xf2, 0xf2, 0xf2],
             Appearance::Dark => [0x2d, 0x2d, 0x2d],
         };
-        let alpha = 0.85;
+        let alpha = 0.80;
         let linear = |c: u8| decoded(f32::from(c) / 255.0) * alpha;
         Material {
             tint: [linear(tint[0]), linear(tint[1]), linear(tint[2]), alpha],
