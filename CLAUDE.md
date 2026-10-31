@@ -345,8 +345,8 @@ Kontrollzentrum bleibt hell, Apps/Paketverwaltung später (keine offene Frage me
   die Tastatur des Dialogs, Alt+F4 am Dialog vorbei, keine Menüs für neue Shell, Alt-Loslassen wählt nicht.
 - Nicht gebaut: `show_window_menu` (Rechtsklick auf Titelleisten), „Im Dock behalten“, Schreibtisch-Menü (ADR 0028 §3, §4).
 - Smoke: `the still desktop woke` war 31.10. einmal die Uhr (ntp-daemon stellt 867 ms, `CANCEL_ON_SET` weckt die Shell zu
-  Recht): misst jetzt neu. Der Compositor-Fall (1 Wecker im Hauptthread, 28.10., einmal 31.10.) bleibt **unbelegt**; kommt er
-  wieder: mit Trace-Log messen. Einmal rot ohne Bezug: „the failed start neither restarted…“, im nächsten Lauf grün, Ursache offen.
+  Recht): misst jetzt neu. Der Compositor-Fall (1 Wecker im Hauptthread, 28.10., zweimal 31.10. von ~15 Läufen) bleibt **unbelegt**; widerlegt: Timer der
+  behaltenen Panels (wird entfernt), Layout-Datei (nur noch die eine). Offen: udev, Sitzung, übrige Timer; mit Trace-Log messen. Einmal rot ohne Bezug: „the failed start neither restarted…“, im nächsten Lauf grün, Ursache offen.
 - Lehren: `Pointer::Enter` und wiederholte `Motion` ohne Ortsänderung sind keine Bewegung (Menü sprang zurück); Python-Bearbeitung
   nach `cargo fmt` scheitert an umgebrochenen Stellen: Anker prüfen, `bz build` bricht bei `sizes.toml` ab und der Smoke testet
   dann das alte Abbild: Ausgabe von `build` lesen.

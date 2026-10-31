@@ -224,7 +224,6 @@ const TITLE_BAR: usize = 32;
 /// room for a loaded host. Drawing every size, the window was still
 /// hundreds of sizes behind (988 instead of 800 px wide) when it ended.
 const FAST_RESIZE_BY: i32 = 240;
-const FAST_RESIZE_SETTLES: Duration = Duration::from_millis(250);
 // Its 800x632 window stays clear of the dock (`MOVE_BY`).
 const UI_MOVE_BY: (i32, i32) = (-100, 10);
 /// The bar's circles at its left end, 23 px apart from 9 px on, close
@@ -3840,14 +3839,26 @@ fn wait_for_dock(shell: &Shell, wanted: impl Fn(&[String]) -> bool) -> Result<Ve
 /// the whole line), in this boot; the last line it took. If it does not,
 /// the error has what the compositor and the shell said last.
 /// Resizes Beize UI's window by its right edge as fast as a 1000 Hz mouse
-/// reports, out by `FAST_RESIZE_BY` and back: it has to settle in its size
-/// at once after the button is up, not draw the hundreds of sizes in
-/// between one frame after another (0.5.105 on the owner's PC: the window
-/// trailed the pointer ever more, until its buffers filled the GPU).
+/// reports, out by `FAST_RESIZE_BY` and back: it has to take the sizes its
+/// frames can show, not draw the hundreds in between one frame after another
+/// (0.5.105 on the owner's PC: the window trailed the pointer ever more, until
+/// its buffers filled the GPU). Counted, not timed: here the frames are drawn
+/// on the VM's CPU; how soon it settles is `hw-test`'s, on the hardware.
 fn fast_resize(shell: &Shell, qmp: &Path, screen: (usize, usize), window: Window) -> Result<()> {
     let ((x, y), (w, h)) = window;
     let edge = (i32::try_from(x + w + 2)?, i32::try_from(y + h / 2)?);
     let out = (edge.0 + FAST_RESIZE_BY, edge.1);
+    let sizes = || -> Result<usize> {
+        let (_, lines) = shell.capture(
+            "journalctl --user -b -u beize-ui-test -o cat | grep -c '^configure ' \
+             | sed 's/^/BEIZE-COUNT /'",
+        )?;
+        lines
+            .iter()
+            .find_map(|l| l.strip_prefix("BEIZE-COUNT ")?.trim().parse().ok())
+            .context("the sizes Beize UI's test program took were not counted")
+    };
+    let before = sizes()?;
     swipe(qmp, screen, &[edge, out, edge], Duration::from_millis(1))?;
     park(qmp, screen)?;
     let wanted = format!("resized beize-ui-test to {w}x{h}, ");
@@ -3865,15 +3876,16 @@ fn fast_resize(shell: &Shell, qmp: &Path, screen: (usize, usize), window: Window
         .and_then(|rest| rest.split_once(" ms"))
         .and_then(|(ms, _)| ms.parse().ok())
         .with_context(|| format!("the window did not settle in {w}x{h}: \"{said}\""))?;
+    let took = sizes()?.saturating_sub(before);
+    let dragged = 2 * usize::try_from(FAST_RESIZE_BY)?;
     ensure!(
-        ms <= FAST_RESIZE_SETTLES.as_millis() as u64,
-        "resized fast, the window settled {ms} ms after the button was released, more than \
-         {} ms: it drew the sizes it was dragged through one by one",
-        FAST_RESIZE_SETTLES.as_millis()
+        took < dragged / 4,
+        "resized fast, Beize UI's test program took {took} of the {dragged} sizes it was dragged \
+         through: it drew them one by one"
     );
     say!(
         "  ok: resized as fast as a 1000 Hz mouse, out by {FAST_RESIZE_BY} px and back, the \
-         window settled {ms} ms after the button was released"
+         window took {took} of {dragged} sizes and settled, {ms} ms after the button was released"
     );
     Ok(())
 }
