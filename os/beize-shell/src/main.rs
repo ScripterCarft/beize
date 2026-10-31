@@ -81,6 +81,9 @@ const PILL_HEIGHT: f32 = 28.0;
 const MENU_PILL: f32 = 36.0 * measures::SCALE;
 const CONTROL_CENTER_PILL: f32 = 54.0;
 const BUTTON_SPACE: f32 = 8.0;
+/// The space either side of an app's menu title (macOS 26: about 8 pt, at
+/// `SCALE`), which its open pill fills.
+const MENU_PADDING: f32 = 10.0;
 
 /// What lies behind the menu bar (ADR 0028 §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +112,18 @@ enum Open {
     BeizeMenu,
     ControlCenter,
     DockMenu,
+    /// The active app's menu by its name: its windows, Quit.
+    AppName,
+    /// A menu the active app describes, by its place.
+    AppMenu(usize),
+}
+
+impl Open {
+    /// Whether the bar's left side has it: moving onto another's button
+    /// goes there (macOS).
+    fn along_bar(self) -> bool {
+        matches!(self, Open::BeizeMenu | Open::AppName | Open::AppMenu(_))
+    }
 }
 
 /// The Beize menu's commands, in its entries' order.
@@ -176,6 +191,8 @@ fn run() -> Result<(), String> {
     let (mut bar_drawn, mut dock_drawn, mut ready) = (false, false, false);
     let mut dock_width = dock.width();
     let mut active_name: Option<String> = None;
+    // The active window: its menus show, its app's windows in its name's.
+    let mut active: Option<beize_ui::DesktopWindow> = None;
     let mut appearance = app.appearance();
     let mut backdrop = app.menu_bar_backdrop();
     let look = BarLook::from_environment();
@@ -188,6 +205,9 @@ fn run() -> Result<(), String> {
     // The bar's buttons as last drawn, and where the pointer is on it.
     let mut buttons = Buttons::default();
     let mut on_bar: Option<(f64, f64)> = None;
+    // Where it last was, off the bar too: the compositor repeats the place
+    // when a menu changes, and only moving goes from menu to menu.
+    let mut bar_pointer = (-1.0, -1.0);
     // The open menu: which, its popup, and whether it waits to be drawn.
     let mut open: Option<(Open, WindowId)> = None;
     let mut redraw_open = false;
@@ -259,15 +279,19 @@ fn run() -> Result<(), String> {
                 info!("dock: {}", dock.summary());
                 redraw_dock = true;
             }
-            let name = windows
-                .iter()
-                .find(|w| w.active)
-                .map(|w| names(&w.app_id).name);
+            let now = windows.iter().find(|w| w.active).cloned();
+            let name = now.as_ref().map(|w| names(&w.app_id).name);
             if name != active_name {
                 info!("menu bar: {}", name.as_deref().unwrap_or("(no app)"));
                 active_name = name;
                 redraw_bar = true;
             }
+            let titles = |w: &Option<beize_ui::DesktopWindow>| {
+                w.as_ref()
+                    .map(|w| w.menus.iter().map(|m| m.title.clone()).collect::<Vec<_>>())
+            };
+            redraw_bar |= titles(&now) != titles(&active);
+            active = now;
         }
         // Alt+Tab: its window follows what the compositor says.
         if dispatched.desktop {
@@ -333,12 +357,15 @@ fn run() -> Result<(), String> {
                 }
             }
         }
+        // A menu to open once the one open is closed.
+        let mut opening: Option<(Open, Rect, Align)> = None;
         // The open menu: what happened to it.
         if let (Some((which, id)), Some(events)) = (open, open_events) {
             redraw_open |= events.configured;
             let mut close = events.closed;
             let mut chosen = None;
             let mut tile_command = None;
+            let mut neighbour = None;
             let width = app.size(id).0;
             for input in &events.input {
                 if let Input::Pointer(Pointer::Enter(x, y) | Pointer::Motion(x, y)) = input {
@@ -347,6 +374,7 @@ fn run() -> Result<(), String> {
                 match which {
                     Open::BeizeMenu => match beize_menu.input(input, width) {
                         Outcome::None => {}
+                        Outcome::Neighbour(by) => neighbour = Some(by),
                         Outcome::Changed => redraw_open = true,
                         Outcome::Dismissed => close = true,
                         Outcome::Chosen(i) => {
@@ -354,10 +382,15 @@ fn run() -> Result<(), String> {
                             chosen = command_at(i);
                         }
                     },
-                    Open::DockMenu => {
+                    Open::DockMenu | Open::AppName | Open::AppMenu(_) => {
                         if let Some((menu, commands)) = &mut dock_menu {
                             match menu.input(input, width) {
                                 Outcome::None => {}
+                                Outcome::Neighbour(by) => {
+                                    if which.along_bar() {
+                                        neighbour = Some(by);
+                                    }
+                                }
                                 Outcome::Changed => redraw_open = true,
                                 Outcome::Dismissed => close = true,
                                 Outcome::Chosen(i) => {
@@ -391,6 +424,15 @@ fn run() -> Result<(), String> {
                     }
                 }
             }
+            // The arrows: the menu beside it in the bar.
+            if let Some(by) = neighbour {
+                let order = buttons.along_bar();
+                if let Some(i) = order.iter().position(|(o, ..)| *o == which) {
+                    let n = order.len() as isize;
+                    let (to, anchor, align) = order[(i as isize + by).rem_euclid(n) as usize];
+                    opening = Some((to, anchor, align));
+                }
+            }
             if close {
                 info!("{which:?} closed");
                 app.close(id);
@@ -401,6 +443,9 @@ fn run() -> Result<(), String> {
                 redraw_bar = true;
                 match tile_command {
                     Some(dock::Command::Activate(window)) => app.activate_desktop_window(window),
+                    Some(dock::Command::App(window, command)) => {
+                        app.activate_menu(window, command);
+                    }
                     Some(dock::Command::Start(app_id)) => beize_systemd::apps::start(&app_id),
                     Some(dock::Command::Quit(windows)) => {
                         for window in windows {
@@ -490,7 +535,25 @@ fn run() -> Result<(), String> {
                 continue;
             };
             match *pointer {
-                Pointer::Enter(x, y) | Pointer::Motion(x, y) => on_bar = Some((x, y)),
+                Pointer::Enter(x, y) => {
+                    on_bar = Some((x, y));
+                    bar_pointer = (x, y);
+                }
+                Pointer::Motion(x, y) => {
+                    on_bar = Some((x, y));
+                    let moved = bar_pointer != (x, y);
+                    bar_pointer = (x, y);
+                    // A menu open along the bar: moved onto another's button
+                    // goes there (macOS).
+                    if let (Some((now, _)), Some((to, anchor, align))) = (open, buttons.at((x, y)))
+                        && moved
+                        && now.along_bar()
+                        && to.along_bar()
+                        && to != now
+                    {
+                        opening = Some((to, anchor, align));
+                    }
+                }
                 Pointer::Leave => on_bar = None,
                 Pointer::Button {
                     button: Button::Left,
@@ -506,30 +569,54 @@ fn run() -> Result<(), String> {
                     if was == Some(pressed) {
                         continue;
                     }
-                    let size = match pressed {
-                        Open::ControlCenter => control_center.size(),
-                        _ => beize_menu.size(app.text()),
-                    };
-                    let popup = Popup {
-                        anchor,
-                        size,
-                        align,
-                        above: false,
-                    };
-                    match app.popup(bar, &popup) {
-                        Ok(id) => {
-                            info!("{pressed:?} open");
-                            if pressed == Open::ControlCenter {
-                                app.set_input(id, Some(&control_center.input()));
-                            }
-                            open = Some((pressed, id));
-                            redraw_open = false;
-                            redraw_bar = true;
-                        }
-                        Err(e) => warn!("opening {pressed:?}: {e}"),
-                    }
+                    opening = Some((pressed, anchor, align));
                 }
                 _ => {}
+            }
+        }
+        // Opened after the one before is gone: the compositor refuses a new
+        // grab over a popup still there.
+        if let Some((to, anchor, align)) = opening.take() {
+            if let Some((which, id)) = open.take() {
+                info!("{which:?} closed");
+                app.close(id);
+                on_menu = None;
+                beize_menu = Menu::new(beize_menu_entries());
+                dock_menu = None;
+            }
+            let commands = match to {
+                Open::AppName => active
+                    .as_ref()
+                    .map(|window| app_name_menu(window, &app.desktop_windows(), &mut names)),
+                Open::AppMenu(i) => active
+                    .as_ref()
+                    .and_then(|window| Some((window.id, window.menus.get(i)?)))
+                    .map(|(window, menu)| app_menu_commands(window, menu)),
+                _ => None,
+            };
+            let size = match (to, &commands) {
+                (Open::ControlCenter, _) => control_center.size(),
+                (_, Some((entries, _))) => Menu::new(entries.clone()).size(app.text()),
+                _ => beize_menu.size(app.text()),
+            };
+            let popup = Popup {
+                anchor,
+                size,
+                align,
+                above: false,
+            };
+            match app.popup(bar, &popup) {
+                Ok(id) => {
+                    info!("{to:?} open");
+                    if to == Open::ControlCenter {
+                        app.set_input(id, Some(&control_center.input()));
+                    }
+                    dock_menu = commands.map(|(entries, list)| (Menu::new(entries), list));
+                    open = Some((to, id));
+                    redraw_open = false;
+                    redraw_bar = true;
+                }
+                Err(e) => warn!("opening {to:?}: {e}"),
             }
         }
         for input in &dock_events.input {
@@ -605,11 +692,16 @@ fn run() -> Result<(), String> {
                 }
             };
             shown_time = clock::now();
+            let menus: Vec<String> = active
+                .as_ref()
+                .map(|w| w.menus.iter().map(|m| m.title.clone()).collect())
+                .unwrap_or_default();
             let (scene, drawn) = menu_bar(
                 app.text(),
                 size,
                 &BarContent {
                     app: active_name.as_deref(),
+                    menus: &menus,
                     time: shown_time.clone(),
                     network,
                     open: open.map(|(o, _)| o),
@@ -621,6 +713,17 @@ fn run() -> Result<(), String> {
                 // control center's).
                 let [beize, centre] = drawn.centres();
                 info!("menu bar buttons: Beize menu at {beize:?}, control center at {centre:?}");
+            }
+            if drawn.along != buttons.along {
+                // Where to click, for tests.
+                let places: Vec<String> = drawn
+                    .along
+                    .iter()
+                    .map(|(_, r, _)| {
+                        format!("{},{}", (r.x + r.w / 2.0) as i32, (r.y + r.h / 2.0) as i32)
+                    })
+                    .collect();
+                info!("menu bar menus: {}", places.join(" "));
             }
             buttons = drawn;
             app.draw(bar, &scene).map_err(|e| e.to_string())?;
@@ -637,7 +740,7 @@ fn run() -> Result<(), String> {
                     Menu::glass(size),
                     beize_menu.draw(app.text(), size, appearance),
                 ),
-                Open::DockMenu => {
+                Open::DockMenu | Open::AppName | Open::AppMenu(_) => {
                     let Some((menu, _)) = &dock_menu else {
                         continue;
                     };
@@ -744,6 +847,55 @@ fn confirmation(command: Command) -> Dialog {
     Dialog::new(title, "Unsaved work in open windows may be lost.", action)
 }
 
+/// The active app's menu by its name, for every app (ADR 0028 §3; the one
+/// menu an app that describes none has): its windows, then quitting it.
+fn app_name_menu(
+    window: &beize_ui::DesktopWindow,
+    windows: &[beize_ui::DesktopWindow],
+    names: &mut impl FnMut(&str) -> apps::App,
+) -> (Vec<Entry>, Vec<Option<dock::Command>>) {
+    let name = names(&window.app_id).name;
+    let own: Vec<_> = windows
+        .iter()
+        .filter(|w| w.app_id == window.app_id)
+        .collect();
+    let mut entries = Vec::new();
+    let mut commands = Vec::new();
+    for w in &own {
+        let title = if w.title.is_empty() { &name } else { &w.title };
+        entries.push(Entry::item(title));
+        commands.push(Some(dock::Command::Activate(w.id)));
+    }
+    entries.push(Entry::Separator);
+    commands.push(None);
+    entries.push(Entry::item(format!("Quit {name}")));
+    commands.push(Some(dock::Command::Quit(
+        own.iter().map(|w| w.id).collect(),
+    )));
+    (entries, commands)
+}
+
+/// A menu an app describes, with each entry's command.
+fn app_menu_commands(
+    window: beize_ui::DesktopWindowId,
+    menu: &beize_ui::menu::AppMenu,
+) -> (Vec<Entry>, Vec<Option<dock::Command>>) {
+    let entries = menu
+        .entries
+        .iter()
+        .map(|(entry, _)| entry.clone())
+        .collect();
+    let commands = menu
+        .entries
+        .iter()
+        .map(|(entry, id)| match entry {
+            Entry::Item(_) => Some(dock::Command::App(window, *id)),
+            Entry::Separator => None,
+        })
+        .collect();
+    (entries, commands)
+}
+
 /// What logind lets the Beize menu do now, for the journal: polkit's
 /// answer for this session ("yes" without a password).
 fn may() -> String {
@@ -811,6 +963,8 @@ fn bar_glass((w, h): (u32, u32)) -> Glass {
 /// What the bar shows.
 struct BarContent<'a> {
     app: Option<&'a str>,
+    /// The titles of the menus the active app describes.
+    menus: &'a [String],
     time: Option<String>,
     network: network::Status,
     open: Option<Open>,
@@ -822,6 +976,8 @@ struct Buttons {
     beize_menu: Option<Rect>,
     control_center: Option<Rect>,
     width: f32,
+    /// The menus along the bar's left side, in order, and how each opens.
+    along: Vec<(Open, Rect, Align)>,
 }
 
 impl Buttons {
@@ -838,20 +994,19 @@ impl Buttons {
         [centre(self.beize_menu), centre(self.control_center)]
     }
 
+    /// The menus along the bar's left side, in order.
+    fn along_bar(&self) -> Vec<(Open, Rect, Align)> {
+        self.along.clone()
+    }
+
     /// The button at `(x, y)` on the bar, what its menu opens below and
     /// how it lines up: the Beize menu from its button's left edge, the
     /// control center a gap from the screen's right edge.
     fn at(&self, (x, y): (f64, f64)) -> Option<(Open, Rect, Align)> {
         let (x, y) = (x as f32, y as f32);
         let inside = |r: &Rect| x >= r.x && x < r.x + r.w && y >= 0.0 && y < HEIGHT as f32;
-        if let Some(r) = self.beize_menu.filter(inside) {
-            let anchor = Rect {
-                x: r.x,
-                y: 0.0,
-                w: r.w,
-                h: HEIGHT as f32,
-            };
-            return Some((Open::BeizeMenu, anchor, Align::Left));
+        if let Some(found) = self.along.iter().find(|(_, r, _)| inside(r)) {
+            return Some(*found);
         }
         if self.control_center.is_some_and(|r| inside(&r)) {
             let right = self.width - MARGIN;
@@ -922,14 +1077,37 @@ fn menu_bar(
         scene.rounded(beize_button, beize_button.h / 2.0, pill_color);
     }
     logo(&mut scene, logo_x, symbol_y, symbol, ink);
+    let bar_anchor = |r: Rect| Rect {
+        x: r.x,
+        y: 0.0,
+        w: r.w,
+        h: h,
+    };
+    let mut along = vec![(Open::BeizeMenu, bar_anchor(beize_button), Align::Left)];
     if let Some(app) = content.app {
-        // Bold, as macOS names the active app.
-        let layout = text.layout(app, &style(700.0), None);
-        scene.text(
-            &layout,
-            logo_x + symbol + SYMBOL_GAP,
-            centred(layout.height()),
-        );
+        // Bold, as macOS names the active app; then its menus, each its text
+        // on a pill wider by `MENU_PADDING` a side.
+        let mut x = logo_x + symbol + SYMBOL_GAP;
+        let mut item =
+            |title: &str, weight: f32, which: Open, text: &mut Text, scene: &mut Scene| {
+                let layout = text.layout(title, &style(weight), None);
+                let button = Rect {
+                    x: (x - MENU_PADDING).round(),
+                    y: ((h - PILL_HEIGHT) / 2.0).round(),
+                    w: (layout.width() + 2.0 * MENU_PADDING).round(),
+                    h: PILL_HEIGHT,
+                };
+                if content.open == Some(which) {
+                    scene.rounded(button, button.h / 2.0, pill_color);
+                }
+                scene.text(&layout, x.round(), centred(layout.height()));
+                along.push((which, bar_anchor(button), Align::Left));
+                x += layout.width() + 2.0 * MENU_PADDING;
+            };
+        item(app, 700.0, Open::AppName, text, &mut scene);
+        for (i, title) in content.menus.iter().enumerate() {
+            item(title, 500.0, Open::AppMenu(i), text, &mut scene);
+        }
     }
 
     let mut right = w - MARGIN;
@@ -968,6 +1146,7 @@ fn menu_bar(
         beize_menu: Some(beize_button),
         control_center: Some(cc_button),
         width: w,
+        along,
     };
     (scene, buttons)
 }

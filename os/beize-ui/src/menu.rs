@@ -113,9 +113,19 @@ impl Entry {
     }
 }
 
+/// A menu of an app in the menu bar (`App::set_menus`): its title and
+/// entries, each command with the id it comes back by (`Events::commands`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppMenu {
+    pub title: String,
+    pub entries: Vec<(Entry, u32)>,
+}
+
 /// What an input did to the menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
+    /// The left or right arrow: to the menu beside it in the bar (macOS).
+    Neighbour(isize),
     /// Nothing to show.
     None,
     /// The highlight moved: draw again.
@@ -276,6 +286,8 @@ impl Menu {
             }) => match *sym {
                 Keysym::Down => self.step(1),
                 Keysym::Up => self.step(-1),
+                Keysym::Left => return Outcome::Neighbour(-1),
+                Keysym::Right => return Outcome::Neighbour(1),
                 Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                     return self.highlight.map_or(Outcome::None, Outcome::Chosen);
                 }

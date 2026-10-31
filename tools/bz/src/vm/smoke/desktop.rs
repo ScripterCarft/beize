@@ -642,7 +642,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let (_, lines) = shell.capture(
         "for i in $(seq 50); do systemctl --user -q is-active beize-ui-test || break; \
          sleep 0.2; done; systemctl --user is-active beize-ui-test; \
-         journalctl --user -u beize-ui-test -o cat | tail -n 1",
+         journalctl --user -u beize-ui-test -o cat | grep -x done | tail -n 1",
     )?;
     ensure!(
         lines.iter().any(|l| l == "inactive") && lines.iter().any(|l| l == "done"),
@@ -693,6 +693,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     menus(&shell, &machine, &qmp, screen)?;
     context_menus(&shell, &machine, &qmp, screen)?;
     confirmation(&shell, &machine, &qmp, screen)?;
+    app_menus(&shell, &machine, &qmp, screen)?;
     layout_follows(&shell)?;
     still_and_signed_out(&shell, &qmp, screen)?;
     screen_goes_off(&shell, &machine, &qmp)?;
@@ -1024,6 +1025,119 @@ fn confirmation(
         "  ok: Restart asked first; Escape said no; with a window clicked Return did not answer \
          the dialog, and a click on it gave it the keyboard back"
     );
+    Ok(())
+}
+
+/// The active terminal's menus in the bar (ADR 0028 §3): moving from one open
+/// menu to the next opens that, as do the arrows; Select All reaches the app;
+/// File's New Window and Close Window work. A shell started anew shows them
+/// again: they are kept with the window.
+fn app_menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let menus = |line: String| -> Result<Vec<(i32, i32)>> {
+        line.strip_prefix("menu bar menus: ")
+            .context("not the bar's menus")?
+            .split(' ')
+            .map(|p| {
+                let (x, y) = p.split_once(',').context("not a place")?;
+                Ok((x.parse()?, y.parse()?))
+            })
+            .collect()
+    };
+    let places = |least: usize| -> Result<Vec<(i32, i32)>> {
+        let (_, lines) = shell.capture(
+            "journalctl --user -b -u beize-shell.service -o cat | grep '^menu bar menus: ' \
+             | tail -n 1",
+        )?;
+        let found = lines
+            .iter()
+            .find(|l| l.starts_with("menu bar menus: "))
+            .cloned()
+            .context("the shell named no menus")?;
+        let found = menus(found)?;
+        ensure!(
+            found.len() >= least,
+            "the bar has {} menus: {found:?}",
+            found.len()
+        );
+        Ok(found)
+    };
+    // The Beize menu, the app's name, File, Edit, Window.
+    let bar = places(5)?;
+    self::screen(machine, "app-menus-bar")?.write_png(&machine.logs.join("app-menus-bar.png"))?;
+    let (file, edit) = (bar[2], bar[3]);
+    let row = |at: (i32, i32), i: i32| {
+        (
+            at.0 + 30,
+            i32::try_from(MENU_BAR).unwrap_or(32) + 6 + i * 30 + 15,
+        )
+    };
+    let edit_open = "AppMenu(1) open";
+    let n = shell_count(shell, edit_open)?;
+    click(qmp, screen, edit, 1)?;
+    wait_for_shell_count(shell, edit_open, n + 1)?;
+    thread::sleep(Duration::from_millis(300));
+    self::screen(machine, "app-menu")?.write_png(&machine.logs.join("app-menu.png"))?;
+    // Onto File's title: File opens, Edit closes.
+    let m = shell_count(shell, "AppMenu(0) open")?;
+    drag(qmp, screen, edit, file, false)?;
+    wait_for_shell_count(shell, "AppMenu(0) open", m + 1)?;
+    // The right arrow: Edit again.
+    keys(qmp, &["right"])?;
+    wait_for_shell_count(shell, edit_open, n + 2)?;
+    // Select All, its third row, reaches the app.
+    let selected = 1 + usize::from(true);
+    thread::sleep(Duration::from_millis(300));
+    click(qmp, screen, row(edit, 2), 1)?;
+    wait_for_said(shell, "menu: SelectAll", selected)?;
+    // New Window, then Close Window on that new window.
+    let count = terminals(shell)?.len();
+    let n = shell_count(shell, "AppMenu(0) open")?;
+    click(qmp, screen, file, 1)?;
+    wait_for_shell_count(shell, "AppMenu(0) open", n + 1)?;
+    thread::sleep(Duration::from_millis(300));
+    click(qmp, screen, row(file, 0), 1)?;
+    wait_for_terminals(shell, count + 1)?;
+    thread::sleep(Duration::from_millis(500));
+    let file_now = places(5)?[2];
+    let n = shell_count(shell, "AppMenu(0) open")?;
+    click(qmp, screen, file_now, 1)?;
+    wait_for_shell_count(shell, "AppMenu(0) open", n + 1)?;
+    thread::sleep(Duration::from_millis(300));
+    click(qmp, screen, row(file_now, 1), 1)?;
+    wait_for_terminals(shell, count)?;
+    park(qmp, screen)?;
+    say!(
+        "  ok: the terminal's menus showed in the bar; moving and the arrows went from menu to \
+         menu; Select All, New Window and Close Window reached the app"
+    );
+
+    // A new shell hears them again.
+    let said = |lines: Vec<String>| {
+        lines
+            .into_iter()
+            .filter(|l| l.starts_with("menu bar menus: "))
+            .count()
+    };
+    let (_, before) = shell
+        .capture("journalctl --user -b -u beize-shell.service -o cat | grep '^menu bar menus: '")?;
+    let before = said(before);
+    shell.capture("systemctl --user kill -s KILL beize-shell.service")?;
+    let mut now = before;
+    for _ in 0..50 {
+        let (_, lines) = shell.capture(
+            "journalctl --user -b -u beize-shell.service -o cat | grep '^menu bar menus: '",
+        )?;
+        now = said(lines);
+        if now > before && places(5).is_ok() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    ensure!(
+        now > before && places(5).is_ok(),
+        "a shell started anew did not show the app's menus"
+    );
+    say!("  ok: a shell started anew showed the terminal's menus again");
     Ok(())
 }
 

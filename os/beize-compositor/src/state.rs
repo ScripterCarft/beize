@@ -360,6 +360,7 @@ impl State {
             None => info!("the screen stays on without input"),
         }
         crate::glass::offer(&display);
+        crate::app_menu::offer(&display);
         Ok(State {
             compositor: CompositorState::new::<State>(&display),
             shm: ShmState::new::<State>(&display, Vec::new()),

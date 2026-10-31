@@ -42,6 +42,9 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, ZwlrLayerSurfaceV1},
 };
 
+use beize_protocols::app::client::beize_app_menu_v1::BeizeAppMenuV1;
+use beize_protocols::app::client::beize_menu_manager_v1::BeizeMenuManagerV1;
+
 use crate::clipboard::Clipboard;
 use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass, Glasses, SwitcherNews};
 use crate::gpu::Gpu;
@@ -63,6 +66,9 @@ pub struct Events {
     /// The user closed the window (a panel: the compositor took it away).
     pub closed: bool,
     pub input: Vec<Input>,
+    /// The commands of its menus the user chose in the menu bar, by their ids
+    /// (`App::set_menus`).
+    pub commands: Vec<u32>,
     /// Its last frame is shown: what changed since can be drawn
     /// (`App::ready`).
     pub ready: bool,
@@ -70,7 +76,11 @@ pub struct Events {
 
 impl Events {
     fn any(&self) -> bool {
-        self.configured || self.closed || self.ready || !self.input.is_empty()
+        self.configured
+            || self.closed
+            || self.ready
+            || !self.input.is_empty()
+            || !self.commands.is_empty()
     }
 }
 
@@ -229,6 +239,10 @@ pub(crate) struct State {
     pub(crate) clipboard: Clipboard,
     /// The desktop's windows, for the shell (`watch_desktop`).
     pub(crate) desktop: Option<Desktop>,
+    /// The menus of the app's windows, for the menu bar; none where the
+    /// compositor lacks them.
+    menu_manager: Option<BeizeMenuManagerV1>,
+    app_menus: Vec<(WindowId, BeizeAppMenuV1)>,
     /// Glass below the app's windows; none where the compositor lacks it.
     pub(crate) glasses: Option<Glasses>,
     /// Of the last key press or click: copying names the input it
@@ -279,6 +293,13 @@ impl State {
             surface.maximized = next.maximized;
             surface.fullscreen = next.fullscreen;
             surface.events.configured = true;
+        }
+    }
+
+    /// The user chose `command` of `window`'s menus.
+    pub(crate) fn command(&mut self, window: WindowId, command: u32) {
+        if let Some(surface) = self.surface_mut(window) {
+            surface.events.commands.push(command);
         }
     }
 
@@ -342,6 +363,8 @@ impl App {
                 pointer: PointerState::default(),
                 clipboard,
                 desktop: None,
+                menu_manager: globals.bind(&qh, 1..=1, ()).ok(),
+                app_menus: Vec::new(),
                 glasses: globals.bind(&qh, 1..=1, ()).ok().map(Glasses::new),
                 serial: 0,
                 cursor_shapes: globals.bind(&qh, 1..=1, ()).ok(),
@@ -773,6 +796,49 @@ impl App {
         };
         if let Some(desktop) = &self.state.desktop {
             desktop.show_thumbnails(&wl, pictures);
+        }
+    }
+
+    /// The menus of the window `id`, in the menu bar while it is active
+    /// (macOS' main menu): described anew whole.
+    pub fn set_menus(&mut self, id: WindowId, menus: &[crate::menu::AppMenu]) {
+        let qh = self.queue.handle();
+        let Some(wl) = self.state.surface(id).map(|s| s.wl.clone()) else {
+            return;
+        };
+        let Some(manager) = self.state.menu_manager.clone() else {
+            return;
+        };
+        let proxy = match self.state.app_menus.iter().find(|(w, _)| *w == id) {
+            Some((_, proxy)) => proxy.clone(),
+            None => {
+                let proxy = manager.get_menu(&wl, &qh, id);
+                self.state.app_menus.push((id, proxy.clone()));
+                proxy
+            }
+        };
+        crate::desktop::describe_menus(&proxy, menus);
+    }
+
+    /// Minimizes the window `id`, as its yellow button does.
+    pub fn minimize(&mut self, id: WindowId) {
+        if let Some(window) = self.window(id) {
+            window.minimize();
+        }
+    }
+
+    /// Maximizes the window `id`, or brings it back, as its green button does.
+    pub fn toggle_maximized(&mut self, id: WindowId) {
+        let maximized = self.state.surface(id).is_some_and(|s| s.maximized);
+        if let Some(window) = self.window(id) {
+            window.toggle_maximized(maximized);
+        }
+    }
+
+    /// The user chose command `command` of a window's menus (the shell).
+    pub fn activate_menu(&mut self, id: DesktopWindowId, command: u32) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.menu_activate(id, command);
         }
     }
 

@@ -174,6 +174,20 @@ impl Window {
         }
     }
 
+    /// Asks to be minimized.
+    pub(crate) fn minimize(&self) {
+        if let Role::Toplevel { toplevel, .. } = &self.role {
+            toplevel.set_minimized();
+        }
+    }
+
+    /// Asks to be maximized, or (`maximized`) to go back.
+    pub(crate) fn toggle_maximized(&self, maximized: bool) {
+        if let Role::Toplevel { toplevel, .. } = &self.role {
+            toggle_maximized(toplevel, maximized);
+        }
+    }
+
     /// A panel's size, with the surface's next commit.
     pub(crate) fn set_panel_size(&self, (w, h): (u32, u32)) {
         if let Role::Panel { layer, .. } = &self.role {

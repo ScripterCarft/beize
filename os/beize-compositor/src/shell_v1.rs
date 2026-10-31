@@ -149,6 +149,25 @@ fn send(handle: &BeizeWindowV1, shown: &Shown, before: Option<&Shown>) {
     handle.done();
 }
 
+/// Tells `handle` the window's menus, anew.
+fn send_menus(handle: &BeizeWindowV1, window: &Window) {
+    handle.menu_clear();
+    for menu in crate::app_menu::current(window) {
+        handle.menu_add(menu.title);
+        for entry in menu.entries {
+            match entry {
+                crate::app_menu::Entry::Item {
+                    id,
+                    title,
+                    enabled,
+                    shortcut,
+                } => handle.menu_item(id, title, u32::from(enabled), shortcut),
+                crate::app_menu::Entry::Separator => handle.menu_separator(),
+            }
+        }
+    }
+}
+
 /// A handle for `window` (`number`) on `instance`, announced there.
 fn announce(
     display: &DisplayHandle,
@@ -191,6 +210,7 @@ impl State {
             .filter_map(|instance| announce(&self.display, instance, number))
             .collect();
         for handle in &handles {
+            send_menus(handle, window);
             send(handle, &shown, None);
         }
         window.user_data().insert_if_missing(|| {
@@ -217,6 +237,17 @@ impl State {
                 listed.sent = now;
             });
         }
+    }
+
+    /// `window`'s menus changed.
+    pub fn menus_changed(&mut self, window: &Window) {
+        with_listed(window, |listed| {
+            listed.handles.retain(Resource::is_alive);
+            for handle in &listed.handles {
+                send_menus(handle, window);
+                handle.done();
+            }
+        });
     }
 
     /// `window` is gone: the shell hears of it last.
@@ -311,6 +342,9 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
                 continue;
             };
             let shown = shown(state, &window);
+            // The menus an app described are kept with its window: a shell
+            // started anew hears them too.
+            send_menus(&handle, &window);
             send(&handle, &shown, None);
             with_listed(&window, |listed| listed.handles.push(handle));
         }
@@ -381,6 +415,9 @@ impl Dispatch<BeizeWindowV1, u64> for State {
         };
         match request {
             beize_window_v1::Request::Activate => state.bring_back(window),
+            beize_window_v1::Request::MenuActivate { id } => {
+                crate::app_menu::activate(&window, id);
+            }
             beize_window_v1::Request::SwitcherHover => state.switcher_hover(&window),
             beize_window_v1::Request::SwitcherChoose => state.switcher_click(&window),
             beize_window_v1::Request::ShowThumbnail {

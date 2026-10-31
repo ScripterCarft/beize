@@ -5,9 +5,9 @@
   </copyright>
 
   <description summary="what every app of Beize may ask (ADR 0028)">
-    What AppKit hands to the WindowServer: a material below a surface. Every
-    client is offered it; the compositor keeps an app's glass inside its own
-    surface. Both ends live in Beize's repository and change together: until
+    What AppKit hands to the WindowServer: a material below a surface, and
+    its menus, which the shell shows in the menu bar. Every client is offered
+    it; the compositor keeps an app's glass inside its own surface. Both ends live in Beize's repository and change together: until
     a version of Beize promises otherwise, the protocol grows without new
     versions.
   </description>
@@ -118,6 +118,66 @@
       </description>
       <arg name="falloff" type="fixed"/>
       <arg name="strength" type="fixed"/>
+    </request>
+  </interface>
+
+  <interface name="beize_menu_manager_v1" version="1">
+    <description summary="an app's menus for the menu bar"/>
+
+    <request name="get_menu">
+      <description summary="the menus of a window">
+        Of the xdg_toplevel with the surface, shown in the menu bar while the
+        window is active. One per window.
+      </description>
+      <arg name="id" type="new_id" interface="beize_app_menu_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="destroy" type="destructor"/>
+  </interface>
+
+  <interface name="beize_app_menu_v1" version="1">
+    <description summary="the menus of a window">
+      Described anew whole, between begin and commit: what comes in between
+      applies at commit. Limited in number and length by the compositor,
+      which drops what lies beyond.
+    </description>
+
+    <request name="begin">
+      <description summary="the menus are described anew"/>
+    </request>
+
+    <request name="add_menu">
+      <description summary="a menu after the last, by its title"/>
+      <arg name="title" type="string"/>
+    </request>
+
+    <request name="add_item">
+      <description summary="a command at the end of the last menu">
+        Activated by its id, the app's. The shortcut is only shown; empty:
+        none. The app handles its keys itself.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="title" type="string"/>
+      <arg name="enabled" type="uint"/>
+      <arg name="shortcut" type="string"/>
+    </request>
+
+    <request name="add_separator">
+      <description summary="a line at the end of the last menu"/>
+    </request>
+
+    <request name="commit">
+      <description summary="the menus described apply"/>
+    </request>
+
+    <event name="activated">
+      <description summary="the user chose a command"/>
+      <arg name="id" type="uint"/>
+    </event>
+
+    <request name="destroy" type="destructor">
+      <description summary="the window has no menus any more"/>
     </request>
   </interface>
 </protocol>

@@ -32,7 +32,7 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::{ClipboardType, Config, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
 use beize_ui::input::{Button, Pointer};
-use beize_ui::menu::{Entry, Menu, Outcome};
+use beize_ui::menu::{AppMenu, Entry, Menu, Outcome};
 use beize_ui::{Appearance, CursorShape, Input, Key, KeyState, Keysym, Watch, WindowId};
 use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
@@ -73,6 +73,68 @@ enum Command {
     Paste,
     SelectAll,
     NewWindow,
+    CloseWindow,
+    Minimize,
+    Zoom,
+}
+
+impl Command {
+    /// By its id in the menu bar (`bar_menus`).
+    const ALL: [Command; 7] = [
+        Command::NewWindow,
+        Command::CloseWindow,
+        Command::Copy,
+        Command::Paste,
+        Command::SelectAll,
+        Command::Minimize,
+        Command::Zoom,
+    ];
+
+    fn id(self) -> u32 {
+        Command::ALL.iter().position(|c| *c == self).unwrap_or(0) as u32
+    }
+
+    fn of(id: u32) -> Option<Command> {
+        Command::ALL.get(id as usize).copied()
+    }
+}
+
+/// The terminal's menus in the menu bar: Copy only with a selection.
+fn bar_menus(selected: bool) -> Vec<AppMenu> {
+    let item = |title: &str, command: Command, keys: &str| {
+        let entry = Entry::item(title);
+        let entry = if keys.is_empty() {
+            entry
+        } else {
+            entry.shortcut(keys)
+        };
+        (entry, command.id())
+    };
+    let (copy, id) = item("Copy", Command::Copy, "Ctrl+Shift+C");
+    vec![
+        AppMenu {
+            title: "File".into(),
+            entries: vec![
+                item("New Window", Command::NewWindow, "Ctrl+Alt+T"),
+                item("Close Window", Command::CloseWindow, "Alt+F4"),
+            ],
+        },
+        AppMenu {
+            title: "Edit".into(),
+            entries: vec![
+                (copy.enabled(selected), id),
+                item("Paste", Command::Paste, "Ctrl+Shift+V"),
+                item("Select All", Command::SelectAll, ""),
+            ],
+        },
+        AppMenu {
+            title: "Window".into(),
+            entries: vec![
+                item("Minimize", Command::Minimize, ""),
+                item("Zoom", Command::Zoom, ""),
+            ],
+        },
+    ]
 }
 
 /// What alacritty_terminal asks of the app, collected until the loop gets
@@ -128,6 +190,10 @@ struct App {
     /// it waits to be drawn.
     context: Option<(WindowId, Menu, Vec<Option<Command>>)>,
     context_dirty: bool,
+    /// Whether the menu bar has Copy enabled, as last described.
+    copy_shown: bool,
+    /// The user closed it from a menu.
+    close: bool,
 }
 
 fn run() -> Result<(), String> {
@@ -188,7 +254,10 @@ fn run() -> Result<(), String> {
         dirty: true,
         context: None,
         context_dirty: false,
+        copy_shown: false,
+        close: false,
     };
+    app.ui.set_menus(window, &bar_menus(false));
     app.run()
 }
 
@@ -233,6 +302,18 @@ impl App {
             }
             for input in &events.input {
                 self.input(input);
+            }
+            for command in events.commands.iter().filter_map(|id| Command::of(*id)) {
+                self.command(command);
+            }
+            if self.close {
+                return Ok(());
+            }
+            // Copy follows the selection; described only when that changes.
+            let selected = self.term.selection.as_ref().is_some_and(|s| !s.is_empty());
+            if selected != self.copy_shown {
+                self.copy_shown = selected;
+                self.ui.set_menus(self.window, &bar_menus(selected));
             }
             self.draw_context()?;
             if ready.contains(&0) {
@@ -349,7 +430,7 @@ impl App {
         let width = self.ui.size(id).0;
         for input in &events.input {
             match menu.input(input, width) {
-                Outcome::None => {}
+                Outcome::None | Outcome::Neighbour(_) => {}
                 Outcome::Changed => self.context_dirty = true,
                 Outcome::Dismissed => close = true,
                 Outcome::Chosen(i) => {
@@ -403,6 +484,9 @@ impl App {
                 self.dirty = true;
             }
             Command::NewWindow => beize_systemd::apps::start("beize-terminal"),
+            Command::CloseWindow => self.close = true,
+            Command::Minimize => self.ui.minimize(self.window),
+            Command::Zoom => self.ui.toggle_maximized(self.window),
         }
     }
 

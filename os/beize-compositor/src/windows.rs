@@ -400,6 +400,17 @@ impl State {
             .cloned()
     }
 
+    /// The window with `surface` as its toplevel, wherever it is: minimized
+    /// too.
+    pub fn any_window(&self, surface: &WlSurface) -> Option<Window> {
+        self.window_for(surface).or_else(|| {
+            self.minimized
+                .iter()
+                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+                .cloned()
+        })
+    }
+
     /// After a window's commit: places a new one that has content, and
     /// moves one whose new size calls for a new place.
     pub fn window_committed(&mut self, window: &Window) {
@@ -497,12 +508,7 @@ impl State {
 
     /// A window that is gone, placed, minimized or not yet placed.
     pub fn window_destroyed(&mut self, surface: &WlSurface) {
-        let window = self.window_for(surface).or_else(|| {
-            self.minimized
-                .iter()
-                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
-                .cloned()
-        });
+        let window = self.any_window(surface);
         if let Some(window) = &window {
             self.switcher_window_gone(window);
             self.unlist_window(window);

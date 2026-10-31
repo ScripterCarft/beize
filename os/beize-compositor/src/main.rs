@@ -22,6 +22,7 @@
 //! `beize-compositor.service`, which beize-session starts.
 
 mod activation;
+mod app_menu;
 mod apps;
 mod backdrop;
 mod corners;

@@ -103,6 +103,8 @@ pub enum Command {
     Start(String),
     /// The app's windows close, as with their own close buttons.
     Quit(Vec<DesktopWindowId>),
+    /// A command of a window's menus.
+    App(DesktopWindowId, u32),
 }
 
 /// A tile's menu (macOS' dock menu): where it opens, its entries, and each
@@ -390,6 +392,7 @@ mod tests {
             title: String::new(),
             active,
             minimized,
+            menus: Vec::new(),
         }
     }
 

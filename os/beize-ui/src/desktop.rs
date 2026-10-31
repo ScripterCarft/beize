@@ -10,8 +10,10 @@
 //! it, as macOS' WindowServer draws a material.
 
 use beize_draw::Appearance;
+use beize_protocols::app::client::beize_app_menu_v1::{self, BeizeAppMenuV1};
 use beize_protocols::app::client::beize_glass_manager_v1::{self, BeizeGlassManagerV1};
 use beize_protocols::app::client::beize_glass_v1::{self, BeizeGlassV1};
+use beize_protocols::app::client::beize_menu_manager_v1::BeizeMenuManagerV1;
 use beize_protocols::shell::client::beize_shell_v1::{self, BeizeShellV1};
 use beize_protocols::shell::client::beize_window_v1::{self, BeizeWindowV1};
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -19,6 +21,7 @@ use wayland_client::{Connection, Dispatch, QueueHandle, WEnum, event_created_chi
 
 use crate::Rect;
 use crate::app::{State, WindowId};
+use crate::menu::{AppMenu, Entry as MenuEntry};
 
 /// Glass below parts of a window (`App::set_glass`): where it lies, what it
 /// shows, whether each of its shapes casts a shadow, and the smoke around
@@ -92,6 +95,8 @@ pub struct DesktopWindow {
     /// It has the keyboard.
     pub active: bool,
     pub minimized: bool,
+    /// The menus its app describes (`App::set_menus`).
+    pub menus: Vec<AppMenu>,
 }
 
 struct Entry {
@@ -186,6 +191,13 @@ impl Desktop {
                     r.h.round() as i32,
                 );
             }
+        }
+    }
+
+    /// The user chose command `command` of the window's menus.
+    pub(crate) fn menu_activate(&self, id: DesktopWindowId, command: u32) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.menu_activate(command);
         }
     }
 
@@ -358,6 +370,7 @@ impl Dispatch<BeizeShellV1, ()> for State {
                 title: String::new(),
                 active: false,
                 minimized: false,
+                menus: Vec::new(),
             },
         });
     }
@@ -425,6 +438,30 @@ impl Dispatch<BeizeWindowV1, ()> for State {
                 entry.pending.active = bits.contains(beize_window_v1::State::Active);
                 entry.pending.minimized = bits.contains(beize_window_v1::State::Minimized);
             }
+            beize_window_v1::Event::MenuClear => entry.pending.menus.clear(),
+            beize_window_v1::Event::MenuAdd { title } => entry.pending.menus.push(AppMenu {
+                title,
+                entries: Vec::new(),
+            }),
+            beize_window_v1::Event::MenuItem {
+                id,
+                title,
+                enabled,
+                shortcut,
+            } => {
+                if let Some(menu) = entry.pending.menus.last_mut() {
+                    let mut item = MenuEntry::item(title).enabled(enabled != 0);
+                    if !shortcut.is_empty() {
+                        item = item.shortcut(shortcut);
+                    }
+                    menu.entries.push((item, id));
+                }
+            }
+            beize_window_v1::Event::MenuSeparator => {
+                if let Some(menu) = entry.pending.menus.last_mut() {
+                    menu.entries.push((MenuEntry::Separator, 0));
+                }
+            }
             beize_window_v1::Event::Done => {
                 entry.shown = Some(entry.pending.clone());
                 desktop.changed = true;
@@ -442,4 +479,52 @@ impl Dispatch<BeizeWindowV1, ()> for State {
             _ => {}
         }
     }
+}
+
+impl Dispatch<BeizeMenuManagerV1, ()> for State {
+    fn event(
+        _: &mut State,
+        _: &BeizeMenuManagerV1,
+        _: <BeizeMenuManagerV1 as wayland_client::Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+    }
+}
+
+/// The user chose a command of a window's menus.
+impl Dispatch<BeizeAppMenuV1, WindowId> for State {
+    fn event(
+        state: &mut State,
+        _: &BeizeAppMenuV1,
+        event: beize_app_menu_v1::Event,
+        id: &WindowId,
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        if let beize_app_menu_v1::Event::Activated { id: command } = event {
+            state.command(*id, command);
+        }
+    }
+}
+
+/// Describes `menus` on `proxy`, anew.
+pub(crate) fn describe_menus(proxy: &BeizeAppMenuV1, menus: &[AppMenu]) {
+    proxy.begin();
+    for menu in menus {
+        proxy.add_menu(menu.title.clone());
+        for (entry, id) in &menu.entries {
+            match entry {
+                MenuEntry::Item(item) => proxy.add_item(
+                    *id,
+                    item.title.clone(),
+                    u32::from(item.enabled),
+                    item.shortcut.clone().unwrap_or_default(),
+                ),
+                MenuEntry::Separator => proxy.add_separator(),
+            }
+        }
+    }
+    proxy.commit();
 }

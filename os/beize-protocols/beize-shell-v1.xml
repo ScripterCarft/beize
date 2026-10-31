@@ -150,6 +150,27 @@
       <description summary="the changes before it belong together"/>
     </event>
 
+    <event name="menu_clear">
+      <description summary="the window's menus are described anew"/>
+    </event>
+
+    <event name="menu_add">
+      <description summary="a menu after the last, by its title"/>
+      <arg name="title" type="string"/>
+    </event>
+
+    <event name="menu_item">
+      <description summary="a command at the end of the last menu"/>
+      <arg name="id" type="uint"/>
+      <arg name="title" type="string"/>
+      <arg name="enabled" type="uint"/>
+      <arg name="shortcut" type="string"/>
+    </event>
+
+    <event name="menu_separator">
+      <description summary="a line at the end of the last menu"/>
+    </event>
+
     <event name="closed">
       <description summary="the window is gone">
         No more events come; the shell destroys the object.
@@ -161,6 +182,11 @@
         Shows it again if it is minimized, raises it and gives it the
         keyboard.
       </description>
+    </request>
+
+    <request name="menu_activate">
+      <description summary="the user chose a command of the window's menus"/>
+      <arg name="id" type="uint"/>
     </request>
 
     <request name="switcher_hover">
