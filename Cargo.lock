@@ -244,6 +244,7 @@ name = "beize-terminal"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "beize-systemd",
  "beize-ui",
  "rustix 1.1.5",
  "tracing",

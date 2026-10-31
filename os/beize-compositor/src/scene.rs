@@ -88,6 +88,7 @@ pub fn windows(
     decorations: &mut Decorations,
     area: Rectangle<i32, Logical>,
     mut preview: Option<Element>,
+    mut backdrop: Option<&mut Backdrop>,
     elements: &mut Vec<Element>,
 ) {
     let windows: Vec<_> = space
@@ -108,15 +109,13 @@ pub fn windows(
         // `Window` places them).
         for (popup, offset) in PopupManager::popups_for_surface(toplevel.wl_surface()) {
             let at = origin + window.geometry().loc + offset - popup.geometry().loc;
-            let surfaces = render_elements_from_surface_tree(
+            surface_with_glass(
                 renderer,
                 popup.wl_surface(),
-                at.to_physical(1),
-                Scale::from(1.0),
-                1.0,
-                Kind::Unspecified,
+                at,
+                backdrop.as_deref_mut(),
+                elements,
             );
-            elements.extend(surfaces.into_iter().map(Element::Surface));
         }
         let surfaces: Vec<WaylandSurfaceRenderElement<_>> = render_elements_from_surface_tree(
             renderer,

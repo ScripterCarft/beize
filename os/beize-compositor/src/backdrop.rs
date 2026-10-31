@@ -28,7 +28,9 @@ use beize_draw::measures;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement};
-use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
+use smithay::backend::renderer::utils::{
+    CommitCounter, OpaqueRegions, with_renderer_surface_state,
+};
 use smithay::backend::renderer::{ExportMem, ImportMem, RendererSuper};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -370,11 +372,22 @@ impl Backdrop {
         let (state, drawn) = self.drawn(surface, at);
         let drawn = drawn?;
         let (id, commit, shadow_ids) = (drawn.id, drawn.commit, drawn.shadows);
+        // An app's glass stays on its surface.
+        let own = state.confined.then(|| {
+            Rectangle::from_size(
+                with_renderer_surface_state(surface, |s| s.surface_size())
+                    .flatten()
+                    .unwrap_or_default(),
+            )
+        });
         let pieces: Vec<Piece> = state
             .shapes
             .iter()
-            .map(|shape| {
-                let mut rect = shape.rect;
+            .filter_map(|shape| match own {
+                Some(own) => shape.rect.intersection(own).map(|rect| (shape, rect)),
+                None => Some((shape, shape.rect)),
+            })
+            .map(|(shape, mut rect)| {
                 rect.loc += at;
                 Piece {
                     rect: rect.to_physical(1),

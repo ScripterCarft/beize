@@ -168,6 +168,9 @@ pub struct State {
     pub popups: PopupManager,
     /// The menu holding pointer and keyboard (`shell`), until it ends.
     pub popup_grab: Option<PopupGrab<State>>,
+    /// Every app's handle on the glass, which hears the appearance (`glass`).
+    pub glass_managers:
+        Vec<beize_protocols::app::server::beize_glass_manager_v1::BeizeGlassManagerV1>,
     /// Where a dragged window would snap to, shown behind it (`windows`).
     snap_preview: Option<Rectangle<i32, Logical>>,
     snap_preview_id: Id,
@@ -350,6 +353,7 @@ impl State {
             ),
             None => info!("the screen stays on without input"),
         }
+        crate::glass::offer(&display);
         Ok(State {
             compositor: CompositorState::new::<State>(&display),
             shm: ShmState::new::<State>(&display, Vec::new()),
@@ -389,6 +393,7 @@ impl State {
             shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
             popup_grab: None,
+            glass_managers: Vec::new(),
             snap_preview: None,
             snap_preview_id: Id::new(),
             snap_preview_commit: CommitCounter::default(),
@@ -1050,6 +1055,7 @@ impl State {
             &mut self.decorations,
             area,
             preview,
+            self.backdrop.as_mut(),
             &mut elements,
         );
         let lower = scene::lend(source, false, shown, &mut elements);

@@ -6,11 +6,12 @@
 //! A window's changes take effect together at its `done`; the list changed
 //! when `Dispatched::desktop` says so – as when the appearance changed.
 //!
-//! The shell asks for glass below its panels here too (`beize_glass_v1`):
-//! the compositor draws it, as macOS' WindowServer draws a material.
+//! Glass (`Glasses`, `beize_glass_v1`) is for every app: the compositor draws
+//! it, as macOS' WindowServer draws a material.
 
 use beize_draw::Appearance;
-use beize_protocols::shell::client::beize_glass_v1::{self, BeizeGlassV1};
+use beize_protocols::app::client::beize_glass_manager_v1::{self, BeizeGlassManagerV1};
+use beize_protocols::app::client::beize_glass_v1::{self, BeizeGlassV1};
 use beize_protocols::shell::client::beize_shell_v1::{self, BeizeShellV1};
 use beize_protocols::shell::client::beize_window_v1::{self, BeizeWindowV1};
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -109,8 +110,14 @@ pub(crate) struct Desktop {
     pub(crate) appearance: Appearance,
     /// How light it is behind the menu bar, once the compositor said.
     pub(crate) menu_bar_backdrop: Option<Appearance>,
-    /// The glass asked for below the app's windows.
-    glasses: Vec<(WindowId, BeizeGlassV1)>,
+}
+
+/// The glass asked for below the app's windows.
+pub(crate) struct Glasses {
+    manager: BeizeGlassManagerV1,
+    /// The system's appearance, as the compositor tells every app.
+    pub(crate) appearance: Appearance,
+    list: Vec<(WindowId, BeizeGlassV1)>,
 }
 
 impl Desktop {
@@ -122,7 +129,45 @@ impl Desktop {
             changed: false,
             appearance: Appearance::Light,
             menu_bar_backdrop: None,
-            glasses: Vec::new(),
+        }
+    }
+
+    /// The windows, in the order they opened.
+    pub(crate) fn windows(&self) -> impl Iterator<Item = &DesktopWindow> {
+        self.entries.iter().filter_map(|e| e.shown.as_ref())
+    }
+
+    pub(crate) fn activate(&self, id: DesktopWindowId) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.activate();
+        }
+    }
+
+    /// Asks the window to close, as its own close button does.
+    pub(crate) fn close(&self, id: DesktopWindowId) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.close();
+        }
+    }
+
+    pub(crate) fn ready(&self) {
+        self.shell.ready();
+    }
+
+    pub(crate) fn choose_appearance(&self, appearance: Appearance) {
+        self.shell.set_appearance(match appearance {
+            Appearance::Light => beize_shell_v1::Appearance::Light,
+            Appearance::Dark => beize_shell_v1::Appearance::Dark,
+        });
+    }
+}
+
+impl Glasses {
+    pub(crate) fn new(manager: BeizeGlassManagerV1) -> Glasses {
+        Glasses {
+            manager,
+            appearance: Appearance::Light,
+            list: Vec::new(),
         }
     }
 
@@ -136,16 +181,16 @@ impl Desktop {
         qh: &QueueHandle<State>,
     ) {
         let Some(glass) = glass else {
-            if let Some(i) = self.glasses.iter().position(|(w, _)| *w == id) {
-                self.glasses.swap_remove(i).1.destroy();
+            if let Some(i) = self.list.iter().position(|(w, _)| *w == id) {
+                self.list.swap_remove(i).1.destroy();
             }
             return;
         };
-        let proxy = match self.glasses.iter().find(|(w, _)| *w == id) {
+        let proxy = match self.list.iter().find(|(w, _)| *w == id) {
             Some((_, proxy)) => proxy.clone(),
             None => {
-                let proxy = self.shell.get_glass(surface, qh, ());
-                self.glasses.push((id, proxy.clone()));
+                let proxy = self.manager.get_glass(surface, qh, ());
+                self.list.push((id, proxy.clone()));
                 proxy
             }
         };
@@ -181,28 +226,6 @@ impl Desktop {
             strength: 0.0,
         });
         proxy.set_smoke(f64::from(smoke.falloff), f64::from(smoke.strength));
-    }
-
-    /// The windows, in the order they opened.
-    pub(crate) fn windows(&self) -> impl Iterator<Item = &DesktopWindow> {
-        self.entries.iter().filter_map(|e| e.shown.as_ref())
-    }
-
-    pub(crate) fn activate(&self, id: DesktopWindowId) {
-        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
-            entry.proxy.activate();
-        }
-    }
-
-    pub(crate) fn ready(&self) {
-        self.shell.ready();
-    }
-
-    pub(crate) fn choose_appearance(&self, appearance: Appearance) {
-        self.shell.set_appearance(match appearance {
-            Appearance::Light => beize_shell_v1::Appearance::Light,
-            Appearance::Dark => beize_shell_v1::Appearance::Dark,
-        });
     }
 }
 
@@ -262,6 +285,26 @@ impl Dispatch<BeizeShellV1, ()> for State {
     event_created_child!(State, BeizeShellV1, [
         beize_shell_v1::EVT_WINDOW_OPCODE => (BeizeWindowV1, ()),
     ]);
+}
+
+impl Dispatch<BeizeGlassManagerV1, ()> for State {
+    fn event(
+        state: &mut State,
+        _: &BeizeGlassManagerV1,
+        event: beize_glass_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        if let (beize_glass_manager_v1::Event::Appearance { appearance }, Some(glasses)) =
+            (event, &mut state.glasses)
+        {
+            glasses.appearance = match appearance {
+                WEnum::Value(beize_glass_manager_v1::Appearance::Dark) => Appearance::Dark,
+                _ => Appearance::Light,
+            };
+        }
+    }
 }
 
 /// Glass has no events.

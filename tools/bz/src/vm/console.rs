@@ -417,6 +417,19 @@ pub(super) fn button(
     tablet.button(down)
 }
 
+/// Clicks the tablet's right button once at `at`.
+pub(super) fn right_click(socket: &Path, screen: (usize, usize), at: (i32, i32)) -> Result<()> {
+    let mut tablet = Tablet::connect(socket, screen)?;
+    tablet.to(at)?;
+    for down in [true, false] {
+        thread::sleep(Duration::from_millis(60));
+        tablet.send(&format!(
+            r#"{{"type": "btn", "data": {{"down": {down}, "button": "right"}}}}"#
+        ))?;
+    }
+    Ok(())
+}
+
 /// The machine's tablet, through QEMU's control socket. It reports
 /// 0..=0x7fff across the screen, which libinput scales by `screen /
 /// 0x8000`: rounded up, a pixel lands in it, at most 1/40 px past its

@@ -11,10 +11,8 @@
     active app. Modelled on ext-foreign-toplevel-list-v1 (the list) and
     wlr-foreign-toplevel-management (what the shell asks).
 
-    The compositor draws the glass below the shell's panels (ADR 0028 §6),
-    as macOS' WindowServer draws a material: the shell says where
-    (beize_glass_v1) and draws only its content over it, and hears the
-    appearance, light or dark, that tints the glass.
+    The shell hears the appearance, light or dark, that tints the glass
+    (beize-app-v1).
 
     Only the shell is offered the global; the compositor knows it by its
     unit (os/beize-compositor, trust.rs). Both ends live in Beize's
@@ -56,18 +54,6 @@
       <arg name="tone" type="uint" enum="tone"/>
     </event>
 
-    <request name="get_glass">
-      <description summary="glass below a surface">
-        Base glass below part of a panel's surface or of a popup of one: the
-        background, blurred once, lifted and tinted (ADR 0028 §6). Its shapes
-        are double-buffered state of the surface: they apply with the
-        surface's next commit. One per surface; it may lie in several places
-        (add_shape), as the control center's tiles.
-      </description>
-      <arg name="id" type="new_id" interface="beize_glass_v1"/>
-      <arg name="surface" type="object" interface="wl_surface"/>
-    </request>
-
     <request name="ready">
       <description summary="the panels are drawn">
         Sent once, after the shell committed the first content of each
@@ -99,82 +85,6 @@
       </description>
       <arg name="window" type="new_id" interface="beize_window_v1"/>
     </event>
-  </interface>
-
-  <interface name="beize_glass_v1" version="1">
-    <description summary="glass below a surface">
-      Until a shape is set, there is none. Destroying the object takes the
-      glass away with the surface's next commit.
-    </description>
-
-    <request name="set_shape">
-      <description summary="where the glass lies">
-        A rectangle in the surface's coordinates with round corners of
-        radius (the continuous corners of Beize's shader), and whether a
-        rim of light runs along its edge (1) or not (0).
-      </description>
-      <arg name="x" type="int"/>
-      <arg name="y" type="int"/>
-      <arg name="width" type="int"/>
-      <arg name="height" type="int"/>
-      <arg name="radius" type="fixed"/>
-      <arg name="rim" type="uint"/>
-    </request>
-
-    <enum name="material">
-      <entry name="base" value="0" summary="the background, blurred once: costs next to nothing"/>
-      <entry name="live" value="1" summary="what lies behind it, windows too, blurred when it changes"/>
-      <entry name="menu" value="2" summary="live glass tinted thickly, as macOS' menus: calm, what lies behind barely shows"/>
-      <entry name="clear" value="3" summary="liquid glass, its tone held so white ink reads on it: the control center's"/>
-      <entry name="liquid" value="4" summary="liquid glass without ink on it: the dock's"/>
-    </enum>
-
-    <request name="set_material">
-      <description summary="base, live, menu, clear or liquid glass">
-        Base glass until set otherwise (ADR 0028 §6). Double-buffered as
-        the shape.
-      </description>
-      <arg name="material" type="uint" enum="material"/>
-    </request>
-
-    <request name="destroy" type="destructor"/>
-
-    <request name="add_shape">
-      <description summary="more glass">
-        Glass in one more place, as set_shape describes, besides those set
-        before (set_shape starts again with one). Of the same material, and
-        each with a shadow if the glass has one.
-      </description>
-      <arg name="x" type="int"/>
-      <arg name="y" type="int"/>
-      <arg name="width" type="int"/>
-      <arg name="height" type="int"/>
-      <arg name="radius" type="fixed"/>
-      <arg name="rim" type="uint"/>
-    </request>
-
-    <request name="set_shadow">
-      <description summary="a shadow below the glass">
-        Whether the compositor draws a soft shadow around each of its shapes
-        (1) or not (0), as macOS' WindowServer gives menus one. None until
-        set. Double-buffered as the shape.
-      </description>
-      <arg name="shadow" type="uint"/>
-    </request>
-
-    <request name="set_smoke">
-      <description summary="what lies around the glass, blurred">
-        Whether what lies behind the glass's shapes and around them is
-        blurred too, beyond the surface: from each shape's edge outwards,
-        less and less over falloff px, by strength px (the Gaussian's
-        standard deviation) at most – a smoke that keeps what lies behind
-        from showing sharp between the shapes. It lies behind the panel
-        too, and takes no input. A falloff or strength of 0: none, as until
-        set. Double-buffered as the shape.
-      </description>
-      <arg name="falloff" type="fixed"/>
-      <arg name="strength" type="fixed"/>
-    </request>
   </interface>
 
   <interface name="beize_window_v1" version="1">
@@ -217,6 +127,12 @@
       <description summary="bring the window to the front">
         Shows it again if it is minimized, raises it and gives it the
         keyboard.
+      </description>
+    </request>
+
+    <request name="close">
+      <description summary="ask the window to close">
+        As its own close button does (xdg_toplevel.close): the app decides.
       </description>
     </request>
 

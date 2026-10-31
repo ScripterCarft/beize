@@ -9,8 +9,8 @@
 //! so a change sends only what changed – after anything that may change it
 //! (`refresh`): focus, minimizing, a new title or app id.
 //!
-//! The shell also hears the appearance, asks for glass below its panels
-//! (`glass`, `backdrop`) and says when they are drawn (`opening`).
+//! The shell also hears the appearance and says when its panels are drawn
+//! (`opening`).
 
 use std::cell::RefCell;
 
@@ -83,6 +83,7 @@ impl State {
         for instance in &self.shell_windows.instances {
             send_appearance(instance, appearance);
         }
+        self.tell_appearance();
         self.changed();
     }
 }
@@ -271,8 +272,8 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
 }
 
 impl Dispatch<BeizeShellV1, ()> for State {
-    /// Glass below a surface (`glass`), the shell ready (`opening`);
-    /// `destroy` ends in `destroyed`.
+    /// The appearance chosen, the shell ready (`opening`); `destroy` ends in
+    /// `destroyed`.
     fn request(
         state: &mut State,
         client: &Client,
@@ -280,12 +281,9 @@ impl Dispatch<BeizeShellV1, ()> for State {
         request: beize_shell_v1::Request,
         _: &(),
         _: &DisplayHandle,
-        data_init: &mut DataInit<'_, State>,
+        _: &mut DataInit<'_, State>,
     ) {
         match request {
-            beize_shell_v1::Request::GetGlass { id, surface } => {
-                data_init.init(id, surface);
-            }
             beize_shell_v1::Request::SetAppearance { appearance } => {
                 state.set_appearance(match appearance {
                     WEnum::Value(beize_shell_v1::Appearance::Dark) => Appearance::Dark,
@@ -323,10 +321,17 @@ impl Dispatch<BeizeWindowV1, u64> for State {
         _: &mut DataInit<'_, State>,
     ) {
         // `destroy` ends in `destroyed`.
-        if let beize_window_v1::Request::Activate = request
-            && let Some(window) = state.listed(*number)
-        {
-            state.bring_back(window);
+        let Some(window) = state.listed(*number) else {
+            return;
+        };
+        match request {
+            beize_window_v1::Request::Activate => state.bring_back(window),
+            beize_window_v1::Request::Close => {
+                if let Some(toplevel) = window.toplevel() {
+                    toplevel.send_close();
+                }
+            }
+            _ => {}
         }
     }
 

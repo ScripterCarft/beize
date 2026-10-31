@@ -69,7 +69,7 @@ use crate::paths::Paths;
 use crate::say;
 use crate::vm::console::{
     Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, button, click, drag,
-    german_presses, hold, keys, screendump, swipe,
+    german_presses, hold, keys, right_click, screendump, swipe,
 };
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
@@ -690,6 +690,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  ok: with no terminal running, the dock's tile started one");
 
     menus(&shell, &machine, &qmp, screen)?;
+    context_menus(&shell, &machine, &qmp, screen)?;
     layout_follows(&shell)?;
     still_and_signed_out(&shell)?;
     screen_goes_off(&shell, &machine, &qmp)?;
@@ -924,6 +925,135 @@ fn screenshot_and_terminals(
     say!("  ok: over the terminal's text the pointer is the theme's text cursor");
 
     Ok(terminal)
+}
+
+/// Waits until the journal of the user's session has `line` at least `count`
+/// times.
+fn wait_for_said(shell: &Shell, line: &str, count: usize) -> Result<()> {
+    let mut seen = 0;
+    for _ in 0..50 {
+        let (_, lines) = shell.capture(&format!(
+            "journalctl --user -b -o cat | grep -c -x '{line}' | sed 's/^/BEIZE-COUNT /'"
+        ))?;
+        seen = lines
+            .iter()
+            .find_map(|l| l.strip_prefix("BEIZE-COUNT ")?.trim().parse().ok())
+            .unwrap_or(0);
+        if seen >= count {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    bail!("the session said {line:?} {seen} times, not {count}")
+}
+
+/// Context menus (ADR 0028 §3, §4): a right click in the terminal opens a
+/// menu on the compositor's glass, over the dark terminal light as a menu is;
+/// Escape closes it. A disabled command chooses nothing; with something
+/// selected it does. A drag on its title bar closes the menu and moves the
+/// window, as beside the shell's. The dock's tile has a menu above it: New
+/// Window opens one, and Alt+F4 closes it.
+fn context_menus(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+) -> Result<()> {
+    // Maximized, as the control center's test left it.
+    let (x, y, w) = (0, i32::try_from(MENU_BAR)?, i32::try_from(screen.0)?);
+    let at = (x + 200, y + i32::try_from(TITLE_BAR)? + 200);
+    // A row of the menu, by the entries' places in os/beize-ui's measures.
+    let row = |i: i32| (at.0 + 60, at.1 + 6 + i * 30 + 15);
+    let inside = (at.0 + 180, at.1 + 6 + 30 + 15);
+    let brightness = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3;
+    let spot = |image: &Image| image.pixel(inside.0 as usize, inside.1 as usize);
+    let before = spot(&self::screen(machine, "context-before")?);
+    ensure!(
+        brightness(before) < WINDOW_DARK,
+        "the terminal is not at {inside:?} ({before:?}): the check would prove nothing"
+    );
+    right_click(qmp, screen, at)?;
+    wait_until_screen(machine, "context-open", |shown| {
+        let p = spot(shown);
+        ensure!(
+            brightness(p) > brightness(before) + 8,
+            "no menu on glass over the terminal: {p:?}, {before:?} before"
+        );
+        Ok(())
+    })?;
+    self::screen(machine, "context-menu")?.write_png(&machine.logs.join("context-menu.png"))?;
+    // Copy with nothing selected: nothing; the menu stays.
+    click(qmp, screen, row(0), 1)?;
+    thread::sleep(Duration::from_millis(300));
+    ensure!(
+        brightness(spot(&self::screen(machine, "context-disabled")?)) > brightness(before) + 8,
+        "a disabled command closed the menu"
+    );
+    keys(qmp, &["esc"])?;
+    wait_until_screen(machine, "context-closed", |shown| {
+        ensure!(same(spot(shown), before), "Escape left the menu open");
+        Ok(())
+    })?;
+    // Select All, then Copy is enabled.
+    right_click(qmp, screen, at)?;
+    thread::sleep(Duration::from_millis(300));
+    click(qmp, screen, row(2), 1)?;
+    wait_for_said(shell, "menu: SelectAll", 1)?;
+    park(qmp, screen)?;
+    right_click(qmp, screen, at)?;
+    thread::sleep(Duration::from_millis(300));
+    click(qmp, screen, row(0), 1)?;
+    wait_for_said(shell, "menu: Copy", 1)?;
+    // With the menu open, a drag on the title bar closes it and moves the
+    // window (`press_ends_popup_grab`), off its maximized place; maximized
+    // again after.
+    let grip = (x + w / 2, y + i32::try_from(TITLE_BAR / 2)?);
+    let moved = by(grip, (0, 60));
+    right_click(qmp, screen, at)?;
+    thread::sleep(Duration::from_millis(300));
+    let over_bar = (x + w - 40, grip.1);
+    let was = self::screen(machine, "context-bar-before")?
+        .pixel(usize::try_from(over_bar.0)?, usize::try_from(over_bar.1)?);
+    drag(qmp, screen, grip, moved, true)?;
+    park(qmp, screen)?;
+    wait_until_screen(machine, "context-dragged", |shown| {
+        let p = shown.pixel(usize::try_from(over_bar.0)?, usize::try_from(over_bar.1)?);
+        ensure!(
+            !same(p, was),
+            "the window did not move with the drag that closed its menu: {p:?} where its title bar was"
+        );
+        Ok(())
+    })?;
+    keys(qmp, &["meta_l+up"])?;
+    say!(
+        "  ok: a right click opened the terminal's menu on glass; a disabled command did nothing, \
+         Escape closed it, with a selection Copy chose; a drag on the title bar closed it and \
+         moved the window"
+    );
+
+    // The dock's tile: New Window, then Alt+F4 closes that window.
+    let count = terminals(shell)?.len();
+    let apps = last_dock(shell)?;
+    let tile = dock_tile(screen, apps.len(), 0)?;
+    right_click(qmp, screen, tile)?;
+    wait_for_shell_count(shell, "DockMenu open", 1)?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "DockMenu closed", 1)?;
+    right_click(qmp, screen, tile)?;
+    wait_for_shell_count(shell, "DockMenu open", 2)?;
+    thread::sleep(Duration::from_millis(300));
+    self::screen(machine, "dock-menu")?.write_png(&machine.logs.join("dock-menu.png"))?;
+    // Above the tile: its window, a line, New Window, Quit.
+    // From the tile's top, the panel's padding above it: Quit, then New Window.
+    let new_window = (tile.0 + 40, tile.1 - 28 - 6 - 30 - 15);
+    click(qmp, screen, new_window, 1)?;
+    wait_for_shell_count(shell, "DockMenu closed", 2)?;
+    wait_for_terminals(shell, count + 1)?;
+    keys(qmp, &["alt+f4"])?;
+    wait_for_terminals(shell, count)?;
+    park(qmp, screen)?;
+    say!("  ok: the dock's tile opened its menu, New Window a window, and Alt+F4 closed it");
+    Ok(())
 }
 
 /// Snap (ADR 0028 §2, §7), on the client's window at `moved`, `grown`:

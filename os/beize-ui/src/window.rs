@@ -208,7 +208,7 @@ impl Window {
         }
     }
 
-    fn bar_height(&self, surface: &Surface) -> u32 {
+    pub(crate) fn bar_height(&self, surface: &Surface) -> u32 {
         if self.bar.is_some() && !surface.fullscreen {
             titlebar::HEIGHT
         } else {

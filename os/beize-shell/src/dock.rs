@@ -24,6 +24,7 @@ use std::path::PathBuf;
 
 use crate::apps::App;
 use beize_ui::measures::{SCALE, scaled};
+use beize_ui::menu::Entry;
 use beize_ui::{
     AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect,
     Scene, Style, Text, icon,
@@ -93,6 +94,23 @@ pub enum Action {
     /// Bring these windows to the front, in this order (the last ends on
     /// top).
     Activate(Vec<DesktopWindowId>),
+}
+
+/// What a command of a tile's menu asks for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Command {
+    Activate(DesktopWindowId),
+    Start(String),
+    /// The app's windows close, as with their own close buttons.
+    Quit(Vec<DesktopWindowId>),
+}
+
+/// A tile's menu (macOS' dock menu): where it opens, its entries, and each
+/// entry's command.
+pub struct TileMenu {
+    pub tile: Rect,
+    pub entries: Vec<Entry>,
+    pub commands: Vec<Option<Command>>,
 }
 
 struct Item {
@@ -217,6 +235,41 @@ impl Dock {
     /// The pointer moved on the dock, or left it (None).
     pub fn hover(&mut self, at: Option<(f64, f64)>) {
         self.pointer = at;
+    }
+
+    /// The menu of the tile under the pointer: the app's windows, then a new
+    /// one and quitting it; of an app that does not run, opening it.
+    pub fn menu(&self) -> Option<TileMenu> {
+        let i = self.pointer.and_then(|at| self.item_at(at))?;
+        let item = &self.items[i];
+        let mut entries = Vec::new();
+        let mut commands = Vec::new();
+        for window in &item.windows {
+            let title = if window.title.is_empty() {
+                &item.name
+            } else {
+                &window.title
+            };
+            entries.push(Entry::item(title));
+            commands.push(Some(Command::Activate(window.id)));
+        }
+        if item.windows.is_empty() {
+            entries.push(Entry::item("Open"));
+            commands.push(Some(Command::Start(item.app_id.clone())));
+        } else {
+            entries.push(Entry::Separator);
+            commands.push(None);
+            entries.push(Entry::item("New Window"));
+            commands.push(Some(Command::Start(item.app_id.clone())));
+            entries.push(Entry::item("Quit"));
+            let all = item.windows.iter().map(|w| w.id).collect();
+            commands.push(Some(Command::Quit(all)));
+        }
+        Some(TileMenu {
+            tile: Dock::tile(i),
+            entries,
+            commands,
+        })
     }
 
     /// The left button went down; whether the dock looks different now.

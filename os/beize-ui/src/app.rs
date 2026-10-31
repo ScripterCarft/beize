@@ -43,7 +43,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 use crate::clipboard::Clipboard;
-use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass};
+use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass, Glasses};
 use crate::gpu::Gpu;
 use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::Renderer;
@@ -142,6 +142,8 @@ pub struct Popup {
     pub anchor: beize_draw::Rect,
     pub size: (u32, u32),
     pub align: Align,
+    /// Above the anchor rather than below it (the dock's menus).
+    pub above: bool,
 }
 
 /// Which edges of a popup and its anchor line up.
@@ -212,6 +214,8 @@ pub(crate) struct State {
     pub(crate) clipboard: Clipboard,
     /// The desktop's windows, for the shell (`watch_desktop`).
     pub(crate) desktop: Option<Desktop>,
+    /// Glass below the app's windows; none where the compositor lacks it.
+    pub(crate) glasses: Option<Glasses>,
     /// Of the last key press or click: copying names the input it
     /// answers, a title bar's move the press.
     pub(crate) serial: u32,
@@ -323,6 +327,7 @@ impl App {
                 pointer: PointerState::default(),
                 clipboard,
                 desktop: None,
+                glasses: globals.bind(&qh, 1..=1, ()).ok().map(Glasses::new),
                 serial: 0,
                 cursor_shapes: globals.bind(&qh, 1..=1, ()).ok(),
                 cursor: None,
@@ -430,14 +435,18 @@ impl App {
                 (a.w.round() as i32).max(1),
                 (a.h.round() as i32).max(1),
             );
-            let (anchor, gravity) = match popup.align {
-                Align::Left => (Anchor::BottomLeft, Gravity::BottomRight),
-                Align::Right => (Anchor::BottomRight, Gravity::BottomLeft),
+            let (anchor, gravity) = match (popup.align, popup.above) {
+                (Align::Left, false) => (Anchor::BottomLeft, Gravity::BottomRight),
+                (Align::Right, false) => (Anchor::BottomRight, Gravity::BottomLeft),
+                (Align::Left, true) => (Anchor::TopLeft, Gravity::TopRight),
+                (Align::Right, true) => (Anchor::TopRight, Gravity::TopLeft),
             };
             positioner.set_anchor(anchor);
             positioner.set_gravity(gravity);
             positioner.set_constraint_adjustment(
-                ConstraintAdjustment::SlideX | ConstraintAdjustment::FlipY,
+                ConstraintAdjustment::SlideX
+                    | ConstraintAdjustment::SlideY
+                    | ConstraintAdjustment::FlipY,
             );
             let xdg_surface = wm_base.get_xdg_surface(surface, qh, id);
             let xdg_parent = match &parent {
@@ -461,6 +470,38 @@ impl App {
         })
     }
 
+    /// A context menu's popup at `at` in the content of the window `parent`
+    /// (`Popup`), with the click just handled: its top left corner at the
+    /// pointer, kept on the screen.
+    pub fn context_popup(
+        &mut self,
+        parent: WindowId,
+        at: (f32, f32),
+        size: (u32, u32),
+    ) -> Result<WindowId> {
+        let below_bar = match (
+            self.windows.iter().find(|w| w.id == parent),
+            self.state.surface(parent),
+        ) {
+            (Some(window), Some(surface)) => window.bar_height(surface) as f32,
+            _ => 0.0,
+        };
+        self.popup(
+            parent,
+            &Popup {
+                anchor: beize_draw::Rect {
+                    x: at.0,
+                    y: at.1 + below_bar,
+                    w: 1.0,
+                    h: 1.0,
+                },
+                size,
+                align: Align::Left,
+                above: false,
+            },
+        )
+    }
+
     /// Sends what the app asked of the compositor now, not with the next
     /// `dispatch`: a menu closed before the app blocks on something else.
     pub fn flush(&mut self) -> Result<()> {
@@ -476,9 +517,9 @@ impl App {
         };
         let qh = self.queue.handle();
         if let Some(wl) = self.state.surface(id).map(|s| s.wl.clone())
-            && let Some(desktop) = &mut self.state.desktop
+            && let Some(glasses) = &mut self.state.glasses
         {
-            desktop.set_glass(id, &wl, None, &qh);
+            glasses.set_glass(id, &wl, None, &qh);
         }
         let window = self.windows.swap_remove(i);
         let gpu = &self.renderer.gpu;
@@ -585,13 +626,14 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// The system's appearance, as the compositor tells the shell
-    /// (`watch_desktop`); light until it has.
+    /// The system's appearance, as the compositor tells every app, what is
+    /// drawn on glass follows it; light until it has.
     pub fn appearance(&self) -> Appearance {
-        self.state
-            .desktop
-            .as_ref()
-            .map_or(Appearance::Light, |d| d.appearance)
+        match (&self.state.desktop, &self.state.glasses) {
+            (Some(desktop), _) => desktop.appearance,
+            (None, Some(glasses)) => glasses.appearance,
+            (None, None) => Appearance::Light,
+        }
     }
 
     /// How light it is behind the menu bar (`watch_desktop`): light wants
@@ -604,17 +646,16 @@ impl App {
             .unwrap_or_else(|| self.appearance())
     }
 
-    /// Glass below part of the panel `id` (or none), drawn by the
+    /// Glass below part of the panel or popup `id` (or none), drawn by the
     /// compositor (ADR 0028 §6): what the scene leaves transparent there
-    /// shows it. Only the shell (`watch_desktop`); applies with the panel's
-    /// next draw.
+    /// shows it. Applies with its next draw.
     pub fn set_glass(&mut self, id: WindowId, glass: Option<Glass>) {
         let qh = self.queue.handle();
         let Some(wl) = self.state.surface(id).map(|s| s.wl.clone()) else {
             return;
         };
-        if let Some(desktop) = &mut self.state.desktop {
-            desktop.set_glass(id, &wl, glass, &qh);
+        if let Some(glasses) = &mut self.state.glasses {
+            glasses.set_glass(id, &wl, glass, &qh);
         }
     }
 
@@ -649,6 +690,13 @@ impl App {
     pub fn activate_desktop_window(&mut self, id: DesktopWindowId) {
         if let Some(desktop) = &self.state.desktop {
             desktop.activate(id);
+        }
+    }
+
+    /// Asks a window of the desktop to close, as its own close button does.
+    pub fn close_desktop_window(&mut self, id: DesktopWindowId) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.close(id);
         }
     }
 

@@ -104,6 +104,7 @@ impl BarLook {
 enum Open {
     BeizeMenu,
     ControlCenter,
+    DockMenu,
 }
 
 /// The Beize menu's commands, in its entries' order.
@@ -188,6 +189,8 @@ fn run() -> Result<(), String> {
     let mut redraw_open = false;
     let mut beize_menu = Menu::new(beize_menu_entries());
     let control_center = ControlCenter::new();
+    // The dock tile's menu while it is open, with its entries' commands.
+    let mut dock_menu: Option<(Menu, Vec<Option<dock::Command>>)> = None;
     let mut on_menu: Option<(f64, f64)> = None;
     loop {
         let mut watches = vec![Watch::Read(minutes.fd())];
@@ -257,6 +260,7 @@ fn run() -> Result<(), String> {
             redraw_open |= events.configured;
             let mut close = events.closed;
             let mut chosen = None;
+            let mut tile_command = None;
             let width = app.size(id).0;
             for input in &events.input {
                 if let Input::Pointer(Pointer::Enter(x, y) | Pointer::Motion(x, y)) = input {
@@ -272,6 +276,19 @@ fn run() -> Result<(), String> {
                             chosen = command_at(i);
                         }
                     },
+                    Open::DockMenu => {
+                        if let Some((menu, commands)) = &mut dock_menu {
+                            match menu.input(input, width) {
+                                Outcome::None => {}
+                                Outcome::Changed => redraw_open = true,
+                                Outcome::Dismissed => close = true,
+                                Outcome::Chosen(i) => {
+                                    close = true;
+                                    tile_command = commands.get(i).cloned().flatten();
+                                }
+                            }
+                        }
+                    }
                     Open::ControlCenter => {
                         if let Input::Pointer(Pointer::Button {
                             button: Button::Left,
@@ -302,7 +319,18 @@ fn run() -> Result<(), String> {
                 open = None;
                 on_menu = None;
                 beize_menu = Menu::new(beize_menu_entries());
+                dock_menu = None;
                 redraw_bar = true;
+                match tile_command {
+                    Some(dock::Command::Activate(window)) => app.activate_desktop_window(window),
+                    Some(dock::Command::Start(app_id)) => beize_systemd::apps::start(&app_id),
+                    Some(dock::Command::Quit(windows)) => {
+                        for window in windows {
+                            app.close_desktop_window(window);
+                        }
+                    }
+                    None => {}
+                }
                 // Gone from the screen before logind acts – it may take a
                 // while, and sleep would keep the menu to the wake.
                 app.flush().map_err(|e| e.to_string())?;
@@ -316,7 +344,7 @@ fn run() -> Result<(), String> {
                 matches!(
                     i,
                     Input::Pointer(Pointer::Button {
-                        button: Button::Left,
+                        button: Button::Left | Button::Right,
                         pressed: true,
                     })
                 )
@@ -330,6 +358,7 @@ fn run() -> Result<(), String> {
             app.close(id);
             on_menu = None;
             beize_menu = Menu::new(beize_menu_entries());
+            dock_menu = None;
             redraw_bar = true;
         }
         // The bar's buttons: a press opens their menu, or closes it.
@@ -355,13 +384,14 @@ fn run() -> Result<(), String> {
                         continue;
                     }
                     let size = match pressed {
-                        Open::BeizeMenu => beize_menu.size(app.text()),
                         Open::ControlCenter => control_center.size(),
+                        _ => beize_menu.size(app.text()),
                     };
                     let popup = Popup {
                         anchor,
                         size,
                         align,
+                        above: false,
                     };
                     match app.popup(bar, &popup) {
                         Ok(id) => {
@@ -390,6 +420,31 @@ fn run() -> Result<(), String> {
                     button: Button::Left,
                     pressed: true,
                 } => redraw_dock |= dock.press(),
+                // A tile's menu, above it.
+                Pointer::Button {
+                    button: Button::Right,
+                    pressed: true,
+                } => {
+                    let Some(tile) = dock.menu() else {
+                        continue;
+                    };
+                    let menu = Menu::new(tile.entries);
+                    let popup = Popup {
+                        anchor: tile.tile,
+                        size: menu.size(app.text()),
+                        align: Align::Left,
+                        above: true,
+                    };
+                    match app.popup(dock_panel, &popup) {
+                        Ok(id) => {
+                            info!("{:?} open", Open::DockMenu);
+                            dock_menu = Some((menu, tile.commands));
+                            open = Some((Open::DockMenu, id));
+                            redraw_open = false;
+                        }
+                        Err(e) => warn!("opening a tile's menu: {e}"),
+                    }
+                }
                 Pointer::Button {
                     button: Button::Left,
                     pressed: false,
@@ -459,6 +514,12 @@ fn run() -> Result<(), String> {
                     Menu::glass(size),
                     beize_menu.draw(app.text(), size, appearance),
                 ),
+                Open::DockMenu => {
+                    let Some((menu, _)) = &dock_menu else {
+                        continue;
+                    };
+                    (Menu::glass(size), menu.draw(app.text(), size, appearance))
+                }
                 Open::ControlCenter => (
                     control_center.glass(),
                     control_center.draw(app.text(), network, appearance),
@@ -491,11 +552,11 @@ fn run() -> Result<(), String> {
 /// then the user's session. Log Out names the user, as macOS does.
 fn beize_menu_entries() -> Vec<Entry> {
     vec![
-        Entry::Item("Sleep".into()),
-        Entry::Item("Restart".into()),
-        Entry::Item("Shut Down".into()),
+        Entry::item("Sleep"),
+        Entry::item("Restart"),
+        Entry::item("Shut Down"),
         Entry::Separator,
-        Entry::Item(format!("Log Out {}", user_name())),
+        Entry::item(format!("Log Out {}", user_name())),
     ]
 }
 

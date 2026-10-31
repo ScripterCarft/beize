@@ -3,6 +3,7 @@
 //! shell, `server` for the compositor.
 //!
 //! - `beize-shell-v1.xml`: the windows as the shell sees them (ADR 0028 §1).
+//! - `beize-app-v1.xml`: what every app may ask: glass below its popups.
 
 #![allow(missing_docs, clippy::all)]
 
@@ -48,4 +49,8 @@ macro_rules! protocol {
 
 pub mod shell {
     protocol!("beize-shell-v1.xml");
+}
+
+pub mod app {
+    protocol!("beize-app-v1.xml");
 }

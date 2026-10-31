@@ -26,7 +26,7 @@ use smithay::wayland::shell::xdg::{
 };
 use tracing::warn;
 
-use crate::state::State;
+use crate::state::{ClientState, State};
 
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
@@ -129,6 +129,22 @@ impl XdgShellHandler for State {
             surface.send_popup_done();
             return;
         };
+        // An app's menu answers its own input: the button it holds, or the
+        // keyboard it has. The shell's may follow a press long past (moving
+        // from menu to menu in the bar).
+        let shell = root
+            .client()
+            .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
+            .unwrap_or(false);
+        let holds = seat.get_pointer().is_some_and(|p| p.has_grab(serial))
+            || seat
+                .get_keyboard()
+                .and_then(|k| k.current_focus())
+                .is_some_and(|focus| focus.client() == root.client());
+        if !shell && !holds {
+            surface.send_popup_done();
+            return;
+        }
         // A menu closed by its app just before – the Beize menu, when the
         // same click opens the control center – still holds the pointer
         // until its next event: let it go first.
@@ -185,14 +201,25 @@ impl State {
         let Some(mut grab) = self.popup_grab.take() else {
             return;
         };
-        // The same test as Smithay's grab: the focus it would hand on, the
-        // surface under the pointer, is of the menu's app.
-        let ours = self
+        // What the menu's app takes itself: the shell all its surfaces, each
+        // of which closes its menus (a press on the bar); an app the menus
+        // of this grab – its own window's content or title bar closes them
+        // and does what it does without a menu.
+        let under = self
             .seat
             .get_pointer()
-            .and_then(|pointer| pointer.current_focus())
+            .and_then(|pointer| pointer.current_focus());
+        let ours = under
+            .as_ref()
             .zip(grab.current_grab())
-            .is_some_and(|(under, menu)| under.client() == menu.client());
+            .is_some_and(|(under, menu)| {
+                let shell = under
+                    .client()
+                    .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
+                    .unwrap_or(false);
+                under.client() == menu.client()
+                    && (shell || self.popups.find_popup(under).is_some())
+            });
         if !ours || grab.has_ended() {
             grab.ungrab(PopupUngrabStrategy::All);
             // Back to the surface under the pointer, which the grab hid.
@@ -243,8 +270,20 @@ pub fn unconstrain(state: &State, popup: &PopupSurface) {
     else {
         return;
     };
-    // The positioner works relative to the popup's parent.
-    let mut target = state.screen_area();
+    // On the windows' area, clear of the panels, which lie in front of a
+    // window's popups; a fullscreen window and the shell's menus have the
+    // screen. The positioner works relative to the popup's parent.
+    let fills_screen = window_area.is_none()
+        || state
+            .space
+            .elements()
+            .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &root))
+            .is_some_and(crate::windows::fullscreen);
+    let mut target = if fills_screen {
+        state.screen_area()
+    } else {
+        state.window_area()
+    };
     target.loc -= get_popup_toplevel_coords(&kind);
     target.loc -= root_at;
     popup.with_pending_state(|s| {

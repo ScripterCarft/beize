@@ -4,8 +4,10 @@
 //! input are Beize's. One thread waits for everything in the window's
 //! poll: the compositor, the shell's output, the shell's end.
 //!
-//! Ctrl+Shift+C copies the selection, Ctrl+Shift+V pastes (ADR 0027 §9,
-//! for now); programs may copy too (OSC 52). The window closes when the
+//! Ctrl+Shift+C copies the selection, Ctrl+Shift+V pastes (ADR 0027 §9);
+//! programs may copy too (OSC 52). A right click opens the context menu,
+//! Shift+right click where a program has the mouse (VTE, Alacritty). The
+//! window closes when the
 //! shell ends; closing the window hangs up on the shell (SIGHUP when the
 //! PTY goes).
 
@@ -25,8 +27,12 @@ use std::time::Instant;
 use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Point, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::{ClipboardType, Config, TermMode};
 use alacritty_terminal::vte::ansi::Processor;
+use beize_ui::input::{Button, Pointer};
+use beize_ui::menu::{Entry, Menu, Outcome};
 use beize_ui::{Appearance, CursorShape, Input, Key, KeyState, Keysym, Watch, WindowId};
 use rustix::termios::Winsize;
 use tracing::{debug, info, warn};
@@ -58,6 +64,15 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The terminal's commands, from its menus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Command {
+    Copy,
+    Paste,
+    SelectAll,
+    NewWindow,
 }
 
 /// What alacritty_terminal asks of the app, collected until the loop gets
@@ -109,6 +124,10 @@ struct App {
     paste: Option<(OwnedFd, Vec<u8>)>,
     /// Something changed since the last frame.
     dirty: bool,
+    /// The context menu while it is open, its commands by entry, and whether
+    /// it waits to be drawn.
+    context: Option<(WindowId, Menu, Vec<Option<Command>>)>,
+    context_dirty: bool,
 }
 
 fn run() -> Result<(), String> {
@@ -167,6 +186,8 @@ fn run() -> Result<(), String> {
         outgoing: Vec::new(),
         paste: None,
         dirty: true,
+        context: None,
+        context_dirty: false,
     };
     app.run()
 }
@@ -199,6 +220,7 @@ impl App {
             let mut dispatched = self.ui.dispatch(timeout, &fds).map_err(|e| e.to_string())?;
             drop(fds);
             let events = dispatched.take(self.window);
+            let context = self.context.as_ref().map(|(id, ..)| dispatched.take(*id));
             let ready = dispatched.ready;
             if events.closed {
                 return Ok(());
@@ -206,9 +228,13 @@ impl App {
             if events.configured {
                 self.resize();
             }
+            if let Some(events) = context {
+                self.context_events(&events);
+            }
             for input in &events.input {
                 self.input(input);
             }
+            self.draw_context()?;
             if ready.contains(&0) {
                 output.clear();
                 let open = self
@@ -278,7 +304,126 @@ impl App {
         }
     }
 
+    /// A right click on the content: the context menu at the pointer.
+    fn open_context(&mut self) {
+        if self.context.is_some() {
+            return;
+        }
+        let selected = self.term.selection.as_ref().is_some_and(|s| !s.is_empty());
+        let entries = vec![
+            Entry::item("Copy")
+                .enabled(selected)
+                .shortcut("Ctrl+Shift+C"),
+            Entry::item("Paste").shortcut("Ctrl+Shift+V"),
+            Entry::item("Select All"),
+            Entry::Separator,
+            Entry::item("New Window").shortcut("Ctrl+Alt+T"),
+        ];
+        let commands = vec![
+            Some(Command::Copy),
+            Some(Command::Paste),
+            Some(Command::SelectAll),
+            None,
+            Some(Command::NewWindow),
+        ];
+        let menu = Menu::new(entries);
+        let size = menu.size(self.ui.text());
+        match self.ui.context_popup(self.window, self.mouse.at(), size) {
+            Ok(id) => {
+                self.context = Some((id, menu, commands));
+                self.context_dirty = false;
+            }
+            Err(e) => warn!("opening the menu: {e}"),
+        }
+    }
+
+    /// What happened to the open context menu.
+    fn context_events(&mut self, events: &beize_ui::Events) {
+        let Some((id, menu, commands)) = &mut self.context else {
+            return;
+        };
+        let id = *id;
+        self.context_dirty |= events.configured;
+        let mut close = events.closed;
+        let mut chosen = None;
+        let width = self.ui.size(id).0;
+        for input in &events.input {
+            match menu.input(input, width) {
+                Outcome::None => {}
+                Outcome::Changed => self.context_dirty = true,
+                Outcome::Dismissed => close = true,
+                Outcome::Chosen(i) => {
+                    close = true;
+                    chosen = commands.get(i).copied().flatten();
+                }
+            }
+        }
+        if close {
+            self.ui.close(id);
+            self.context = None;
+        }
+        if let Some(command) = chosen {
+            self.command(command);
+        }
+    }
+
+    fn draw_context(&mut self) -> Result<(), String> {
+        let Some((id, menu, _)) = &self.context else {
+            return Ok(());
+        };
+        let id = *id;
+        if !self.context_dirty || !self.ui.ready(id) {
+            return Ok(());
+        }
+        self.context_dirty = false;
+        let size = self.ui.size(id);
+        self.ui.set_glass(id, Some(Menu::glass(size)));
+        let appearance = self.ui.appearance();
+        let scene = menu.draw(self.ui.text(), size, appearance);
+        self.ui.draw(id, &scene).map_err(|e| e.to_string())
+    }
+
+    /// A command of a menu.
+    fn command(&mut self, command: Command) {
+        info!("menu: {command:?}");
+        match command {
+            Command::Copy => {
+                if let Some(text) = self.term.selection_to_string() {
+                    self.ui.copy(text);
+                }
+            }
+            Command::Paste => self.start_paste(),
+            Command::SelectAll => {
+                let last = Column(self.term.columns().saturating_sub(1));
+                let top = Point::new(self.term.topmost_line(), Column(0));
+                let bottom = Point::new(self.term.bottommost_line(), last);
+                let mut selection = Selection::new(SelectionType::Simple, top, Side::Left);
+                selection.update(bottom, Side::Right);
+                self.term.selection = Some(selection);
+                self.dirty = true;
+            }
+            Command::NewWindow => beize_systemd::apps::start("beize-terminal"),
+        }
+    }
+
+    /// Asks for the clipboard's text (`receive_paste` takes it).
+    fn start_paste(&mut self) {
+        match self.ui.paste() {
+            Ok(pipe) => self.paste = pipe.map(|p| (p, Vec::new())),
+            Err(e) => warn!("pasting: {e}"),
+        }
+    }
+
     fn input(&mut self, input: &Input) {
+        if let Input::Pointer(Pointer::Button {
+            button: Button::Right,
+            pressed: true,
+        }) = input
+            && (!self.term.mode().intersects(TermMode::MOUSE_MODE) || self.ui.modifiers().shift)
+        {
+            self.open_context();
+            return;
+        }
         match input {
             Input::Key(key) => self.key(key),
             Input::Focus(focused) => {
@@ -317,10 +462,7 @@ impl App {
                     return;
                 }
                 Keysym::V | Keysym::v => {
-                    match self.ui.paste() {
-                        Ok(pipe) => self.paste = pipe.map(|p| (p, Vec::new())),
-                        Err(e) => warn!("pasting: {e}"),
-                    }
+                    self.start_paste();
                     return;
                 }
                 _ => {}

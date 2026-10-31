@@ -51,7 +51,7 @@ deny = [
   { crate = "beize-draw", wrappers = ["beize-ui", "beize-compositor"], reason = "what Beize UI and the compositor draw alike (ADR 0028 §2)" },
   { crate = "beize-ui", wrappers = ["beize-shell", "beize-terminal"], reason = "the toolkit of Beize's apps; the compositor draws without it" },
   { crate = "beize-protocols", wrappers = ["beize-ui", "beize-compositor"], reason = "Beize's own protocols, between the shell and the compositor" },
-  { crate = "beize-systemd", wrappers = ["beize-compositor", "beize-session", "beize-shell"], reason = "the desktop's way into logind and the user's service manager" },
+  { crate = "beize-systemd", wrappers = ["beize-compositor", "beize-session", "beize-shell", "beize-terminal"], reason = "the desktop's way into logind and the user's service manager" },
   { crate = "beize-varlink", wrappers = ["beize-accounts", "beize-update", "beize-shell"], reason = "the system services' Varlink; the shell reads networkd's state (ADR 0028 §5)" },
   { crate = "beize-accounts", wrappers = ["beize-setup"], reason = "the account service's client, for the first start" },
 ]

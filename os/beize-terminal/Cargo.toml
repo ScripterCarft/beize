@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 beize-ui = { path = "../beize-ui" }
+beize-systemd = { path = "../beize-systemd" }
 # The terminal's state machine: escape sequences, grid, scrollback,
 # selection (Zed's terminal builds on it too). Its PTY and event loop stay
 # unused: they would set ALACRITTY_WINDOW_ID and WINDOWID for the shell and

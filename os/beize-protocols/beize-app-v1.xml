@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="beize_app_v1">
+  <copyright>
+    SPDX-License-Identifier: MPL-2.0
+  </copyright>
+
+  <description summary="what every app of Beize may ask (ADR 0028)">
+    What AppKit hands to the WindowServer: a material below a surface. Every
+    client is offered it; the compositor keeps an app's glass inside its own
+    surface. Both ends live in Beize's repository and change together: until
+    a version of Beize promises otherwise, the protocol grows without new
+    versions.
+  </description>
+
+  <interface name="beize_glass_manager_v1" version="1">
+    <description summary="glass below surfaces, and the appearance that tints it">
+      On bind the compositor tells the appearance.
+    </description>
+
+    <enum name="appearance">
+      <entry name="light" value="0"/>
+      <entry name="dark" value="1"/>
+    </enum>
+
+    <event name="appearance">
+      <description summary="light or dark">
+        The system's appearance, and again when it changes: glass is tinted
+        by it, so what an app draws on glass follows it.
+      </description>
+      <arg name="appearance" type="uint" enum="appearance"/>
+    </event>
+
+    <request name="get_glass">
+      <description summary="glass below a surface">
+        Glass below part of a panel's surface or of a popup: base glass, the
+        background blurred once, until set otherwise (ADR 0028 §6). Its shapes
+        are double-buffered state of the surface: they apply with the
+        surface's next commit. One per surface; it may lie in several places
+        (add_shape), as the control center's tiles. A toplevel gets none.
+      </description>
+      <arg name="id" type="new_id" interface="beize_glass_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="destroy" type="destructor"/>
+  </interface>
+
+  <interface name="beize_glass_v1" version="1">
+    <description summary="glass below a surface">
+      Until a shape is set, there is none. Destroying the object takes the
+      glass away with the surface's next commit.
+    </description>
+
+    <request name="set_shape">
+      <description summary="where the glass lies">
+        A rectangle in the surface's coordinates with round corners of
+        radius (the continuous corners of Beize's shader), and whether a
+        rim of light runs along its edge (1) or not (0).
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="radius" type="fixed"/>
+      <arg name="rim" type="uint"/>
+    </request>
+
+    <enum name="material">
+      <entry name="base" value="0" summary="the background, blurred once: costs next to nothing"/>
+      <entry name="live" value="1" summary="what lies behind it, windows too, blurred when it changes"/>
+      <entry name="menu" value="2" summary="live glass tinted thickly, as macOS' menus: calm, what lies behind barely shows"/>
+      <entry name="clear" value="3" summary="liquid glass, its tone held so white ink reads on it: the control center's"/>
+      <entry name="liquid" value="4" summary="liquid glass without ink on it: the dock's"/>
+    </enum>
+
+    <request name="set_material">
+      <description summary="base, live, menu, clear or liquid glass">
+        Base glass until set otherwise (ADR 0028 §6). Double-buffered as
+        the shape.
+      </description>
+      <arg name="material" type="uint" enum="material"/>
+    </request>
+
+    <request name="destroy" type="destructor"/>
+
+    <request name="add_shape">
+      <description summary="more glass">
+        Glass in one more place, as set_shape describes, besides those set
+        before (set_shape starts again with one). Of the same material, and
+        each with a shadow if the glass has one.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="radius" type="fixed"/>
+      <arg name="rim" type="uint"/>
+    </request>
+
+    <request name="set_shadow">
+      <description summary="a shadow below the glass">
+        Whether the compositor draws a soft shadow around each of its shapes
+        (1) or not (0), as macOS' WindowServer gives menus one. None until
+        set. Double-buffered as the shape.
+      </description>
+      <arg name="shadow" type="uint"/>
+    </request>
+
+    <request name="set_smoke">
+      <description summary="what lies around the glass, blurred">
+        Whether what lies behind the glass's shapes and around them is
+        blurred too, beyond the surface: from each shape's edge outwards,
+        less and less over falloff px, by strength px (the Gaussian's
+        standard deviation) at most – a smoke that keeps what lies behind
+        from showing sharp between the shapes. It lies behind the panel
+        too, and takes no input. A falloff or strength of 0: none, as until
+        set. Double-buffered as the shape.
+      </description>
+      <arg name="falloff" type="fixed"/>
+      <arg name="strength" type="fixed"/>
+    </request>
+  </interface>
+</protocol>

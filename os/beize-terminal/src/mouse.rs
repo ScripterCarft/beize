@@ -36,6 +36,11 @@ pub struct Mouse {
 }
 
 impl Mouse {
+    /// Where the pointer is on the content.
+    pub fn at(&self) -> (f32, f32) {
+        (self.x as f32, self.y as f32)
+    }
+
     /// Handles one pointer event; bytes for the program go to `out`.
     /// True if what the window shows changed.
     pub fn event<T: EventListener>(

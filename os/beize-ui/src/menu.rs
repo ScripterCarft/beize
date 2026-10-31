@@ -13,7 +13,9 @@
 //!
 //! A command is chosen as macOS chooses it: released over it – after a
 //! press on the button that opened the menu and a drag, or a click –, or
-//! with Return after the arrow keys; Escape closes the menu.
+//! with Return after the arrow keys; Escape closes the menu. A menu that
+//! opens under a still pointer chooses nothing by the release of the press
+//! that opened it (`armed`).
 
 use beize_draw::measures::SCALE;
 use beize_draw::{Color, Family, Rect, Scene, Style, Text};
@@ -35,6 +37,12 @@ const MIN_WIDTH: f32 = 180.0;
 pub const RADIUS: f32 = 16.0;
 /// The text's size: the menu bar's.
 const TEXT_SIZE: f32 = 15.0;
+/// How much of the ink a disabled command and a shortcut show (estimated,
+/// macOS' tertiary and secondary labels), and the least space between a title
+/// and its shortcut.
+const DISABLED: u8 = 77;
+const SHORTCUT: u8 = 140;
+const SHORTCUT_GAP: f32 = 24.0;
 
 /// The text in Apple's menus (#292929, measured) and on dark ones; the
 /// highlight's (macOS' accent blue) and the text on it.
@@ -56,13 +64,53 @@ const LINE_DARK: Color = Color {
     a: 26,
 };
 
+/// A command of a menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Item {
+    pub title: String,
+    /// Greyed, not to be chosen.
+    pub enabled: bool,
+    /// Its keys, shown at the right: the app handles them itself.
+    pub shortcut: Option<String>,
+}
+
 /// One entry of a menu.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Entry {
-    /// A command, by its title.
-    Item(String),
+    Item(Item),
     /// A line between groups of commands.
     Separator,
+}
+
+impl Entry {
+    /// A command by its title.
+    pub fn item(title: impl Into<String>) -> Entry {
+        Entry::Item(Item {
+            title: title.into(),
+            enabled: true,
+            shortcut: None,
+        })
+    }
+
+    /// `self`, enabled or not.
+    pub fn enabled(mut self, enabled: bool) -> Entry {
+        if let Entry::Item(item) = &mut self {
+            item.enabled = enabled;
+        }
+        self
+    }
+
+    /// `self` with its keys shown.
+    pub fn shortcut(mut self, keys: impl Into<String>) -> Entry {
+        if let Entry::Item(item) = &mut self {
+            item.shortcut = Some(keys.into());
+        }
+        self
+    }
+
+    fn chosen_able(&self) -> bool {
+        matches!(self, Entry::Item(Item { enabled: true, .. }))
+    }
 }
 
 /// What an input did to the menu.
@@ -83,6 +131,9 @@ pub struct Menu {
     entries: Vec<Entry>,
     /// The highlighted command, by its index in `entries`.
     highlight: Option<usize>,
+    /// The pointer moved or a button went down over the menu since it
+    /// opened: a release chooses now.
+    armed: bool,
 }
 
 impl Menu {
@@ -90,6 +141,7 @@ impl Menu {
         Menu {
             entries,
             highlight: None,
+            armed: false,
         }
     }
 
@@ -121,7 +173,12 @@ impl Menu {
             .entries
             .iter()
             .filter_map(|e| match e {
-                Entry::Item(title) => Some(text.layout(title, &style, None).width()),
+                Entry::Item(item) => {
+                    let keys = item.shortcut.as_ref().map_or(0.0, |keys| {
+                        SHORTCUT_GAP * SCALE + text.layout(keys, &style, None).width()
+                    });
+                    Some(text.layout(&item.title, &style, None).width() + keys)
+                }
                 Entry::Separator => None,
             })
             .fold(0.0, f32::max);
@@ -169,14 +226,14 @@ impl Menu {
             return None;
         }
         self.rows(w)
-            .find(|(_, entry, r)| matches!(entry, Entry::Item(_)) && y >= r.y && y < r.y + r.h)
+            .find(|(_, entry, r)| entry.chosen_able() && y >= r.y && y < r.y + r.h)
             .map(|(i, _, _)| i)
     }
 
     /// The next command from the highlight up (`-1`) or down (`1`), round.
     fn step(&self, by: isize) -> Option<usize> {
         let n = self.entries.len() as isize;
-        let commands = |i: &isize| matches!(self.entries[*i as usize], Entry::Item(_));
+        let commands = |i: &isize| self.entries[*i as usize].chosen_able();
         let start = self
             .highlight
             .map_or(if by > 0 { -1 } else { n }, |h| h as isize);
@@ -190,14 +247,26 @@ impl Menu {
     pub fn input(&mut self, input: &Input, width: u32) -> Outcome {
         let w = width as f32;
         let highlight = match input {
-            Input::Pointer(Pointer::Enter(x, y) | Pointer::Motion(x, y)) => {
+            Input::Pointer(Pointer::Enter(x, y)) => self.command_at(w, (*x, *y)),
+            Input::Pointer(Pointer::Motion(x, y)) => {
+                self.armed = true;
                 self.command_at(w, (*x, *y))
             }
             Input::Pointer(Pointer::Leave) => None,
             Input::Pointer(Pointer::Button {
-                button: Button::Left,
+                button: Button::Left | Button::Right,
+                pressed: true,
+            }) => {
+                self.armed = true;
+                return Outcome::None;
+            }
+            Input::Pointer(Pointer::Button {
+                button: Button::Left | Button::Right,
                 pressed: false,
             }) => {
+                if !self.armed {
+                    return Outcome::None;
+                }
                 return self.highlight.map_or(Outcome::None, Outcome::Chosen);
             }
             Input::Key(Key {
@@ -252,7 +321,7 @@ impl Menu {
                         line,
                     );
                 }
-                Entry::Item(title) => {
+                Entry::Item(item) => {
                     let lit = self.highlight == Some(i);
                     if lit {
                         let s = (HIGHLIGHT_INSET * SCALE).round();
@@ -267,10 +336,25 @@ impl Menu {
                             ACCENT,
                         );
                     }
-                    let style = Self::style(appearance, lit.then_some(ON_ACCENT));
-                    let layout = text.layout(title, &style, None);
+                    let ink = Self::style(appearance, lit.then_some(ON_ACCENT)).color;
+                    let shown = Color {
+                        a: if item.enabled { ink.a } else { DISABLED },
+                        ..ink
+                    };
+                    let style = Self::style(appearance, Some(shown));
+                    let layout = text.layout(&item.title, &style, None);
                     let y = (row.y + (row.h - layout.height()) / 2.0).round();
                     scene.text(&layout, inset, y);
+                    if let Some(keys) = &item.shortcut {
+                        let keys_ink = Color {
+                            a: if item.enabled { SHORTCUT } else { DISABLED },
+                            ..ink
+                        };
+                        let style = Self::style(appearance, Some(keys_ink));
+                        let layout = text.layout(keys, &style, None);
+                        let x = (w - inset - layout.width()).round();
+                        scene.text(&layout, x, y);
+                    }
                 }
             }
         }
