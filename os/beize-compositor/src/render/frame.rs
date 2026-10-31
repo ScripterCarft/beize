@@ -214,7 +214,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     /// Glass (ADR 0028 §6) in the rounded rectangle `shape` (the output's
     /// space) with corners of `radius`: `glass` – a blurred copy of what
     /// lies in `covers`, smaller – read where it lies, with `grain` and a
-    /// `rim` of light (premultiplied; alpha 0: none); or, `liquid`, as
+    /// `rim` of light (premultiplied; alpha 0: none; `flat_rim`: one line of it,
+    /// the same all round); or, `liquid`, as
     /// liquid glass – its curved edge, tone and line of light. In `dst`, cut to its
     /// `damage`; opaque but at the corners.
     #[allow(clippy::too_many_arguments)]
@@ -228,6 +229,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        flat_rim: bool,
         liquid: Option<Liquid>,
     ) {
         let size = glass.0.size;
@@ -264,7 +266,11 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         let parts: Vec<_> = geometry::absolute(dst, damage).collect();
         for part in parts {
             let mut quad = geometry::quad(&self.space, part, Some((&mapping, size)));
-            quad.flags = GLASS;
+            quad.flags = if flat_rim {
+                GLASS | beize_vulkan::pipeline::FLAT_RIM
+            } else {
+                GLASS
+            };
             quad.texture = glass.0.gpu.slot;
             quad.color = rim;
             quad.clip = clip;

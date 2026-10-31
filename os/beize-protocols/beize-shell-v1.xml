@@ -119,6 +119,12 @@
       <description summary="the switcher is over"/>
     </event>
 
+    <event name="beize_menu">
+      <description summary="the Beize menu's key was pressed">
+        Open the Beize menu, or close it if it is open.
+      </description>
+    </event>
+
     <request name="clear_thumbnails">
       <description summary="no windows' pictures on a surface">
         None of the pictures asked for before (beize_window_v1.show_thumbnail)

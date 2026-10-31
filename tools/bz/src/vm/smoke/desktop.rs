@@ -997,17 +997,30 @@ fn confirmation(
     let asked = self::screen(machine, "confirm")?;
     asked.write_png(&machine.logs.join("confirm.png"))?;
     // Stacked, as macOS' alerts: the action in the accent colour, Cancel below
-    // it not, left of the labels (os/beize-ui's dialog, 197 px high).
+    // it not, left of the labels (os/beize-ui's dialog, 189 px high).
     let beside = middle.0 - 100;
     let (action, cancel) = (
-        asked.pixel(beside, middle.1 + 18),
-        asked.pixel(beside, middle.1 + 61),
+        asked.pixel(beside, middle.1 + 14),
+        asked.pixel(beside, middle.1 + 57),
     );
     ensure!(
         leads(action, 2) && !leads(cancel, 2),
         "the dialog's buttons are not stacked: {action:?} above {cancel:?}"
     );
-    keys(qmp, &["esc"])?;
+    // The first arrow leaves the action: Return then says no, with an outline.
+    keys(qmp, &["down"])?;
+    let outlined = (middle.0, middle.1 + 57 - 35 / 2 - 3);
+    wait_until_screen(machine, "confirm-picked", |shown| {
+        ensure!(
+            !same(
+                shown.pixel(outlined.0, outlined.1),
+                asked.pixel(outlined.0, outlined.1)
+            ),
+            "no outline around Cancel at {outlined:?} after an arrow"
+        );
+        Ok(())
+    })?;
+    keys(qmp, &["ret"])?;
     wait_for_shell_count(shell, "asked: Power(Restart), no", 1)?;
 
     ask(2)?;
@@ -1043,7 +1056,7 @@ fn confirmation(
     wait_for_shell_count(shell, "asked: Power(Restart), no", 2)?;
     park(qmp, screen)?;
     say!(
-        "  ok: Restart asked first; Escape said no; with a window clicked Return did not answer \
+        "  ok: Restart asked first; an arrow and Return said no; with a window clicked Return did not answer \
          the dialog, and a click on it gave it the keyboard back"
     );
     Ok(())
@@ -1733,6 +1746,29 @@ fn fullscreen(
         Ok(())
     })?;
     wait_for_shell_line(shell, |l| l == "menu bar on a Light background")?;
+    // Super+R over it: the menu, then the pointer far from the bar: both stay
+    // until the menu closes.
+    let opened = shell_count(shell, "BeizeMenu open")?;
+    keys(qmp, &["meta_l+r"])?;
+    wait_for_shell_count(shell, "BeizeMenu open", opened + 1)?;
+    drag(qmp, screen, to((middle.0, 0))?, to(middle)?, false)?;
+    thread::sleep(Duration::from_millis(300));
+    let stays = self::screen(machine, "fullscreen-menu-stays")?;
+    ensure!(
+        !same(stays.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
+        "the menu bar went with the pointer while its menu was open over the fullscreen window"
+    );
+    let closed = shell_count(shell, "BeizeMenu closed")?;
+    keys(qmp, &["meta_l+r"])?;
+    wait_for_shell_count(shell, "BeizeMenu closed", closed + 1)?;
+    wait_until_screen(machine, "fullscreen-menu-gone", |shown| {
+        ensure!(
+            same(shown.pixel(bar_at.0, bar_at.1), QUADRANTS[1]),
+            "the menu bar stayed after its menu closed, the pointer away"
+        );
+        Ok(())
+    })?;
+    drag(qmp, screen, to(middle)?, to((middle.0, 0))?, false)?;
     let apps = last_dock(shell)?.len();
     let tile = dock_tile(screen, apps, 0)?;
     let tile = (usize::try_from(tile.0)?, usize::try_from(tile.1)?);
@@ -4627,7 +4663,7 @@ mod tests {
     #[test]
     fn finds_the_menu_bar_with_its_time_and_nothing_else() {
         // Room for the app's name and the date.
-        let w = 600;
+        let w = 700;
         let screen = desktop(w);
         menu_bar(&screen).unwrap();
         // A window below it, cut out of the screen.
@@ -4640,7 +4676,7 @@ mod tests {
         assert!(desktop(200).crop((151, MENU_BAR), (50, 1)).is_err());
         // A stray pixel on the bar, no time, a background of its own.
         let mut stray = desktop(w);
-        stray.pixels[(5 * w + 300) * 3] = 0;
+        stray.pixels[(5 * w + 380) * 3] = 0;
         assert!(menu_bar(&stray).is_err());
         let none = Image {
             pixels: BACKGROUND.repeat(w * 40),
@@ -4648,7 +4684,7 @@ mod tests {
         };
         assert!(menu_bar(&none).is_err());
         let mut with_background = desktop(w);
-        for x in 0..360 {
+        for x in 0..w - CLOCK_WIDTH {
             for y in 0..MENU_BAR {
                 let at = (y * w + x) * 3;
                 with_background.pixels[at..at + 3].copy_from_slice(&glass(x));

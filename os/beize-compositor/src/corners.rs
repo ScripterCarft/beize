@@ -108,6 +108,7 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        flat_rim: bool,
         liquid: Option<Liquid>,
     );
     /// Blurs what the frame drew so far in `region` (live glass,
@@ -162,10 +163,11 @@ impl Effects for VkRenderer {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        flat_rim: bool,
         liquid: Option<Liquid>,
     ) {
         frame.draw_glass(
-            dst, damage, shape, radius, glass, covers, grain, rim, liquid,
+            dst, damage, shape, radius, glass, covers, grain, rim, flat_rim, liquid,
         );
     }
 }

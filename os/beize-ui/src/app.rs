@@ -732,6 +732,14 @@ impl App {
 
     /// How light it is behind the menu bar (`watch_desktop`): light wants
     /// dark ink. The appearance's until the compositor has measured it.
+    /// Whether the Beize menu's key was pressed since the last asked.
+    pub fn take_beize_menu_key(&mut self) -> bool {
+        self.state
+            .desktop
+            .as_mut()
+            .is_some_and(|d| std::mem::take(&mut d.beize_menu_key))
+    }
+
     pub fn menu_bar_backdrop(&self) -> Appearance {
         self.state
             .desktop

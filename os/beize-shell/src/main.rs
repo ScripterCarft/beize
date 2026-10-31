@@ -685,6 +685,25 @@ fn run() -> Result<(), String> {
                 _ => {}
             }
         }
+        // Super+R: the Beize menu, or closed if it is open.
+        if app.take_beize_menu_key() {
+            if let Some((Open::BeizeMenu, id)) = open {
+                if let Some((sub_id, ..)) = submenu.take() {
+                    app.close(sub_id);
+                }
+                info!("BeizeMenu closed");
+                app.close(id);
+                open = None;
+                on_menu = None;
+                beize_menu = Menu::new(beize_menu_entries());
+                redraw_bar = true;
+            } else {
+                opening = buttons
+                    .along_bar()
+                    .into_iter()
+                    .find(|(to, ..)| *to == Open::BeizeMenu);
+            }
+        }
         // Opened after the one before is gone: the compositor refuses a new
         // grab over a popup still there.
         if let Some((to, anchor, align)) = opening.take() {

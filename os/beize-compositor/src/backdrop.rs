@@ -138,9 +138,26 @@ impl Appearance {
         }
     }
 
+    /// The snap preview's glass, in either appearance: minimal, only to see
+    /// the place (the owner, 31.10.). One halving less than `material`: a
+    /// sigma of 20 px instead of 44 (backdrop.frag's kernels computed), the
+    /// colours as they are, a breath of white: 18 % as encoded on the mock-up
+    /// he chose, about 13 % in linear light.
+    fn preview_material(self) -> Material {
+        let linear = decoded(f32::from(0xf6_u8) / 255.0) * PREVIEW_WHITE;
+        Material {
+            down: 3,
+            up: 1,
+            offset: 2.0,
+            saturation: 1.0,
+            tint: [linear, linear, linear, PREVIEW_WHITE],
+        }
+    }
+
     /// How a glass showing `shows` blurs what lies behind it.
     fn blur_for(self, shows: glass::Material) -> Blur {
         match shows {
+            glass::Material::Preview => Blur::Kawase(self.preview_material()),
             glass::Material::Menu => Blur::Kawase(self.menu_material()),
             glass::Material::Base | glass::Material::Live => Blur::Kawase(self.material()),
             glass::Material::Clear | glass::Material::Liquid => frost(FROST),
@@ -162,6 +179,12 @@ impl Appearance {
         [a, a, a, a]
     }
 }
+
+/// The white over the snap preview (`preview_material`) and its line: one
+/// colour all round, no light, barely darker than the glass (the owner, 31.10.,
+/// on a mock-up: black 10 % as encoded, 22 % in linear light).
+const PREVIEW_WHITE: f32 = 0.13;
+const PREVIEW_LINE: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
 
 /// Liquid glass's blur, in px: clear, what lies behind still shows in
 /// shapes (the owner, 29.10.: "klar, ganz leicht milchig"; 0.5.119 had 14
@@ -324,9 +347,9 @@ impl Backdrop {
     }
 
     /// The place a dragged window would snap to, as live glass with the
-    /// windows' corners and base glass's rim: what lies behind it, windows too,
-    /// stays in view, blurred. `LiveGlass` gives it what lies behind, in the
-    /// same frame.
+    /// windows' corners and one flat line: what lies behind it, windows too,
+    /// stays in view, a little blurred (`preview_material`). `LiveGlass` gives
+    /// it what lies behind, in the same frame.
     pub fn snap_preview(
         &self,
         id: &Id,
@@ -340,10 +363,10 @@ impl Backdrop {
             pieces: vec![Piece {
                 rect,
                 radius: crate::corners::RADIUS as f32,
-                rim: self.appearance.rim(glass::Material::Live),
+                rim: PREVIEW_LINE,
             }],
             bounds: rect,
-            shows: glass::Material::Live,
+            shows: glass::Material::Preview,
             dark: self.appearance == Appearance::Dark,
             texture: Some(self.picture.clone()),
             covers: Rectangle::from_size(self.size),
@@ -439,7 +462,9 @@ impl Backdrop {
         // show through it as something it is not.
         let texture = match state.material {
             glass::Material::Base => Some(self.base(renderer)?),
-            glass::Material::Live | glass::Material::Menu => Some(self.picture.clone()),
+            glass::Material::Live | glass::Material::Menu | glass::Material::Preview => {
+                Some(self.picture.clone())
+            }
             glass::Material::Clear | glass::Material::Liquid => None,
         };
         let shadows = if state.shadow {
@@ -870,7 +895,8 @@ impl<R: Effects> RenderElement<R> for Glass {
             return Ok(());
         };
         let liquid = self.liquid();
-        let grain = if liquid.is_some() || self.smoke.is_some() {
+        let flat = self.shows == glass::Material::Preview;
+        let grain = if liquid.is_some() || self.smoke.is_some() || flat {
             0.0
         } else {
             GRAIN
@@ -896,6 +922,7 @@ impl<R: Effects> RenderElement<R> for Glass {
                 covers,
                 grain,
                 piece.rim,
+                flat,
                 liquid,
             );
         }

@@ -315,25 +315,28 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: Shell (f) nach Mock-ups verfeinert, Messbau 0.5.125 wartet auf „Release fertig“)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: 0.5.125 ausgewertet, Befunde umgesetzt, Messbau 0.5.126 wartet auf „Release fertig“)
 
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
-nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
+nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen. Treiber jetzt 32.0.16.1742; 0 seit 30.10. 22:23.
 
-**JETZT: Messbau 0.5.125.** Tag `measure/desktop-0.5.125`, Smoke grün; Testprogramme und Skript in `~/scratch/stick`. Beim
-Besitzer: Release (`docs/hardware.md` A), „Release fertig“ → Claude kopiert `D:\beize-0.5.125` und `D:\beize-test` auf den Stick. Dann
-Teil 2 auswerten, Fotos ansehen, `nvlddmkm` 153 zählen. **Teil 2c fragt ihn: Menü-Glas 80 % (nur im Messbau) oder wie bisher
-85 %?** Nur nach seinem Ja kommt 80 % nach `main` (`backdrop.rs`, `menu_material`, ADR 0028 §3). `main` ist lokal 3 Commits vor
-`origin` plus diese Doku, nichts gepusht (Push: Besitzer, 1Password; vorher CI auf a70e89f ist grün, Nachtlauf ansehen).
+**JETZT: Messbau 0.5.126.** Tag `measure/desktop-0.5.126`, Testprogramme und Skript in `~/scratch/stick`. Beim Besitzer:
+Release (`docs/hardware.md` A), „Release fertig“ → Claude kopiert `D:\beize-0.5.126` und `D:\beize-test`, Teil 2 auswerten, Fotos ansehen,
+`nvlddmkm` zählen. **Menü-Glas: Besitzer hat zu 80 % nichts gesagt, 0.5.126 hat wieder 85 %; fragen.** `main` lokal vor `origin`, Push beim Besitzer.
 
-**Auftrag des Besitzers für den nächsten Chat (31.10. abends). Erst sein Feedback zu 0.5.125 abwarten, vorher nichts ändern:**
-1. Er testet alles und sagt dann alles auf einmal. Schon bekannt: Die Snap-Vorschau soll minimal sein: Blur ja, aber ihr Rand schlicht
-   eine Farbe, leicht transparent, ohne Übergang (heute: Lichtkante von `rim(Live)`).
-2. Menü-Glas 80 % nach seinem Urteil vielleicht nach `main`.
-3. Tests aufräumen: heraus, was er schon akzeptiert hat oder nur einmal sehen muss (Liste mit Gründen zuerst, wie zuvor); `hw-test.sh` und Smoke schlanker.
-4. Performance einmal ansehen: Pfeil hoch im Terminal (seine Beobachtung, noch nicht untersucht).
-5. Aufräumen, schlank und production ready: die `.md` kürzen (viel ist geklärt, §11 vor allem), auch die `.rustup`-Dateien ansehen (was dort liegt, zuerst klären).
-Dieser Chat hat 0.5.125 auf den Stick kopiert (`D:\beize-0.5.125`, `D:\beize-test`, cmp geprüft); `D:\beize-0.5.124` löscht der Besitzer.
+**0.5.125 ausgewertet (`~/hw-logs/results-20261031-215941`):** Client 4798/4800, Last 115 005, rotiert 86 261, GPU 0,38, `blur` 0,10, busy 14 %, syncobj
+30/30, keine Warnungen. **Offen, unbelegt:** Teil 5b nur 112 133 Bilder, Fenster 1–11 standen 877 ms, das gezogene nicht, GPU 4,8, `blur` 3,33 ms,
+beim Ziehen an den oberen Rand: vermutlich die Vorschau über den ganzen Schirm (Fenster dahinter hören „frame done“ höchstens 1/s), der Besitzer will
+das im Kopf behalten. In 0.5.126 ansehen: Blur ist jetzt kleiner, Teil 5b wiederholt das Ziehen.
+**Umgesetzt (ADR 0028):** Vorschau Blur 20 mit Strich Schwarz 10 %; Dialog Ecke 26, Abstand 8, Pfeile mit blauem Umriss (`Scene::ring`, Flag `RING`); Haken-Spalte;
+Vollbild: offenes Menü hält seine Leiste (`layers::reveal`, Aufdecken beim Grab in `shell.rs`); Super+R (`beize_shell_v1.beize_menu`); Titel nur noch „Terminal“ (`profile`: leeres OSC 0).
+Gegenproben rot: Menü hält nicht, kein Umriss, Super+R tot. Der Strich der Vorschau kam nach dem Smoke, ohne eigene Prüfung (Besitzer). Einmal
+rot: `the still desktop woke` (Compositor 1×, jetzt 3 von ~20 Läufen, weiter unbelegt).
+
+**Auftrag des Besitzers (31.10. abends), erst sein Feedback zu 0.5.126:**
+1. Tests aufräumen: heraus, was er schon akzeptiert hat oder nur einmal sehen muss (Liste mit Gründen zuerst); `hw-test.sh` und Smoke schlanker.
+2. Performance einmal ansehen: Pfeil hoch im Terminal (seine Beobachtung, noch nicht untersucht).
+3. Aufräumen, schlank und production ready: die `.md` kürzen (viel ist geklärt, §11 vor allem), auch die `.rustup`-Dateien ansehen (was dort liegt, zuerst klären).
 
 **Verfeinerung nach Mock-ups (31.10., 4ab8dde, bd802ba, d5951ac; ADR 0028 hat die Entscheidungen).** Drei Runden, Besitzer: Menüleiste
 13 px je Seite (auf seinem Mac gemessen), Pille Weiß 12 % (Kontrollzentrum bleibt Grau 34 %: ungefragt, ansprechen falls unruhig); Kürzel

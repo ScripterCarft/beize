@@ -158,7 +158,7 @@ impl XdgShellHandler for State {
                 keyboard.unset_grab(self);
             }
         }
-        let mut grab = match self.popups.grab_popup(root, kind, &seat, serial) {
+        let mut grab = match self.popups.grab_popup(root.clone(), kind, &seat, serial) {
             Ok(grab) => grab,
             Err(e) => {
                 warn!("a popup's grab: {e}");
@@ -186,6 +186,17 @@ impl XdgShellHandler for State {
             pointer.set_grab(self, PopupPointerGrab::new(&grab), serial, Focus::Keep);
         }
         self.popup_grab = Some(grab);
+        // A panel's menu opened by a key, over a fullscreen window: its panel
+        // shows with it, and stays while it is open (`reveal`).
+        if let Some(place) = crate::layers::place_of(self, &root)
+            && self.fullscreen_in_front()
+        {
+            let edge = crate::layers::side(self.screen_area(), place);
+            if self.revealed != Some(edge) {
+                self.revealed = Some(edge);
+                self.changed();
+            }
+        }
     }
 }
 

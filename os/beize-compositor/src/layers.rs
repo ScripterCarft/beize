@@ -259,7 +259,10 @@ impl State {
         let front = self.fullscreen_in_front();
         let at = self.pointer;
         let screen = self.screen_area().to_f64();
-        let inside = |edge| self.band(edge).is_some_and(|b| b.to_f64().contains(at));
+        // An open menu keeps the panels it belongs to, until it closes (as
+        // macOS' menu bar over a fullscreen window).
+        let menu_open = self.popup_grab.as_ref().is_some_and(|g| !g.has_ended());
+        let inside = |edge| menu_open || self.band(edge).is_some_and(|b| b.to_f64().contains(at));
         // On the edge's row of pixels: a mouse stops at its last pixel, an
         // absolute device (tablet, remote desktop) lands within it.
         let at_edge = if at.y < screen.loc.y + 1.0 {

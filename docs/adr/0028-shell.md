@@ -120,7 +120,9 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   Fläche bzw. maximiert. Halbe Fenster halten rundum und zueinander 10 px Abstand, wie macOS'
   „Tiled windows have margins“ (dort Standard; die Zahl ist geschätzt, Besitzer 31.10.: vorerst).
   Die Vorschau zeigt den Platz vorab, auch beim Maximieren mit diesen 10 px: lebendiges Grundglas
-  (`Material::Live`-Tönung, Fenster dahinter verschwimmen mit), Fensterecken, feine Lichtkante.
+  Blur Sigma 20 (`Material::Preview`, drei statt vier Halbierungen, das Grundglas hat 44), Weiß 18 %,
+  Fenster dahinter verschwimmen mit, Fensterecken, ein Strich von 1 px, kaum dunkler als das Glas
+  (Schwarz 10 %, ohne Licht; Besitzer, 31.10., Mock-up).
   Ein Fenster stoppt an der Menüleiste; zieht man es mit dem Zeiger bis an
   den oberen Rand, füllt es die Fläche zwischen Menüleiste und Dock, wie seit macOS 15
   („Fenster an die Menüleiste ziehen, um den Bildschirm zu füllen“; Besitzer, 24.10.). Ein
@@ -221,7 +223,8 @@ Einstellung, die dann zur Laufzeit umschaltet.
   Hervorhebung (Akzentblau, 6 eingerückt, Ecken 10, also 16 minus Einzug), der Schatten. Kürzel stehen
   ausgeschrieben (Windows-Tastaturen). Ein Eintrag kann ein Untermenü öffnen (Pfeil von Phosphor,
   Popup neben seiner Zeile), und eine Gruppe kann Symbole haben, nach der HIG alle oder keins.
-  Listen von Fenstern markieren das aktive (Haken) und minimierte (Raute). Gewählt wird beim Loslassen
+  Listen von Fenstern markieren das aktive (Haken) und minimierte (Raute); hat ein Menü eine Marke,
+  rücken alle Zeilen ein (Marke ab 21 px, Text bei 45, aus Apples `menus-toggled-item`). Gewählt wird beim Loslassen
   über einem Eintrag oder mit Return, Escape oder ein Klick in der Shell schließt. Der Knopf eines
   offenen Menüs liegt auf einer Pille mit runden Enden, 28 px hoch, Weiß 12 % (Besitzer, 31.10.; das
   Kontrollzentrum behält Grau 34 %): beim Beize-Menü 45 breit
@@ -257,8 +260,10 @@ Einstellung, die dann zur Laufzeit umschaltet.
   einen Dialog hinter einem aktiv wirkenden Fenster beantwortet (Prüf-Agent; macOS' Alerts
   sperren das System auch nicht). Aufbau und Maße aus dem Alert der HIG (`alert-macos@2x.png`, in
   325 px Breite): Text links, Knöpfe gestapelt über die volle Breite, die Aktion oben (Besitzer, 31.10.),
-  Knöpfe 35 hoch mit 8 Abstand, 20 vom Rand, Panel-Ecken 37,5 parallel zu den Knöpfen; Schrift wie
-  in Menüs. „Über“ nutzt denselben Dialog mit nur OK.
+  Knöpfe 35 hoch mit 8 Abstand, 20 vom Rand; Schrift wie in Menüs. Ecken 26 und Titel zu Text 8
+  statt der 37,5 und 16 der HIG (Besitzer, 31.10., im Betrieb „sehr rund“). Pfeile und Tab wählen einen
+  Knopf, zu sehen an einem blauen Umriss von 2 px erst ab dem Druck, Return und Leertaste nehmen
+  ihn; der erste Druck verlässt die Aktion. „Über“ nutzt denselben Dialog mit nur OK.
 - **Rechts:** Statussymbole (Netz – Phosphors `globe-simple`, ohne Verbindung `globe-simple-x`,
   Besitzer 28.10. –, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
   Datum und Uhrzeit wie macOS („Mon 9 Jun 07:36“, 24 Stunden), die Namen von der C-Bibliothek:
@@ -473,6 +478,7 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
 | Alt+Tab, Alt+Shift+Tab | zwischen Fenstern wechseln, mit Vorschau | Windows, GNOME |
 | Super+Pfeiltasten | Snap, maximieren, wiederherstellen | Windows |
 | Super+L | Sperren (mit dem Sperrbildschirm) | Windows, GNOME |
+| Super+R | Beize-Menü, zweimal: schließt es | Besitzer |
 | Alt+F4 | Fenster schließen | Windows, GNOME |
 | Strg+Alt+T | neues Terminal (bleibt) | Ubuntu |
 

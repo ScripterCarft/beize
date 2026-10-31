@@ -136,6 +136,8 @@ pub(crate) struct Desktop {
     pub(crate) appearance: Appearance,
     /// How light it is behind the menu bar, once the compositor said.
     pub(crate) menu_bar_backdrop: Option<Appearance>,
+    /// The Beize menu's key was pressed since the app last heard.
+    pub(crate) beize_menu_key: bool,
 }
 
 /// The glass asked for below the app's windows.
@@ -157,6 +159,7 @@ impl Desktop {
             changed: false,
             appearance: Appearance::Light,
             menu_bar_backdrop: None,
+            beize_menu_key: false,
         }
     }
 
@@ -385,6 +388,10 @@ impl Dispatch<BeizeShellV1, ()> for State {
                 desktop.switcher = None;
                 desktop.switcher_entries.clear();
                 desktop.changed = true;
+                return;
+            }
+            beize_shell_v1::Event::BeizeMenu => {
+                desktop.beize_menu_key = true;
                 return;
             }
             beize_shell_v1::Event::MenuBarBackdrop { tone } => {

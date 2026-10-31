@@ -2,10 +2,10 @@
 export PATH=/usr/bin
 # The marks of OSC 133 tell the terminal where the shell waits at its prompt
 # (A) and where a command runs (C): it then keeps the prompt whole when the
-# window is resized (beize-terminal's prompt.rs). OSC 0 names the window after
-# where the shell is, so a list of windows tells them apart. The console
+# window is resized (beize-terminal's prompt.rs). OSC 0 without a title gives the
+# window its app's name back, after a program that named it (vim). The console
 # ignores both.
-export PS1='\[\e]0;\w — bash\a\]\[\e]133;A\a\]\[\e[1m\]beize\[\e[0m\] \w \$ '
+export PS1='\[\e]0;\a\]\[\e]133;A\a\]\[\e[1m\]beize\[\e[0m\] \w \$ '
 export PS0='\e]133;C\a'
 # The system's language and formats (localectl, /etc/locale.conf), for
 # logins on a console too: the desktop's apps get them from the service

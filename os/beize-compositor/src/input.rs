@@ -63,6 +63,7 @@ enum Action {
     SwitchVt(u32),
     OpenTerminal,
     ToggleFullscreen,
+    BeizeMenu,
     Screenshot,
     Close,
     Arrow(Arrow),
@@ -131,6 +132,9 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
                 state.toggle_fullscreen(&toplevel.clone());
             }
         }
+        // Not past a dialog with the keyboard, as below.
+        Some(Action::BeizeMenu) if state.overlay_keyboard.is_none() => state.tell_beize_menu(),
+        Some(Action::BeizeMenu) => {}
         Some(Action::Screenshot) => state.screenshot(),
         // Not past a dialog with the keyboard: to what lies behind it.
         Some(Action::Close) if state.overlay_keyboard.is_none() => {
@@ -163,7 +167,8 @@ fn switcher_key(sym: Keysym) -> Option<SwitcherKey> {
 
 /// The compositor's keys: Ctrl+Alt+F1…F12 (the layout gives them as VT
 /// keysyms), Ctrl+Alt+T for a new terminal, as on Ubuntu, Super+F for
-/// fullscreen (Super belongs to the shell), Super+Shift+3 for a screenshot
+/// fullscreen (Super belongs to the shell), Super+R for the Beize menu (the
+/// owner's, 31.10.), Super+Shift+3 for a screenshot
 /// (macOS' ⌘⇧3; the key's own level, whatever Shift makes of it) and Print
 /// alone (Windows, GNOME), Alt+F4 to close the active window and Super+arrows
 /// to snap it (Windows, ADR 0028 §7). The letter counts as a Latin
@@ -208,6 +213,7 @@ fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Opt
     match latin {
         Some(Keysym::t) if only_ctrl_alt => Some(Action::OpenTerminal),
         Some(Keysym::f) if only_super => Some(Action::ToggleFullscreen),
+        Some(Keysym::r) if only_super => Some(Action::BeizeMenu),
         Some(Keysym::_3) if super_shift => Some(Action::Screenshot),
         _ if sym == Keysym::Print && none => Some(Action::Screenshot),
         _ => None,
@@ -381,6 +387,11 @@ mod tests {
         );
         assert_eq!(action(&ctrl_alt, Keysym::f, Some(Keysym::f)), None);
         assert_eq!(action(&logo, Keysym::t, Some(Keysym::t)), None);
+        assert_eq!(
+            action(&logo, Keysym::r, Some(Keysym::r)),
+            Some(Action::BeizeMenu)
+        );
+        assert_eq!(action(&ctrl_alt, Keysym::r, Some(Keysym::r)), None);
         // Super+Shift+3: Shift makes § of the key on a German layout, # on
         // a US one; the key's own level is 3 on both.
         let super_shift = ModifiersState {

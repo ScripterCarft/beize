@@ -46,6 +46,9 @@ pub enum Material {
     Clear,
     /// Liquid glass without ink on it: the dock.
     Liquid,
+    /// The place a dragged window would snap to (`Backdrop::snap_preview`); no
+    /// client asks for it.
+    Preview,
 }
 
 /// The smoke around a glass's shapes (`beize_glass_v1.set_smoke`): over

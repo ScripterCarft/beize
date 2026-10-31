@@ -6,7 +6,7 @@
 //! A scene is data only: text adds its glyph runs, and `quads` turns each
 //! glyph into a quad when it is drawn (`glyphs`, the atlas).
 
-use beize_vulkan::pipeline::{EXACT, GRADIENT, MASK, Quad, ROUND, SOLID, STROKE, TRIANGLE};
+use beize_vulkan::pipeline::{EXACT, GRADIENT, MASK, Quad, RING, ROUND, SOLID, STROKE, TRIANGLE};
 use parley::{FontData, Layout, PositionedLayoutItem, Run};
 use tracing::debug;
 
@@ -195,6 +195,21 @@ impl Scene {
             flags: SOLID,
             clip: [rect.x, rect.y, rect.w, rect.h],
             radius,
+            ..Quad::default()
+        });
+        self.blend.push(true);
+    }
+
+    /// Only a line `width` wide along the inside of what `rounded` would fill.
+    pub fn ring(&mut self, rect: Rect, radius: f32, width: f32, color: Color) {
+        self.quads.push(Quad {
+            pos: [rect.x, rect.y],
+            size: [rect.w, rect.h],
+            color: color.linear(),
+            flags: SOLID | RING,
+            clip: [rect.x, rect.y, rect.w, rect.h],
+            radius,
+            bottom: [width, 0.0, 0.0, 0.0],
             ..Quad::default()
         });
         self.blend.push(true);

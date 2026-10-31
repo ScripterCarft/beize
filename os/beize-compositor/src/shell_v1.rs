@@ -331,6 +331,13 @@ impl State {
         }
     }
 
+    /// Super+R: the shell opens the Beize menu, or closes it.
+    pub fn tell_beize_menu(&mut self) {
+        for instance in &self.shell_windows.instances {
+            instance.beize_menu();
+        }
+    }
+
     pub fn tell_switcher_end(&mut self) {
         for instance in &self.shell_windows.instances {
             instance.switcher_end();

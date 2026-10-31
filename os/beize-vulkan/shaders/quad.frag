@@ -257,7 +257,12 @@ vec4 glass(vec4 sampled) {
     // Triangular noise: steadier than uniform at the same strength.
     float grain = (hash(p) - hash(p + uvec2(7919u, 104729u))) * rounding.y;
     vec4 base = vec4(sampled.rgb + grain, 1.0);
-    float r = color.a > 0.0 ? rim(gl_FragCoord.xy) : 0.0;
+    float r = 0.0;
+    if (color.a > 0.0) {
+        r = (flags & FLAT_RIM) != 0u
+            ? clamp(edge_distance(gl_FragCoord.xy, clip, rounding.x) + 1.5, 0.0, 1.0)
+            : rim(gl_FragCoord.xy);
+    }
     return base * (1.0 - color.a * r) + color * r;
 }
 
@@ -447,6 +452,11 @@ void main() {
     }
     // Round corners (rounding.x > 0): only what lies inside the window.
     float shown = rounding.x > 0.0 ? inside(gl_FragCoord.xy, clip, rounding.x) : 1.0;
+    if ((flags & RING) != 0u) {
+        float w = bottom.x;
+        shown -= inside(gl_FragCoord.xy, clip + vec4(w, w, -2.0 * w, -2.0 * w),
+                        max(rounding.x - w, 0.0));
+    }
     if ((flags & SOLID) != 0u) {
         result = ((flags & GRADIENT) != 0u ? gradient(gl_FragCoord.y) : color) * shown;
         return;

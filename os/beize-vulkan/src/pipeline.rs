@@ -113,6 +113,10 @@ pub const GAUSS_DOWN: u32 = 32768;
 /// (normalised), `bottom[2]` 1 with white ink on it, `bottom[3]` 1 in the
 /// dark appearance.
 pub const CLEAR: u32 = 65536;
+/// With `GLASS`: the rim is one line of 1 px, the same all round.
+pub const FLAT_RIM: u32 = 131072;
+/// With `SOLID`: only a line `bottom[0]` px wide along the shape's edge.
+pub const RING: u32 = 262144;
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.

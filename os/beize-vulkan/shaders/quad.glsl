@@ -38,6 +38,8 @@ const uint TRIANGLE = 8192u;
 const uint GAUSS_ACROSS = 16384u;
 const uint GAUSS_DOWN = 32768u;
 const uint CLEAR = 65536u;
+const uint FLAT_RIM = 131072u;
+const uint RING = 262144u;
 
 // Oklab (Björn Ottosson), from and to linear light: mixed there, colours
 // keep their lightness and hue instead of turning muddy between two; its

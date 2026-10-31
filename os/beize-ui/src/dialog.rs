@@ -2,14 +2,16 @@
 //! line below, the action over Cancel, in a window of its own on menu glass.
 //! Return is the action, Escape cancels; a press and release on a button is
 //! that button. Only a key's press counts, so the Return that chose a menu's
-//! command, still held, does not answer.
+//! command, still held, does not answer. The arrows and Tab pick a button, which
+//! shows an outline from then on: Return and Space then answer with it. The
+//! first press leaves the action, so a key held by accident cannot end in it.
 //!
 //! The layout is macOS 26's alert, measured in the Human Interface Guidelines'
 //! image of it (alert-macos@2x.png, 350 px across, in Beize's 325): text left
 //! and all on one edge, the buttons stacked across the panel on another, the
-//! default on top, the same space below them as beside them. The panel's
-//! corners follow the buttons' (their inset plus their half height), so both
-//! curves run side by side. The text is the menus' (`theme`).
+//! default on top, the same space below them as beside them. The corners
+//! (26 px) and the text's closer lines are the owner's, on mock-ups (31.10.).
+//! The text is the menus' (`theme`).
 
 use beize_draw::{Color, Family, Rect, Scene, Style, Text};
 
@@ -24,13 +26,16 @@ const TEXT_INSET: f32 = 28.0;
 const BUTTON_INSET: f32 = 20.0;
 const BUTTON_HEIGHT: f32 = 35.0;
 const BUTTON_SPACE: f32 = 8.0;
-/// Its top to the title, the title to its line (their centres lie 33.5 px
-/// apart in the image, about 34 with a title of one line here), the text to
-/// the first button.
+/// Its top to the title, the title to its line, the text to the first button.
 const TITLE_TOP: f32 = 26.0;
-const TITLE_TO_LINE: f32 = 16.0;
+const TITLE_TO_LINE: f32 = 8.0;
 const TEXT_TO_BUTTONS: f32 = 21.0;
-const RADIUS: f32 = BUTTON_INSET + BUTTON_HEIGHT / 2.0;
+const RADIUS: f32 = 26.0;
+/// The outline of the button the keys picked, around it: the space between, its
+/// width, in the accent at 90 % (the owner, on mock-ups, 31.10.).
+const OUTLINE_SPACE: f32 = 2.0;
+const OUTLINE_WIDTH: f32 = 2.0;
+const OUTLINE: Color = theme::faded(ACCENT, 230);
 
 /// Cancel's button: black 7.3 % on light (Apple's 215 on 232), white 8.3 % on
 /// dark (45 on 26), both measured.
@@ -64,6 +69,8 @@ pub struct Dialog {
     cancel: bool,
     pointer: Option<(f64, f64)>,
     held: Option<Choice>,
+    /// The button the keys picked; none has an outline before they did.
+    picked: Option<Choice>,
 }
 
 impl Dialog {
@@ -80,6 +87,7 @@ impl Dialog {
             cancel: true,
             pointer: None,
             held: None,
+            picked: None,
         }
     }
 
@@ -182,6 +190,21 @@ impl Dialog {
         }
     }
 
+    /// The button an arrow or Tab goes to: the other, or the only one.
+    fn next(&self) -> Choice {
+        match (self.cancel, self.picked) {
+            (false, _) | (true, Some(Choice::Cancel)) => Choice::Confirm,
+            (true, _) => Choice::Cancel,
+        }
+    }
+
+    fn answer(choice: Choice) -> Outcome {
+        match choice {
+            Choice::Cancel => Outcome::Cancelled,
+            Choice::Confirm => Outcome::Confirmed,
+        }
+    }
+
     /// What `input`, to the dialog of `size`, does.
     pub fn input(&mut self, input: &Input, (w, h): (u32, u32)) -> Outcome {
         let size = (w as f32, h as f32);
@@ -191,8 +214,20 @@ impl Dialog {
                 state: KeyState::Pressed,
                 ..
             }) => match *sym {
-                Keysym::Return | Keysym::KP_Enter => Outcome::Confirmed,
+                Keysym::Return | Keysym::KP_Enter => {
+                    Self::answer(self.picked.unwrap_or(Choice::Confirm))
+                }
+                Keysym::space => self.picked.map_or(Outcome::None, Self::answer),
                 Keysym::Escape => Outcome::Cancelled,
+                Keysym::Up
+                | Keysym::Down
+                | Keysym::Left
+                | Keysym::Right
+                | Keysym::Tab
+                | Keysym::ISO_Left_Tab => {
+                    self.picked = Some(self.next());
+                    Outcome::Changed
+                }
                 _ => Outcome::None,
             },
             Input::Pointer(Pointer::Enter(x, y) | Pointer::Motion(x, y)) => {
@@ -286,6 +321,21 @@ impl Dialog {
         if let Some(cancel) = cancel {
             button(cancel, shown(neutral, Choice::Cancel), "Cancel", ink, text);
         }
+        let picked = match self.picked {
+            Some(Choice::Confirm) => Some(confirm),
+            Some(Choice::Cancel) => cancel,
+            None => None,
+        };
+        if let Some(rect) = picked {
+            let out = OUTLINE_SPACE + OUTLINE_WIDTH;
+            let around = Rect {
+                x: rect.x - out,
+                y: rect.y - out,
+                w: rect.w + 2.0 * out,
+                h: rect.h + 2.0 * out,
+            };
+            scene.ring(around, rect.h / 2.0 + out, OUTLINE_WIDTH, OUTLINE);
+        }
         scene
     }
 }
@@ -359,9 +409,46 @@ mod tests {
         assert_eq!(size().0 - (cancel.x + cancel.w), cancel.x);
     }
 
+    fn key(dialog: &mut Dialog, sym: Keysym) -> Outcome {
+        dialog.input(
+            &Input::Key(Key {
+                sym,
+                text: None,
+                mods: crate::input::Modifiers::default(),
+                state: KeyState::Pressed,
+            }),
+            SIZE,
+        )
+    }
+
     #[test]
-    fn the_panels_corners_follow_the_buttons() {
-        assert_eq!(RADIUS, BUTTON_INSET + BUTTON_HEIGHT / 2.0);
+    fn return_is_the_action_until_the_keys_pick_another() {
+        let mut dialog = Dialog::new("t", "l", "a");
+        assert_eq!(key(&mut dialog, Keysym::space), Outcome::None);
+        assert_eq!(key(&mut dialog, Keysym::Down), Outcome::Changed);
+        assert_eq!(key(&mut dialog, Keysym::Return), Outcome::Cancelled);
+        let mut dialog = Dialog::new("t", "l", "a");
+        assert_eq!(key(&mut dialog, Keysym::Return), Outcome::Confirmed);
+    }
+
+    #[test]
+    fn the_arrows_go_from_one_button_to_the_other() {
+        let mut dialog = Dialog::new("t", "l", "a");
+        key(&mut dialog, Keysym::Up);
+        assert_eq!(dialog.picked, Some(Choice::Cancel));
+        key(&mut dialog, Keysym::Tab);
+        assert_eq!(dialog.picked, Some(Choice::Confirm));
+        assert_eq!(key(&mut dialog, Keysym::space), Outcome::Confirmed);
+        // Escape stays Cancel, whatever is picked.
+        assert_eq!(key(&mut dialog, Keysym::Escape), Outcome::Cancelled);
+    }
+
+    #[test]
+    fn an_info_dialogs_one_button_gets_the_outline() {
+        let mut dialog = Dialog::info("t", "l");
+        assert_eq!(key(&mut dialog, Keysym::Down), Outcome::Changed);
+        assert_eq!(dialog.picked, Some(Choice::Confirm));
+        assert_eq!(key(&mut dialog, Keysym::Return), Outcome::Confirmed);
     }
 
     #[test]

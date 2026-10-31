@@ -579,8 +579,11 @@ impl App {
                     self.outgoing.extend_from_slice(format(size).as_bytes());
                 }
                 Event::ClipboardStore(ClipboardType::Clipboard, text) => self.ui.copy(text),
-                Event::Title(title) => self.ui.set_title(self.window, &title),
-                Event::ResetTitle => self.ui.set_title(self.window, TITLE),
+                // No title: the app's name, as xterm's default.
+                Event::Title(title) if !title.trim().is_empty() => {
+                    self.ui.set_title(self.window, &title);
+                }
+                Event::Title(_) | Event::ResetTitle => self.ui.set_title(self.window, TITLE),
                 Event::MouseCursorDirty | Event::CursorBlinkingChange | Event::Wakeup => {
                     self.dirty = true
                 }

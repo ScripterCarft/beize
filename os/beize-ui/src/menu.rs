@@ -49,8 +49,13 @@ const SYMBOL: u32 = 18;
 const SYMBOL_GAP: f32 = 8.0;
 const CARET: u32 = 14;
 const CARET_GAP: f32 = 14.0;
-const CHECK: u32 = 13;
+const CHECK: u32 = 14;
 const DIAMOND: u32 = 11;
+/// A menu with a mark gives all its rows the column for it (Apple's image
+/// menus-toggled-item: mark from 17 pt, 8.5 wide, titles at 36): its centre and
+/// the titles, in px at `SCALE`, as the owner chose them (31.10.).
+const MARK_CENTRE: f32 = 26.5;
+const MARKED_TITLE: f32 = 45.0;
 /// How much of the ink a disabled command and a shortcut show (estimated,
 /// macOS' tertiary and secondary labels), and the least space between a title
 /// and its shortcut.
@@ -269,6 +274,16 @@ impl Menu {
         }
     }
 
+    /// Where the titles start: further in when a row has a mark.
+    fn title_inset(&self) -> f32 {
+        let marked = |e: &Entry| matches!(e, Entry::Item(item) if item.mark != Mark::None);
+        if self.entries.iter().any(marked) {
+            MARKED_TITLE
+        } else {
+            INSET * SCALE
+        }
+    }
+
     /// The height of an entry.
     fn height(entry: &Entry) -> f32 {
         match entry {
@@ -300,7 +315,7 @@ impl Menu {
                 Entry::Separator => None,
             })
             .fold(0.0, f32::max);
-        let w = (widest + 2.0 * INSET * SCALE)
+        let w = (widest + self.title_inset() + INSET * SCALE)
             .clamp(MIN_WIDTH * SCALE, MAX_WIDTH)
             .ceil();
         let h =
@@ -450,6 +465,7 @@ impl Menu {
             h,
         });
         let inset = (INSET * SCALE).round();
+        let title_inset = self.title_inset();
         for (i, entry, row) in self.rows(w) {
             match entry {
                 Entry::Separator => {
@@ -498,7 +514,7 @@ impl Menu {
                         0.0
                     };
                     let symbol_width = item.symbol.map_or(0.0, |_| SYMBOL as f32 + SYMBOL_GAP);
-                    let room = w - 2.0 * inset - symbol_width - keys_width - caret_width;
+                    let room = w - title_inset - inset - symbol_width - keys_width - caret_width;
                     let title = fitted(text, &item.title, &style, room);
                     let layout = text.layout(&title, &style, None);
                     let y = (row.y + (row.h - layout.height()) / 2.0).round();
@@ -506,20 +522,20 @@ impl Menu {
                     match item.mark {
                         Mark::None => {}
                         Mark::Check => {
-                            let x = ((inset - CHECK as f32) / 2.0).round();
+                            let x = (MARK_CENTRE - CHECK as f32 / 2.0).round();
                             scene.symbol("check-bold", x, centred(CHECK), CHECK, shown);
                         }
                         Mark::Diamond => {
-                            let x = ((inset - DIAMOND as f32) / 2.0).round();
+                            let x = (MARK_CENTRE - DIAMOND as f32 / 2.0).round();
                             scene.symbol("diamond-fill", x, centred(DIAMOND), DIAMOND, shown);
                         }
                     }
                     let title_x = match item.symbol {
                         Some(symbol) => {
-                            scene.symbol(symbol, inset, centred(SYMBOL), SYMBOL, shown);
-                            inset + SYMBOL as f32 + SYMBOL_GAP
+                            scene.symbol(symbol, title_inset, centred(SYMBOL), SYMBOL, shown);
+                            title_inset + SYMBOL as f32 + SYMBOL_GAP
                         }
-                        None => inset,
+                        None => title_inset,
                     };
                     scene.text(&layout, title_x, y);
                     if item.submenu {
