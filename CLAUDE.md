@@ -320,29 +320,51 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: Messbauten 0.5.121 und 0.5.122 auf den Stick, dann testen.** Glas nur effizienter (Plan
-vom Prüf-Agenten mit Änderungen freigegeben, Besitzer 30.10.: umsetzen): 7cd76de `blur`-Zähler in
-`pacing:` + Bilder `dock-edge-20/36`; f874c89 Tönung einmal je Quad in `quad.vert`, `SHADER_READ`
-mit Vertex-Stufe; a634e24 Gauß-Gewichte per Rekursion, bilineare Paare (Frost-Durchgang 2, beide
-Rauch-Durchgänge), Log der Sub-Texel-Bits; 050f23c Rand flüssigen Glases 40 px, Gauß-Quads
-beschnitten, früher Ausstieg in `clear_glass`. Vergleich mit 7cd76de in der VM: alle sechs Bilder
-höchstens 2 Stufen, außer zwei Pixeln mit 6 auf der Lichtlinie des Docks im Dunkelmodus (Ursache
-nicht geklärt). Gegenprobe Rand 24 px: Bild ändert sich (129 Pixel, ≤ 2 Stufen), zeigt also wenig
-Empfindlichkeit dort. Synchronisation nur per Code-Prüfung (keine Validation-Layer). Nicht belegt:
-Hardware-Filter. Tags `measure/desktop-0.5.121` (a1d402e auf 7cd76de, Werte + Zähler),
-`measure/desktop-0.5.122` (76496c1 auf 050f23c), Stick-Dateien `~/scratch/stick` (Testprogramme
-von 0.5.122, für beide gleich). Nach „Release fertig“: beide Ordner + Stick-Dateien wie gehabt
-kopieren. **Auswerten:** Teil 5/5b (GPU, busy, neu `blur`, späte Bilder) 121 gegen 122 (gegen 0.5.120
-nur grob: Werte und Zähler neu), Bild beider gegeneinander, Sub-Texel-Bits im Log, `nvlddmkm` 153.
+**JETZT: 0.5.121 und 0.5.122 auf den Stick, Besitzer testet, Chat wertet aus.** Release beider fertig
+(`build/out/desktop/release/0.5.12{1,2}`, je 6 Dateien, 31.10.), Stick-Dateien in `~/scratch/stick`.
+**Noch nicht kopiert: der Stick steckte nicht** (`Get-Volume` zeigt kein BEIZE). Sobald er steckt,
+ohne Rückfrage: `sudo -n mkdir -p /mnt/d && sudo -n mount -t drvfs D: /mnt/d`, für beide Versionen
+`cp -r build/out/desktop/release/0.5.<v> /mnt/d/beize-0.5.<v>`, `cp ~/scratch/stick/* /mnt/d/beize-test/`,
+alles mit `cmp` prüfen, `sync`, `sudo -n umount /mnt/d`. Alte `D:\\beize-0.5.11x`/`120` löscht nur der
+Besitzer (Befehl nennen). Dem Besitzer dann die nummerierten Schritte aus `docs/hardware.md` B/C
+geben, erst 0.5.121 ganz durch, dann 0.5.122; wichtig Teil 5/5b und Fotos 2d/2g in beiden.
+Glas nur effizienter, Aussehen unverändert (Plan vom Prüf-Agenten mit Änderungen freigegeben):
+7cd76de `blur`-Zähler in `pacing:` + Bilder `dock-edge-20/36`; f874c89 Tönung einmal je Quad in
+`quad.vert`, `SHADER_READ` mit Vertex-Stufe; a634e24 Gauß-Gewichte per Rekursion, bilineare Paare
+(Frost-Durchgang 2, beide Rauch-Durchgänge), Log der Sub-Texel-Bits; 050f23c Rand flüssigen Glases
+40 px, Gauß-Quads beschnitten, früher Ausstieg in `clear_glass`. Tags `measure/desktop-0.5.121`
+(a1d402e auf 7cd76de: abgenommene Werte + Zähler), `measure/desktop-0.5.122` (76496c1 auf 050f23c);
+Testprogramme von 0.5.122 für beide, damit dieselben Clients messen. VM gegen 7cd76de: alle sechs
+Bilder ≤ 2 Stufen, außer zwei Pixeln mit 6 auf der Lichtlinie des Docks im Dunkelmodus (Ursache
+nicht geklärt). Gegenprobe Rand 24 px: nur 129 Pixel, ≤ 2 Stufen (dort wenig empfindlich). Synchronisation
+nur per Code-Prüfung (keine Validation-Layer). Nicht belegt: Hardware-Filter.
 
-**Befund 31.10., nicht Glas: `sbvarsign` schreibt den Monat eins zu niedrig** (beobachtet: 2026-9-31
-in PK/KEK/db; Quelltext nicht geprüft). `virt-fw-vars` lehnt das ab, jede Smoke-Maschine scheitert,
-sobald die Test-Schlüssel am 31. eines Monats signiert wurden, dem ein Monat mit weniger Tagen
-vorangeht. Messbauten lokal mit nicht committeter Toleranz geprüft: 121 und 122 grün. **Die Test-
-Schlüssel in `build/` tragen das Datum jetzt** (Stempel `test-enrollment` bis 1.11. nutzlos, danach
-löschen, dann neu signiert). Echte Hardware: `MOR`/Enrollment nur im Setup Mode, die Schlüssel des
-Besitzers sind eingespielt; im Januar stünde Monat 0 in frischen Schlüsseln. Lösung offen (Besitzer):
-Patch an sbsigntools upstream melden.
+**Wenn der Besitzer „Test fertig“ sagt, ohne Rückfrage:**
+1. Stick einhängen (`sudo -n mount -t drvfs D: /mnt/d`), die zwei neuesten `results-*` nach
+   `~/hw-logs`, aushängen. In `version.txt` steht, welcher zu welchem Bau gehört.
+2. Vergleichen, Teil 5 und 5b (`pacing:` in `compositor.log`): GPU median/max, busy, `blur`, späte
+   Bilder, 121 gegen 122 (0.5.120 nur grob: GPU 0,39/0,53 ms, busy 14/17 %). Lasttest-Bilder ~115 000.
+   Sub-Texel-Bits im Log (Agent: bei 8 Bits ~0,15 Stufen je Durchgang, bei 4 über 2).
+3. Bildschirmfotos beider Bauten pixelweise vergleichen und ansehen. Wird 122 schlechter oder sieht
+   anders aus: den betreffenden Commit einzeln zurücknehmen (a634e24, 050f23c fassen je zwei Schritte).
+4. **Grafik-Timeouts:** Windows-Log lesen (`docs/hardware.md`, „Unter Beobachtung“), Sitzung nach
+   Beize gegen die davor; WSL ist dabei kein Beweis, Zeiten eigener Läufe mitnennen. Der Besitzer
+   installiert danach einen neuen NVIDIA-Treiber: Datum notieren. Nach schweren Läufen selbst nachsehen.
+5. `sbvarsign` (unten) lösen, Stempel `test-enrollment` löschen, voller Smoke grün.
+6. Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller Lauf grün, dann `main`
+   pushen und CI selbst prüfen. Force-Push `measure/desktop` macht nur der Besitzer, für Tests unnötig.
+
+**Befund 31.10., nicht Glas: `sbvarsign` schreibt den Monat eins zu niedrig, belegt.** Quelle
+sbsigntools `src/sbvarsign.c` `set_timestamp`: `timestamp->Month = tm->tm_mon;` (0–11, EFI_TIME will
+1–12; Mirror phrack/sbsigntools, dort auch `Year = tm_year`, gemessen steht aber 2026: Ubuntus Stand
+weicht ab, ungeprüft). Immer so, seit Beizes Start; der „31.9.“ ist der erste unmögliche Tag seither.
+`virt-fw-vars` scheitert dann. Unmöglich auch: **ganzer Januar (Monat 0)**, 29.–31.3., 31.5., 31.7.,
+31.12. `bz` ruft es nur auf (`secureboot/mod.rs`) und hat das nie gegengeprüft. Lösung offen, dem
+Besitzer vorschlagen: Patch an sbsigntools upstream (Besitzer sendet); eine Buildroot-Änderung baut
+alles neu (~2,5 h). Die Test-Schlüssel in
+`build/` tragen das Datum jetzt: Stempel `test-enrollment` ab 1.11. löschen. Messbauten lokal mit
+nicht committeter Toleranz geprüft: 121 und 122 grün. Die Schlüssel des Besitzers sind eingespielt,
+frisch eingespielte tragen denselben falschen Monat; Prüfung auf echter Firmware steht aus.
 
 **Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten; am 30.10. auch
 lokal einmal rot, im zweiten Lauf grün), voller Lauf grün, dann pushen (main 156f655.. nur lokal).
