@@ -46,7 +46,9 @@ use beize_protocols::app::client::beize_app_menu_v1::BeizeAppMenuV1;
 use beize_protocols::app::client::beize_menu_manager_v1::BeizeMenuManagerV1;
 
 use crate::clipboard::Clipboard;
-use crate::desktop::{Desktop, DesktopWindow, DesktopWindowId, Glass, Glasses, SwitcherNews};
+use crate::desktop::{
+    Desktop, DesktopPlace, DesktopWindow, DesktopWindowId, Glass, Glasses, SwitcherNews,
+};
 use crate::gpu::Gpu;
 use crate::input::{Input, Keyboard, Modifiers, PointerState};
 use crate::renderer::Renderer;
@@ -169,6 +171,11 @@ pub struct Popup {
     pub above: bool,
 }
 
+/// How far a menu `Align::Beside` lies over its parent, and above its row: by a
+/// menu's padding, so its first row is level with that row.
+const BESIDE_OVERLAP: i32 = 8;
+const BESIDE_RISE: i32 = 6;
+
 /// Which edges of a popup and its anchor line up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
@@ -176,6 +183,9 @@ pub enum Align {
     Right,
     /// Their centres: a dock tile's menu.
     Centre,
+    /// Beside the anchor, its first row on the anchor's, a little over the
+    /// parent: a menu of a menu's row, as macOS'.
+    Beside,
 }
 
 /// What the compositor tells of one window.
@@ -512,14 +522,22 @@ impl App {
                 (Align::Right, true) => (Anchor::TopRight, Gravity::TopLeft),
                 (Align::Centre, false) => (Anchor::Bottom, Gravity::Bottom),
                 (Align::Centre, true) => (Anchor::Top, Gravity::Top),
+                (Align::Beside, _) => (Anchor::TopRight, Gravity::BottomRight),
             };
             positioner.set_anchor(anchor);
             positioner.set_gravity(gravity);
-            positioner.set_constraint_adjustment(
-                ConstraintAdjustment::SlideX
-                    | ConstraintAdjustment::SlideY
-                    | ConstraintAdjustment::FlipY,
-            );
+            if popup.align == Align::Beside {
+                positioner.set_offset(-BESIDE_OVERLAP, -BESIDE_RISE);
+                positioner.set_constraint_adjustment(
+                    ConstraintAdjustment::FlipX | ConstraintAdjustment::SlideY,
+                );
+            } else {
+                positioner.set_constraint_adjustment(
+                    ConstraintAdjustment::SlideX
+                        | ConstraintAdjustment::SlideY
+                        | ConstraintAdjustment::FlipY,
+                );
+            }
             let xdg_surface = wm_base.get_xdg_surface(surface, qh, id);
             let xdg_parent = match &parent {
                 PopupParent::Xdg(xdg) => Some(xdg),
@@ -823,25 +841,31 @@ impl App {
         crate::desktop::describe_menus(&proxy, menus);
     }
 
-    /// Minimizes the window `id`, as its yellow button does.
-    pub fn minimize(&mut self, id: WindowId) {
-        if let Some(window) = self.window(id) {
-            window.minimize();
-        }
-    }
-
-    /// Maximizes the window `id`, or brings it back, as its green button does.
-    pub fn toggle_maximized(&mut self, id: WindowId) {
-        let maximized = self.state.surface(id).is_some_and(|s| s.maximized);
-        if let Some(window) = self.window(id) {
-            window.toggle_maximized(maximized);
-        }
-    }
-
     /// The user chose command `command` of a window's menus (the shell).
     pub fn activate_menu(&mut self, id: DesktopWindowId, command: u32) {
         if let Some(desktop) = &self.state.desktop {
             desktop.menu_activate(id, command);
+        }
+    }
+
+    /// Takes a window of the desktop off the screen.
+    pub fn minimize_desktop_window(&mut self, id: DesktopWindowId) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.minimize(id);
+        }
+    }
+
+    /// Maximizes a window of the desktop, or brings it back.
+    pub fn zoom_desktop_window(&mut self, id: DesktopWindowId) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.zoom(id);
+        }
+    }
+
+    /// Moves a window of the desktop to `place`.
+    pub fn move_desktop_window(&mut self, id: DesktopWindowId, place: DesktopPlace) {
+        if let Some(desktop) = &self.state.desktop {
+            desktop.move_to(id, place);
         }
     }
 

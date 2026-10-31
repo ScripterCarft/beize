@@ -23,8 +23,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::apps::App;
+use beize_ui::DesktopPlace;
 use beize_ui::measures::{SCALE, scaled};
-use beize_ui::menu::Entry;
+use beize_ui::menu::{Entry, Mark};
 use beize_ui::{
     AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect,
     Scene, Style, Text, icon,
@@ -96,10 +97,18 @@ pub enum Action {
     Activate(Vec<DesktopWindowId>),
 }
 
-/// What a command of a tile's menu asks for.
+/// What a command of a menu of the shell's asks for.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Activate(DesktopWindowId),
+    /// These windows to the front, in this order (the last ends on top).
+    Show(Vec<DesktopWindowId>),
+    /// These windows off the screen.
+    Minimize(Vec<DesktopWindowId>),
+    Zoom(DesktopWindowId),
+    MoveTo(DesktopWindowId, DesktopPlace),
+    /// The dialog about the app of this name.
+    About(String),
     Start(String),
     /// The app's windows close, as with their own close buttons.
     Quit(Vec<DesktopWindowId>),
@@ -252,7 +261,13 @@ impl Dock {
             } else {
                 &window.title
             };
-            entries.push(Entry::item(title));
+            entries.push(Entry::item(title).mark(if window.active {
+                Mark::Check
+            } else if window.minimized {
+                Mark::Diamond
+            } else {
+                Mark::None
+            }));
             commands.push(Some(Command::Activate(window.id)));
         }
         if item.windows.is_empty() {

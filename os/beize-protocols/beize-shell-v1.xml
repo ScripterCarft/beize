@@ -94,6 +94,14 @@
       <arg name="window" type="object" interface="beize_window_v1"/>
     </event>
 
+    <event name="switcher_add">
+      <description summary="a window opened while the switcher shows">
+        It joins the end of the switcher's entries; the selection stays on its
+        window.
+      </description>
+      <arg name="window" type="object" interface="beize_window_v1"/>
+    </event>
+
     <event name="switcher_show">
       <description summary="show the switcher">
         Its entries are complete; it has this room at most.
@@ -208,6 +216,25 @@
       <arg name="y" type="int"/>
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
+    </request>
+
+    <request name="minimize">
+      <description summary="take the window off the screen"/>
+    </request>
+
+    <request name="zoom">
+      <description summary="maximize it, or bring it back, as its green button"/>
+    </request>
+
+    <enum name="place">
+      <entry name="left" value="0" summary="the left half of the window area"/>
+      <entry name="right" value="1" summary="the right half"/>
+      <entry name="previous" value="2" summary="where it was before a half or maximized"/>
+    </enum>
+
+    <request name="move_to">
+      <description summary="move the window (the Window menu's Move &amp; Resize)"/>
+      <arg name="place" type="uint" enum="place"/>
     </request>
 
     <request name="close">

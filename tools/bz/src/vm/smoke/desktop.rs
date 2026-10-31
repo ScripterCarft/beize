@@ -100,9 +100,10 @@ const POINTER_SIZE: usize = 24;
 /// The menu bar along the top of the screen (os/beize-draw, `measures`);
 /// windows lie below it.
 const MENU_BAR: usize = 32;
-/// Where the active app's name is: the left end of the bar, at most this
-/// wide (the shell's journal says which name it shows, `SHELL_SAID`).
-const APP_NAME_WIDTH: usize = 200;
+/// Where the active app's name and its menus are, the system's Window with
+/// them: the left end of the bar, at most this wide (the shell's journal says
+/// which name it shows, `SHELL_SAID`).
+const APP_NAME_WIDTH: usize = 340;
 // The pointer, parked on the bar, lies in that end too.
 const _: () = assert!(APP_NAME_WIDTH >= POINTER_SIZE);
 /// The dock (os/beize-shell, `dock`): this high, this far above the bottom
@@ -993,7 +994,19 @@ fn confirmation(
     };
     ask(1)?;
     thread::sleep(Duration::from_millis(300));
-    self::screen(machine, "confirm")?.write_png(&machine.logs.join("confirm.png"))?;
+    let asked = self::screen(machine, "confirm")?;
+    asked.write_png(&machine.logs.join("confirm.png"))?;
+    // Stacked, as macOS' alerts: the action in the accent colour, Cancel below
+    // it not, left of the labels (os/beize-ui's dialog, 197 px high).
+    let beside = middle.0 - 100;
+    let (action, cancel) = (
+        asked.pixel(beside, middle.1 + 18),
+        asked.pixel(beside, middle.1 + 61),
+    );
+    ensure!(
+        leads(action, 2) && !leads(cancel, 2),
+        "the dialog's buttons are not stacked: {action:?} above {cancel:?}"
+    );
     keys(qmp, &["esc"])?;
     wait_for_shell_count(shell, "asked: Power(Restart), no", 1)?;
 
@@ -1146,6 +1159,115 @@ fn app_menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize
         "a shell started anew did not show the app's menus"
     );
     say!("  ok: a shell started anew showed the terminal's menus again");
+    system_menus(shell, machine, qmp, screen, places(5)?)
+}
+
+/// The menus the system adds to every app's (ADR 0028 §3): Window's Move &
+/// Resize opens beside its row, by the pointer or the keys, and moves the
+/// window; Zoom and Minimize; the app's name has About.
+fn system_menus(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    bar: Vec<(i32, i32)>,
+) -> Result<()> {
+    let (name, window) = (bar[1], bar[4]);
+    let top = i32::try_from(MENU_BAR)? + 6;
+    let open = |at: (i32, i32), line: &str| -> Result<()> {
+        let n = shell_count(shell, line)?;
+        click(qmp, screen, at, 1)?;
+        wait_for_shell_count(shell, line, n + 1)?;
+        thread::sleep(Duration::from_millis(300));
+        Ok(())
+    };
+    let open_window = || open(window, "WindowMenu open");
+    // Its fourth row, past the line of 14; beside it, over the menu's 225 px.
+    let move_row = (window.0, top + 3 * 30 + 14 + 15);
+    let beside = |row: i32| (window.0 + 260, move_row.1 + row * 30);
+    let open_move = || -> Result<()> {
+        open_window()?;
+        let n = shell_count(shell, "submenu open")?;
+        drag(qmp, screen, window, move_row, false)?;
+        wait_for_shell_count(shell, "submenu open", n + 1)?;
+        thread::sleep(Duration::from_millis(300));
+        Ok(())
+    };
+    let dark = |at: (usize, usize), name: &str, want: bool| -> Result<()> {
+        wait_until_screen(machine, name, |shown| {
+            let p = shown.pixel(at.0, at.1);
+            let brightness = p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3;
+            ensure!(
+                (brightness < WINDOW_DARK) == want,
+                "{name}: {p:?} at {at:?}, the terminal {} there",
+                if want { "should be" } else { "should not be" }
+            );
+            Ok(())
+        })
+    };
+    let area_h = screen.1 - MENU_BAR - DOCK_ZONE;
+    let right_half = (screen.0 * 3 / 4, MENU_BAR + area_h / 2);
+    // Low in the left half, beside the prompt: no text of the terminal.
+    let low_left = (320, MENU_BAR + area_h - 40);
+
+    // By the keys: Right opens it, Escape closes all.
+    open_window()?;
+    let n = shell_count(shell, "submenu open")?;
+    let closed = shell_count(shell, "WindowMenu closed")?;
+    keys(qmp, &["down", "down", "down", "down", "right"])?;
+    wait_for_shell_count(shell, "submenu open", n + 1)?;
+    thread::sleep(Duration::from_millis(300));
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "WindowMenu closed", closed + 1)?;
+
+    // By the pointer: Left, then back.
+    open_move()?;
+    self::screen(machine, "window-menu")?.write_png(&machine.logs.join("window-menu.png"))?;
+    let snapped = "snapped beize-terminal Left";
+    let n = shell_count(shell, snapped)?;
+    click(qmp, screen, beside(0), 1)?;
+    wait_for_said(shell, snapped, n + 1)?;
+    park(qmp, screen)?;
+    dark(right_half, "window-left", false)?;
+    dark(low_left, "window-left-low", true)?;
+    open_move()?;
+    click(qmp, screen, beside(2), 1)?;
+    park(qmp, screen)?;
+    dark(low_left, "window-back", false)?;
+    // Zoom, its second row.
+    open_window()?;
+    click(qmp, screen, (window.0, top + 30 + 15), 1)?;
+    park(qmp, screen)?;
+    dark(right_half, "window-zoom", true)?;
+    // Minimize, its first; the dock's tile brings it back.
+    open_window()?;
+    let minimized = "minimized beize-terminal";
+    let n = shell_count(shell, minimized)?;
+    click(qmp, screen, (window.0, top + 15), 1)?;
+    wait_for_said(shell, minimized, n + 1)?;
+    park(qmp, screen)?;
+    dark(right_half, "window-minimized", false)?;
+    let tile = dock_tile(screen, last_dock(shell)?.len(), 0)?;
+    click(qmp, screen, tile, 1)?;
+    park(qmp, screen)?;
+    dark(right_half, "window-unminimized", true)?;
+    say!(
+        "  ok: the Window menu's Move & Resize opened by keys and pointer and moved the window, \
+         back again; Zoom, Minimize"
+    );
+
+    // The app's name: About, closed with Escape.
+    open(name, "AppName open")?;
+    let about = shell_count(shell, "about")?;
+    click(qmp, screen, (name.0 + 30, top + 15), 1)?;
+    wait_for_shell_count(shell, "about", about + 1)?;
+    thread::sleep(Duration::from_millis(300));
+    self::screen(machine, "about")?.write_png(&machine.logs.join("about.png"))?;
+    let closed = shell_count(shell, "about closed")?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "about closed", closed + 1)?;
+    park(qmp, screen)?;
+    say!("  ok: the app's name menu's About showed the dialog, Escape closed it");
     Ok(())
 }
 
@@ -1339,7 +1461,31 @@ fn switcher(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)
         compositor_count(&chose("beize-terminal"))? == chosen,
         "Escape chose a window"
     );
+    // A window that opens while it shows joins it; the selection stays: Alt let
+    // go chooses the terminal it was on, not the new client.
+    let shown = compositor_count("switcher shown")?;
+    let gained = "switcher gained beize-testclient";
+    let joined = compositor_count(gained)?;
+    let chosen = compositor_count(&chose("beize-terminal"))?;
+    hold(qmp, "alt", true)?;
+    keys(qmp, &["tab"])?;
+    wait_for_said(shell, "switcher shown", shown + 1)?;
+    shell.capture(
+        "systemd-run --user --unit=beize-switcher-late /run/t/beize-testclient --seconds 30",
+    )?;
+    wait_for_said(shell, gained, joined + 1)?;
+    wait_for_shell_line(shell, |l| {
+        l.starts_with("switcher: ") && l.contains(" with 4 windows")
+    })?;
+    self::screen(machine, "switcher-joined")?
+        .write_png(&machine.logs.join("switcher-joined.png"))?;
+    hold(qmp, "alt", false)?;
+    wait_for_said(shell, &chose("beize-terminal"), chosen + 1)?;
+    shell.capture("systemctl --user stop beize-switcher-late")?;
+    thread::sleep(Duration::from_millis(500));
+    tap("beize-testclient")?;
     // Tab, Tab, Shift+Tab: on the second window; Alt let go chooses it.
+    let chosen = compositor_count(&chose("beize-terminal"))?;
     hold(qmp, "alt", true)?;
     keys(qmp, &["tab", "tab", "shift+tab"])?;
     hold(qmp, "alt", false)?;
@@ -1361,7 +1507,8 @@ fn switcher(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)
     tap("beize-testclient")?;
     say!(
         "  ok: held, the switcher showed the client's live picture in its first tile; Escape \
-         chose nothing, the release of Alt the selected window, a click its tile"
+         chose nothing, a window opening meanwhile joined it, the release of Alt chose the \
+         selected window, a click its tile"
     );
     Ok(())
 }
@@ -1369,7 +1516,8 @@ fn switcher(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)
 /// Snap (ADR 0028 §2, §7), on the client's window at `moved`, `grown`:
 /// Super+arrows take the halves, maximize and go back, and the opposite
 /// arrow from a half goes back to where it was. Held on the screen's edge in
-/// a drag a preview shows with round corners, and the release takes the half;
+/// a drag a preview shows, inset and with round corners, and the release takes
+/// the half, the margin (os/beize-compositor's `SNAP_MARGIN`) all round;
 /// dragged off, the window is its size from before under the pointer; into
 /// the menu bar's strip it is maximized.
 fn snap(
@@ -1381,8 +1529,11 @@ fn snap(
     grown: (usize, usize),
 ) -> Result<()> {
     let area_h = screen.1 - MENU_BAR - DOCK_ZONE;
-    let left = ((0, MENU_BAR), (screen.0 / 2, area_h));
-    let right = ((screen.0 / 2, MENU_BAR), (screen.0 - screen.0 / 2, area_h));
+    const MARGIN: usize = 10;
+    let room = screen.0 - 3 * MARGIN;
+    let (top, high) = (MENU_BAR + MARGIN, area_h - 2 * MARGIN);
+    let left = ((MARGIN, top), (room / 2, high));
+    let right = ((2 * MARGIN + room / 2, top), (room - room / 2, high));
     let whole = ((0, MENU_BAR), (screen.0, area_h));
     let steps: [(&str, Window, &str); 7] = [
         ("meta_l+left", left, "snap-left"),
@@ -1409,7 +1560,9 @@ fn snap(
     );
     // High in the left half, far above the window and its shadow.
     let inside = (screen.0 / 4, MENU_BAR + 40);
-    let corner = (1, MENU_BAR + 1);
+    // The preview's corner, and beside its edge.
+    let corner = (MARGIN + 1, top + 1);
+    let beside = (MARGIN / 2, inside.1);
     let before = self::screen(machine, "snap-before")?;
     let edge = (0, grip.1);
     button(qmp, screen, grip, true)?;
@@ -1420,8 +1573,16 @@ fn snap(
             before.pixel(inside.0, inside.1),
         );
         ensure!(
-            lit.iter().zip(was).all(|(&l, w)| l > w),
+            !same(lit, was),
             "no preview at {inside:?} with the pointer on the screen's edge: {lit:?}, {was:?} before"
+        );
+        let (out, was) = (
+            shown.pixel(beside.0, beside.1),
+            before.pixel(beside.0, beside.1),
+        );
+        ensure!(
+            same(out, was),
+            "the preview reaches the screen's edge: {out:?} at {beside:?}, {was:?} before"
         );
         let (tip, was) = (
             shown.pixel(corner.0, corner.1),
@@ -1453,16 +1614,18 @@ fn snap(
     wait_for_pattern(shell, machine, left.0, left.1, "snap-dragged")?;
     // Off the half by its title strip: the size from before, under the pointer.
     let grip = (
-        i32::try_from(left.1.0 / 2)?,
+        i32::try_from(left.0.0 + left.1.0 / 2)?,
         i32::try_from(left.0.1 + CLIENT_TITLE / 2)?,
     );
     // Where all of it stays clear of the dock.
     let middle = (i32::try_from(screen.0 / 2)?, i32::try_from(MENU_BAR + 100)?);
     drag(qmp, screen, grip, middle, true)?;
     park(qmp, screen)?;
-    // As far across it as the pointer was across the half: its middle.
+    // As far across it as the pointer was across the half (`leave_maximized`).
+    let across = f64::from(grip.0 - i32::try_from(left.0.0)?) / left.1.0 as f64;
+    let start = (f64::from(grip.0) - across * grown.0 as f64).round() as i32;
     let centred = (
-        screen.0 / 2 - grown.0 / 2,
+        usize::try_from(start + middle.0 - grip.0)?,
         MENU_BAR + 100 - CLIENT_TITLE / 2,
     );
     wait_for_pattern(shell, machine, centred, grown, "snap-off")?;
@@ -1474,7 +1637,7 @@ fn snap(
     wait_for_pattern(shell, machine, centred, grown, "snap-top-back")?;
     // Back to where the test goes on from, by its strip.
     let home = (
-        i32::try_from(moved.0 + grown.0 / 2)?,
+        middle.0 + i32::try_from(moved.0)? - i32::try_from(centred.0)?,
         i32::try_from(moved.1 + CLIENT_TITLE / 2)?,
     );
     drag(qmp, screen, middle, home, true)?;
@@ -3158,9 +3321,9 @@ fn framed(
         lines.iter().any(|l| l == "decoration server_side"),
         "the client that asked for the compositor's frame was not given it: {lines:?}"
     );
-    // The test client's fifth window: the first moved, the second drew
-    // frames, the third and fourth on fifo and on time.
-    let (at, size) = placed(shell, "beize-testclient", 5)?;
+    // The test client's sixth window: the first moved, the second joined
+    // Alt+Tab, the third drew frames, the fourth and fifth on fifo and on time.
+    let (at, size) = placed(shell, "beize-testclient", 6)?;
     let frame_height = size.1 + TITLE_BAR;
     let centred = (
         (screen.0 - size.0) / 2,
@@ -3254,8 +3417,8 @@ fn viewport(shell: &Shell, machine: &Machine) -> Result<()> {
         lines.iter().any(|l| l.starts_with("configure ")),
         "the viewport client got no window (exit status {status}): {lines:?}"
     );
-    // The test client's sixth window, after the framed one.
-    let (at, size) = placed(shell, "beize-testclient", 6)?;
+    // The test client's seventh window, after the framed one.
+    let (at, size) = placed(shell, "beize-testclient", 7)?;
     ensure!(
         size == VIEWPORT_SIZE,
         "the viewport client's window is {}x{}, not the {}x{} it named",

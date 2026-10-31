@@ -106,6 +106,15 @@ struct Entry {
     pending: DesktopWindow,
 }
 
+/// Where the shell can move a window (the Window menu's Move & Resize).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DesktopPlace {
+    Left,
+    Right,
+    /// Where it was before a half or maximized.
+    Previous,
+}
+
 /// The switcher (Alt+Tab) as the compositor last said (`App::desktop_switcher`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SwitcherNews {
@@ -198,6 +207,28 @@ impl Desktop {
     pub(crate) fn menu_activate(&self, id: DesktopWindowId, command: u32) {
         if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
             entry.proxy.menu_activate(command);
+        }
+    }
+
+    pub(crate) fn minimize(&self, id: DesktopWindowId) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.minimize();
+        }
+    }
+
+    pub(crate) fn zoom(&self, id: DesktopWindowId) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.zoom();
+        }
+    }
+
+    pub(crate) fn move_to(&self, id: DesktopWindowId, place: DesktopPlace) {
+        if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {
+            entry.proxy.move_to(match place {
+                DesktopPlace::Left => beize_window_v1::Place::Left,
+                DesktopPlace::Right => beize_window_v1::Place::Right,
+                DesktopPlace::Previous => beize_window_v1::Place::Previous,
+            });
         }
     }
 
@@ -315,6 +346,16 @@ impl Dispatch<BeizeShellV1, ()> for State {
             beize_shell_v1::Event::SwitcherEntry { window } => {
                 if let Some(entry) = desktop.entries.iter().find(|e| e.proxy == window) {
                     desktop.switcher_entries.push(entry.pending.id);
+                }
+                return;
+            }
+            beize_shell_v1::Event::SwitcherAdd { window } => {
+                if let (Some(entry), Some(switcher)) = (
+                    desktop.entries.iter().find(|e| e.proxy == window),
+                    &mut desktop.switcher,
+                ) {
+                    switcher.entries.push(entry.pending.id);
+                    desktop.changed = true;
                 }
                 return;
             }

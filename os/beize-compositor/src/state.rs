@@ -1072,8 +1072,11 @@ impl State {
             elements.extend(glass.map(Element::Glass));
         }
         // Each window with its bar above it, front to back.
-        let preview = self.snap_preview.map(|place| {
-            scene::snap_preview(&self.snap_preview_id, self.snap_preview_commit, place)
+        let preview = self.snap_preview.and_then(|place| {
+            let backdrop = self.backdrop.as_ref()?;
+            let glass =
+                backdrop.snap_preview(&self.snap_preview_id, self.snap_preview_commit, place);
+            Some(Element::Glass(glass))
         });
         scene::windows(
             gpu.renderer(),

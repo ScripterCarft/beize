@@ -74,20 +74,16 @@ enum Command {
     SelectAll,
     NewWindow,
     CloseWindow,
-    Minimize,
-    Zoom,
 }
 
 impl Command {
     /// By its id in the menu bar (`bar_menus`).
-    const ALL: [Command; 7] = [
+    const ALL: [Command; 5] = [
         Command::NewWindow,
         Command::CloseWindow,
         Command::Copy,
         Command::Paste,
         Command::SelectAll,
-        Command::Minimize,
-        Command::Zoom,
     ];
 
     fn id(self) -> u32 {
@@ -125,13 +121,6 @@ fn bar_menus(selected: bool) -> Vec<AppMenu> {
                 (copy.enabled(selected), id),
                 item("Paste", Command::Paste, "Ctrl+Shift+V"),
                 item("Select All", Command::SelectAll, ""),
-            ],
-        },
-        AppMenu {
-            title: "Window".into(),
-            entries: vec![
-                item("Minimize", Command::Minimize, ""),
-                item("Zoom", Command::Zoom, ""),
             ],
         },
     ]
@@ -397,15 +386,11 @@ impl App {
                 .shortcut("Ctrl+Shift+C"),
             Entry::item("Paste").shortcut("Ctrl+Shift+V"),
             Entry::item("Select All"),
-            Entry::Separator,
-            Entry::item("New Window").shortcut("Ctrl+Alt+T"),
         ];
         let commands = vec![
             Some(Command::Copy),
             Some(Command::Paste),
             Some(Command::SelectAll),
-            None,
-            Some(Command::NewWindow),
         ];
         let menu = Menu::new(entries);
         let size = menu.size(self.ui.text());
@@ -485,8 +470,6 @@ impl App {
             }
             Command::NewWindow => beize_systemd::apps::start("beize-terminal"),
             Command::CloseWindow => self.close = true,
-            Command::Minimize => self.ui.minimize(self.window),
-            Command::Zoom => self.ui.toggle_maximized(self.window),
         }
     }
 

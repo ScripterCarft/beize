@@ -6,36 +6,28 @@
 //! tile chooses it; a pointer moved onto one selects it, a pointer that only
 //! lies there does not, as GNOME's.
 //!
-//! The measures are estimated from Windows 11's and KWin's switchers.
+//! The measures are estimated from Windows 11's and KWin's switchers; the
+//! selected tile is the menus' selected row: the accent, white on it (the
+//! owner's, on mock-ups, 31.10.).
 
+use beize_ui::theme::{self, ACCENT, ON_ACCENT, SMALL_TEXT_SIZE};
 use beize_ui::{
-    AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect,
-    Scene, Style, Text,
+    AppIcon, Appearance, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect, Scene,
+    Style, Text,
 };
 
 use crate::apps::App;
 
-const PADDING: f32 = 20.0;
+const PADDING: f32 = 18.0;
 const GAP: f32 = 10.0;
 /// A tile's widths to try, largest first; its picture is 3:4 of that.
 const WIDTHS: [f32; 4] = [240.0, 190.0, 150.0, 110.0];
 const INSET: f32 = 8.0;
 const LABEL: f32 = 32.0;
 const ICON: u32 = 20;
-const RADIUS: f32 = 20.0;
-const TILE_RADIUS: f32 = 12.0;
-const TEXT_SIZE: f32 = 13.0;
-
-const INK_LIGHT: Color = Color::rgb(0x292929);
-const INK_DARK: Color = Color::rgb(0xe8e8e8);
-/// The selected tile, in the accent's blue, so a picture of any colour shows
-/// against it.
-const SELECTED: Color = Color {
-    r: 0x00,
-    g: 0x7a,
-    b: 0xff,
-    a: 110,
-};
+/// The panel's corners follow the tiles': their radius plus the padding.
+const TILE_RADIUS: f32 = 14.0;
+const RADIUS: f32 = TILE_RADIUS + PADDING;
 
 /// The grid for `count` tiles in at most `(w, h)` px: its tile's width and
 /// its columns and rows.
@@ -180,21 +172,22 @@ impl Switcher {
             w: w as f32,
             h: h as f32,
         });
-        let ink = match appearance {
-            Appearance::Light => INK_LIGHT,
-            Appearance::Dark => INK_DARK,
-        };
-        let style = Style {
-            family: Family::Sans,
-            size: TEXT_SIZE,
-            weight: 500.0,
-            color: ink,
-        };
         for (i, id) in self.entries.iter().enumerate() {
             let tile = self.tile(i);
-            if self.selected == Some(*id) {
-                scene.rounded(tile, TILE_RADIUS, SELECTED);
+            let selected = self.selected == Some(*id);
+            if selected {
+                scene.rounded(tile, TILE_RADIUS, ACCENT);
             }
+            let style = Style {
+                family: Family::Sans,
+                size: SMALL_TEXT_SIZE,
+                weight: 500.0,
+                color: if selected {
+                    ON_ACCENT
+                } else {
+                    theme::ink(appearance)
+                },
+            };
             let Some(window) = window(*id) else {
                 continue;
             };

@@ -7,7 +7,10 @@
 //! The order is the windows' from front to back, then the minimized ones, the
 //! last minimized first. It starts on the first one not active. Nothing is
 //! raised until the choice. A quick Alt+Tab shows nothing: the shell hears of
-//! it after `SHOW_AFTER`. Without a shell the keys still switch.
+//! it after `SHOW_AFTER`. Without a shell the keys still switch. A window that
+//! opens meanwhile joins the end, as KWin's list follows the windows
+//! (`TabBox::handleWindowAdded`), so the tiles under the pointer stay where
+//! they are; the selection stays on its window.
 //!
 //! Only keys that are no modifiers are kept from the window with the
 //! keyboard: a modifier's press or release stays whole for it, so none stays
@@ -217,6 +220,19 @@ impl State {
         if switcher.shown {
             info!("switcher hidden");
             self.tell_switcher_end();
+        }
+    }
+
+    /// `window` opened: it joins the end of the list.
+    pub fn switcher_window_new(&mut self, window: &Window) {
+        let Some(switcher) = &mut self.switcher else {
+            return;
+        };
+        switcher.entries.push(window.clone());
+        let shown = switcher.shown;
+        info!("switcher gained {}", crate::windows::app_id(window));
+        if shown {
+            self.tell_switcher_add(window);
         }
     }
 

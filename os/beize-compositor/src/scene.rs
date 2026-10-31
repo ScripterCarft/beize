@@ -56,7 +56,6 @@ mod element {
         Surface=WaylandSurfaceRenderElement<R>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
-        SnapPreview=Rounded<SolidColorRenderElement>,
         Thumbnail=Rounded<RescaleRenderElement<WaylandSurfaceRenderElement<R>>>,
         ThumbnailBar=Rounded<RescaleRenderElement<TextureRenderElement<<R as RendererSuper>::TextureId>>>,
         Shadow=Shadow,
@@ -69,23 +68,6 @@ pub type Element = element::Element<VkRenderer>;
 /// The most popups of windows with glass in a frame: more than menus open at
 /// once, so a client's popups cannot make a frame's blur as long as it likes.
 const MAX_POPUP_GLASS: usize = 8;
-
-/// How white the place a dragged window would snap to shows: faint, over
-/// what is there, as macOS 15's and Windows' previews (estimated).
-const SNAP_PREVIEW: f32 = 0.2;
-
-/// The place a dragged window would snap to (`State::snap_preview`), with
-/// the windows' corners. Premultiplied, as all colours here.
-pub fn snap_preview(id: &Id, commit: CommitCounter, place: Rectangle<i32, Logical>) -> Element {
-    let solid = SolidColorRenderElement::new(
-        id.clone(),
-        place.to_physical(1),
-        commit,
-        [SNAP_PREVIEW; 4],
-        Kind::Unspecified,
-    );
-    Element::SnapPreview(Rounded::new(solid, Some(place)))
-}
 
 /// The windows on `area`, front to back, each with its popups in front, its
 /// content, its title bar, and its shadow, added to `elements`. `preview`

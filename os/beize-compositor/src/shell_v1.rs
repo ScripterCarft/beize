@@ -314,6 +314,15 @@ impl State {
         }
     }
 
+    /// `window` joins the switcher that shows.
+    pub fn tell_switcher_add(&mut self, window: &Window) {
+        for instance in &self.shell_windows.instances {
+            if let Some(handle) = Self::handle_on(window, instance) {
+                instance.switcher_add(&handle);
+            }
+        }
+    }
+
     pub fn tell_switcher_select(&mut self, window: &Window) {
         for instance in &self.shell_windows.instances {
             if let Some(handle) = Self::handle_on(window, instance) {
@@ -450,6 +459,28 @@ impl Dispatch<BeizeWindowV1, u64> for State {
                 if width > 0 && height > 0 {
                     let place = Rectangle::new((x, y).into(), (width, height).into());
                     crate::switcher::set_pending(&surface, |t| t.0.push((*number, place)));
+                }
+            }
+            beize_window_v1::Request::Minimize => state.minimize(&window),
+            beize_window_v1::Request::Zoom => {
+                if let Some(toplevel) = window.toplevel() {
+                    state.toggle_maximized(toplevel);
+                }
+            }
+            beize_window_v1::Request::MoveTo { place } => {
+                if let Some(toplevel) = window.toplevel() {
+                    match place {
+                        WEnum::Value(beize_window_v1::Place::Left) => {
+                            state.snap(toplevel, crate::windows::Half::Left, None);
+                        }
+                        WEnum::Value(beize_window_v1::Place::Right) => {
+                            state.snap(toplevel, crate::windows::Half::Right, None);
+                        }
+                        WEnum::Value(beize_window_v1::Place::Previous) => {
+                            state.unmaximize(toplevel, None);
+                        }
+                        _ => {}
+                    }
                 }
             }
             beize_window_v1::Request::Close => {

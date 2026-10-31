@@ -1,7 +1,7 @@
 //! A menu (ADR 0028 §3): a list of commands with separators, drawn on menu
 //! glass – live, tinted thickly, with a shadow, which the compositor draws
 //! (`Material::Menu`) – in a popup (`App::popup`), as macOS' menus: the
-//! Beize menu now, context and app menus later.
+//! Beize menu, the app menus, context and dock menus.
 //!
 //! Its measures are macOS 26's, measured in the menus of Apple's Human
 //! Interface Guidelines (images at exactly 2 px per pt), at Beize's scale
@@ -9,7 +9,10 @@
 //! last, text 13 pt – the menu bar's, 15 px in Beize – set in 16 pt, a
 //! separator of 1 pt across the text's width with 5.5 pt each side, corners
 //! of about 13 pt (16 px, the windows' radius). The highlight is
-//! estimated: the accent colour, inset 5 pt, corners of 6 pt.
+//! estimated: the accent colour, inset 5 pt, its corners following the
+//! menu's. A command that opens another menu has a caret at the right
+//! (`Item::submenu`); a group may have its symbols (`Item::symbol`), as
+//! Apple's HIG has them for a whole group or none.
 //!
 //! A command is chosen as macOS chooses it: released over it – after a
 //! press on the button that opened the menu and a drag, or a click –, or
@@ -23,6 +26,7 @@ use beize_draw::{Color, Family, Rect, Scene, Style, Text};
 use crate::Appearance;
 use crate::desktop::{Glass, GlassShape, Material};
 use crate::input::{Button, Input, Key, KeyState, Keysym, Pointer};
+use crate::theme::{self, ACCENT, ON_ACCENT, TEXT_SIZE};
 
 /// macOS' measures in pt (`SCALE` makes them Beize's).
 const ROW: f32 = 24.0;
@@ -30,13 +34,21 @@ const PADDING: f32 = 5.0;
 const INSET: f32 = 16.0;
 const SEPARATOR: f32 = 11.0;
 const HIGHLIGHT_INSET: f32 = 5.0;
-const HIGHLIGHT_RADIUS: f32 = 6.0;
 /// The narrowest menu: Apple's examples, 180 pt.
 const MIN_WIDTH: f32 = 180.0;
 /// The corners: the windows' radius, as macOS 27's menus match them.
 pub const RADIUS: f32 = 16.0;
-/// The text's size: the menu bar's.
-const TEXT_SIZE: f32 = 15.0;
+/// The highlight's corners: the menu's, less its inset of 6 px.
+const HIGHLIGHT_RADIUS: f32 = 10.0;
+/// The symbol before a title and the space after it, the caret at the right
+/// and the least space before it, a mark in the inset (Phosphor's; the
+/// owner's, on mock-ups, 31.10.).
+const SYMBOL: u32 = 18;
+const SYMBOL_GAP: f32 = 8.0;
+const CARET: u32 = 14;
+const CARET_GAP: f32 = 14.0;
+const CHECK: u32 = 13;
+const DIAMOND: u32 = 11;
 /// How much of the ink a disabled command and a shortcut show (estimated,
 /// macOS' tertiary and secondary labels), and the least space between a title
 /// and its shortcut.
@@ -44,12 +56,6 @@ const DISABLED: u8 = 77;
 const SHORTCUT: u8 = 140;
 const SHORTCUT_GAP: f32 = 24.0;
 
-/// The text in Apple's menus (#292929, measured) and on dark ones; the
-/// highlight's (macOS' accent blue) and the text on it.
-const INK_LIGHT: Color = Color::rgb(0x292929);
-const INK_DARK: Color = Color::rgb(0xe8e8e8);
-const ACCENT: Color = Color::rgb(0x007aff);
-const ON_ACCENT: Color = Color::rgb(0xffffff);
 /// The separator: black 7.5 % on light (measured), white 10 % on dark.
 const LINE_LIGHT: Color = Color {
     r: 0,
@@ -64,6 +70,16 @@ const LINE_DARK: Color = Color {
     a: 26,
 };
 
+/// What stands before a title in the inset, as macOS' lists of windows have
+/// it: the active window, a minimized one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mark {
+    #[default]
+    None,
+    Check,
+    Diamond,
+}
+
 /// A command of a menu.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
@@ -72,6 +88,11 @@ pub struct Item {
     pub enabled: bool,
     /// Its keys, shown at the right: the app handles them itself.
     pub shortcut: Option<String>,
+    pub mark: Mark,
+    /// A symbol before the title, by its name (`Scene::symbol`).
+    pub symbol: Option<&'static str>,
+    /// It opens another menu instead of being chosen (`Menu::opening`).
+    pub submenu: bool,
 }
 
 /// One entry of a menu.
@@ -89,7 +110,34 @@ impl Entry {
             title: title.into(),
             enabled: true,
             shortcut: None,
+            mark: Mark::None,
+            symbol: None,
+            submenu: false,
         })
+    }
+
+    /// `self` with its mark.
+    pub fn mark(mut self, mark: Mark) -> Entry {
+        if let Entry::Item(item) = &mut self {
+            item.mark = mark;
+        }
+        self
+    }
+
+    /// `self` with a symbol before its title.
+    pub fn symbol(mut self, symbol: &'static str) -> Entry {
+        if let Entry::Item(item) = &mut self {
+            item.symbol = Some(symbol);
+        }
+        self
+    }
+
+    /// `self`, opening another menu.
+    pub fn submenu(mut self) -> Entry {
+        if let Entry::Item(item) = &mut self {
+            item.submenu = true;
+        }
+        self
     }
 
     /// `self`, enabled or not.
@@ -110,6 +158,10 @@ impl Entry {
 
     fn chosen_able(&self) -> bool {
         matches!(self, Entry::Item(Item { enabled: true, .. }))
+    }
+
+    fn opens_menu(&self) -> bool {
+        matches!(self, Entry::Item(Item { submenu: true, .. }))
     }
 }
 
@@ -144,6 +196,11 @@ pub struct Menu {
     /// The pointer moved or a button went down over the menu since it
     /// opened: a release chooses now.
     armed: bool,
+    /// The command whose menu should show (`Menu::opening`).
+    opening: Option<usize>,
+    /// The command whose menu shows: it stays highlighted while the pointer
+    /// is over that menu (`Menu::hold`).
+    held: Option<usize>,
 }
 
 impl Menu {
@@ -152,7 +209,37 @@ impl Menu {
             entries,
             highlight: None,
             armed: false,
+            opening: None,
+            held: None,
         }
+    }
+
+    /// The command whose menu should show now: the pointer on it, or Right,
+    /// Return or a click there. Its owner opens that menu in a popup of this
+    /// one (`Align::Beside`), or closes it when this is none.
+    pub fn opening(&self) -> Option<usize> {
+        self.opening
+    }
+
+    /// Where the entry `i` lies in a menu `width` wide, for its menu's anchor.
+    pub fn row(&self, i: usize, width: u32) -> Option<Rect> {
+        self.rows(width as f32)
+            .find(|(j, ..)| *j == i)
+            .map(|(.., rect)| rect)
+    }
+
+    /// The menu of command `i` shows, or none does: `i` stays highlighted
+    /// meanwhile.
+    pub fn hold(&mut self, i: Option<usize>) {
+        self.held = i;
+        if i.is_none() {
+            self.opening = None;
+        }
+    }
+
+    /// Whether the entry `i` opens another menu.
+    fn opens_menu(&self, i: usize) -> bool {
+        self.entries.get(i).is_some_and(Entry::opens_menu)
     }
 
     fn style(appearance: Appearance, color: Option<Color>) -> Style {
@@ -160,10 +247,7 @@ impl Menu {
             family: Family::Sans,
             size: TEXT_SIZE,
             weight: 400.0,
-            color: color.unwrap_or(match appearance {
-                Appearance::Light => INK_LIGHT,
-                Appearance::Dark => INK_DARK,
-            }),
+            color: color.unwrap_or(theme::ink(appearance)),
         }
     }
 
@@ -187,7 +271,13 @@ impl Menu {
                     let keys = item.shortcut.as_ref().map_or(0.0, |keys| {
                         SHORTCUT_GAP * SCALE + text.layout(keys, &style, None).width()
                     });
-                    Some(text.layout(&item.title, &style, None).width() + keys)
+                    let symbol = item.symbol.map_or(0.0, |_| SYMBOL as f32 + SYMBOL_GAP);
+                    let caret = if item.submenu {
+                        CARET_GAP + CARET as f32
+                    } else {
+                        0.0
+                    };
+                    Some(symbol + text.layout(&item.title, &style, None).width() + keys + caret)
                 }
                 Entry::Separator => None,
             })
@@ -256,6 +346,7 @@ impl Menu {
     /// What `input` – to the menu's popup, `width` wide – does.
     pub fn input(&mut self, input: &Input, width: u32) -> Outcome {
         let w = width as f32;
+        let mut by_pointer = true;
         let highlight = match input {
             Input::Pointer(Pointer::Enter(x, y)) => self.command_at(w, (*x, *y)),
             Input::Pointer(Pointer::Motion(x, y)) => {
@@ -277,30 +368,54 @@ impl Menu {
                 if !self.armed {
                     return Outcome::None;
                 }
-                return self.highlight.map_or(Outcome::None, Outcome::Chosen);
+                return self.choose();
             }
             Input::Key(Key {
                 sym,
                 state: KeyState::Pressed | KeyState::Repeated,
                 ..
-            }) => match *sym {
-                Keysym::Down => self.step(1),
-                Keysym::Up => self.step(-1),
-                Keysym::Left => return Outcome::Neighbour(-1),
-                Keysym::Right => return Outcome::Neighbour(1),
-                Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                    return self.highlight.map_or(Outcome::None, Outcome::Chosen);
+            }) => {
+                by_pointer = false;
+                match *sym {
+                    Keysym::Down => self.step(1),
+                    Keysym::Up => self.step(-1),
+                    Keysym::Left => return Outcome::Neighbour(-1),
+                    Keysym::Right => {
+                        return match self.highlight.filter(|i| self.opens_menu(*i)) {
+                            Some(_) => self.choose(),
+                            None => Outcome::Neighbour(1),
+                        };
+                    }
+                    Keysym::Return | Keysym::KP_Enter | Keysym::space => return self.choose(),
+                    Keysym::Escape => return Outcome::Dismissed,
+                    _ => return Outcome::None,
                 }
-                Keysym::Escape => return Outcome::Dismissed,
-                _ => return Outcome::None,
-            },
+            }
             _ => return Outcome::None,
         };
+        // Off its rows, the command whose menu shows stays lit: the pointer
+        // is on the way there, or on it.
+        let highlight = highlight.or(self.held);
+        if by_pointer {
+            self.opening = highlight.filter(|i| self.opens_menu(*i));
+        }
         if highlight == self.highlight {
             return Outcome::None;
         }
         self.highlight = highlight;
         Outcome::Changed
+    }
+
+    /// The highlighted command is chosen, or its menu opens.
+    fn choose(&mut self) -> Outcome {
+        match self.highlight {
+            Some(i) if self.opens_menu(i) => {
+                self.opening = Some(i);
+                Outcome::Changed
+            }
+            Some(i) => Outcome::Chosen(i),
+            None => Outcome::None,
+        }
     }
 
     /// The menu's content in `(w, h)` for `appearance`: the rest is
@@ -344,7 +459,7 @@ impl Menu {
                                 w: w - 2.0 * s,
                                 h: row.h,
                             },
-                            (HIGHLIGHT_RADIUS * SCALE).round(),
+                            HIGHLIGHT_RADIUS,
                             ACCENT,
                         );
                     }
@@ -356,7 +471,30 @@ impl Menu {
                     let style = Self::style(appearance, Some(shown));
                     let layout = text.layout(&item.title, &style, None);
                     let y = (row.y + (row.h - layout.height()) / 2.0).round();
-                    scene.text(&layout, inset, y);
+                    let centred = |size: u32| (row.y + (row.h - size as f32) / 2.0).round();
+                    match item.mark {
+                        Mark::None => {}
+                        Mark::Check => {
+                            let x = ((inset - CHECK as f32) / 2.0).round();
+                            scene.symbol("check-bold", x, centred(CHECK), CHECK, shown);
+                        }
+                        Mark::Diamond => {
+                            let x = ((inset - DIAMOND as f32) / 2.0).round();
+                            scene.symbol("diamond-fill", x, centred(DIAMOND), DIAMOND, shown);
+                        }
+                    }
+                    let title_x = match item.symbol {
+                        Some(symbol) => {
+                            scene.symbol(symbol, inset, centred(SYMBOL), SYMBOL, shown);
+                            inset + SYMBOL as f32 + SYMBOL_GAP
+                        }
+                        None => inset,
+                    };
+                    scene.text(&layout, title_x, y);
+                    if item.submenu {
+                        let x = w - inset - CARET as f32;
+                        scene.symbol("caret-right-bold", x, centred(CARET), CARET, shown);
+                    }
                     if let Some(keys) = &item.shortcut {
                         let keys_ink = Color {
                             a: if item.enabled { SHORTCUT } else { DISABLED },

@@ -323,6 +323,37 @@ impl Backdrop {
         }
     }
 
+    /// The place a dragged window would snap to, as live glass with the
+    /// windows' corners and base glass's rim: what lies behind it, windows too,
+    /// stays in view, blurred. `LiveGlass` gives it what lies behind, in the
+    /// same frame.
+    pub fn snap_preview(
+        &self,
+        id: &Id,
+        commit: CommitCounter,
+        place: Rectangle<i32, Logical>,
+    ) -> Glass {
+        let rect = place.to_physical(1);
+        Glass {
+            id: id.clone(),
+            commit,
+            pieces: vec![Piece {
+                rect,
+                radius: crate::corners::RADIUS as f32,
+                rim: self.appearance.rim(glass::Material::Live),
+            }],
+            bounds: rect,
+            shows: glass::Material::Live,
+            dark: self.appearance == Appearance::Dark,
+            texture: Some(self.picture.clone()),
+            covers: Rectangle::from_size(self.size),
+            live: Some(Behind::SnapPreview),
+            region: None,
+            blur: None,
+            smoke: None,
+        }
+    }
+
     /// The menu bar's ink: on glass over a fullscreen window (`plate`) as
     /// the appearance has it, else as measured on the background.
     pub fn bar_tone(&self, on_plate: bool) -> Tone {
@@ -517,11 +548,13 @@ impl Backdrop {
 }
 
 /// What live glass lies below: a panel that asked for it, the menu bar
-/// over a fullscreen window (`plate`), or the smoke around a panel's glass.
+/// over a fullscreen window (`plate`), the place a dragged window would snap
+/// to, or the smoke around a panel's glass.
 #[derive(Clone, PartialEq)]
 pub enum Behind {
     Panel(WlSurface),
     Plate,
+    SnapPreview,
     Smoke(WlSurface),
 }
 
@@ -961,6 +994,8 @@ impl LiveGlass {
             }
             Behind::Smoke(surface) => surface.is_alive(),
             Behind::Plate => plated,
+            // Gone with the drag: its blur costs nothing until the next.
+            Behind::SnapPreview => shown.contains(&self.behind),
         }
     }
 

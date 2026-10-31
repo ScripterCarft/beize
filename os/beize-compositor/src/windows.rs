@@ -16,13 +16,15 @@
 //! was. A new place goes with the commit that has the new size, never ahead
 //! of it, so no frame shows a window's old content in its new place.
 //!
-//! Snapped (ADR 0028 §2, as Windows), a window fills the left or right half
-//! of the window area: dragged with the pointer on the screen's edge or with
-//! Super+arrows. Its only record is the xdg state tiled on three sides, so
-//! the place goes with the commit that acknowledges it, as maximized. It keeps
-//! corners and shadow, and the place from before as a maximized window does.
-//! The pointer in the menu bar's strip during a drag maximizes (macOS 15); a
-//! preview behind the window (`State::snap_preview`) shows where it will go.
+//! Snapped (ADR 0028 §2), a window takes the left or right half of the window
+//! area, `SNAP_MARGIN` from its edges and from the other half, as macOS 15's
+//! tiled windows have margins by default: dragged with the pointer on the
+//! screen's edge, with Super+arrows or from the Window menu. Its only record
+//! is the xdg state tiled on three sides, so the place goes with the commit
+//! that acknowledges it, as maximized. It keeps corners and shadow, and the
+//! place from before as a maximized window does. The pointer in the menu bar's
+//! strip during a drag maximizes (macOS 15); a preview behind the window
+//! (`Backdrop::snap_preview`, live glass) shows where it will go.
 //!
 //! Minimized, a window leaves the screen and keeps its place; the shell
 //! brings it back there (beize-shell-v1, `shell_v1`; `bring_back`), raised
@@ -255,17 +257,33 @@ fn set_tiled(state: &mut smithay::wayland::shell::xdg::ToplevelState, half: Opti
     }
 }
 
-/// The half of `area` with its title bar and content: the left gets the
-/// smaller part of an odd width.
+/// The space around a window on a half and between the halves. macOS' margins
+/// ("Tiled windows have margins", on by default); Apple publishes no number,
+/// so estimated, for now (the owner, 31.10.).
+const SNAP_MARGIN: i32 = 10;
+
+/// The half of `area` with its title bar and content, `SNAP_MARGIN` from all
+/// around: the left gets the smaller part of an odd width.
 fn half_frame(area: Rectangle<i32, Logical>, half: Half) -> Rectangle<i32, Logical> {
-    let left = area.size.w / 2;
+    let (y, h) = (area.loc.y + SNAP_MARGIN, area.size.h - 2 * SNAP_MARGIN);
+    let room = area.size.w - 3 * SNAP_MARGIN;
+    let left = room / 2;
     match half {
-        Half::Left => Rectangle::new(area.loc, (left, area.size.h).into()),
+        Half::Left => Rectangle::new((area.loc.x + SNAP_MARGIN, y).into(), (left, h).into()),
         Half::Right => Rectangle::new(
-            (area.loc.x + left, area.loc.y).into(),
-            (area.size.w - left, area.size.h).into(),
+            (area.loc.x + 2 * SNAP_MARGIN + left, y).into(),
+            (room - left, h).into(),
         ),
     }
+}
+
+/// Where the preview of a maximized window lies: as far from the edges as a
+/// half's, though the window will fill the area.
+fn maximized_preview(area: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+    Rectangle::new(
+        (area.loc.x + SNAP_MARGIN, area.loc.y + SNAP_MARGIN).into(),
+        (area.size.w - 2 * SNAP_MARGIN, area.size.h - 2 * SNAP_MARGIN).into(),
+    )
 }
 
 /// Where the content of a window in `half` lies, `size` as committed and
@@ -446,6 +464,7 @@ impl State {
             );
             self.space.map_element(window.clone(), at, false);
             self.list_window(&window);
+            self.switcher_window_new(&window);
             self.focus(Some(window));
             // It may have opened under the pointer.
             crate::input::refresh_pointer(self);
@@ -1098,7 +1117,7 @@ impl MoveGrab {
         self.zone = zone(state.screen_area(), area, location);
         state.set_snap_preview(self.zone.map(|zone| match zone {
             Zone::Half(half) => half_frame(area, half),
-            Zone::Maximized => area,
+            Zone::Maximized => maximized_preview(area),
         }));
         let at = self.initial.loc.to_f64() + delta;
         let at = constrain_content(
@@ -1443,20 +1462,23 @@ mod tests {
         let area = Rectangle::new((0, 32).into(), (1281, 700).into());
         let left = half_frame(area, Half::Left);
         let right = half_frame(area, Half::Right);
-        assert_eq!(left, Rectangle::new((0, 32).into(), (640, 700).into()));
-        assert_eq!(right, Rectangle::new((640, 32).into(), (641, 700).into()));
+        assert_eq!(left, Rectangle::new((10, 42).into(), (625, 680).into()));
+        assert_eq!(right, Rectangle::new((645, 42).into(), (626, 680).into()));
+        // The margin to the right edge, as to the left and between them.
+        assert_eq!(area.size.w - (right.loc.x + right.size.w), SNAP_MARGIN);
+        assert_eq!(right.loc.x - (left.loc.x + left.size.w), SNAP_MARGIN);
         assert_eq!(
-            half_place(area, Half::Right, (641, 668).into(), 32),
-            Point::from((640, 64))
+            half_place(area, Half::Right, (626, 648).into(), 32),
+            Point::from((645, 74))
         );
         // An app that stays wider than the half keeps its right edge there.
         assert_eq!(
-            half_place(area, Half::Right, (800, 668).into(), 32),
-            Point::from((481, 64))
+            half_place(area, Half::Right, (800, 648).into(), 32),
+            Point::from((471, 74))
         );
         assert_eq!(
-            half_place(area, Half::Left, (800, 668).into(), 32),
-            Point::from((0, 64))
+            half_place(area, Half::Left, (800, 648).into(), 32),
+            Point::from((10, 74))
         );
     }
 

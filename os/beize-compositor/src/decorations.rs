@@ -231,7 +231,7 @@ impl State {
         }
     }
 
-    fn toggle_maximized(&mut self, toplevel: &ToplevelSurface) {
+    pub fn toggle_maximized(&mut self, toplevel: &ToplevelSurface) {
         if toplevel
             .current_state()
             .states

@@ -14,6 +14,7 @@ pub mod log;
 pub mod menu;
 pub mod offscreen;
 mod renderer;
+pub mod theme;
 mod window;
 
 pub use app::{Align, App, Dispatched, Edge, Events, Overlay, Panel, Popup, Watch, WindowId};
@@ -21,7 +22,7 @@ pub use beize_draw::{
     AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, measures, text,
 };
 pub use desktop::{
-    DesktopWindow, DesktopWindowId, Glass, GlassShape, Material, Smoke, SwitcherNews,
+    DesktopPlace, DesktopWindow, DesktopWindowId, Glass, GlassShape, Material, Smoke, SwitcherNews,
 };
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;
