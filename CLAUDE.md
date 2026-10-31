@@ -320,14 +320,14 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: 0.5.121 und 0.5.122 auf den Stick, Besitzer testet, Chat wertet aus.** Release beider fertig
-(`build/out/desktop/release/0.5.12{1,2}`, je 6 Dateien, 31.10.), Stick-Dateien in `~/scratch/stick`.
-**Noch nicht kopiert: der Stick steckte nicht** (`Get-Volume` zeigt kein BEIZE). Sobald er steckt,
-ohne Rückfrage: `sudo -n mkdir -p /mnt/d && sudo -n mount -t drvfs D: /mnt/d`, für beide Versionen
-`cp -r build/out/desktop/release/0.5.<v> /mnt/d/beize-0.5.<v>`, `cp ~/scratch/stick/* /mnt/d/beize-test/`,
-alles mit `cmp` prüfen, `sync`, `sudo -n umount /mnt/d`. Alte `D:\\beize-0.5.11x`/`120` löscht nur der
-Besitzer (Befehl nennen). Dem Besitzer dann die nummerierten Schritte aus `docs/hardware.md` B/C
-geben, erst 0.5.121 ganz durch, dann 0.5.122; wichtig Teil 5/5b und Fotos 2d/2g in beiden.
+**JETZT: `sbvarsign` mit dem Besitzer durchgehen, vielleicht ein anderes Paket statt des fehlerhaften;
+dann Schritte 5 und 6 unten.** 0.5.121/122 ausgewertet 31.10. (`~/hw-logs/results-20261031-101005`,
+`-101802`), je ein Lauf: Last GPU median 0,39 → 0,37 ms, max 2,93 → 1,25, `blur` 0,12 → 0,10, busy
+14 → 13 %, Bilder 114 960 / 114 928, spät 1 / 1; mit Kontrollzentrum GPU 0,54 → 0,50, `blur` 0,23 → 0,19,
+max 2,11 → 1,64, busy 17 → 16 %, Bilder 114 831 / 114 955, spät 15 / 6 (Einzellauf, fast alles „display“);
+keine Warnungen; Sub-Texel 8 Bits. Fotos: nur 2g in beiden, Dock über Weiß max. 3 Stufen, 40 von
+18 900 Pixeln über 2; Tapete gleich. Kontrollzentrum und Dunkel nur von 122, kein Pixelvergleich. 122
+bleibt, nichts zurückzunehmen. `nvlddmkm` 153: 0 seit 30.10. 22:23 (Treiber noch 32.0.16.1692).
 Glas nur effizienter, Aussehen unverändert (Plan vom Prüf-Agenten mit Änderungen freigegeben):
 7cd76de `blur`-Zähler in `pacing:` + Bilder `dock-edge-20/36`; f874c89 Tönung einmal je Quad in
 `quad.vert`, `SHADER_READ` mit Vertex-Stufe; a634e24 Gauß-Gewichte per Rekursion, bilineare Paare
@@ -339,17 +339,9 @@ Bilder ≤ 2 Stufen, außer zwei Pixeln mit 6 auf der Lichtlinie des Docks im Du
 nicht geklärt). Gegenprobe Rand 24 px: nur 129 Pixel, ≤ 2 Stufen (dort wenig empfindlich). Synchronisation
 nur per Code-Prüfung (keine Validation-Layer). Nicht belegt: Hardware-Filter.
 
-**Wenn der Besitzer „Test fertig“ sagt, ohne Rückfrage:**
-1. Stick einhängen (`sudo -n mount -t drvfs D: /mnt/d`), die zwei neuesten `results-*` nach
-   `~/hw-logs`, aushängen. In `version.txt` steht, welcher zu welchem Bau gehört.
-2. Vergleichen, Teil 5 und 5b (`pacing:` in `compositor.log`): GPU median/max, busy, `blur`, späte
-   Bilder, 121 gegen 122 (0.5.120 nur grob: GPU 0,39/0,53 ms, busy 14/17 %). Lasttest-Bilder ~115 000.
-   Sub-Texel-Bits im Log (Agent: bei 8 Bits ~0,15 Stufen je Durchgang, bei 4 über 2).
-3. Bildschirmfotos beider Bauten pixelweise vergleichen und ansehen. Wird 122 schlechter oder sieht
-   anders aus: den betreffenden Commit einzeln zurücknehmen (a634e24, 050f23c fassen je zwei Schritte).
-4. **Grafik-Timeouts:** Windows-Log lesen (`docs/hardware.md`, „Unter Beobachtung“), Sitzung nach
-   Beize gegen die davor; WSL ist dabei kein Beweis, Zeiten eigener Läufe mitnennen. Der Besitzer
-   installiert danach einen neuen NVIDIA-Treiber: Datum notieren. Nach schweren Läufen selbst nachsehen.
+**Weiter:**
+4. **Grafik-Timeouts:** Der Besitzer installiert einen neuen NVIDIA-Treiber: Datum notieren. Nach
+   schweren Läufen selbst nachsehen (`docs/hardware.md`, „Unter Beobachtung“).
 5. `sbvarsign` (unten) lösen, Stempel `test-enrollment` löschen, voller Smoke grün.
 6. Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten), voller Lauf grün, dann `main`
    pushen und CI selbst prüfen. Force-Push `measure/desktop` macht nur der Besitzer, für Tests unnötig.
