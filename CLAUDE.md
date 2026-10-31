@@ -326,7 +326,13 @@ beides behoben, lokal alle Schritte des Jobs plus Build und Smoke grün. Der neu
 (Job grün), „Build and boot“ mit efitools aber **noch nie**: dort zeigt sich erst, ob Datum und Bildschirm
 aus halten. **Vor jedem Push `fmt`, `clippy` (auch `-p beize-compositor`), `test`, `deny` per `./bz exec`
 laufen lassen:** `bz smoke` prüft nichts davon. Pushen geht nur mit entsperrtem 1Password, sonst der Besitzer.
+Der Lauf 41205590706 auf 65dfab0 baut seit dem neuen Buildroot alles neu (Schätzung ~2,5 h): nicht darauf warten.
 Ist sie grün: (f) per ADR 0028 „Reihenfolge“.
+
+**Reihenfolge des Besitzers (31.10.): erst die Shell fertig, dann Optimierung.** Keine Optimierung
+dazwischen, auch nicht die Dauer des Smoke-Tests (~175 s), die CI-Dauer oder das Glas; sie kommen danach.
+„Irgendwann Paketverwaltung“: `docs/VISION.md` schließt eine klassische für Nutzer aus (App-Bundles);
+vor dieser Arbeit mit dem Besitzer klären, was er meint.
 
 **0.5.123 ausgewertet 31.10. (`~/hw-logs/results-20261031-133613`), Besitzer: „alles gut“, Pille abgenommen.**
 Client 4798/4800 (max 5 ms), Last 114 961, rotiert 86 262, mit Kontrollzentrum 114 977, syncobj 30/30, FIFO 13
