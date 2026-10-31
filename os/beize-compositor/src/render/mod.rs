@@ -116,12 +116,14 @@ pub enum Blur {
 /// stacked CSS backdrop filters do. `half`: at half the size, the first
 /// pass halving the source as it reads it (liquid glass's wide frost: a
 /// quarter of the pixels, half the taps; its result is soft enough for the
-/// frame's filter to scale it up).
+/// frame's filter to scale it up). `keeps`: of a half-size blur, the source's
+/// part anything reads; the passes draw only what that needs.
 #[derive(Clone)]
 pub struct Gauss {
     pub sigma: f32,
     pub mask: Option<VkTexture>,
     pub half: bool,
+    pub keeps: Option<Rectangle<i32, Physical>>,
 }
 
 /// How liquid glass is drawn (`beize_vulkan::pipeline::CLEAR`): with white
@@ -171,6 +173,10 @@ pub struct GpuTime {
 
 /// How many live glasses of a frame get timestamps of their own.
 const BLURS_TIMED: usize = 4;
+
+/// What liquid glass's frost keeps around its shape, in texels at half size:
+/// what the refraction and the filter read of it (some 4), with some to spare.
+const FROST_KEEPS: i32 = 5;
 
 /// How often the GPU's clock is set against CLOCK_MONOTONIC: they drift by
 /// microseconds a second.
@@ -949,6 +955,24 @@ fn gauss_passes(source: &VkTexture, gauss: &Gauss, chain: &[VkTexture]) -> Vec<P
         };
         if gauss.half && step == 0 {
             quad.bottom[0] = 2.0;
+        }
+        if let Some(keeps) = gauss.keeps {
+            // The columns it keeps in both passes – the first reads every
+            // row, the second needs them –, its rows in the second.
+            let picture = texture.0.size;
+            let span = |from: i32, length: i32, most: i32| {
+                let first = (from.div_euclid(2) - FROST_KEEPS).clamp(0, most);
+                let end = ((from + length + 1).div_euclid(2) + FROST_KEEPS).clamp(first, most);
+                (first as f32, (end - first) as f32)
+            };
+            let (x, w) = span(keeps.loc.x, keeps.size.w, picture.w);
+            quad.pos[0] = x;
+            quad.size[0] = w;
+            if step == 1 {
+                let (y, h) = span(keeps.loc.y, keeps.size.h, picture.h);
+                quad.pos[1] = y;
+                quad.size[1] = h;
+            }
         }
         let mut reads = vec![from];
         if let Some(mask) = &gauss.mask {

@@ -339,7 +339,8 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   Prüf-Agent hat es gegen Apple nachgemessen (`quad.frag` `clear_glass` nennt jeden Wert).
   Lebendig, mattiert durch einen Gauß von 10 px auf halber Größe – klar, Formen dahinter bleiben
   erkennbar (0.5.119: 14/16) –, der erste Durchgang halbiert beim Lesen, ¼ der Pixel, halbe
-  Taps. Je Pixel im Bild, in linearem Licht:
+  Taps; nur die Form und 40 px darum (was ein Pixel der Form höchstens liest), die Durchgänge
+  zeichnen nur, was die Form braucht, der zweite liest bilinear je zwei Nachbarn auf einmal. Je Pixel im Bild, in linearem Licht:
   - **gewölbter Rand:** über 5 px biegt sich die Fläche zum Rand, ihre Normale kippt nach außen
     (aus dem Gradienten der Abstandsfunktion); dort zeigt das Glas, was entlang der Normalen
     weiter außen liegt (Lichtbrechung);

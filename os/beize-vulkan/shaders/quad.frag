@@ -346,6 +346,9 @@ vec4 clear_glass() {
     vec2 p = gl_FragCoord.xy;
     float d = edge_distance(p, clip, rounding.x);
     float shown = clamp(0.5 - d, 0.0, 1.0);
+    if (shown <= 0.0) {
+        return vec4(0.0);
+    }
     float within = max(-d, 0.0);
     bool ink = bottom.z > 0.5;
     bool dark = bottom.w > 0.5;
@@ -360,7 +363,7 @@ vec4 clear_glass() {
                 - edge_distance(p - vec2(0.0, 0.5), clip, rounding.x));
         n /= max(length(n), 1e-4);
     }
-    float tilt = pow(clamp(1.0 - within / BEVEL, 0.0, 1.0), 1.3);
+    float tilt = within < BEVEL ? pow(1.0 - within / BEVEL, 1.3) : 0.0;
     vec2 at = uv * texel;
     vec3 c = frosted(at, p, p + n * (tilt * BEVEL * REFRACT));
 

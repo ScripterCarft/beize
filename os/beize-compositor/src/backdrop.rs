@@ -174,6 +174,7 @@ fn frost(sigma: f32) -> Blur {
         sigma,
         mask: None,
         half: true,
+        keeps: None,
     })
 }
 
@@ -854,6 +855,11 @@ impl<R: Effects> RenderElement<R> for Glass {
 /// Around live glass, what lies behind it is read this much further, so
 /// the blur at its edge takes in what is beside it.
 const LIVE_MARGIN: i32 = 64;
+/// Liquid glass's: what a pixel of its shape reads lies at most some 37 px
+/// out – its frost 30 (`FROST`, three sigmas), the halving 1, the filter 2,
+/// the refraction 4 (`quad.frag`). Even, as `LIVE_MARGIN`: its half-size
+/// picture keeps its phase against the glass.
+const LIQUID_MARGIN: i32 = 40;
 
 /// What live glass blurs through, kept from one change to the next: its
 /// `LiveGlass` prepares it, the frame that blurs draws it (`Glass::draw`).
@@ -969,10 +975,10 @@ impl LiveGlass {
     ) -> Result<()> {
         let s = glass.bounds;
         // A smoke blurs nothing where it ends: it reads no further.
-        let margin = if glass.smoke.is_some() {
-            0
-        } else {
-            LIVE_MARGIN
+        let margin = match glass.shows {
+            _ if glass.smoke.is_some() => 0,
+            glass::Material::Clear | glass::Material::Liquid => LIQUID_MARGIN,
+            _ => LIVE_MARGIN,
         };
         let around = Rectangle::new(
             (s.loc.x - margin, s.loc.y - margin).into(),
@@ -1016,8 +1022,18 @@ impl LiveGlass {
                     sigma: smoke.smoke.strength,
                     mask: Some(mask.clone()),
                     half: false,
+                    keeps: None,
                 }),
-                _ => appearance.blur_for(glass.shows),
+                _ => match appearance.blur_for(glass.shows) {
+                    Blur::Gauss(gauss) => Blur::Gauss(Gauss {
+                        keeps: Some(Rectangle::new(
+                            (s.loc.x - region.loc.x, s.loc.y - region.loc.y).into(),
+                            s.size,
+                        )),
+                        ..gauss
+                    }),
+                    blur => blur,
+                },
             };
             let size = (region.size.w, region.size.h).into();
             let blur = &mut *blur;
