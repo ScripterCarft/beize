@@ -315,25 +315,40 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: Shell (f) gebaut, 0.5.124 auf dem Stick; nächster Chat: Offenes aufräumen)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: Shell (f) nach Mock-ups verfeinert, Messbau 0.5.125 wartet auf „Release fertig“)
 
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT, Auftrag des Besitzers (31.10.) für den nächsten Chat: erst Offenes und allgemeine Probleme vom Bau
-aufräumen, noch nicht (g).** 0.5.124 liegt auf dem Stick (`D:\beize-0.5.124`, `D:\beize-test`, geprüft); der Besitzer
-testet nach Anleitung (`docs/hardware.md`, Teil 2/6 ist neu), dann auswerten. Danach (g).
+**JETZT: Messbau 0.5.125.** Tag `measure/desktop-0.5.125`, Smoke grün; Testprogramme und Skript in `~/scratch/stick`. Beim
+Besitzer: Release (`docs/hardware.md` A), „Release fertig“ → Claude kopiert `D:\beize-0.5.125` und `D:\beize-test` auf den Stick. Dann
+Teil 2 auswerten, Fotos ansehen, `nvlddmkm` 153 zählen. **Teil 2c fragt ihn: Menü-Glas 80 % (nur im Messbau) oder wie bisher
+85 %?** Nur nach seinem Ja kommt 80 % nach `main` (`backdrop.rs`, `menu_material`, ADR 0028 §3). `main` ist lokal 3 Commits vor
+`origin` plus diese Doku, nichts gepusht (Push: Besitzer, 1Password; vorher CI auf a70e89f ist grün, Nachtlauf ansehen).
 
-1. **Den Besitzer fragen, nicht selbst festlegen:** Gefallen ihm Maße und Design von Dialog, Alt+Tab, Snap-Vorschau,
-   App-Menüs und Rechtsklick-Menüs (alles geschätzt, ohne Mock-up gebaut)? Soll zu Änderungen ein Mock-up her?
-2. **Vor 0.6 entscheidet der Besitzer die nouveau-Fixes** (Pflicht, steht nicht frei): `kernel/measure/0001-*` (EDID, ohne ihn kein
+**Verfeinerung nach Mock-ups (31.10., 4ab8dde, bd802ba, d5951ac; ADR 0028 hat die Entscheidungen).** Drei Runden, Besitzer: Menüleiste
+13 px je Seite (auf seinem Mac gemessen), Pille Weiß 12 % (Kontrollzentrum bleibt Grau 34 %: ungefragt, ansprechen falls unruhig); Kürzel
+ausgeschrieben, Untermenüs mit Phosphor-Pfeil; das System gibt jeder App Namens-Menü und Window (Terminal hat nur noch File, Edit);
+Fenster nur in Alt+Tab und Dock; kein Titelleisten-Menü (macOS hat keins); Dialog gestapelt mit Apples Maßen aus der HIG, ohne Symbol;
+Alt+Tab Blau voll, neue Fenster kommen dazu (KWin); Snap 10 px Abstand rundum (geschätzt, „vorerst“), Vorschau `Backdrop::snap_preview` mit
+Live-Glas, das flache Element ist entfernt; `beize_ui::theme`. Prüf-Agent: 13 Befunde, behoben außer: **„Super+Right“ im Menü**
+geht aus der linken Hälfte zurück statt nach rechts (bleibt, Besitzer entscheidet ggf.), **ohne Hintergrund keine Vorschau** (unwichtig).
+Hauptbefund: Glas übernahm das Fenster davor in die Unschärfe (`Rounded::hides_nothing`). Gegenproben alle rot aus dem richtigen Grund: Vorschau
+mit Fenster, kein neues Fenster in Alt+Tab, ohne Abstand, Knöpfe vertauscht, kein Untermenü, kein About. Nicht im Smoke: Hide, Show All, Menü schließt beim
+Fensterwechsel. Kosten der Live-Vorschau nur auf Hardware messbar.
+Mock-up-Werkzeuge: Tapete exakt nach `backdrop.frag` in numpy (0,34 Stufen zum Foto); Lehre: Echte Bilder aus dem Smoke ansehen, sie zeigten den
+Glas-Fehler, bevor er bewiesen war.
+
+Danach weiter mit den Aufträgen vom 31.10.: Offenes und Bau-Probleme aufräumen, dann (g).
+
+1. **Vor 0.6 entscheidet der Besitzer die nouveau-Fixes** (Pflicht, steht nicht frei): `kernel/measure/0001-*` (EDID, ohne ihn kein
    240 Hz) und `0002-*` (GSP `IRQDEST`) liegen nur im Messzweig, beide warten auf upstream. Vorschlag war: mitnehmen, falls
    bis dahin nicht gemergt. Offene Abwägung: seine Regel „main ohne fremde Patches“, die Patches sind seine eigenen.
-3. **Tests entschlacken (Besitzer):** Was sehr selten auftritt, zu aufwendig zu prüfen ist und er ohnehin sieht, muss nicht in den
+2. **Tests entschlacken (Besitzer):** Was sehr selten auftritt, zu aufwendig zu prüfen ist und er ohnehin sieht, muss nicht in den
    Smoke. Erst Liste mit Begründung und Kosten zeigen, dann entfernen, wie beim Aufräumen alter Tests. Kandidaten aus (f):
    Rand-Prüfungen von `snap` (Vorschau kommt und geht), `context_menus` (Ziehen an der Titelleiste bei offenem Menü),
    Shell-Neustart in `app_menus`. Sicherheit bleibt drin (Dialog-Tastatur, Alt+F4 am Dialog vorbei). Smoke-Dauer ist Teil davon.
-4. **Offene Probleme vom Bau:**
+3. **Offene Probleme vom Bau:**
    - `the still desktop woke`: Compositor 1× im Hauptthread (28.10., 31.10. zweimal von ~15 Läufen), **unbelegt**, kann die Nacht rot
      machen (unten). Vor dem Messen fragen, ob es den Aufwand lohnt oder die Prüfung gröber werden soll.
    - „the failed start neither restarted nor reached the emergency gate within 60s“: einmal rot, danach grün, Ursache offen.
@@ -362,7 +377,7 @@ Kontrollzentrum bleibt hell, Apps/Paketverwaltung später (keine offene Frage me
   Smoke `app_menus`, auch mit neu gestarteter Shell.
 - Gegenproben rot, jede aus dem erwarteten Grund: Vorschau eckig, Terminal-Menü ohne Glas, ohne Vorschauen, Klick behält
   die Tastatur des Dialogs, Alt+F4 am Dialog vorbei, keine Menüs für neue Shell, Alt-Loslassen wählt nicht.
-- Nicht gebaut: `show_window_menu` (Rechtsklick auf Titelleisten), „Im Dock behalten“, Schreibtisch-Menü (ADR 0028 §3, §4).
+- Nicht gebaut: „Im Dock behalten“, Schreibtisch-Menü (ADR 0028 §3, §4).
 - Smoke: `the still desktop woke` war 31.10. einmal die Uhr (ntp-daemon stellt 867 ms, `CANCEL_ON_SET` weckt die Shell zu
   Recht): misst jetzt neu. Der Compositor-Fall (1 Wecker im Hauptthread, 28.10., zweimal 31.10. von ~15 Läufen) bleibt **unbelegt**; widerlegt: Timer der
   behaltenen Panels (wird entfernt), Layout-Datei (nur noch die eine). Offen: udev, Sitzung, übrige Timer; mit Trace-Log messen. Einmal rot ohne Bezug: „the failed start neither restarted…“, im nächsten Lauf grün, Ursache offen.
