@@ -315,18 +315,37 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: Shell (f) gebaut, Messbau 0.5.124 wartet, dann (g))
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-31: Shell (f) gebaut, 0.5.124 auf dem Stick; nächster Chat: Offenes aufräumen)
 
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: Messbau 0.5.124 (Tag `measure/desktop-0.5.124`): Besitzer sagt „Release fertig“, Claude kopiert auf
-den Stick (hardware.md), Besitzer testet; Teil 2/6 ist neu und prüft alles aus (f) auf NVK.** Auswerten:
-Vorschauen in Alt+Tab (lineares Verkleinern, nur in der VM gesehen), Maße von Dialog, Switcher und
-Vorschau (geschätzt), Dmabuf-Pfad der Vorschauen, `nvlddmkm` 153. Danach (g) Federanimationen.
-**CI:** Lauf 41205590706 auf 65dfab0 grün, aber nur schneller Smoke; Datum (efitools) und Bildschirm aus zeigt
-erst der nächste volle Lauf (Nacht), nachsehen. Vor jedem Push `fmt`, `clippy`, `test`, `deny` per `./bz exec`:
-`bz smoke` prüft nichts davon. Pushen geht nur mit entsperrtem 1Password, sonst der Besitzer.
+**JETZT, Auftrag des Besitzers (31.10.) für den nächsten Chat: erst Offenes und allgemeine Probleme vom Bau
+aufräumen, noch nicht (g).** 0.5.124 liegt auf dem Stick (`D:\beize-0.5.124`, `D:\beize-test`, geprüft); der Besitzer
+testet nach Anleitung (`docs/hardware.md`, Teil 2/6 ist neu), dann auswerten. Danach (g).
+
+1. **Den Besitzer fragen, nicht selbst festlegen:** Gefallen ihm Maße und Design von Dialog, Alt+Tab, Snap-Vorschau,
+   App-Menüs und Rechtsklick-Menüs (alles geschätzt, ohne Mock-up gebaut)? Soll zu Änderungen ein Mock-up her?
+2. **Vor 0.6 entscheidet der Besitzer die nouveau-Fixes** (Pflicht, steht nicht frei): `kernel/measure/0001-*` (EDID, ohne ihn kein
+   240 Hz) und `0002-*` (GSP `IRQDEST`) liegen nur im Messzweig, beide warten auf upstream. Vorschlag war: mitnehmen, falls
+   bis dahin nicht gemergt. Offene Abwägung: seine Regel „main ohne fremde Patches“, die Patches sind seine eigenen.
+3. **Tests entschlacken (Besitzer):** Was sehr selten auftritt, zu aufwendig zu prüfen ist und er ohnehin sieht, muss nicht in den
+   Smoke. Erst Liste mit Begründung und Kosten zeigen, dann entfernen, wie beim Aufräumen alter Tests. Kandidaten aus (f):
+   Rand-Prüfungen von `snap` (Vorschau kommt und geht), `context_menus` (Ziehen an der Titelleiste bei offenem Menü),
+   Shell-Neustart in `app_menus`. Sicherheit bleibt drin (Dialog-Tastatur, Alt+F4 am Dialog vorbei). Smoke-Dauer ist Teil davon.
+4. **Offene Probleme vom Bau:**
+   - `the still desktop woke`: Compositor 1× im Hauptthread (28.10., 31.10. zweimal von ~15 Läufen), **unbelegt**, kann die Nacht rot
+     machen (unten). Vor dem Messen fragen, ob es den Aufwand lohnt oder die Prüfung gröber werden soll.
+   - „the failed start neither restarted nor reached the emergency gate within 60s“: einmal rot, danach grün, Ursache offen.
+   - Unter Last in der VM: Resize 351/315 ms statt 4–82 ms, 16 Bilder in 1,22 s (lavapipe); die Prüfung zählt jetzt Größen. Warum
+     die Last gerade dort kam, ist nicht geklärt. Weitere Echtzeit-Grenzen in `desktop.rs` suchen (`beize-no-vm-timing`).
+   - Aus der Prüfung nicht behoben: eine App mit Tastaturfokus kann ohne Eingabe ein Menü öffnen, das die Tastatur hält (`shell::grab`,
+     ein Klick löst es); eine aktive App kann die Shell mit wechselnden Menüs oder Fenstertiteln belasten (begrenzt, nicht ausgeschlossen).
+   - Vorschauen in Alt+Tab nur in der VM gesehen (lineares Verkleinern, Dmabuf auf NVK), `nvlddmkm` 153 nach dem Test zählen.
+   - Alte `D:\beize-0.5.123` löscht der Besitzer.
+**CI:** auf a70e89f grün, aber nur schneller Smoke; Datum (efitools) und Bildschirm aus zeigt erst der volle Nachtlauf: zuerst
+nachsehen. Vor jedem Push `fmt`, `clippy`, `test`, `deny` per `./bz exec`: `bz smoke` prüft nichts davon. Pushen geht nur mit
+entsperrtem 1Password, sonst der Besitzer.
 
 **Shell (f) gebaut 31.10.** (120d4f0..c2cf797; ADR 0028 §1–§4, §7 haben die Entscheidungen.) Plan und Ergebnis je
 von einem Prüf-Agenten geprüft, alle Befunde behoben. Besitzer: Bestätigungsdialog ja, Schrift im
