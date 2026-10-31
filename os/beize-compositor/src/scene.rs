@@ -196,6 +196,9 @@ pub fn veil_over(
 pub struct PanelFrame {
     pub place: Rectangle<i32, Logical>,
     pub upper: bool,
+    /// An overlay: shows over a fullscreen window too, and is not kept when
+    /// the shell fails.
+    pub overlay: bool,
     pub elements: Vec<Element>,
 }
 
@@ -253,6 +256,7 @@ pub fn panels(
         drawn.push(PanelFrame {
             place,
             upper: matches!(panel.layer(), Layer::Overlay | Layer::Top),
+            overlay: panel.layer() == Layer::Overlay,
             elements,
         });
     }

@@ -7,6 +7,7 @@
 mod app;
 mod clipboard;
 mod desktop;
+pub mod dialog;
 pub mod gpu;
 pub mod input;
 pub mod log;
@@ -15,7 +16,7 @@ pub mod offscreen;
 mod renderer;
 mod window;
 
-pub use app::{Align, App, Dispatched, Edge, Events, Panel, Popup, Watch, WindowId};
+pub use app::{Align, App, Dispatched, Edge, Events, Overlay, Panel, Popup, Watch, WindowId};
 pub use beize_draw::{
     AppIcon, Appearance, Cells, Color, Family, Rect, Scene, Style, Text, draw, icon, measures, text,
 };

@@ -21,8 +21,9 @@
 //! The Beize menu (`menu`, as macOS' Apple menu): sleep, restart, shut down
 //! and log out, through logind (`beize_systemd::login`). Locking comes with
 //! the lock screen (its own ADR); "About This Computer" and the settings
-//! with their windows. They act at once: macOS' confirmation (Restart…)
-//! comes with dialogs.
+//! with their windows. Restart, Shut Down and Log Out ask first, as macOS'
+//! with their ellipses (`beize_ui::dialog`), without its countdown: nothing
+//! happens unattended. Sleep acts at once.
 
 mod apps;
 mod clock;
@@ -34,12 +35,13 @@ use std::collections::HashMap;
 use std::process::ExitCode;
 
 use beize_systemd::login::{self, Power};
+use beize_ui::dialog::{self, Dialog};
 use beize_ui::draw::Cap;
 use beize_ui::input::{Button, KeyState, Pointer};
 use beize_ui::menu::{Entry, Menu, Outcome};
 use beize_ui::{
-    Align, App, Appearance, Color, Edge, Family, Glass, Input, Material, Panel, Popup, Rect, Scene,
-    Style, Text, Watch, WindowId, measures,
+    Align, App, Appearance, Color, Edge, Family, Glass, Input, Material, Overlay, Panel, Popup,
+    Rect, Scene, Style, Text, Watch, WindowId, measures,
 };
 use tracing::{info, warn};
 
@@ -192,6 +194,10 @@ fn run() -> Result<(), String> {
     // The dock tile's menu while it is open, with its entries' commands.
     let mut dock_menu: Option<(Menu, Vec<Option<dock::Command>>)> = None;
     let mut on_menu: Option<(f64, f64)> = None;
+    // The confirmation open, what it confirms, and whether it waits to be
+    // drawn.
+    let mut asking: Option<(WindowId, Dialog, Command)> = None;
+    let mut redraw_asking = false;
     loop {
         let mut watches = vec![Watch::Read(minutes.fd())];
         watches.extend(monitor.as_ref().map(|m| Watch::Read(m.fd())));
@@ -200,6 +206,7 @@ fn run() -> Result<(), String> {
         let bar_events = dispatched.take(bar);
         let dock_events = dispatched.take(dock_panel);
         let open_events = open.map(|(_, id)| dispatched.take(id));
+        let asking_events = asking.as_ref().map(|(id, ..)| dispatched.take(*id));
         if bar_events.closed || dock_events.closed {
             // Its screen went: a failure, so the service manager starts the
             // shell again.
@@ -334,7 +341,52 @@ fn run() -> Result<(), String> {
                 // Gone from the screen before logind acts – it may take a
                 // while, and sleep would keep the menu to the wake.
                 app.flush().map_err(|e| e.to_string())?;
-                choose(chosen);
+                match chosen {
+                    Some(Command::Power(Power::Sleep)) => choose(chosen),
+                    Some(command) if asking.is_none() => {
+                        let dialog = confirmation(command);
+                        let overlay = Overlay {
+                            namespace: "confirmation",
+                            size: dialog.size(app.text()),
+                            keyboard: true,
+                        };
+                        match app.overlay(&overlay) {
+                            Ok(id) => {
+                                info!("asking: {command:?}");
+                                asking = Some((id, dialog, command));
+                                redraw_asking = false;
+                            }
+                            Err(e) => warn!("asking: {e}"),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // The confirmation: its answer.
+        if let Some(events) = asking_events
+            && let Some((id, dialog, command)) = &mut asking
+        {
+            redraw_asking |= events.configured;
+            let mut answer = events.closed.then_some(false);
+            let size = app.size(*id);
+            for input in &events.input {
+                match dialog.input(input, size) {
+                    dialog::Outcome::None => {}
+                    dialog::Outcome::Changed => redraw_asking = true,
+                    dialog::Outcome::Confirmed => answer = Some(true),
+                    dialog::Outcome::Cancelled => answer = Some(false),
+                }
+            }
+            if let Some(answer) = answer {
+                let (id, command) = (*id, *command);
+                info!("asked: {command:?}, {}", if answer { "yes" } else { "no" });
+                app.close(id);
+                asking = None;
+                app.flush().map_err(|e| e.to_string())?;
+                if answer {
+                    choose(Some(command));
+                }
             }
         }
         // A press elsewhere in the shell closes the open menu, as macOS'
@@ -432,7 +484,7 @@ fn run() -> Result<(), String> {
                     let popup = Popup {
                         anchor: tile.tile,
                         size: menu.size(app.text()),
-                        align: Align::Left,
+                        align: Align::Centre,
                         above: true,
                     };
                     match app.popup(dock_panel, &popup) {
@@ -528,6 +580,17 @@ fn run() -> Result<(), String> {
             app.set_glass(id, Some(glass));
             app.draw(id, &scene).map_err(|e| e.to_string())?;
         }
+        if let Some((id, dialog, _)) = &asking
+            && redraw_asking
+            && app.ready(*id)
+        {
+            redraw_asking = false;
+            let id = *id;
+            let size = app.size(id);
+            app.set_glass(id, Some(Dialog::glass(size)));
+            let scene = dialog.draw(app.text(), size, appearance);
+            app.draw(id, &scene).map_err(|e| e.to_string())?;
+        }
         dock_shown |= dock_events.configured;
         if dock_shown && redraw_dock && app.ready(dock_panel) {
             redraw_dock = false;
@@ -553,10 +616,10 @@ fn run() -> Result<(), String> {
 fn beize_menu_entries() -> Vec<Entry> {
     vec![
         Entry::item("Sleep"),
-        Entry::item("Restart"),
-        Entry::item("Shut Down"),
+        Entry::item("Restart…"),
+        Entry::item("Shut Down…"),
         Entry::Separator,
-        Entry::item(format!("Log Out {}", user_name())),
+        Entry::item(format!("Log Out {}…", user_name())),
     ]
 }
 
@@ -569,6 +632,16 @@ fn command_at(i: usize) -> Option<Command> {
         4 => Some(Command::LogOut),
         _ => None,
     }
+}
+
+/// What asks before `command` happens.
+fn confirmation(command: Command) -> Dialog {
+    let (title, action) = match command {
+        Command::Power(Power::Restart) => ("Restart this computer?", "Restart"),
+        Command::Power(_) => ("Shut down this computer?", "Shut Down"),
+        Command::LogOut => ("Log out?", "Log Out"),
+    };
+    Dialog::new(title, "Unsaved work in open windows may be lost.", action)
 }
 
 /// What logind lets the Beize menu do now, for the journal: polkit's

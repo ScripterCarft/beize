@@ -168,6 +168,10 @@ pub struct State {
     pub popups: PopupManager,
     /// The menu holding pointer and keyboard (`shell`), until it ends.
     pub popup_grab: Option<PopupGrab<State>>,
+    /// The overlay with the keyboard (`layers`), and the one that had it when
+    /// it opened, so it is given once.
+    pub overlay_keyboard: Option<WlSurface>,
+    pub overlay_opened: Option<WlSurface>,
     /// Every app's handle on the glass, which hears the appearance (`glass`).
     pub glass_managers:
         Vec<beize_protocols::app::server::beize_glass_manager_v1::BeizeGlassManagerV1>,
@@ -393,6 +397,8 @@ impl State {
             shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
             popup_grab: None,
+            overlay_keyboard: None,
+            overlay_opened: None,
             glass_managers: Vec::new(),
             snap_preview: None,
             snap_preview_id: Id::new(),
@@ -694,6 +700,8 @@ impl State {
         }
         let area = self.window_area();
         let mut panels = std::mem::take(&mut self.panels_last);
+        // A dialog or the switcher goes with the shell that asked for it.
+        panels.retain(|panel| !panel.overlay);
         for panel in &mut panels {
             panel
                 .elements
@@ -1035,7 +1043,10 @@ impl State {
             None => &mut self.panels_last,
         };
         let shown = |panel: &scene::PanelFrame| {
-            !panel.upper || !hide_upper || revealed == Some(side(area, panel.place))
+            panel.overlay
+                || !panel.upper
+                || !hide_upper
+                || revealed == Some(side(area, panel.place))
         };
         let upper = scene::lend(source, true, shown, &mut elements);
         let mut plated = false;
@@ -1761,7 +1772,7 @@ impl State {
         let panels = |layers: &[Layer]| {
             self.output
                 .as_ref()
-                .and_then(|output| crate::layers::surface_under(output, layers, at, |_| true))
+                .and_then(|output| crate::layers::surface_under(output, layers, at, |_, _| true))
         };
         self.panel_surface_under(at)
             .or_else(|| self.window_surface_under(at))
@@ -1774,8 +1785,8 @@ impl State {
         at: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
         let output = self.output.as_ref()?;
-        crate::layers::surface_under(output, &[Layer::Overlay, Layer::Top], at, |place| {
-            self.panel_shown(place)
+        crate::layers::surface_under(output, &[Layer::Overlay, Layer::Top], at, |layer, place| {
+            layer == Layer::Overlay || self.panel_shown(place)
         })
     }
 
@@ -1830,13 +1841,16 @@ impl State {
             return;
         };
         self.let_go_of(&grab);
-        let active = self
-            .space
-            .elements()
-            .rev()
-            .filter_map(Window::toplevel)
-            .find(|t| t.with_pending_state(|s| s.states.contains(XdgState::Activated)))
-            .map(|t| t.wl_surface().clone());
+        // An overlay that has the keyboard has it back: opened while the
+        // menu's grab held it, or before that menu.
+        let active = self.overlay_keyboard.clone().or_else(|| {
+            self.space
+                .elements()
+                .rev()
+                .filter_map(Window::toplevel)
+                .find(|t| t.with_pending_state(|s| s.states.contains(XdgState::Activated)))
+                .map(|t| t.wl_surface().clone())
+        });
         let keyboard = self.keyboard.clone();
         keyboard.set_focus(self, active, SERIAL_COUNTER.next_serial());
     }
@@ -1873,6 +1887,7 @@ impl State {
     /// it (`shell::committed`): the protocol sends none before the
     /// client's initial commit.
     pub fn focus(&mut self, window: Option<Window>) {
+        self.overlay_keyboard = None;
         for other in self.space.elements().chain(&self.minimized) {
             if Some(other) != window.as_ref() {
                 other.set_activated(false);

@@ -224,6 +224,9 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
     if pressed {
         state.press_ends_popup_grab();
     }
+    if pressed {
+        state.press_on_overlay(state.pointer);
+    }
     let grabbed = state.seat.get_pointer().is_some_and(|p| p.is_grabbed());
     // On a window's edge in front (`edge_under`): the compositor resizes
     // it; the press goes to that drag (`windows`).

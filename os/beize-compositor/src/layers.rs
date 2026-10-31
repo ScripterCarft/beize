@@ -4,6 +4,11 @@
 //! bottom); a panel's exclusive zone keeps windows out of its strip, so
 //! windows fill what is left of the screen.
 //!
+//! An overlay (a dialog, the window switcher) lies above all and is not a
+//! band. One that takes the keyboard has it when it opens, and again after a
+//! click on it; a click on a window takes it (`State::focus`), so typing
+//! never reaches a dialog behind what looks active (macOS' alerts).
+//!
 //! With a fullscreen window in front, the panels above the windows hide
 //! and their strips stay where they are (no window moves); the pointer at
 //! the screen's top or bottom edge shows the panels along it until it
@@ -12,12 +17,13 @@
 //! When the shell fails, its panels stay as last drawn until a new shell
 //! is ready (`State::keep_panels`).
 
+use smithay::backend::renderer::utils::with_renderer_surface_state;
 use smithay::delegate_layer_shell;
 use smithay::desktop::{LayerSurface, WindowSurfaceType, layer_map_for_output};
 use smithay::output::Output;
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface};
-use smithay::utils::{Logical, Point, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
@@ -59,6 +65,15 @@ impl WlrLayerShellHandler for State {
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
+        let gone = surface.wl_surface();
+        if self.overlay_opened.as_ref() == Some(gone) {
+            self.overlay_opened = None;
+        }
+        if self.overlay_keyboard.as_ref() == Some(gone) {
+            self.overlay_keyboard = None;
+            let active = self.active_window();
+            self.focus(active);
+        }
         let Some(output) = self.output.clone() else {
             return;
         };
@@ -118,6 +133,21 @@ pub fn committed(state: &mut State, surface: &WlSurface) {
     if zone_changed {
         state.arrange_windows();
     }
+    overlay_opened(state, &output, surface);
+}
+
+/// An overlay that takes the keyboard has it once it shows.
+fn overlay_opened(state: &mut State, output: &Output, surface: &WlSurface) {
+    let takes = {
+        let map = layer_map_for_output(output);
+        map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+            .is_some_and(|l| l.layer() == Layer::Overlay && l.can_receive_keyboard_focus())
+    };
+    let shows = with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false);
+    if takes && shows && state.overlay_opened.as_ref() != Some(surface) {
+        state.overlay_opened = Some(surface.clone());
+        state.give_overlay_keyboard(surface.clone());
+    }
 }
 
 /// The edge of the screen a panel lies along.
@@ -137,6 +167,32 @@ pub fn side(screen: Rectangle<i32, Logical>, place: Rectangle<i32, Logical>) -> 
 }
 
 impl State {
+    /// The overlay `surface` has the keyboard. Under a menu's grab, it gets it
+    /// when the grab ends (`popup_grab_ended`).
+    pub fn give_overlay_keyboard(&mut self, surface: WlSurface) {
+        self.overlay_keyboard = Some(surface.clone());
+        let keyboard = self.keyboard.clone();
+        keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
+    }
+
+    /// A press at `at` on an overlay that takes the keyboard gives it back.
+    pub fn press_on_overlay(&mut self, at: Point<f64, Logical>) {
+        let Some(output) = self.output.clone() else {
+            return;
+        };
+        let surface = {
+            let map = layer_map_for_output(&output);
+            map.layers_on(Layer::Overlay).rev().find_map(|panel| {
+                let place = map.layer_geometry(panel)?;
+                (place.to_f64().contains(at) && panel.can_receive_keyboard_focus())
+                    .then(|| panel.wl_surface().clone())
+            })
+        };
+        if let Some(surface) = surface {
+            self.give_overlay_keyboard(surface);
+        }
+    }
+
     /// Whether the topmost window is fullscreen: the panels above the
     /// windows show only when revealed.
     pub fn fullscreen_in_front(&self) -> bool {
@@ -158,26 +214,24 @@ impl State {
         let screen = self.screen_area();
         let map = layer_map_for_output(output);
         let mut band: Option<Rectangle<i32, Logical>> = None;
-        for layer in [Layer::Top, Layer::Overlay] {
-            for panel in map.layers_on(layer) {
-                let Some(place) = map.layer_geometry(panel) else {
-                    continue;
-                };
-                if side(screen, place) != edge {
-                    continue;
-                }
-                let strip = match edge {
-                    Side::Top => Rectangle::new(
-                        screen.loc,
-                        (screen.size.w, place.loc.y + place.size.h - screen.loc.y).into(),
-                    ),
-                    Side::Bottom => Rectangle::new(
-                        (screen.loc.x, place.loc.y).into(),
-                        (screen.size.w, screen.loc.y + screen.size.h - place.loc.y).into(),
-                    ),
-                };
-                band = Some(band.map_or(strip, |b| b.merge(strip)));
+        for panel in map.layers_on(Layer::Top) {
+            let Some(place) = map.layer_geometry(panel) else {
+                continue;
+            };
+            if side(screen, place) != edge {
+                continue;
             }
+            let strip = match edge {
+                Side::Top => Rectangle::new(
+                    screen.loc,
+                    (screen.size.w, place.loc.y + place.size.h - screen.loc.y).into(),
+                ),
+                Side::Bottom => Rectangle::new(
+                    (screen.loc.x, place.loc.y).into(),
+                    (screen.size.w, screen.loc.y + screen.size.h - place.loc.y).into(),
+                ),
+            };
+            band = Some(band.map_or(strip, |b| b.merge(strip)));
         }
         band
     }
@@ -232,19 +286,19 @@ pub fn place_of(state: &State, surface: &WlSurface) -> Option<Rectangle<i32, Log
 }
 
 /// The panel surface under `at` on `layers`, front to back, and where that
-/// surface lies; only panels `shown` at their place. A panel's popups – the
+/// surface lies; only panels `shown` on their layer at their place. A panel's popups – the
 /// shell's menus – reach beyond its place and lie in front of it.
 pub fn surface_under(
     output: &Output,
     layers: &[Layer],
     at: Point<f64, Logical>,
-    shown: impl Fn(Rectangle<i32, Logical>) -> bool,
+    shown: impl Fn(Layer, Rectangle<i32, Logical>) -> bool,
 ) -> Option<(WlSurface, Point<f64, Logical>)> {
     let map = layer_map_for_output(output);
     layers.iter().find_map(|&layer| {
         map.layers_on(layer).rev().find_map(|panel| {
             let place = map.layer_geometry(panel)?;
-            if !shown(place) {
+            if !shown(layer, place) {
                 return None;
             }
             let within = at - place.loc.to_f64();

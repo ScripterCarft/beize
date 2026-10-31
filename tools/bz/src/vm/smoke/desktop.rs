@@ -691,8 +691,9 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
 
     menus(&shell, &machine, &qmp, screen)?;
     context_menus(&shell, &machine, &qmp, screen)?;
+    confirmation(&shell, &machine, &qmp, screen)?;
     layout_follows(&shell)?;
-    still_and_signed_out(&shell)?;
+    still_and_signed_out(&shell, &qmp, screen)?;
     screen_goes_off(&shell, &machine, &qmp)?;
     journal.passed = true;
     drop(journal);
@@ -945,6 +946,84 @@ fn wait_for_said(shell: &Shell, line: &str, count: usize) -> Result<()> {
         thread::sleep(Duration::from_millis(200));
     }
     bail!("the session said {line:?} {seen} times, not {count}")
+}
+
+/// The Beize menu's row `i` of its commands, below the bar (os/beize-ui's
+/// measures): its 6 px, rows of 30 and the line of 14 before the last.
+fn beize_menu_row(beize: (i32, i32), rows: i32, line: bool) -> (i32, i32) {
+    let y = i32::try_from(MENU_BAR).unwrap_or(32) + 6 + rows * 30 + 15 + if line { 14 } else { 0 };
+    (beize.0 + 40, y)
+}
+
+/// Restart asks first (ADR 0028 §3). Escape says no. A click on a window takes
+/// the keyboard, so Return there answers nothing (the review's case: typing
+/// must not restart the computer); a click on the dialog gives it back. On
+/// Log Out, `still_and_signed_out` says yes with Return.
+fn confirmation(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+) -> Result<()> {
+    let (beize, _) = bar_buttons(shell)?;
+    let restart = beize_menu_row(beize, 1, false);
+    let middle = (
+        screen.0 / 2,
+        MENU_BAR + (screen.1 - MENU_BAR - DOCK_ZONE) / 2,
+    );
+    let spot = |image: &Image| image.pixel(middle.0, middle.1);
+    let before = spot(&self::screen(machine, "confirm-before")?);
+    let brightness = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3;
+    let ask = |n: usize| -> Result<()> {
+        let opened = shell_count(shell, "BeizeMenu open")?;
+        click(qmp, screen, beize, 1)?;
+        wait_for_shell_count(shell, "BeizeMenu open", opened + 1)?;
+        thread::sleep(Duration::from_millis(300));
+        click(qmp, screen, restart, 1)?;
+        wait_for_shell_count(shell, "asking: Power(Restart)", n)?;
+        wait_until_screen(machine, "confirm-open", |shown| {
+            let p = spot(shown);
+            ensure!(
+                brightness(p) > brightness(before) + 8,
+                "no dialog on glass at {middle:?}: {p:?}, {before:?} before"
+            );
+            Ok(())
+        })
+    };
+    ask(1)?;
+    thread::sleep(Duration::from_millis(300));
+    self::screen(machine, "confirm")?.write_png(&machine.logs.join("confirm.png"))?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "asked: Power(Restart), no", 1)?;
+
+    ask(2)?;
+    // In the terminal, far from the dialog: Return goes there.
+    click(
+        qmp,
+        screen,
+        (40, i32::try_from(MENU_BAR + TITLE_BAR)? + 40),
+        1,
+    )?;
+    thread::sleep(Duration::from_millis(300));
+    keys(qmp, &["ret"])?;
+    thread::sleep(Duration::from_millis(500));
+    ensure!(
+        shell_count(shell, "asked: Power(Restart), yes")? == 0
+            && shell_count(shell, "asked: Power(Restart), no")? == 1,
+        "Return with a window active answered the dialog"
+    );
+    // Above the buttons, on the dialog: the keyboard is its again.
+    let on_dialog = (i32::try_from(middle.0)?, i32::try_from(middle.1)? - 40);
+    click(qmp, screen, on_dialog, 1)?;
+    thread::sleep(Duration::from_millis(300));
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "asked: Power(Restart), no", 2)?;
+    park(qmp, screen)?;
+    say!(
+        "  ok: Restart asked first; Escape said no; with a window clicked Return did not answer \
+         the dialog, and a click on it gave it the keyboard back"
+    );
+    Ok(())
 }
 
 /// Context menus (ADR 0028 §3, §4): a right click in the terminal opens a
@@ -2333,7 +2412,7 @@ fn layout_follows(shell: &Shell) -> Result<()> {
 }
 
 /// No warnings, the still desktop does not wake, and signing out stops it.
-fn still_and_signed_out(shell: &Shell) -> Result<()> {
+fn still_and_signed_out(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
     let unexpected: Vec<&String> = lines
@@ -2351,7 +2430,9 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
     // switch to no other task, not one of their threads – measured off the
     // minute, when the menu bar's clock ticks (measured again if one began
     // meanwhile: the run0 below lengthens the window by its password, and
-    // once, 27.10., it ended past the minute), once the terminal's first
+    // once, 27.10., it ended past the minute; again if ntp-daemon set the
+    // clock, which rightly wakes the shell's clock, CANCEL_ON_SET: 867 ms on
+    // 31.10.), once the terminal's first
     // frames are done – and with no test program left, whose window going
     // by itself would wake them rightly (a test client did, 25.10.) – nor
     // one still stopping. Woken, each thread that switched is named
@@ -2386,7 +2467,9 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
          done; done > /tmp/idle; since=$(date +%s.%N); \
          run0 systemd-run -q -p DynamicUser=yes true; \
          sleep {IDLE_SECONDS}; \
-         [ \"$(date +%H%M)\" = \"$minute\" ] && break; echo BEIZE-NEW-MINUTE; \
+         [ \"$(date +%H%M)\" = \"$minute\" ] \
+         && ! journalctl -b --since=@$since -q -o cat | grep -q 'Jumped offset' && break; \
+         echo BEIZE-NEW-MINUTE; \
          sleep {settle}; done; \
          while read -r n p s; do echo \"BEIZE-IDLE $n $(( $(c $p) - s ))\"; done < /tmp/idle; \
          while read -r n t name s; do \
@@ -2415,13 +2498,18 @@ fn still_and_signed_out(shell: &Shell) -> Result<()> {
          {IDLE_SECONDS} s"
     );
 
-    // Signing out: logind ends the session, beize-session stops the desktop
-    // and, last of all, takes the environment back: waited for that, the
-    // rest is done too.
+    // Signing out, from the Beize menu with its confirmation: logind ends the
+    // session, beize-session stops the desktop and, last of all, takes the
+    // environment back: waited for that, the rest is done too.
+    let (beize, _) = bar_buttons(shell)?;
+    click(qmp, screen, beize, 1)?;
+    thread::sleep(Duration::from_millis(500));
+    click(qmp, screen, beize_menu_row(beize, 3, true), 1)?;
+    wait_for_shell_count(shell, "asking: LogOut", 1)?;
+    thread::sleep(Duration::from_millis(500));
+    keys(qmp, &["ret"])?;
     let (_, lines) = shell.capture(
-        "s=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p'); \
-         loginctl terminate-session \"$s\"; \
-         for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
+        "for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
          || break; sleep 0.2; done; \
          systemctl --user is-active beize-session.target beize-compositor.service \
          beize-shell.service graphical-session.target; systemctl --user show-environment",

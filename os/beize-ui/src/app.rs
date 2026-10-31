@@ -130,6 +130,19 @@ pub struct Panel<'a> {
     pub translucent: bool,
 }
 
+/// A window of the shell centred above all (wlr-layer-shell's overlay): a
+/// dialog, the window switcher. It takes no room from the windows and shows
+/// over a fullscreen one too.
+#[derive(Clone, Copy, Debug)]
+pub struct Overlay<'a> {
+    /// Names it in the compositor's log.
+    pub namespace: &'a str,
+    pub size: (u32, u32),
+    /// It has the keyboard when it opens, and again after a click on it; a
+    /// click elsewhere takes it, as with macOS' alerts.
+    pub keyboard: bool,
+}
+
 /// A popup of one of the app's windows (`App::popup`): a menu, the control
 /// center. It opens below `anchor` – a rectangle in its parent's
 /// coordinates, the button that opens it – with its left edge at the
@@ -151,6 +164,8 @@ pub struct Popup {
 pub enum Align {
     Left,
     Right,
+    /// Their centres: a dock tile's menu.
+    Centre,
 }
 
 /// What the compositor tells of one window.
@@ -408,6 +423,38 @@ impl App {
         })
     }
 
+    /// Opens an overlay (`Overlay`). Only the shell may, as a panel.
+    pub fn overlay(&mut self, overlay: &Overlay<'_>) -> Result<WindowId> {
+        use zwlr_layer_surface_v1::{Anchor, KeyboardInteractivity};
+        self.add(None, true, |globals, qh, surface, id| {
+            let layer_shell: ZwlrLayerShellV1 = globals
+                .bind(qh, 4..=4, ())
+                .context("the compositor offers no overlays to this program")?;
+            let layer = layer_shell.get_layer_surface(
+                surface,
+                None,
+                zwlr_layer_shell_v1::Layer::Overlay,
+                overlay.namespace.into(),
+                qh,
+                id,
+            );
+            // Anchored nowhere it is centred; a zone of 0 keeps clear of the
+            // panels' strips and takes none of its own.
+            layer.set_anchor(Anchor::empty());
+            layer.set_size(overlay.size.0, overlay.size.1);
+            layer.set_exclusive_zone(0);
+            layer.set_keyboard_interactivity(if overlay.keyboard {
+                KeyboardInteractivity::OnDemand
+            } else {
+                KeyboardInteractivity::None
+            });
+            Ok(Role::Panel {
+                _layer_shell: layer_shell,
+                layer,
+            })
+        })
+    }
+
     /// Opens a popup of the window `parent` (`Popup`), with the click just
     /// handled; it shows once its first `configured` is drawn. Its content
     /// is translucent: glass may lie below it (`set_glass`).
@@ -440,6 +487,8 @@ impl App {
                 (Align::Right, false) => (Anchor::BottomRight, Gravity::BottomLeft),
                 (Align::Left, true) => (Anchor::TopLeft, Gravity::TopRight),
                 (Align::Right, true) => (Anchor::TopRight, Gravity::TopLeft),
+                (Align::Centre, false) => (Anchor::Bottom, Gravity::Bottom),
+                (Align::Centre, true) => (Anchor::Top, Gravity::Top),
             };
             positioner.set_anchor(anchor);
             positioner.set_gravity(gravity);
