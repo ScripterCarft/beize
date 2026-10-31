@@ -207,12 +207,12 @@ impl Pipelines {
                     .binding(0)
                     .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
                     .descriptor_count(textures)
-                    .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                    .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT),
                 vk::DescriptorSetLayoutBinding::default()
                     .binding(1)
                     .descriptor_type(vk::DescriptorType::SAMPLER)
                     .descriptor_count(1)
-                    .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+                    .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
                     .immutable_samplers(&samplers),
             ];
             // Textures come and go while frames are in flight: a slot is

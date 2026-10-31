@@ -59,8 +59,12 @@ pub const TRANSFER_READ: Access = (
     vk::PipelineStageFlags2::COPY,
     vk::AccessFlags2::TRANSFER_READ,
 );
+// The vertex stage too: it reads liquid glass's frost (quad.vert).
 pub const SHADER_READ: Access = (
-    vk::PipelineStageFlags2::FRAGMENT_SHADER,
+    vk::PipelineStageFlags2::from_raw(
+        vk::PipelineStageFlags2::VERTEX_SHADER.as_raw()
+            | vk::PipelineStageFlags2::FRAGMENT_SHADER.as_raw(),
+    ),
     vk::AccessFlags2::SHADER_SAMPLED_READ,
 );
 pub const COLOR_WRITE: Access = (

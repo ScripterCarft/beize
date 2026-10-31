@@ -1407,7 +1407,7 @@ fn liquid_glass(
     Ok(())
 }
 
-/// Liquid glass's tone with white ink on it (`quad.frag`, `clear_glass`):
+/// Liquid glass's tone with white ink on it (`quad.vert`, `liquid_tone`):
 /// what lies behind as it is up to KNEE, above eased towards CAP.
 fn liquid_tone(behind: f64) -> f64 {
     if behind <= LIQUID_KNEE {
@@ -1416,7 +1416,7 @@ fn liquid_tone(behind: f64) -> f64 {
     LIQUID_KNEE + (LIQUID_CAP - LIQUID_KNEE) * (1.0 - (-(behind - LIQUID_KNEE) / 0.15).exp())
 }
 
-/// As `quad.frag`'s KNEE and CAP. The screen's tile differs from the curve
+/// As `quad.vert`'s KNEE and CAP. The screen's tile differs from the curve
 /// by its saturation, the milk and the frost's mean against the screen's:
 /// within a quarter of it.
 const LIQUID_KNEE: f64 = 0.22;

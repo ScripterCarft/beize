@@ -19,6 +19,8 @@ layout(location = 5) flat in vec4 clip;
 layout(location = 6) flat in vec2 rounding;
 // A gradient's colour at the bottom.
 layout(location = 7) flat in vec4 bottom;
+// Liquid glass's tone (quad.vert): what it scales by, its chroma's.
+layout(location = 8) flat in vec2 tone;
 layout(location = 0) out vec4 result;
 
 // Skia's contrast for text (SkMaskGamma.cpp, its defaults: blending in
@@ -270,12 +272,8 @@ vec4 glass(vec4 sampled) {
 // - a rounded edge: over BEVEL px the surface curves down to the rim, its
 //   normal tilting out; there the glass shows what lies further out along
 //   the normal (refraction);
-// - one tone for the whole shape from the mean behind it (TONE_AT, nine
-//   reads of the frosted texture, the same for every pixel of the shape):
-//   with white ink on it (`bottom.z` 1) unchanged over dark, eased towards
-//   CAP over light so the ink keeps about 3.4:1 (Apple's, measured), its
-//   colour deeper rather than grey where it is pulled down; without ink
-//   (the dock) only the appearance's;
+// - one tone for the whole shape from the mean behind it, read once a quad
+//   (quad.vert, `liquid_tone`);
 // - chroma times SATURATION (Apple's tiles x1.1 to 1.3 of what is around);
 // - milk: MILK of the way towards a light grey VEIL – dark behind comes out
 //   lighter (Apple's dock: 47 -> 83), midtones barely (172 -> 175), white a
@@ -294,13 +292,7 @@ vec4 glass(vec4 sampled) {
 const float BEVEL = 5.0;
 const float REFRACT = 0.9;
 const float SATURATION = 1.25;
-const float KNEE = 0.22;
-const float CAP = 0.27;
-const float EASE = 0.15;
-const float DEEPEN = 0.6;
-const float DEEP_MOST = 1.3;
-// Dark: the tone times DARK_TONE, the light added times DARK_LIGHT.
-const float DARK_TONE = 0.72;
+// Dark: the light added times DARK_LIGHT.
 const float DARK_LIGHT = 0.30;
 // The milk, and its grey in either appearance.
 const float MILK = 0.10;
@@ -334,8 +326,6 @@ const float GLOW_BOTTOM = 0.06;
 const float GLOW_WIDTH = 2.5;
 // How far in the edge's direction is needed: the curve and the glow.
 const float EDGE_REACH = 12.0;
-// Where the tone is read: three by three across the shape.
-const float TONE_AT[3] = float[](0.2, 0.5, 0.8);
 
 vec3 decoded3(vec3 c) {
     return vec3(decoded(c.r), decoded(c.g), decoded(c.b));
@@ -374,24 +364,8 @@ vec4 clear_glass() {
     vec2 at = uv * texel;
     vec3 c = frosted(at, p, p + n * (tilt * BEVEL * REFRACT));
 
-    // The tone: the same for all of the shape.
-    float behind = 0.0;
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            vec2 q = clip.xy + clip.zw * vec2(TONE_AT[i], TONE_AT[j]);
-            behind += relative_luminance(frosted(at, p, q));
-        }
-    }
-    behind = max(behind / 9.0, 1e-4);
-    float target = behind;
-    if (ink && behind > KNEE) {
-        target = KNEE + (CAP - KNEE) * (1.0 - exp(-(behind - KNEE) / EASE));
-    }
-    float pulled = target / behind;
-    float gain = pulled * (dark ? DARK_TONE : 1.0);
-    float deeper = pulled < 1.0 ? min(pow(pulled, -DEEPEN), DEEP_MOST) : 1.0;
-    vec3 lab = oklab(c * gain);
-    lab.yz *= SATURATION * deeper;
+    vec3 lab = oklab(c * tone.x);
+    lab.yz *= SATURATION * tone.y;
     c = max(linear_rgb(lab), 0.0);
     c = mix(c, vec3(dark ? VEIL_DARK : VEIL), MILK);
 

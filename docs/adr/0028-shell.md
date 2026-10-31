@@ -344,7 +344,7 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
     (aus dem Gradienten der Abstandsfunktion); dort zeigt das Glas, was entlang der Normalen
     weiter außen liegt (Lichtbrechung);
   - **eine Tönung je Form** aus dem Mittel dahinter (neun Lesezugriffe auf das mattierte Bild,
-    für jedes Pixel der Form gleich, kein Zurücklesen): mit weißer Schrift über Dunklem
+    einmal je Quad im Vertex-Shader, kein Zurücklesen): mit weißer Schrift über Dunklem
     unverändert, über Hellem ab 0,22 sanft gegen 0,27 – Weiß behält ~3,4 : 1 wie bei Apple
     (Apples Focus-Kachel 0,255, gemessen); wo heruntergezogen, wird die Farbe tiefer statt grau
     (Chroma × Zug^−0,6, höchstens ×1,3); ohne Schrift nur das Erscheinungsbild. Dunkel ×0,72.
