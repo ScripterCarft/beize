@@ -63,10 +63,10 @@ const SYMBOL: u32 = 18;
 const SYMBOL_GAP: f32 = 22.0;
 const GLOBE: u32 = 20;
 /// The pill below an open menu's button, round at the ends, flat, no
-/// glass: white at 24 % below white ink – lighter than the bar, as Apple's
-/// (its open control-center button: the backdrop about 1.45 times as light,
-/// measured; 28 % on mock-ups, a nuance less for the owner, 30.10., on
-/// hardware) –, black at 10 % below dark
+/// glass: light grey at 34 % below white ink – lighter than the bar, as
+/// Apple's (its open control-center button: the backdrop about 1.45 times as
+/// light, measured), greyer and more opaque than white at 24 % so it shows,
+/// the owner's on hardware, 31.10. –, black at 10 % below dark
 /// ink, where the bar is light. 36 pt wide under the Beize menu (measured in
 /// the HIG's menu-bar image); under the control center's the owner's
 /// 54 × 28 px (28.10.; Apple's 46.5 × 24 pt at `SCALE`, 58 × 30, filled
@@ -661,8 +661,8 @@ fn menu_bar(
             ..Color::rgb(0)
         },
         Appearance::Dark => Color {
-            a: 61,
-            ..Color::rgb(0xff_ff_ff)
+            a: 87,
+            ..Color::rgb(0xe1_e1_e1)
         },
     };
     let symbol = SYMBOL as f32;

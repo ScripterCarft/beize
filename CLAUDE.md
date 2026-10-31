@@ -348,12 +348,14 @@ nur per Code-Prüfung (keine Validation-Layer). Nicht belegt: Hardware-Filter.
 
 **Befund 31.10., nicht Glas: `sbvarsign` schreibt den Monat eins zu niedrig, belegt.** Quelle
 sbsigntools `src/sbvarsign.c` `set_timestamp`: `timestamp->Month = tm->tm_mon;` (0–11, EFI_TIME will
-1–12; Mirror phrack/sbsigntools, dort auch `Year = tm_year`, gemessen steht aber 2026: Ubuntus Stand
-weicht ab, ungeprüft). Immer so, seit Beizes Start; der „31.9.“ ist der erste unmögliche Tag seither.
+1–12; upstream `master` noch so, belegt 31.10.; das Jahr wurde dort 2020 behoben, der Mirror ist alt). Immer so, seit Beizes Start; der „31.9.“ ist der erste unmögliche Tag seither.
 `virt-fw-vars` scheitert dann. Unmöglich auch: **ganzer Januar (Monat 0)**, 29.–31.3., 31.5., 31.7.,
-31.12. `bz` ruft es nur auf (`secureboot/mod.rs`) und hat das nie gegengeprüft. Lösung offen, dem
-Besitzer vorschlagen: Patch an sbsigntools upstream (Besitzer sendet); eine Buildroot-Änderung baut
-alles neu (~2,5 h). Die Test-Schlüssel in
+31.12. `bz` ruft es nur auf (`secureboot/mod.rs`) und hat das nie gegengeprüft. Vorschlag an den
+Besitzer, nicht entschieden: `sign-efi-sig-list` aus efitools 1.9.2-5 (universe), mit `-t` und UTC, denn
+ohne `-t` schreibt es Ortszeit (gemessen: Monat richtig, Stunde +1). Signatur 107 Byte kleiner: Einschreiben
+muss der Smoke belegen. `virt-fw-vars --output-auth` signiert nicht; `bootctl` nur ein Zertifikat, ins ESP.
+Buildroot-Änderung baut alles neu (~2,5 h). `keys/secureboot/PK.auth` des Besitzers: Monat 9, Tag 9, gültig,
+also harmlos. Pille 31.10.: Grau 225 zu 34 %, nur `cargo check`, Smoke und Hardware stehen aus. Die Test-Schlüssel in
 `build/` tragen das Datum jetzt: Stempel `test-enrollment` ab 1.11. löschen. Messbauten lokal mit
 nicht committeter Toleranz geprüft: 121 und 122 grün. Die Schlüssel des Besitzers sind eingespielt,
 frisch eingespielte tragen denselben falschen Monat; Prüfung auf echter Firmware steht aus.

@@ -280,9 +280,9 @@ nur auf den Kacheln; das Popup wächst nicht mit dem Rauch).
 - Die Schrift auf dem Glas ist in beiden Erscheinungsbildern weiß, die Zeile darunter zu 70 %
   (Apple 54 %, gemessen; über Beizes hellerem Hintergrund 70 %, Besitzer 29.10.); das Glas hält
   dafür seine Helligkeit über Hellem (§6), die Schrift springt nicht um.
-- Der Knopf in der Leiste liegt, solange es offen ist, auf einer flachen Pille, kein Glas: Weiß
-  zu 24 % unter weißer Schrift – heller als die Leiste wie Apples (dort ~1,45-mal so hell wie
-  dahinter, gemessen) –, Schwarz zu 10 % unter dunkler (Besitzer 29.10./30.10.); ebenso unter
+- Der Knopf in der Leiste liegt, solange es offen ist, auf einer flachen Pille, kein Glas: helles
+  Grau (225) zu 34 % unter weißer Schrift – heller als die Leiste wie Apples (dort ~1,45-mal so hell
+  wie dahinter, gemessen) –, Schwarz zu 10 % unter dunkler (Besitzer 29.10./31.10.); ebenso unter
   dem Beize-Menü.
 
 ### 6. Material, Animation, Hintergrund
