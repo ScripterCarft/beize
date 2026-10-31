@@ -1142,6 +1142,8 @@ fn app_menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize
     let (_, before) = shell
         .capture("journalctl --user -b -u beize-shell.service -o cat | grep '^menu bar menus: '")?;
     let before = said(before);
+    let drawn = "ready: menu bar and dock drawn";
+    let ready = shell_count(shell, drawn)?;
     shell.capture("systemctl --user kill -s KILL beize-shell.service")?;
     let mut now = before;
     for _ in 0..50 {
@@ -1159,6 +1161,9 @@ fn app_menus(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize
         "a shell started anew did not show the app's menus"
     );
     say!("  ok: a shell started anew showed the terminal's menus again");
+    // Until it is ready the compositor shows the old panels, which hear no click.
+    wait_for_shell_count(shell, drawn, ready + 1)?;
+    thread::sleep(Duration::from_millis(300));
     system_menus(shell, machine, qmp, screen, places(5)?)
 }
 
