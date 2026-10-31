@@ -326,6 +326,15 @@ Teil 2 auswerten, Fotos ansehen, `nvlddmkm` 153 zählen. **Teil 2c fragt ihn: Me
 85 %?** Nur nach seinem Ja kommt 80 % nach `main` (`backdrop.rs`, `menu_material`, ADR 0028 §3). `main` ist lokal 3 Commits vor
 `origin` plus diese Doku, nichts gepusht (Push: Besitzer, 1Password; vorher CI auf a70e89f ist grün, Nachtlauf ansehen).
 
+**Auftrag des Besitzers für den nächsten Chat (31.10. abends). Erst sein Feedback zu 0.5.125 abwarten, vorher nichts ändern:**
+1. Er testet alles und sagt dann alles auf einmal. Schon bekannt: Die Snap-Vorschau soll minimal sein: Blur ja, aber ihr Rand schlicht
+   eine Farbe, leicht transparent, ohne Übergang (heute: Lichtkante von `rim(Live)`).
+2. Menü-Glas 80 % nach seinem Urteil vielleicht nach `main`.
+3. Tests aufräumen: heraus, was er schon akzeptiert hat oder nur einmal sehen muss (Liste mit Gründen zuerst, wie zuvor); `hw-test.sh` und Smoke schlanker.
+4. Performance einmal ansehen: Pfeil hoch im Terminal (seine Beobachtung, noch nicht untersucht).
+5. Aufräumen, schlank und production ready: die `.md` kürzen (viel ist geklärt, §11 vor allem), auch die `.rustup`-Dateien ansehen (was dort liegt, zuerst klären).
+Dieser Chat hat 0.5.125 auf den Stick kopiert (`D:\beize-0.5.125`, `D:\beize-test`, cmp geprüft); `D:\beize-0.5.124` löscht der Besitzer.
+
 **Verfeinerung nach Mock-ups (31.10., 4ab8dde, bd802ba, d5951ac; ADR 0028 hat die Entscheidungen).** Drei Runden, Besitzer: Menüleiste
 13 px je Seite (auf seinem Mac gemessen), Pille Weiß 12 % (Kontrollzentrum bleibt Grau 34 %: ungefragt, ansprechen falls unruhig); Kürzel
 ausgeschrieben, Untermenüs mit Phosphor-Pfeil; das System gibt jeder App Namens-Menü und Window (Terminal hat nur noch File, Edit);
