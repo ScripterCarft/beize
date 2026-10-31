@@ -592,7 +592,9 @@ fn utc_date(epoch: Option<u64>) -> Result<String> {
     if let Some(epoch) = epoch {
         date.arg(format!("-d@{epoch}"));
     }
-    Ok(util::output(date.arg("+%Y-%m-%d %H:%M:%S"))?.trim().to_owned())
+    Ok(util::output(date.arg("+%Y-%m-%d %H:%M:%S"))?
+        .trim()
+        .to_owned())
 }
 
 /// The date a variable update carries: the EFI_TIME that begins its
@@ -763,7 +765,14 @@ mod tests {
         // January, the month sbvarsign could not write.
         let date = "2027-01-31 23:59:58";
         let out = dir.join("out");
-        enrollment_files(&keys, &out, &repo_microsoft_dir(), Profile::WithWindows, date).unwrap();
+        enrollment_files(
+            &keys,
+            &out,
+            &repo_microsoft_dir(),
+            Profile::WithWindows,
+            date,
+        )
+        .unwrap();
         for file in ["PK.auth", "KEK.auth", "db.auth"] {
             let auth = fs::read(out.join(file)).unwrap();
             assert_eq!(signature_date(&auth).unwrap(), date, "{file}");

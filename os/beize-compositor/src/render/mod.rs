@@ -356,8 +356,10 @@ impl VkRenderer {
             .is_ok();
         let blur = if blurred {
             stamps
-                .chunks_exact(2)
-                .map(|s| (ns(s[1]) - ns(s[0])) as f64 / 1e6)
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|[begin, end]| (ns(*end) - ns(*begin)) as f64 / 1e6)
                 .sum()
         } else {
             0.0
