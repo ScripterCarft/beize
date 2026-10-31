@@ -306,7 +306,7 @@ impl Dock {
         if item.windows.is_empty() {
             return Some(Action::Start(item.app_id.clone()));
         }
-        let mut shown: Vec<&DesktopWindow> = item.windows.iter().filter(|w| !w.minimized).collect();
+        let shown = self.front_to_top(&item.app_id);
         if shown.is_empty() {
             let last = item
                 .windows
@@ -314,8 +314,18 @@ impl Dock {
                 .max_by_key(|w| (self.minimized.get(&w.id).copied().unwrap_or(0), w.id))?;
             return Some(Action::Activate(vec![last.id]));
         }
+        Some(Action::Activate(shown))
+    }
+
+    /// The app's windows on the screen to raise so they keep their order: the
+    /// one used last ends on top.
+    pub fn front_to_top(&self, app_id: &str) -> Vec<DesktopWindowId> {
+        let Some(item) = self.items.iter().find(|item| item.app_id == app_id) else {
+            return Vec::new();
+        };
+        let mut shown: Vec<&DesktopWindow> = item.windows.iter().filter(|w| !w.minimized).collect();
         shown.sort_by_key(|w| (self.activated.get(&w.id).copied().unwrap_or(0), w.id));
-        Some(Action::Activate(shown.iter().map(|w| w.id).collect()))
+        shown.iter().map(|w| w.id).collect()
     }
 
     /// Its glass in `(w, h)`: all of it, liquid, with round corners, its

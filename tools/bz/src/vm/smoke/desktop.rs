@@ -1563,6 +1563,10 @@ fn snap(
     // The preview's corner, and beside its edge.
     let corner = (MARGIN + 1, top + 1);
     let beside = (MARGIN / 2, inside.1);
+    // Just right of the dragged window, level with its green quarter, on the
+    // preview: what lies behind the glass, not the window in front of it.
+    let window_right = usize::try_from(edge_of_drag(grip, moved, grown)?)?;
+    let by_green = (window_right + 14, moved.1 + 60);
     let before = self::screen(machine, "snap-before")?;
     let edge = (0, grip.1);
     button(qmp, screen, grip, true)?;
@@ -1583,6 +1587,11 @@ fn snap(
         ensure!(
             same(out, was),
             "the preview reaches the screen's edge: {out:?} at {beside:?}, {was:?} before"
+        );
+        let by = shown.pixel(by_green.0, by_green.1);
+        ensure!(
+            by[1] <= by[2],
+            "the preview blurred the window in front of it: {by:?} at {by_green:?}"
         );
         let (tip, was) = (
             shown.pixel(corner.0, corner.1),
@@ -1649,6 +1658,12 @@ fn snap(
          menu bar's strip it was maximized"
     );
     Ok(())
+}
+
+/// Where the right edge of a window `grown` wide at `moved` lies with the
+/// pointer, which held it at `grip`, on the screen's left edge.
+fn edge_of_drag(grip: (i32, i32), moved: (usize, usize), grown: (usize, usize)) -> Result<i32> {
+    Ok(i32::try_from(moved.0 + grown.0)? - grip.0)
 }
 
 /// Super+F gives the client's window (at `moved`, `grown`) the whole screen,

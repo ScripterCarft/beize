@@ -748,6 +748,11 @@ pub struct Glass {
 }
 
 impl Glass {
+    /// The frame blurs what lies behind it again.
+    pub fn blurring(&self) -> bool {
+        self.blur.is_some()
+    }
+
     /// What live glass lies below; it shows what lies behind it.
     pub fn live(&self) -> Option<&Behind> {
         self.live.as_ref()
@@ -933,7 +938,8 @@ struct Seen {
 /// by the frame itself, in its submission, as KWin's blur does: drawing
 /// back to front, the frame stops at the glass, copies what it drew in the
 /// glass's region and blurs it (`VkFrame::blur_behind`). That region is
-/// drawn whole then – the screen held the glass there – and only when
+/// drawn whole then, windows in front of the glass hiding nothing of it
+/// (`Rounded::hides_nothing`) – the screen held the glass there – and only when
 /// something behind changed in it: otherwise the glass shows the last blur
 /// and costs nothing. Lifted and tinted as base glass is, so the two look
 /// the same over the background alone.

@@ -220,7 +220,8 @@ fn run() -> Result<(), String> {
     let mut redraw_open = false;
     let mut beize_menu = Menu::new(beize_menu_entries());
     let control_center = ControlCenter::new();
-    // The dock tile's menu while it is open, with its entries' commands.
+    // The menu of a dock tile, an app or Window while it is open, with its
+    // entries' commands.
     let mut dock_menu: Option<(Menu, Vec<Option<dock::Command>>)> = None;
     let mut on_menu: Option<(f64, f64)> = None;
     // The menu of a command of the open menu (Move & Resize), its popup and
@@ -283,6 +284,7 @@ fn run() -> Result<(), String> {
             info!("menu bar on a {backdrop:?} background");
             redraw_bar = true;
         }
+        let mut active_changed = false;
         if dispatched.desktop {
             let windows = app.desktop_windows();
             let before = dock.summary();
@@ -303,6 +305,7 @@ fn run() -> Result<(), String> {
                     .map(|w| w.menus.iter().map(|m| m.title.clone()).collect::<Vec<_>>())
             };
             redraw_bar |= titles(&now) != titles(&active);
+            active_changed = now.as_ref().map(|w| w.id) != active.as_ref().map(|w| w.id);
             active = now;
         }
         // Alt+Tab: its window follows what the compositor says.
@@ -379,6 +382,10 @@ fn run() -> Result<(), String> {
             let mut tile_command = None;
             let mut neighbour = None;
             let width = app.size(id).0;
+            // The app's and Window's menus are of the window active when they
+            // opened, and their place in the bar goes with it.
+            close |= active_changed
+                && matches!(which, Open::AppName | Open::AppMenu(_) | Open::WindowMenu);
             // Its submenu first: a command there ends both.
             if let (Some(events), Some((sub, menu, commands))) = (&submenu_events, &mut submenu) {
                 redraw_submenu |= events.configured;
@@ -699,9 +706,7 @@ fn run() -> Result<(), String> {
                     .as_ref()
                     .and_then(|window| Some((window.id, window.menus.get(i)?)))
                     .map(|(window, menu)| app_menu_commands(window, menu)),
-                Open::WindowMenu => active
-                    .as_ref()
-                    .map(|window| window_menu(window, &app.desktop_windows())),
+                Open::WindowMenu => active.as_ref().map(|window| window_menu(window, &dock)),
                 _ => None,
             };
             let size = match (to, &commands) {
@@ -1019,11 +1024,19 @@ fn app_name_menu(
     windows: &[beize_ui::DesktopWindow],
     names: &mut impl FnMut(&str) -> apps::App,
 ) -> (Vec<Entry>, Vec<Option<dock::Command>>) {
-    let name = names(&window.app_id).name;
-    let of = |same: bool| -> Vec<_> {
+    let name = match names(&window.app_id).name {
+        name if !name.is_empty() => name,
+        _ if !window.title.is_empty() => window.title.clone(),
+        _ => "App".to_owned(),
+    };
+    // A window whose app named none is an app of its own.
+    let same_app = |w: &beize_ui::DesktopWindow| {
+        w.id == window.id || (!w.app_id.is_empty() && w.app_id == window.app_id)
+    };
+    let of = |own: bool| -> Vec<_> {
         windows
             .iter()
-            .filter(|w| (w.app_id == window.app_id) == same && !w.minimized)
+            .filter(|w| same_app(w) == own && !w.minimized)
             .map(|w| w.id)
             .collect()
     };
@@ -1033,9 +1046,12 @@ fn app_name_menu(
         .filter(|w| w.minimized)
         .map(|w| w.id)
         .collect();
+    let any_hidden = !hidden.is_empty();
+    // The window in use stays in front of those that come back.
+    let show_all = hidden.into_iter().chain([window.id]).collect();
     let all_own = windows
         .iter()
-        .filter(|w| w.app_id == window.app_id)
+        .filter(|w| same_app(w))
         .map(|w| w.id)
         .collect();
     let entries = vec![
@@ -1043,7 +1059,7 @@ fn app_name_menu(
         Entry::Separator,
         Entry::item(format!("Hide {name}")),
         Entry::item("Hide Others").enabled(!others.is_empty()),
-        Entry::item("Show All").enabled(!hidden.is_empty()),
+        Entry::item("Show All").enabled(any_hidden),
         Entry::Separator,
         Entry::item(format!("Quit {name}")),
     ];
@@ -1052,7 +1068,7 @@ fn app_name_menu(
         None,
         Some(dock::Command::Minimize(own)),
         Some(dock::Command::Minimize(others)),
-        Some(dock::Command::Show(hidden)),
+        Some(dock::Command::Show(show_all)),
         None,
         Some(dock::Command::Quit(all_own)),
     ];
@@ -1064,15 +1080,13 @@ fn app_name_menu(
 /// HIG has symbols for a whole group or none.
 fn window_menu(
     window: &beize_ui::DesktopWindow,
-    windows: &[beize_ui::DesktopWindow],
+    dock: &Dock,
 ) -> (Vec<Entry>, Vec<Option<dock::Command>>) {
-    // The active one last, so it stays on top.
-    let mut own: Vec<_> = windows
-        .iter()
-        .filter(|w| w.app_id == window.app_id && !w.minimized && w.id != window.id)
-        .map(|w| w.id)
-        .collect();
-    own.push(window.id);
+    let own = if window.app_id.is_empty() {
+        vec![window.id]
+    } else {
+        dock.front_to_top(&window.app_id)
+    };
     let entries = vec![
         Entry::item("Minimize"),
         Entry::item("Zoom"),

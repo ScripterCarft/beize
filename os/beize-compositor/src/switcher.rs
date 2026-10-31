@@ -9,8 +9,7 @@
 //! raised until the choice. A quick Alt+Tab shows nothing: the shell hears of
 //! it after `SHOW_AFTER`. Without a shell the keys still switch. A window that
 //! opens meanwhile joins the end, as KWin's list follows the windows
-//! (`TabBox::handleWindowAdded`), so the tiles under the pointer stay where
-//! they are; the selection stays on its window.
+//! (`TabBox::handleWindowAdded`); the selection stays on its window.
 //!
 //! Only keys that are no modifiers are kept from the window with the
 //! keyboard: a modifier's press or release stays whole for it, so none stays

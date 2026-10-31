@@ -148,7 +148,8 @@ pub fn live_glass(
 ) {
     for i in (0..elements.len()).rev() {
         let (front, behind) = elements.split_at_mut(i + 1);
-        let Element::Glass(glass) = &mut front[i] else {
+        let (in_front, glass) = front.split_at_mut(i);
+        let Element::Glass(glass) = &mut glass[0] else {
             continue;
         };
         let Some(below) = glass.live().cloned() else {
@@ -164,6 +165,15 @@ pub fn live_glass(
         };
         if let Err(e) = glass_of.update(renderer, behind, glass, screen_size, appearance) {
             warn!("live glass: {e}");
+        }
+        if glass.blurring() {
+            for element in in_front {
+                match element {
+                    Element::Window(window) => window.hides_nothing(),
+                    Element::Bar(bar) => bar.hides_nothing(),
+                    _ => {}
+                }
+            }
         }
     }
 }

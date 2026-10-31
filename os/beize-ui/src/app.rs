@@ -156,11 +156,10 @@ pub struct Overlay<'a> {
 }
 
 /// A popup of one of the app's windows (`App::popup`): a menu, the control
-/// center. It opens below `anchor` – a rectangle in its parent's
-/// coordinates, the button that opens it – with its left edge at the
-/// anchor's left, or its right edge at the anchor's right (`align`), in
-/// `size`; the compositor keeps it on the screen. Opened by a click, it
-/// holds pointer and keyboard until a click elsewhere closes it
+/// center. It opens by `anchor` – a rectangle in its parent's coordinates, the
+/// button or row that opens it – below or above it with the edges `align`
+/// says, or beside it (`Align::Beside`), in `size`; the compositor keeps it on
+/// the screen. It holds pointer and keyboard until a click elsewhere closes it
 /// (`Events::closed`) or the app does (`App::close`).
 #[derive(Clone, Copy, Debug)]
 pub struct Popup {
@@ -528,8 +527,10 @@ impl App {
             positioner.set_gravity(gravity);
             if popup.align == Align::Beside {
                 positioner.set_offset(-BESIDE_OVERLAP, -BESIDE_RISE);
+                // No flip: Smithay flips anchor and gravity but not the offset,
+                // which would leave a gap where a press closes both menus.
                 positioner.set_constraint_adjustment(
-                    ConstraintAdjustment::FlipX | ConstraintAdjustment::SlideY,
+                    ConstraintAdjustment::SlideX | ConstraintAdjustment::SlideY,
                 );
             } else {
                 positioner.set_constraint_adjustment(

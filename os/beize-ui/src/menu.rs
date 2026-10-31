@@ -36,6 +36,8 @@ const SEPARATOR: f32 = 11.0;
 const HIGHLIGHT_INSET: f32 = 5.0;
 /// The narrowest menu: Apple's examples, 180 pt.
 const MIN_WIDTH: f32 = 180.0;
+/// The widest, in px: a window's title may be as long as it likes.
+const MAX_WIDTH: f32 = 480.0;
 /// The corners: the windows' radius, as macOS 27's menus match them.
 pub const RADIUS: f32 = 16.0;
 /// The highlight's corners: the menu's, less its inset of 6 px.
@@ -189,6 +191,22 @@ pub enum Outcome {
     Dismissed,
 }
 
+/// `title`, cut with an ellipsis to fit `room` px.
+pub fn fitted(text: &mut Text, title: &str, style: &Style, room: f32) -> String {
+    if text.layout(title, style, None).width() <= room {
+        return title.to_owned();
+    }
+    let mut chars: Vec<char> = title.chars().collect();
+    while !chars.is_empty() {
+        chars.pop();
+        let cut: String = chars.iter().collect::<String>() + "…";
+        if text.layout(&cut, style, None).width() <= room {
+            return cut;
+        }
+    }
+    "…".to_owned()
+}
+
 pub struct Menu {
     entries: Vec<Entry>,
     /// The highlighted command, by its index in `entries`.
@@ -259,8 +277,8 @@ impl Menu {
         }
     }
 
-    /// Its size: as wide as its longest title needs, at least Apple's
-    /// narrowest.
+    /// Its size: as wide as its longest row needs, between Apple's narrowest
+    /// and `MAX_WIDTH`; a longer title is cut (`fitted`).
     pub fn size(&self, text: &mut Text) -> (u32, u32) {
         let style = Self::style(Appearance::Light, None);
         let widest = self
@@ -282,7 +300,9 @@ impl Menu {
                 Entry::Separator => None,
             })
             .fold(0.0, f32::max);
-        let w = (widest + 2.0 * INSET * SCALE).max(MIN_WIDTH * SCALE).ceil();
+        let w = (widest + 2.0 * INSET * SCALE)
+            .clamp(MIN_WIDTH * SCALE, MAX_WIDTH)
+            .ceil();
         let h =
             2.0 * (PADDING * SCALE).round() + self.entries.iter().map(Self::height).sum::<f32>();
         (w as u32, h as u32)
@@ -469,7 +489,18 @@ impl Menu {
                         ..ink
                     };
                     let style = Self::style(appearance, Some(shown));
-                    let layout = text.layout(&item.title, &style, None);
+                    let keys_width = item.shortcut.as_ref().map_or(0.0, |keys| {
+                        SHORTCUT_GAP * SCALE + text.layout(keys, &style, None).width()
+                    });
+                    let caret_width = if item.submenu {
+                        CARET_GAP + CARET as f32
+                    } else {
+                        0.0
+                    };
+                    let symbol_width = item.symbol.map_or(0.0, |_| SYMBOL as f32 + SYMBOL_GAP);
+                    let room = w - 2.0 * inset - symbol_width - keys_width - caret_width;
+                    let title = fitted(text, &item.title, &style, room);
+                    let layout = text.layout(&title, &style, None);
                     let y = (row.y + (row.h - layout.height()) / 2.0).round();
                     let centred = |size: u32| (row.y + (row.h - size as f32) / 2.0).round();
                     match item.mark {
@@ -502,7 +533,7 @@ impl Menu {
                         };
                         let style = Self::style(appearance, Some(keys_ink));
                         let layout = text.layout(keys, &style, None);
-                        let x = (w - inset - layout.width()).round();
+                        let x = (w - inset - caret_width - layout.width()).round();
                         scene.text(&layout, x, y);
                     }
                 }

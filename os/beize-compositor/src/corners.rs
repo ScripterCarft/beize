@@ -190,6 +190,8 @@ pub struct Rounded<E> {
     inner: E,
     frame: Option<Rectangle<i32, Physical>>,
     radius: f32,
+    /// Hides nothing behind it in this frame (`hides_nothing`).
+    see_through: bool,
 }
 
 impl<E> Rounded<E> {
@@ -198,7 +200,15 @@ impl<E> Rounded<E> {
             inner,
             frame: frame.map(|f| f.to_physical(1)),
             radius: RADIUS as f32,
+            see_through: false,
         }
+    }
+
+    /// Live glass behind it is blurred in this frame: what lies behind it must
+    /// be drawn for that, or the blur reads last frame's pixels, this very
+    /// window among them.
+    pub fn hides_nothing(&mut self) {
+        self.see_through = true;
     }
 
     /// With corners of `radius`, not a window's (a window's picture).
@@ -243,6 +253,9 @@ impl<E: Element> Element for Rounded<E> {
 
     /// The inner element's, but the frame's corners.
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        if self.see_through {
+            return OpaqueRegions::default();
+        }
         let opaque = self.inner.opaque_regions(scale);
         let Some(f) = self.frame else {
             return opaque;

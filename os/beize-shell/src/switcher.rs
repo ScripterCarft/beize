@@ -10,6 +10,7 @@
 //! selected tile is the menus' selected row: the accent, white on it (the
 //! owner's, on mock-ups, 31.10.).
 
+use beize_ui::menu::fitted;
 use beize_ui::theme::{self, ACCENT, ON_ACCENT, SMALL_TEXT_SIZE};
 use beize_ui::{
     AppIcon, Appearance, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect, Scene,
@@ -81,6 +82,10 @@ impl Switcher {
         selected: Option<DesktopWindowId>,
     ) -> bool {
         let changed = entries != self.entries || selected != self.selected;
+        // The tiles move: until it moves again, the pointer is on none.
+        if entries != self.entries {
+            self.pointer = None;
+        }
         self.entries = entries;
         self.selected = selected;
         changed
@@ -223,22 +228,6 @@ impl Switcher {
         }
         scene
     }
-}
-
-/// `title`, cut with an ellipsis to fit `room` px.
-fn fitted(text: &mut Text, title: &str, style: &Style, room: f32) -> String {
-    if text.layout(title, style, None).width() <= room {
-        return title.to_owned();
-    }
-    let mut chars: Vec<char> = title.chars().collect();
-    while !chars.is_empty() {
-        chars.pop();
-        let cut: String = chars.iter().collect::<String>() + "…";
-        if text.layout(&cut, style, None).width() <= room {
-            return cut;
-        }
-    }
-    "…".to_owned()
 }
 
 #[cfg(test)]

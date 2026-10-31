@@ -116,8 +116,12 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   und Apps mit eigenem Rahmen und Schatten (GTK), wie bei GNOME. Später kommen die Animationen
   beim Öffnen, Schließen und Minimieren dazu. Ein minimiertes Fenster fliegt in sein Dock-Symbol, und von dort
   kommt es zurück.
-- **Snap:** Ziehen an einen Bildschirmrand oder Super+Pfeiltaste gibt die halbe Fläche bzw.
-  maximiert (Windows). Ein Fenster stoppt an der Menüleiste; zieht man es mit dem Zeiger bis an
+- **Snap:** Ziehen an einen Bildschirmrand, Super+Pfeiltaste oder das Window-Menü gibt die halbe
+  Fläche bzw. maximiert. Halbe Fenster halten rundum und zueinander 10 px Abstand, wie macOS'
+  „Tiled windows have margins“ (dort Standard; die Zahl ist geschätzt, Besitzer 31.10.: vorerst).
+  Die Vorschau zeigt den Platz vorab, auch beim Maximieren mit diesen 10 px: lebendiges Grundglas
+  (`Material::Live`-Tönung, Fenster dahinter verschwimmen mit), Fensterecken, feine Lichtkante.
+  Ein Fenster stoppt an der Menüleiste; zieht man es mit dem Zeiger bis an
   den oberen Rand, füllt es die Fläche zwischen Menüleiste und Dock, wie seit macOS 15
   („Fenster an die Menüleiste ziehen, um den Bildschirm zu füllen“; Besitzer, 24.10.). Ein
   Doppelklick auf die Titelleiste maximiert. Snap-Layouts wie bei Windows 11 kommen später.
@@ -214,28 +218,36 @@ Einstellung, die dann zur Laufzeit umschaltet.
   durch), schwache Lichtkante, Schatten nur außen. Maße aus den Menübildern der HIG (genau 2 px
   je pt) × 1,25: Zeilen 30, oben und unten 6, Text 15 px (wie die Leiste) mit 20 Einzug,
   Trennlinie 1 px schwarz 7,5 %, Ecken 16 (wie Fenster), mindestens 225 breit. Geschätzt: die
-  Hervorhebung (Akzentblau, 6 eingerückt, Ecken 8), der Schatten. Gewählt wird beim Loslassen
+  Hervorhebung (Akzentblau, 6 eingerückt, Ecken 10, also 16 minus Einzug), der Schatten. Kürzel stehen
+  ausgeschrieben (Windows-Tastaturen). Ein Eintrag kann ein Untermenü öffnen (Pfeil von Phosphor,
+  Popup neben seiner Zeile), und eine Gruppe kann Symbole haben, nach der HIG alle oder keins.
+  Listen von Fenstern markieren das aktive (Haken) und minimierte (Raute). Gewählt wird beim Loslassen
   über einem Eintrag oder mit Return, Escape oder ein Klick in der Shell schließt. Der Knopf eines
-  offenen Menüs liegt auf einer Pille mit runden Enden, 28 px hoch: beim Beize-Menü 45 breit
+  offenen Menüs liegt auf einer Pille mit runden Enden, 28 px hoch, Weiß 12 % (Besitzer, 31.10.; das
+  Kontrollzentrum behält Grau 34 %): beim Beize-Menü 45 breit
   (macOS 26: 36 pt), beim Kontrollzentrum 54 (Besitzer 28.10.; Apples 46,5 × 24 pt × 1,25 füllte
   die Leiste). Der Knopf des Kontrollzentrums ist seine Pille: Uhr und Globus halten 8 px Abstand
   von ihr (Apple ~6 pt bis zum nächsten Symbol). Die Leiste hat 20 px an den Enden (Besitzer;
-  macOS 12 pt × 1,25 = 15), der Globus ist 20 px groß (Kugel ~16).
+  macOS 12 pt × 1,25 = 15), der Globus ist 20 px groß (Kugel ~16). Menütitel haben je Seite 13 px,
+  gemessen: 21 bis 22 pt zwischen den Titeln auf einem Mac (Bild des Besitzers, 2 px je pt).
 - **App-Menüs:** Beize-Apps beschreiben ihre Menüs in Beize UI (`App::set_menus`), und die
   Shell zeigt sie (`beize_app_menu_v1`, wie AppKit das Menü an den WindowServer gibt; der
   Compositor hält sie am Fenster und vermittelt, die Shell spricht nie mit der App; eine neu
   gestartete Shell hört sie wieder). Fremde Apps
   liefern unter Wayland keine Menüs (GTK 4 hat das globale Menü entfernt, Qt kann es nur
-  über KDEs D-Bus-Menü). Das Menü am fetten Namen hat jede App: ihre Fenster, Beenden.
-  Fremde Apps haben nur dieses und behalten ihre eigenen Menüs im Fenster. Das ist ehrlich
+  über KDEs D-Bus-Menü). Zwei Menüs gibt das System jeder App, wie AppKit: das am fetten Namen
+  (Über, Ausblenden, Andere ausblenden, Alle einblenden, Beenden; Ausblenden minimiert) und Window
+  (Minimieren, Zoomen, Alle nach vorne, Bewegen & Größe mit Links, Rechts, Vorherige Größe). Fenster
+  stehen nicht darin, nur in Alt+Tab und im Dock (Besitzer, 31.10.).
+  Fremde Apps haben nur diese und behalten ihre eigenen Menüs im Fenster. Das ist ehrlich
   gesagt der eine Punkt, an dem Beize nicht wie macOS sein kann. Ist ein Menü offen, führt
   Bewegung auf einen Nachbarn und die Pfeiltasten dorthin (macOS). Kürzel zeigt das Menü nur,
   die App behandelt sie selbst.
 - **Rechtsklick-Menüs:** derselbe Baustein auf Glas, an einer Stelle der App
-  (`App::context_popup`), deaktivierte Einträge und Kürzel. Terminal: Kopieren, Einfügen, Alles
-  auswählen, Neues Fenster; hat ein Programm die Maus, gilt Shift+Rechtsklick (VTE, Alacritty).
-  Ein Klick aufs eigene Fenster schließt das Menü und wirkt wie ohne Menü. Nicht gebaut:
-  Rechtsklick auf Titelleisten (`show_window_menu`, kommt mit eigenem Schritt) und auf den
+  (`App::context_popup`), deaktivierte Einträge und Kürzel. Nur was an dieser Stelle gilt (HIG), die
+  App betreffendes steht in der Leiste und im Dock. Terminal: Kopieren, Einfügen, Alles auswählen; hat ein Programm die Maus, gilt Shift+Rechtsklick (VTE, Alacritty).
+  Ein Klick aufs eigene Fenster schließt das Menü und wirkt wie ohne Menü. Kein Rechtsklick auf
+  Titelleisten: macOS hat dort keins (Besitzer, 31.10., vorerst). Nicht gebaut: Rechtsklick auf den
   Schreibtisch (nichts anzubieten bis Sift).
 - **Bestätigung** (Besitzer, 31.10.): Neustart, Ausschalten und Abmelden fragen zuerst, die
   Einträge tragen die Auslassungspunkte wie bei macOS; Ruhezustand handelt sofort. Ein Dialog-Stil
@@ -243,7 +255,10 @@ Einstellung, die dann zur Laufzeit umschaltet.
   Kein 60-s-Countdown wie bei macOS und GNOME: Unbeaufsichtigt passiert nichts. Tastatur beim
   Öffnen und nach einem Klick auf ihn; ein Klick auf ein Fenster nimmt sie ihm, sodass Tippen nie
   einen Dialog hinter einem aktiv wirkenden Fenster beantwortet (Prüf-Agent; macOS' Alerts
-  sperren das System auch nicht). Maße geschätzt.
+  sperren das System auch nicht). Aufbau und Maße aus dem Alert der HIG (`alert-macos@2x.png`, in
+  325 px Breite): Text links, Knöpfe gestapelt über die volle Breite, die Aktion oben (Besitzer, 31.10.),
+  Knöpfe 35 hoch mit 8 Abstand, 20 vom Rand, Panel-Ecken 37,5 parallel zu den Knöpfen; Schrift wie
+  in Menüs. „Über“ nutzt denselben Dialog mit nur OK.
 - **Rechts:** Statussymbole (Netz – Phosphors `globe-simple`, ohne Verbindung `globe-simple-x`,
   Besitzer 28.10. –, später Ton, Bluetooth, Akku), Suche, Kontrollzentrum,
   Datum und Uhrzeit wie macOS („Mon 9 Jun 07:36“, 24 Stunden), die Namen von der C-Bibliothek:
@@ -274,8 +289,9 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
   eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf flüssigem Glas ohne Schrift
   (`liquid`, siehe 6), dasselbe wie das Kontrollzentrum (Besitzer 29.10.), der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
-- **Rechtsklick auf eine Kachel** (macOS' Dock-Menü), mittig darüber: ihre Fenster, Neues
-  Fenster, Beenden; läuft sie nicht: Öffnen. „Im Dock behalten“ braucht einen Speicher, kommt später.
+- **Rechtsklick auf eine Kachel** (macOS' Dock-Menü), mittig darüber: ihre Fenster mit Titel (das Terminal nennt
+  sich nach dem Ordner, `PS1`), ein Strich, Neues Fenster, Beenden; läuft sie nicht: Öffnen. Beim Überfahren
+  zeigt das Dock nichts (Besitzer, 31.10.: ruhiger als Windows). „Im Dock behalten“ braucht einen Speicher, kommt später.
 
 ### 5. Kontrollzentrum
 
@@ -466,10 +482,12 @@ erledigt: Strg+Shift+C/V im Terminal ist endgültig.
 **Alt+Tab:** Die Tasten bleiben im Compositor: Das Loslassen von Alt beendet es, was ein Client
 verpassen könnte (KWin, GNOME). Reihenfolge von vorn nach hinten, dann die minimierten, zuletzt
 minimierte zuerst; es startet auf dem ersten nicht aktiven Fenster; gehoben wird erst bei der
-Wahl. Tab, Shift+Tab, Pfeile, Return, Escape; Modifikatoren bleiben für das Fenster ganz, damit
+Wahl. Ein Fenster, das währenddessen aufgeht, kommt ans Ende, die Auswahl bleibt (KWin
+`TabBox::handleWindowAdded`). Tab, Shift+Tab, Pfeile, Return, Escape; Modifikatoren bleiben für das Fenster ganz, damit
 keiner hängen bleibt. Zu sehen ist es erst nach 150 ms (gnome-shell `POPUP_DELAY_TIMEOUT`), ein
 schnelles Alt+Tab blitzt nicht. Ohne Shell wechselt es trotzdem. Die Shell zeichnet Kacheln auf
-Menü-Glas (schrumpfen, bis alle passen; Maße geschätzt), der Compositor das lebende Bild des
+Menü-Glas (schrumpfen, bis alle passen; Maße geschätzt; die gewählte in vollem Akzentblau wie eine
+Menüzeile, Besitzer 31.10.), der Compositor das lebende Bild des
 Fensters hinein (`show_thumbnail`, Vorbild `DwmRegisterThumbnail`): nach der Fenstergeometrie
 skaliert, mit Titelleiste. Die Flächen behalten ihre Ids (Smithays Damage-Tracker erlaubt mehrere
 Instanzen), gelten damit als gezeigt: Ihr Puffer bleibt gehalten, die App bekommt Bilder.

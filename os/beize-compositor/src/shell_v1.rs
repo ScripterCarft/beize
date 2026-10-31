@@ -462,8 +462,11 @@ impl Dispatch<BeizeWindowV1, u64> for State {
                 }
             }
             beize_window_v1::Request::Minimize => state.minimize(&window),
+            // Fullscreen stays: maximized under it would only show when it ends.
             beize_window_v1::Request::Zoom => {
-                if let Some(toplevel) = window.toplevel() {
+                if let Some(toplevel) = window.toplevel()
+                    && !crate::windows::fullscreen(&window)
+                {
                     state.toggle_maximized(toplevel);
                 }
             }
