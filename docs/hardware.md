@@ -40,6 +40,29 @@ Bestätigt 2026-10-12 (0.1 → 0.2). Alle `bz`-Befehle im eigenen WSL-Terminal (
 Weicht etwas ab: Foto vom Bildschirm, oder das Journal wie unter „Startzeit messen“ holen.
 Den Rückfall nach drei Fehlstarts prüft der Smoke-Test.
 
+## Unter Beobachtung: Grafik-Timeouts unter Windows
+
+Standbild, einmal Flackern, wieder da, vor allem beim häufigen Umschalten des YouTube-Vollbilds
+(Besitzer 30.10.). Belegt als echte Timeouts (TDR): `nvlddmkm` 153 am 01.10. einmal, am 30.10.
+21:29–21:48 fünfmal, dazu Live-Dumps 0x141 (21:29, 21:48; `dwm`, `msedge`). Keine WHEA-Fehler,
+kein Bluescreen. NVIDIA 616.92 und Windows 26H2 seit 30.09. **Beize nicht entlastet:** die
+Meldung vom 01.10. liegt vor Beizes erstem Hardware-Start (09.10.), aber alle vom 30.10. kamen in
+der Sitzung direkt nach 0.5.120 (Start 21:27), nach 27 früheren Messläufen keine: 21:29:43 (vor
+WSL, das erst 21:31 startete), 21:31, 21:46, 21:48 (2×), 22:23:52–57 (167×, beim Start von YouTube,
+Build und Smoke in WSL liefen). Build um 21:56 und WSL-Starts 22:02–22:12 ohne Meldung: WSL ist
+höchstens Auslöser. Nach dem Ausschalten: Start 31.10. 08:25, keine neue Meldung (Stand 08:49);
+der Besitzer installiert einen neuen NVIDIA-Treiber. Klären: kalt ohne
+Beize und direkt nach einem Neustart aus Beize je 30-mal umschalten, mehrmals, dann
+`nvlddmkm` 153 zählen; nur nach Beize → Messbauten pausieren, Warmstart untersuchen. Nach jedem
+Messbau nachsehen. Lesen, in PowerShell als Administrator:
+`Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='nvlddmkm';StartTime=(Get-Date).AddDays(-7)}`.
+
+Prüfung 30.10. ohne Fund: Beize steuert Lüfter, Takt und Spannung nicht (GSP-Firmware), schreibt
+nicht auf BIOS, VBIOS oder SSD-Firmware; 0 MCE/AER in 28 Messläufen. Nicht gemessen: GPU-Temperatur
+und -Lüfter unter nouveau (nicht lesbar). Der einmalige Lüfterausfall (erst nach Stromtrennung
+weg) gilt dem Besitzer als sporadisch; käme er wieder: LEDs fotografieren, zuerst Netzteil prüfen.
+Vor 0.6 muss der IRQ-Fix `kernel/measure/0002-*` auf `main`.
+
 ## Desktop testen (Messbau)
 
 Prüft auf dem echten Rechner, was die VM nicht kann: NVK, 1440p @ 240 Hz, den **Zeitplan**

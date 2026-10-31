@@ -315,9 +315,16 @@ in die Endfassung einarbeiten, keine Nachträge.
 anlegen, nicht hier; ein Commit, der einen Punkt erledigt, nennt `Fixes #N`. Upstream-Entwürfe
 liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 
-## 11. STAND UND NÄCHSTE AUFGABE (2026-10-30 abends: 0.5.120 ausgewertet, Glas-Feinschliff)
+## 11. STAND UND NÄCHSTE AUFGABE (2026-10-30 nachts: Glas effizienter, Messbauten 0.5.121/122)
 
-**JETZT: Besitzer sieht sich die vier Glas-Werte an, dann Messbau 0.5.121** (noch nicht getaggt).
+**Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
+nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
+
+**JETZT: Glas nur effizienter, Aussehen unverändert** (Plan von einem Agenten geprüft; Besitzer
+30.10.: umsetzen). 0.5.121 misst die vom Besitzer abgenommenen Werte (c15fffc) mit neuem
+`blur`-Zähler in `pacing:`, 0.5.122 danach die Schritte, je ein Commit: Tönung in `quad.vert`,
+Gauß-Gewichte per Rekursion, bilineare Paare, Rand 40 px und beschnittene Gauß-Quads, Abkürzungen
+in `clear_glass`. Vergleich: Bilder aus dem Smoke, höchstens 2 Stufen Abweichung.
 **Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten; am 30.10. auch
 lokal einmal rot, im zweiten Lauf grün), voller Lauf grün, dann pushen (main 156f655.. nur lokal).
 Dann (f) per ADR 0028 „Reihenfolge“. Offen als eigener Schritt (Besitzer gefragt, nicht

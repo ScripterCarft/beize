@@ -691,7 +691,8 @@ fn record_insert(
 }
 
 /// The frame's quads, drawn into its target, with its live glass between
-/// (`inserts`; their passes' quads at `insert_addresses`). Returns the
+/// (`inserts`; their passes' quads at `insert_addresses`), the first of them
+/// timed in `queries` (`gpu_time`, from its third query on). Returns the
 /// number of draw calls.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn record_frame(
@@ -704,6 +705,7 @@ pub(super) fn record_frame(
     insert_addresses: &[Vec<u64>],
     frame: &mut Recorded<'_>,
     submission: u64,
+    queries: Option<(vk::QueryPool, usize)>,
 ) -> usize {
     let target = &*frame.target;
     let foreign = vk::QUEUE_FAMILY_FOREIGN_EXT;
@@ -782,6 +784,22 @@ pub(super) fn record_frame(
         }
         start = end;
         if let Some(insert) = insert {
+            let timed = queries.filter(|&(_, most)| n < most).map(|(pool, _)| pool);
+            let stamp = |query: usize| {
+                if let Some(pool) = timed {
+                    // SAFETY: outside a render pass, in this frame's command
+                    // buffer; the pool holds the query, reset at its start.
+                    unsafe {
+                        d.cmd_write_timestamp2(
+                            commands,
+                            vk::PipelineStageFlags2::ALL_COMMANDS,
+                            pool,
+                            (2 + 2 * n + query) as u32,
+                        );
+                    }
+                }
+            };
+            stamp(0);
             record_insert(
                 d,
                 commands,
@@ -792,6 +810,7 @@ pub(super) fn record_frame(
                 &insert_addresses[n],
                 submission,
             );
+            stamp(1);
         }
     }
     // Kept for the next frame, or handed to KMS.

@@ -1068,7 +1068,23 @@ fn dock_glass(
     // For the owner: the dock over the window's blue and white quarters.
     self::screen(machine, "dock-over-window")?
         .write_png(&machine.logs.join("dock-over-window.png"))?;
-    drag(qmp, screen, by(grip, behind), grip, true)?;
+    // For comparing glass before and after a change to its rendering: the
+    // window's hard edge beside the dock, within and past the blur's reach
+    // (30 px, ADR 0028 §6). The dock of two apps ends 80 px from the middle.
+    let mut there = by(grip, behind);
+    for (name, past) in [("dock-edge-20", 20), ("dock-edge-36", 36)] {
+        // Its left edge lay half its width left of the middle.
+        let next = (
+            by(grip, behind).0 + i32::try_from(80 + past + grown.0 / 2)?,
+            there.1,
+        );
+        drag(qmp, screen, there, next, true)?;
+        there = next;
+        park(qmp, screen)?;
+        thread::sleep(Duration::from_secs(1));
+        self::screen(machine, name)?.write_png(&machine.logs.join(format!("{name}.png")))?;
+    }
+    drag(qmp, screen, there, grip, true)?;
     park(qmp, screen)?;
     wait_for_pattern(shell, machine, moved, grown, "back from the dock")?;
     // With the window gone again it shows what it showed before: it blurs

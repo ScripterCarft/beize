@@ -57,8 +57,10 @@ struct InFlight {
     staging: Option<HostBuffer>,
     /// Bytes of `staging` taken by uploads for this frame.
     staged: u64,
-    /// GPU time: start and end.
+    /// GPU time: start and end, then those of each live glass blurred.
     queries: Option<vk::QueryPool>,
+    /// How many live glasses this frame timed.
+    blurs: usize,
     /// The submission that last used this frame's objects.
     submission: u64,
     /// Ready for this frame: its last submission waited for.
@@ -163,7 +165,12 @@ pub struct Spent {
 pub struct GpuTime {
     pub ms: f64,
     pub span: Option<(Duration, Duration)>,
+    /// Of `ms`, the live glass blurred in the frame: copies and passes.
+    pub blur: f64,
 }
+
+/// How many live glasses of a frame get timestamps of their own.
+const BLURS_TIMED: usize = 4;
 
 /// How often the GPU's clock is set against CLOCK_MONOTONIC: they drift by
 /// microseconds a second.
@@ -328,6 +335,27 @@ impl VkRenderer {
             return None;
         }
         let ns = |ticks: u64| (ticks as f64 * f64::from(period)) as i128;
+        let mut stamps = vec![0u64; 2 * frame.blurs];
+        // SAFETY: as above; the frame wrote these, its submission is done
+        // or the call reports NOT_READY.
+        let blurred = stamps.is_empty()
+            || unsafe {
+                self.shared.device.get_query_pool_results(
+                    pool,
+                    2,
+                    &mut stamps,
+                    vk::QueryResultFlags::TYPE_64,
+                )
+            }
+            .is_ok();
+        let blur = if blurred {
+            stamps
+                .chunks_exact(2)
+                .map(|s| (ns(s[1]) - ns(s[0])) as f64 / 1e6)
+                .sum()
+        } else {
+            0.0
+        };
         let span = self.calibration().map(|offset| {
             let at = |ticks| Duration::from_nanos((ns(ticks) + offset).max(0) as u64);
             (at(times[0]), at(times[1]))
@@ -335,6 +363,7 @@ impl VkRenderer {
         Some(GpuTime {
             ms: (ns(times[1]) - ns(times[0])) as f64 / 1e6,
             span,
+            blur,
         })
     }
 
@@ -584,7 +613,7 @@ impl VkRenderer {
                     d.create_query_pool(
                         &vk::QueryPoolCreateInfo::default()
                             .query_type(vk::QueryType::TIMESTAMP)
-                            .query_count(2),
+                            .query_count(2 + 2 * BLURS_TIMED as u32),
                         None,
                     )
                     .context("query pool")?,
@@ -598,6 +627,7 @@ impl VkRenderer {
                 staging: None,
                 staged: 0,
                 queries,
+                blurs: 0,
                 submission: 0,
                 ready: true,
             })
@@ -1380,8 +1410,9 @@ impl VkRenderer {
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
             .context("recording")?;
+            self.in_flight[i].blurs = 0;
             if let Some(pool) = self.in_flight[i].queries {
-                d.cmd_reset_query_pool(commands, pool, 0, 2);
+                d.cmd_reset_query_pool(commands, pool, 0, 2 + 2 * BLURS_TIMED as u32);
                 d.cmd_write_timestamp2(commands, vk::PipelineStageFlags2::NONE, pool, 0);
             }
         }
@@ -1429,6 +1460,8 @@ impl VkRenderer {
                 .iter()
                 .map(|insert| rest.by_ref().take(insert.passes.len()).collect())
                 .collect();
+            let queries = self.in_flight[i].queries;
+            self.in_flight[i].blurs = queries.map_or(0, |_| frame.inserts.len().min(BLURS_TIMED));
             let draws = frame::record_frame(
                 &d,
                 commands,
@@ -1439,6 +1472,7 @@ impl VkRenderer {
                 &insert_addresses,
                 frame,
                 submission,
+                queries.map(|pool| (pool, BLURS_TIMED)),
             );
             self.spent.quads_drawn += frame.quads.len();
             self.spent.draws += draws;

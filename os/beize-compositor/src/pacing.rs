@@ -144,6 +144,8 @@ struct Run {
     latency: Vec<f64>,
     cpu: Vec<f64>,
     gpu: Vec<f64>,
+    /// Of it, live glass blurred, in the frames that did.
+    blur: Vec<f64>,
     ahead: Vec<f64>,
     /// The schedule's lead, in milliseconds.
     lead: Vec<f64>,
@@ -236,6 +238,7 @@ impl Pacing {
         run.cpu
             .push(ms(times.committed.saturating_sub(times.began)));
         run.gpu.extend(gpu.map(|g| g.ms));
+        run.blur.extend(gpu.map(|g| g.blur).filter(|&b| b > 0.0));
         run.ahead.push(ms(begins) - ms(ready));
         run.lead.extend(times.lead.map(ms));
         run.smoothed.push(ms(estimate.smoothed));
@@ -344,6 +347,7 @@ impl Pacing {
         let length = self.last?.saturating_sub(run.first);
         let budget = ms(self.refresh);
         let (cpu, gpu, latency) = (sorted(&run.cpu), sorted(&run.gpu), sorted(&run.latency));
+        let blur = sorted(&run.blur);
         let (ahead, lead) = (sorted(&run.ahead), sorted(&run.lead));
         let (smoothed, variance, learnt) = (
             sorted(&run.smoothed),
@@ -365,7 +369,7 @@ impl Pacing {
              vblank begins, least {:.2}; lead median {:.2} ms, max {:.2}, a whole refresh for \
              {} frames, of it expected drawing median {:.2} ms, variance median {:.2}, max \
              {:.2}, learnt median {:.2}, max {:.2}; drawing (CPU) median {:.2} ms, 99 % \
-             {:.2}, max {:.2}; GPU median {:.2} ms, max {:.2}; busy {:.0} % of the {:.2} ms per frame; \
+             {:.2}, max {:.2}; GPU median {:.2} ms, max {:.2}; blur median {:.2} ms, max {:.2}, in {} frames; busy {:.0} % of the {:.2} ms per frame; \
              drawing in parts, median/99 % ms: {parts}; quads median {:.0}, max {:.0}, in \
              draws median {:.0}, max {:.0}; {} waited for clients' later work; {} flip \
              events repeated the vblank before",
@@ -393,6 +397,9 @@ impl Pacing {
             max(&cpu),
             median(&gpu),
             max(&gpu),
+            median(&blur),
+            max(&blur),
+            blur.len(),
             busy,
             budget,
             median(&quads),
@@ -429,12 +436,13 @@ fn late(
     let stalled = |gpu_ms: f64| (ms(ready) - ms(times.committed) - gpu_ms).max(0.0);
     let gpu = match gpu {
         None => "GPU time unknown".to_string(),
-        Some(GpuTime { ms, span: None }) => {
+        Some(GpuTime { ms, span: None, .. }) => {
             format!("on the GPU {ms:.2} ms, stalled {:.2}", stalled(ms))
         }
         Some(GpuTime {
             ms,
             span: Some((from, to)),
+            ..
         }) => format!(
             "on the GPU {ms:.2} ms, from {:.2} to {:.2}, stalled {:.2}",
             at(from),
@@ -518,6 +526,7 @@ mod tests {
         let gpu = GpuTime {
             ms: 0.1,
             span: None,
+            blur: 0.0,
         };
         p.shown(
             times,
@@ -639,6 +648,7 @@ mod tests {
             Some(GpuTime {
                 ms: 0.08,
                 span: Some((times.committed + at(1000), times.committed + at(1080))),
+                blur: 0.0,
             }),
         );
         assert_eq!(
