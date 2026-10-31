@@ -320,11 +320,30 @@ liegen in WSL `~/upstream/` (sendet der Besitzer, #13).
 **Im Auge behalten: Grafik-Timeouts unter Windows** (`docs/hardware.md` „Unter Beobachtung“, Beize
 nicht entlastet): nach jedem Messbau `nvlddmkm` 153 zählen, den Vergleich des Besitzers auswerten.
 
-**JETZT: Glas nur effizienter, Aussehen unverändert** (Plan von einem Agenten geprüft; Besitzer
-30.10.: umsetzen). 0.5.121 misst die vom Besitzer abgenommenen Werte (c15fffc) mit neuem
-`blur`-Zähler in `pacing:`, 0.5.122 danach die Schritte, je ein Commit: Tönung in `quad.vert`,
-Gauß-Gewichte per Rekursion, bilineare Paare, Rand 40 px und beschnittene Gauß-Quads, Abkürzungen
-in `clear_glass`. Vergleich: Bilder aus dem Smoke, höchstens 2 Stufen Abweichung.
+**JETZT: Messbauten 0.5.121 und 0.5.122 auf den Stick, dann testen.** Glas nur effizienter (Plan
+vom Prüf-Agenten mit Änderungen freigegeben, Besitzer 30.10.: umsetzen): 7cd76de `blur`-Zähler in
+`pacing:` + Bilder `dock-edge-20/36`; f874c89 Tönung einmal je Quad in `quad.vert`, `SHADER_READ`
+mit Vertex-Stufe; a634e24 Gauß-Gewichte per Rekursion, bilineare Paare (Frost-Durchgang 2, beide
+Rauch-Durchgänge), Log der Sub-Texel-Bits; 050f23c Rand flüssigen Glases 40 px, Gauß-Quads
+beschnitten, früher Ausstieg in `clear_glass`. Vergleich mit 7cd76de in der VM: alle sechs Bilder
+höchstens 2 Stufen, außer zwei Pixeln mit 6 auf der Lichtlinie des Docks im Dunkelmodus (Ursache
+nicht geklärt). Gegenprobe Rand 24 px: Bild ändert sich (129 Pixel, ≤ 2 Stufen), zeigt also wenig
+Empfindlichkeit dort. Synchronisation nur per Code-Prüfung (keine Validation-Layer). Nicht belegt:
+Hardware-Filter. Tags `measure/desktop-0.5.121` (a1d402e auf 7cd76de, Werte + Zähler),
+`measure/desktop-0.5.122` (76496c1 auf 050f23c), Stick-Dateien `~/scratch/stick` (Testprogramme
+von 0.5.122, für beide gleich). Nach „Release fertig“: beide Ordner + Stick-Dateien wie gehabt
+kopieren. **Auswerten:** Teil 5/5b (GPU, busy, neu `blur`, späte Bilder) 121 gegen 122 (gegen 0.5.120
+nur grob: Werte und Zähler neu), Bild beider gegeneinander, Sub-Texel-Bits im Log, `nvlddmkm` 153.
+
+**Befund 31.10., nicht Glas: `sbvarsign` schreibt den Monat eins zu niedrig** (beobachtet: 2026-9-31
+in PK/KEK/db; Quelltext nicht geprüft). `virt-fw-vars` lehnt das ab, jede Smoke-Maschine scheitert,
+sobald die Test-Schlüssel am 31. eines Monats signiert wurden, dem ein Monat mit weniger Tagen
+vorangeht. Messbauten lokal mit nicht committeter Toleranz geprüft: 121 und 122 grün. **Die Test-
+Schlüssel in `build/` tragen das Datum jetzt** (Stempel `test-enrollment` bis 1.11. nutzlos, danach
+löschen, dann neu signiert). Echte Hardware: `MOR`/Enrollment nur im Setup Mode, die Schlüssel des
+Besitzers sind eingespielt; im Januar stünde Monat 0 in frischen Schlüsseln. Lösung offen (Besitzer):
+Patch an sbsigntools upstream melden.
+
 **Danach:** die Prüfung „Bildschirm aus“ auf Protokoll umstellen (Befund CI unten; am 30.10. auch
 lokal einmal rot, im zweiten Lauf grün), voller Lauf grün, dann pushen (main 156f655.. nur lokal).
 Dann (f) per ADR 0028 „Reihenfolge“. Offen als eigener Schritt (Besitzer gefragt, nicht
