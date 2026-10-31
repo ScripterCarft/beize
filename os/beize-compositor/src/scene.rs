@@ -54,6 +54,7 @@ mod element {
         Surface=WaylandSurfaceRenderElement<R>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
+        SnapPreview=Rounded<SolidColorRenderElement>,
         Shadow=Shadow,
         Glass=Glass,
         Wallpaper=TextureRenderElement<<R as RendererSuper>::TextureId>,
@@ -61,13 +62,32 @@ mod element {
 }
 pub type Element = element::Element<VkRenderer>;
 
+/// How white the place a dragged window would snap to shows: faint, over
+/// what is there, as macOS 15's and Windows' previews (estimated).
+const SNAP_PREVIEW: f32 = 0.2;
+
+/// The place a dragged window would snap to (`State::snap_preview`), with
+/// the windows' corners. Premultiplied, as all colours here.
+pub fn snap_preview(id: &Id, commit: CommitCounter, place: Rectangle<i32, Logical>) -> Element {
+    let solid = SolidColorRenderElement::new(
+        id.clone(),
+        place.to_physical(1),
+        commit,
+        [SNAP_PREVIEW; 4],
+        Kind::Unspecified,
+    );
+    Element::SnapPreview(Rounded::new(solid, Some(place)))
+}
+
 /// The windows on `area`, front to back, each with its popups in front, its
-/// content, its title bar, and its shadow, added to `elements`.
+/// content, its title bar, and its shadow, added to `elements`. `preview`
+/// lies behind the first of them, the one being dragged.
 pub fn windows(
     renderer: &mut VkRenderer,
     space: &Space<Window>,
     decorations: &mut Decorations,
     area: Rectangle<i32, Logical>,
+    mut preview: Option<Element>,
     elements: &mut Vec<Element>,
 ) {
     let windows: Vec<_> = space
@@ -118,6 +138,7 @@ pub fn windows(
         if let Some(frame) = rounded {
             elements.push(Element::Shadow(Shadow::new(window, frame)));
         }
+        elements.extend(preview.take());
     }
 }
 

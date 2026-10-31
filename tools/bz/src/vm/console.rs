@@ -402,6 +402,21 @@ pub(super) fn click(
     Ok(())
 }
 
+/// Puts the tablet's left button down at `at`, or lets it go there: held
+/// while the pointer moves (`drag` without its button), as a hand pauses in
+/// a drag.
+pub(super) fn button(
+    socket: &Path,
+    screen: (usize, usize),
+    at: (i32, i32),
+    down: bool,
+) -> Result<()> {
+    let mut tablet = Tablet::connect(socket, screen)?;
+    tablet.to(at)?;
+    thread::sleep(Duration::from_millis(40));
+    tablet.button(down)
+}
+
 /// The machine's tablet, through QEMU's control socket. It reports
 /// 0..=0x7fff across the screen, which libinput scales by `screen /
 /// 0x8000`: rounded up, a pixel lands in it, at most 1/40 px past its

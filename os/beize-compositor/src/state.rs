@@ -168,6 +168,10 @@ pub struct State {
     pub popups: PopupManager,
     /// The menu holding pointer and keyboard (`shell`), until it ends.
     pub popup_grab: Option<PopupGrab<State>>,
+    /// Where a dragged window would snap to, shown behind it (`windows`).
+    snap_preview: Option<Rectangle<i32, Logical>>,
+    snap_preview_id: Id,
+    snap_preview_commit: CommitCounter,
     /// What the title bars of other apps' windows share (`decorations`).
     decorations: Decorations,
     /// Light or dark (`backdrop`).
@@ -385,6 +389,9 @@ impl State {
             shell_windows: crate::shell_v1::ShellWindows::new(&display),
             popups: PopupManager::default(),
             popup_grab: None,
+            snap_preview: None,
+            snap_preview_id: Id::new(),
+            snap_preview_commit: CommitCounter::default(),
             decorations: Decorations::default(),
             appearance: Appearance::chosen(),
             backdrop: None,
@@ -1034,11 +1041,15 @@ impl State {
             elements.extend(glass.map(Element::Glass));
         }
         // Each window with its bar above it, front to back.
+        let preview = self.snap_preview.map(|place| {
+            scene::snap_preview(&self.snap_preview_id, self.snap_preview_commit, place)
+        });
         scene::windows(
             gpu.renderer(),
             &self.space,
             &mut self.decorations,
             area,
+            preview,
             &mut elements,
         );
         let lower = scene::lend(source, false, shown, &mut elements);
@@ -1839,6 +1850,15 @@ impl State {
         let keyboard = self.keyboard.clone();
         if keyboard.has_grab(grab.serial()) {
             keyboard.unset_grab(self);
+        }
+    }
+
+    /// Where a dragged window would snap to (`windows`), shown behind it.
+    pub fn set_snap_preview(&mut self, place: Option<Rectangle<i32, Logical>>) {
+        if self.snap_preview != place {
+            self.snap_preview = place;
+            self.snap_preview_commit.increment();
+            self.changed();
         }
     }
 

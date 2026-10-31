@@ -68,8 +68,8 @@ use super::Installed;
 use crate::paths::Paths;
 use crate::say;
 use crate::vm::console::{
-    Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, click, drag, german_presses,
-    hold, keys, screendump, swipe,
+    Answers, OWNER_CONSOLE_CREDENTIALS, SMOKE_PASSWORD, SMOKE_USER, button, click, drag,
+    german_presses, hold, keys, screendump, swipe,
 };
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
@@ -518,6 +518,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
 
     screen_comes_back(&shell, &machine, moved, grown)?;
+    snap(&shell, &machine, &qmp, screen, moved, grown)?;
     fullscreen(&shell, &machine, &qmp, screen, moved, grown)?;
     dock_glass(&shell, &machine, &qmp, screen, moved, grown)?;
     frames(&shell)?;
@@ -923,6 +924,128 @@ fn screenshot_and_terminals(
     say!("  ok: over the terminal's text the pointer is the theme's text cursor");
 
     Ok(terminal)
+}
+
+/// Snap (ADR 0028 §2, §7), on the client's window at `moved`, `grown`:
+/// Super+arrows take the halves, maximize and go back, and the opposite
+/// arrow from a half goes back to where it was. Held on the screen's edge in
+/// a drag a preview shows with round corners, and the release takes the half;
+/// dragged off, the window is its size from before under the pointer; into
+/// the menu bar's strip it is maximized.
+fn snap(
+    shell: &Shell,
+    machine: &Machine,
+    qmp: &Path,
+    screen: (usize, usize),
+    moved: (usize, usize),
+    grown: (usize, usize),
+) -> Result<()> {
+    let area_h = screen.1 - MENU_BAR - DOCK_ZONE;
+    let left = ((0, MENU_BAR), (screen.0 / 2, area_h));
+    let right = ((screen.0 / 2, MENU_BAR), (screen.0 - screen.0 / 2, area_h));
+    let whole = ((0, MENU_BAR), (screen.0, area_h));
+    let steps: [(&str, Window, &str); 7] = [
+        ("meta_l+left", left, "snap-left"),
+        ("meta_l+right", (moved, grown), "snap-back"),
+        ("meta_l+right", right, "snap-right"),
+        ("meta_l+up", whole, "snap-maximized"),
+        ("meta_l+left", left, "snap-left-maximized"),
+        ("meta_l+down", (moved, grown), "snap-down"),
+        ("meta_l+down", (moved, grown), "snap-down-again"),
+    ];
+    for (key, (at, size), name) in steps {
+        keys(qmp, &[key])?;
+        wait_for_pattern(shell, machine, at, size, name)?;
+    }
+    say!(
+        "  ok: Super+arrows took each half, from the other half went back to the place from \
+         before, maximized, from maximized took a half and went back"
+    );
+
+    // The drag: over the title strip, to the left edge, and held there.
+    let grip = (
+        i32::try_from(moved.0 + grown.0 / 2)?,
+        i32::try_from(moved.1 + CLIENT_TITLE / 2)?,
+    );
+    // High in the left half, far above the window and its shadow.
+    let inside = (screen.0 / 4, MENU_BAR + 40);
+    let corner = (1, MENU_BAR + 1);
+    let before = self::screen(machine, "snap-before")?;
+    let edge = (0, grip.1);
+    button(qmp, screen, grip, true)?;
+    drag(qmp, screen, grip, edge, false)?;
+    wait_until_screen(machine, "snap-preview", |shown| {
+        let (lit, was) = (
+            shown.pixel(inside.0, inside.1),
+            before.pixel(inside.0, inside.1),
+        );
+        ensure!(
+            lit.iter().zip(was).all(|(&l, w)| l > w),
+            "no preview at {inside:?} with the pointer on the screen's edge: {lit:?}, {was:?} before"
+        );
+        let (tip, was) = (
+            shown.pixel(corner.0, corner.1),
+            before.pixel(corner.0, corner.1),
+        );
+        ensure!(
+            same(tip, was),
+            "the preview's corner is not round: {tip:?} at {corner:?}, {was:?} before"
+        );
+        Ok(())
+    })?;
+    // Off the edge again it goes, and the release leaves the window floating.
+    let off = (120, grip.1);
+    drag(qmp, screen, edge, off, false)?;
+    wait_until_screen(machine, "snap-preview-gone", |shown| {
+        let (now, was) = (
+            shown.pixel(inside.0, inside.1),
+            before.pixel(inside.0, inside.1),
+        );
+        ensure!(
+            same(now, was),
+            "the preview stayed: {now:?}, {was:?} before"
+        );
+        Ok(())
+    })?;
+    drag(qmp, screen, off, edge, false)?;
+    button(qmp, screen, edge, false)?;
+    park(qmp, screen)?;
+    wait_for_pattern(shell, machine, left.0, left.1, "snap-dragged")?;
+    // Off the half by its title strip: the size from before, under the pointer.
+    let grip = (
+        i32::try_from(left.1.0 / 2)?,
+        i32::try_from(left.0.1 + CLIENT_TITLE / 2)?,
+    );
+    // Where all of it stays clear of the dock.
+    let middle = (i32::try_from(screen.0 / 2)?, i32::try_from(MENU_BAR + 100)?);
+    drag(qmp, screen, grip, middle, true)?;
+    park(qmp, screen)?;
+    // As far across it as the pointer was across the half: its middle.
+    let centred = (
+        screen.0 / 2 - grown.0 / 2,
+        MENU_BAR + 100 - CLIENT_TITLE / 2,
+    );
+    wait_for_pattern(shell, machine, centred, grown, "snap-off")?;
+    // Into the menu bar's strip: maximized; down, back to where that drag began.
+    drag(qmp, screen, middle, (middle.0, 4), true)?;
+    park(qmp, screen)?;
+    wait_for_pattern(shell, machine, whole.0, whole.1, "snap-top")?;
+    keys(qmp, &["meta_l+down"])?;
+    wait_for_pattern(shell, machine, centred, grown, "snap-top-back")?;
+    // Back to where the test goes on from, by its strip.
+    let home = (
+        i32::try_from(moved.0 + grown.0 / 2)?,
+        i32::try_from(moved.1 + CLIENT_TITLE / 2)?,
+    );
+    drag(qmp, screen, middle, home, true)?;
+    park(qmp, screen)?;
+    wait_for_pattern(shell, machine, moved, grown, "snap-end")?;
+    say!(
+        "  ok: on the screen's edge in a drag a round preview showed and went with the pointer, \
+         the release took the half; dragged off, the window had its size from before; into the \
+         menu bar's strip it was maximized"
+    );
+    Ok(())
 }
 
 /// Super+F gives the client's window (at `moved`, `grown`) the whole screen,

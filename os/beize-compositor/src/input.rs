@@ -24,6 +24,7 @@ use tracing::warn;
 use crate::apps;
 use crate::decorations::Hit;
 use crate::state::State;
+use crate::windows::Arrow;
 
 pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
     // Someone uses the computer (`idle`): any key, pointer, touch, tablet
@@ -62,6 +63,8 @@ enum Action {
     OpenTerminal,
     ToggleFullscreen,
     Screenshot,
+    Close,
+    Arrow(Arrow),
 }
 
 fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
@@ -111,6 +114,12 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
             }
         }
         Some(Action::Screenshot) => state.screenshot(),
+        Some(Action::Close) => {
+            if let Some(toplevel) = state.active_window().as_ref().and_then(|w| w.toplevel()) {
+                toplevel.send_close();
+            }
+        }
+        Some(Action::Arrow(arrow)) => state.arrow_key(arrow),
         None => {}
     }
 }
@@ -119,7 +128,8 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
 /// keysyms), Ctrl+Alt+T for a new terminal, as on Ubuntu, Super+F for
 /// fullscreen (Super belongs to the shell), Super+Shift+3 for a screenshot
 /// (macOS' ⌘⇧3; the key's own level, whatever Shift makes of it) and Print
-/// alone (Windows, GNOME). The letter counts as a Latin
+/// alone (Windows, GNOME), Alt+F4 to close the active window and Super+arrows
+/// to snap it (Windows, ADR 0028 §7). The letter counts as a Latin
 /// layout among the loaded ones has it (Smithay), so with Russian next to
 /// US the key stays where it is, as in GNOME.
 fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Option<Action> {
@@ -131,6 +141,22 @@ fn action(modifiers: &ModifiersState, sym: Keysym, latin: Option<Keysym>) -> Opt
     let only_super = modifiers.logo && !modifiers.ctrl && !modifiers.alt && !modifiers.shift;
     let super_shift = modifiers.logo && modifiers.shift && !modifiers.ctrl && !modifiers.alt;
     let none = !(modifiers.logo || modifiers.shift || modifiers.ctrl || modifiers.alt);
+    let only_alt = modifiers.alt && !modifiers.ctrl && !modifiers.shift && !modifiers.logo;
+    if only_alt && sym == Keysym::F4 {
+        return Some(Action::Close);
+    }
+    if only_super {
+        let arrow = match sym {
+            Keysym::Left => Some(Arrow::Left),
+            Keysym::Right => Some(Arrow::Right),
+            Keysym::Up => Some(Arrow::Up),
+            Keysym::Down => Some(Arrow::Down),
+            _ => None,
+        };
+        if let Some(arrow) = arrow {
+            return Some(Action::Arrow(arrow));
+        }
+    }
     match latin {
         Some(Keysym::t) if only_ctrl_alt => Some(Action::OpenTerminal),
         Some(Keysym::f) if only_super => Some(Action::ToggleFullscreen),
@@ -324,5 +350,19 @@ mod tests {
             Some(Action::Screenshot)
         );
         assert_eq!(action(&ctrl_alt, Keysym::Print, Some(Keysym::Print)), None);
+        let alt = held(false, true, false);
+        assert_eq!(action(&alt, Keysym::F4, None), Some(Action::Close));
+        assert_eq!(action(&none, Keysym::F4, None), None);
+        assert_eq!(
+            action(&logo, Keysym::Left, None),
+            Some(Action::Arrow(Arrow::Left))
+        );
+        assert_eq!(
+            action(&logo, Keysym::Down, None),
+            Some(Action::Arrow(Arrow::Down))
+        );
+        // Text fields keep their arrow keys.
+        assert_eq!(action(&none, Keysym::Left, None), None);
+        assert_eq!(action(&alt, Keysym::Left, None), None);
     }
 }
