@@ -168,6 +168,11 @@ fn send_menus(handle: &BeizeWindowV1, window: &Window) {
     }
 }
 
+/// Whether what the shell was told of a window says it is active.
+fn is_active(shown: &Shown) -> bool {
+    beize_window_v1::State::from_bits_truncate(shown.state).contains(beize_window_v1::State::Active)
+}
+
 /// A handle for `window` (`number`) on `instance`, announced there.
 fn announce(
     display: &DisplayHandle,
@@ -210,7 +215,9 @@ impl State {
             .filter_map(|instance| announce(&self.display, instance, number))
             .collect();
         for handle in &handles {
-            send_menus(handle, window);
+            if is_active(&shown) {
+                send_menus(handle, window);
+            }
             send(handle, &shown, None);
         }
         window.user_data().insert_if_missing(|| {
@@ -231,7 +238,12 @@ impl State {
                     return;
                 }
                 listed.handles.retain(Resource::is_alive);
+                // It became active: the bar shows its menus now.
+                let menus = is_active(&now) && !is_active(&listed.sent);
                 for handle in &listed.handles {
+                    if menus {
+                        send_menus(handle, &window);
+                    }
                     send(handle, &now, Some(&listed.sent));
                 }
                 listed.sent = now;
@@ -239,8 +251,14 @@ impl State {
         }
     }
 
-    /// `window`'s menus changed.
+    /// `window`'s menus changed: if it is active, the bar shows them.
     pub fn menus_changed(&mut self, window: &Window) {
+        let active = window
+            .toplevel()
+            .is_some_and(|t| t.with_pending_state(|s| s.states.contains(XdgState::Activated)));
+        if !active {
+            return;
+        }
         with_listed(window, |listed| {
             listed.handles.retain(Resource::is_alive);
             for handle in &listed.handles {
@@ -344,7 +362,9 @@ impl GlobalDispatch<BeizeShellV1, ()> for State {
             let shown = shown(state, &window);
             // The menus an app described are kept with its window: a shell
             // started anew hears them too.
-            send_menus(&handle, &window);
+            if is_active(&shown) {
+                send_menus(&handle, &window);
+            }
             send(&handle, &shown, None);
             with_listed(&window, |listed| listed.handles.push(handle));
         }

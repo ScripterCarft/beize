@@ -132,12 +132,14 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
             }
         }
         Some(Action::Screenshot) => state.screenshot(),
-        Some(Action::Close) => {
+        // Not past a dialog with the keyboard: to what lies behind it.
+        Some(Action::Close) if state.overlay_keyboard.is_none() => {
             if let Some(toplevel) = state.active_window().as_ref().and_then(|w| w.toplevel()) {
                 toplevel.send_close();
             }
         }
-        Some(Action::Arrow(arrow)) => state.arrow_key(arrow),
+        Some(Action::Arrow(arrow)) if state.overlay_keyboard.is_none() => state.arrow_key(arrow),
+        Some(Action::Close | Action::Arrow(_)) => {}
         Some(Action::SwitcherStart(by)) => state.switcher_start(by),
         Some(Action::Switcher(key)) => state.switcher_key(key),
         None => {}

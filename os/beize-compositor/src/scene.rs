@@ -66,6 +66,10 @@ mod element {
 }
 pub type Element = element::Element<VkRenderer>;
 
+/// The most popups of windows with glass in a frame: more than menus open at
+/// once, so a client's popups cannot make a frame's blur as long as it likes.
+const MAX_POPUP_GLASS: usize = 8;
+
 /// How white the place a dragged window would snap to shows: faint, over
 /// what is there, as macOS 15's and Windows' previews (estimated).
 const SNAP_PREVIEW: f32 = 0.2;
@@ -102,6 +106,7 @@ pub fn windows(
         .filter(|(_, geometry)| geometry.overlaps(area))
         .collect();
     let mut bars = decorations.elements(renderer, &windows);
+    let mut popup_glass = 0;
     for (window, geometry) in &windows {
         let Some(toplevel) = window.toplevel() else {
             continue;
@@ -113,11 +118,14 @@ pub fn windows(
         // `Window` places them).
         for (popup, offset) in PopupManager::popups_for_surface(toplevel.wl_surface()) {
             let at = origin + window.geometry().loc + offset - popup.geometry().loc;
+            popup_glass += 1;
             surface_with_glass(
                 renderer,
                 popup.wl_surface(),
                 at,
-                backdrop.as_deref_mut(),
+                backdrop
+                    .as_deref_mut()
+                    .filter(|_| popup_glass <= MAX_POPUP_GLASS),
                 elements,
             );
         }

@@ -999,6 +999,15 @@ fn confirmation(
     wait_for_shell_count(shell, "asked: Power(Restart), no", 1)?;
 
     ask(2)?;
+    // Alt+F4 does not reach the window behind a dialog with the keyboard.
+    let open_terminals = terminals(shell)?.len();
+    thread::sleep(Duration::from_millis(300));
+    keys(qmp, &["alt+f4"])?;
+    thread::sleep(Duration::from_millis(500));
+    ensure!(
+        terminals(shell)?.len() == open_terminals,
+        "Alt+F4 closed the window behind the dialog"
+    );
     // In the terminal, far from the dialog: Return goes there.
     click(
         qmp,

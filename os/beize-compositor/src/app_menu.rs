@@ -2,6 +2,10 @@
 //! here, as AppKit hands its menu to the WindowServer, and the shell shows
 //! them in the menu bar (`shell_v1`), so the shell never talks to the app. They
 //! are kept with the window, so a shell started anew hears them again.
+//!
+//! The shell's connection must not fill up: a server whose client does not
+//! read ends that client. So only the active window's menus go there, and only
+//! when they changed, and what a window describes has a budget.
 
 use std::cell::RefCell;
 
@@ -20,6 +24,9 @@ use crate::state::State;
 const MAX_MENUS: usize = 16;
 const MAX_ENTRIES: usize = 64;
 const MAX_TEXT: usize = 128;
+/// The text of all of a window's menus, about what a wire message and a
+/// socket's buffer take without the shell reading.
+const MAX_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Entry {
@@ -44,7 +51,20 @@ pub struct Menu {
 struct Menus {
     current: Vec<Menu>,
     pending: Vec<Menu>,
+    /// The text described so far, against `MAX_BYTES`.
+    pending_bytes: usize,
     app: Option<BeizeAppMenuV1>,
+}
+
+impl Menus {
+    /// Whether `bytes` more text fit; counted if so.
+    fn takes(&mut self, bytes: usize) -> bool {
+        let fits = self.pending_bytes + bytes <= MAX_BYTES;
+        if fits {
+            self.pending_bytes += bytes;
+        }
+        fits
+    }
 }
 
 fn with_menus<T>(window: &Window, f: impl FnOnce(&mut Menus) -> T) -> T {
@@ -133,12 +153,16 @@ impl Dispatch<BeizeAppMenuV1, WlSurface> for State {
         };
         match request {
             beize_app_menu_v1::Request::Begin => {
-                with_menus(&window, |menus| menus.pending.clear());
+                with_menus(&window, |menus| {
+                    menus.pending.clear();
+                    menus.pending_bytes = 0;
+                });
             }
             beize_app_menu_v1::Request::AddMenu { title } => with_menus(&window, |menus| {
-                if menus.pending.len() < MAX_MENUS {
+                let title = cut(title);
+                if menus.pending.len() < MAX_MENUS && menus.takes(title.len()) {
                     menus.pending.push(Menu {
-                        title: cut(title),
+                        title,
                         entries: Vec::new(),
                     });
                 }
@@ -149,24 +173,33 @@ impl Dispatch<BeizeAppMenuV1, WlSurface> for State {
                 enabled,
                 shortcut,
             } => with_menus(&window, |menus| {
-                add(
-                    menus,
-                    Entry::Item {
-                        id,
-                        title: cut(title),
-                        enabled: enabled != 0,
-                        shortcut: cut(shortcut),
-                    },
-                );
+                let (title, shortcut) = (cut(title), cut(shortcut));
+                if menus.takes(title.len() + shortcut.len()) {
+                    add(
+                        menus,
+                        Entry::Item {
+                            id,
+                            title,
+                            enabled: enabled != 0,
+                            shortcut,
+                        },
+                    );
+                }
             }),
             beize_app_menu_v1::Request::AddSeparator => {
                 with_menus(&window, |menus| add(menus, Entry::Separator));
             }
             beize_app_menu_v1::Request::Commit => {
-                with_menus(&window, |menus| {
-                    menus.current = std::mem::take(&mut menus.pending);
+                let changed = with_menus(&window, |menus| {
+                    let new = std::mem::take(&mut menus.pending);
+                    menus.pending_bytes = 0;
+                    let changed = new != menus.current;
+                    menus.current = new;
+                    changed
                 });
-                state.menus_changed(&window);
+                if changed {
+                    state.menus_changed(&window);
+                }
             }
             _ => {}
         }
@@ -184,5 +217,18 @@ impl Dispatch<BeizeAppMenuV1, WlSurface> for State {
             with_menus(&window, |menus| *menus = Menus::default());
             state.menus_changed(&window);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_a_window_describes_has_a_budget() {
+        let mut menus = Menus::default();
+        assert!(menus.takes(MAX_BYTES));
+        assert!(!menus.takes(1));
+        assert_eq!(menus.pending_bytes, MAX_BYTES);
     }
 }

@@ -170,10 +170,8 @@ pub struct State {
     pub popup_grab: Option<PopupGrab<State>>,
     /// Alt+Tab, while it is open (`switcher`).
     pub switcher: Option<crate::switcher::Switcher>,
-    /// The overlay with the keyboard (`layers`), and the one that had it when
-    /// it opened, so it is given once.
+    /// The overlay with the keyboard (`layers`).
     pub overlay_keyboard: Option<WlSurface>,
-    pub overlay_opened: Option<WlSurface>,
     /// Every app's handle on the glass, which hears the appearance (`glass`).
     pub glass_managers:
         Vec<beize_protocols::app::server::beize_glass_manager_v1::BeizeGlassManagerV1>,
@@ -402,7 +400,6 @@ impl State {
             popup_grab: None,
             switcher: None,
             overlay_keyboard: None,
-            overlay_opened: None,
             glass_managers: Vec::new(),
             snap_preview: None,
             snap_preview_id: Id::new(),
@@ -1093,7 +1090,15 @@ impl State {
             elements.push(Element::Wallpaper(backdrop.wallpaper()));
         }
         let scene_done: Duration = self.clock.now().into();
-        self.live_glass.retain(|l| l.wanted(plated));
+        // An app's glass goes with the frame that no longer shows it.
+        let shown_glass: Vec<_> = elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Glass(glass) => glass.live().cloned(),
+                _ => None,
+            })
+            .collect();
+        self.live_glass.retain(|l| l.wanted(plated, &shown_glass));
         scene::live_glass(
             gpu.renderer(),
             &mut self.live_glass,

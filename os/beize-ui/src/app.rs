@@ -593,6 +593,9 @@ impl App {
         {
             glasses.set_glass(id, &wl, None, &qh);
         }
+        if let Some(j) = self.state.app_menus.iter().position(|(w, _)| *w == id) {
+            self.state.app_menus.swap_remove(j).1.destroy();
+        }
         let window = self.windows.swap_remove(i);
         let gpu = &self.renderer.gpu;
         // SAFETY: nothing records now; after the wait the GPU uses nothing

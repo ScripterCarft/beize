@@ -66,9 +66,6 @@ impl WlrLayerShellHandler for State {
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
         let gone = surface.wl_surface();
-        if self.overlay_opened.as_ref() == Some(gone) {
-            self.overlay_opened = None;
-        }
         if self.overlay_keyboard.as_ref() == Some(gone) {
             self.overlay_keyboard = None;
             let active = self.active_window();
@@ -94,6 +91,8 @@ impl WlrLayerShellHandler for State {
         }
         self.arrange_windows();
         self.changed();
+        // It may have lain under the pointer, which is over what is there now.
+        crate::input::refresh_pointer(self);
     }
 }
 
@@ -136,17 +135,34 @@ pub fn committed(state: &mut State, surface: &WlSurface) {
     overlay_opened(state, &output, surface);
 }
 
-/// An overlay that takes the keyboard has it once it shows.
+/// Marks an overlay that showed, so its first showing counts once.
+struct Opened;
+
+/// An overlay's first showing: one that takes the keyboard has it, and the
+/// pointer is over it now, so a click goes to it and not to what it hides.
 fn overlay_opened(state: &mut State, output: &Output, surface: &WlSurface) {
-    let takes = {
+    let (overlay, takes) = {
         let map = layer_map_for_output(output);
-        map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
-            .is_some_and(|l| l.layer() == Layer::Overlay && l.can_receive_keyboard_focus())
+        match map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
+            Some(layer) => (
+                layer.layer() == Layer::Overlay,
+                layer.can_receive_keyboard_focus(),
+            ),
+            None => (false, false),
+        }
     };
     let shows = with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false);
-    if takes && shows && state.overlay_opened.as_ref() != Some(surface) {
-        state.overlay_opened = Some(surface.clone());
-        state.give_overlay_keyboard(surface.clone());
+    if !overlay || !shows {
+        return;
+    }
+    let first = with_states(surface, |states| {
+        states.data_map.insert_if_missing_threadsafe(|| Opened)
+    });
+    if first {
+        if takes {
+            state.give_overlay_keyboard(surface.clone());
+        }
+        crate::input::refresh_pointer(state);
     }
 }
 

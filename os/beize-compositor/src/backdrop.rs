@@ -947,9 +947,19 @@ impl LiveGlass {
 
     /// Whether it is still wanted: its panel alive, the menu bar's while a
     /// fullscreen window lies below it (`plated`).
-    pub fn wanted(&self, plated: bool) -> bool {
+    /// `shown`: what lies behind the glass of this frame. A panel hidden by a
+    /// fullscreen window keeps its blur; an app's goes when it stops showing,
+    /// so a client cannot pile up blur with surfaces it keeps.
+    pub fn wanted(&self, plated: bool, shown: &[Behind]) -> bool {
         match &self.behind {
-            Behind::Panel(surface) | Behind::Smoke(surface) => surface.is_alive(),
+            Behind::Panel(surface) => {
+                surface.is_alive()
+                    && (shown.contains(&self.behind)
+                        || !with_states(surface, |states| {
+                            states.cached_state.get::<GlassState>().current().confined
+                        }))
+            }
+            Behind::Smoke(surface) => surface.is_alive(),
             Behind::Plate => plated,
         }
     }

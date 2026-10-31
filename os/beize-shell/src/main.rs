@@ -459,7 +459,11 @@ fn run() -> Result<(), String> {
                 app.flush().map_err(|e| e.to_string())?;
                 match chosen {
                     Some(Command::Power(Power::Sleep)) => choose(chosen),
-                    Some(command) if asking.is_none() => {
+                    Some(command) => {
+                        // Asked again, or for something else: this question.
+                        if let Some((id, ..)) = asking.take() {
+                            app.close(id);
+                        }
                         let dialog = confirmation(command);
                         let overlay = Overlay {
                             namespace: "confirmation",
@@ -475,12 +479,12 @@ fn run() -> Result<(), String> {
                             Err(e) => warn!("asking: {e}"),
                         }
                     }
-                    _ => {}
+                    None => {}
                 }
             }
         }
         // The confirmation: its answer.
-        if let Some(events) = asking_events
+        if let Some(events) = &asking_events
             && let Some((id, dialog, command)) = &mut asking
         {
             redraw_asking |= events.configured;
@@ -519,7 +523,9 @@ fn run() -> Result<(), String> {
             })
         };
         let was = open.map(|(o, _)| o);
-        if (pressed(&bar_events) || pressed(&dock_events))
+        if (pressed(&bar_events)
+            || pressed(&dock_events)
+            || asking_events.as_ref().is_some_and(pressed))
             && let Some((which, id)) = open.take()
         {
             info!("{which:?} closed");
@@ -595,28 +601,34 @@ fn run() -> Result<(), String> {
                 _ => None,
             };
             let size = match (to, &commands) {
-                (Open::ControlCenter, _) => control_center.size(),
-                (_, Some((entries, _))) => Menu::new(entries.clone()).size(app.text()),
-                _ => beize_menu.size(app.text()),
+                (Open::ControlCenter, _) => Some(control_center.size()),
+                (Open::BeizeMenu, _) => Some(beize_menu.size(app.text())),
+                (_, Some((entries, _))) => Some(Menu::new(entries.clone()).size(app.text())),
+                // The bar still drawn for a window no longer active: nothing
+                // to show, so no popup that would hold the keyboard.
+                _ => None,
             };
-            let popup = Popup {
+            let popup = size.map(|size| Popup {
                 anchor,
                 size,
                 align,
                 above: false,
-            };
-            match app.popup(bar, &popup) {
-                Ok(id) => {
-                    info!("{to:?} open");
-                    if to == Open::ControlCenter {
-                        app.set_input(id, Some(&control_center.input()));
+            });
+            let opened = popup.map(|popup| app.popup(bar, &popup));
+            if let Some(opened) = opened {
+                match opened {
+                    Ok(id) => {
+                        info!("{to:?} open");
+                        if to == Open::ControlCenter {
+                            app.set_input(id, Some(&control_center.input()));
+                        }
+                        dock_menu = commands.map(|(entries, list)| (Menu::new(entries), list));
+                        open = Some((to, id));
+                        redraw_open = false;
+                        redraw_bar = true;
                     }
-                    dock_menu = commands.map(|(entries, list)| (Menu::new(entries), list));
-                    open = Some((to, id));
-                    redraw_open = false;
-                    redraw_bar = true;
+                    Err(e) => warn!("opening {to:?}: {e}"),
                 }
-                Err(e) => warn!("opening {to:?}: {e}"),
             }
         }
         for input in &dock_events.input {
@@ -735,24 +747,24 @@ fn run() -> Result<(), String> {
         {
             redraw_open = false;
             let size = app.size(id);
-            let (glass, scene) = match which {
-                Open::BeizeMenu => (
+            let drawn = match which {
+                Open::BeizeMenu => Some((
                     Menu::glass(size),
                     beize_menu.draw(app.text(), size, appearance),
-                ),
-                Open::DockMenu | Open::AppName | Open::AppMenu(_) => {
-                    let Some((menu, _)) = &dock_menu else {
-                        continue;
-                    };
-                    (Menu::glass(size), menu.draw(app.text(), size, appearance))
-                }
-                Open::ControlCenter => (
+                )),
+                // Opened only with its entries (`opening`).
+                Open::DockMenu | Open::AppName | Open::AppMenu(_) => dock_menu
+                    .as_ref()
+                    .map(|(menu, _)| (Menu::glass(size), menu.draw(app.text(), size, appearance))),
+                Open::ControlCenter => Some((
                     control_center.glass(),
                     control_center.draw(app.text(), network, appearance),
-                ),
+                )),
             };
-            app.set_glass(id, Some(glass));
-            app.draw(id, &scene).map_err(|e| e.to_string())?;
+            if let Some((glass, scene)) = drawn {
+                app.set_glass(id, Some(glass));
+                app.draw(id, &scene).map_err(|e| e.to_string())?;
+            }
         }
         if let Some((id, dialog, _)) = &asking
             && redraw_asking
@@ -1081,7 +1093,7 @@ fn menu_bar(
         x: r.x,
         y: 0.0,
         w: r.w,
-        h: h,
+        h,
     };
     let mut along = vec![(Open::BeizeMenu, bar_anchor(beize_button), Align::Left)];
     if let Some(app) = content.app {

@@ -56,7 +56,7 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::{
 };
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::{Logical, Point, Rectangle, Serial, Size};
+use smithay::utils::{IsAlive, Logical, Point, Rectangle, Serial, Size};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceData};
 use tracing::info;
@@ -650,9 +650,11 @@ impl State {
         let bar = bar_height(&window);
         let maximized =
             toplevel.with_pending_state(|state| state.states.contains(XdgState::Maximized));
+        // On a half it goes to the half as it is now (`window_committed`).
+        let half = snap_pending(toplevel);
         let before = with_place(&window, |place| {
             let before = place.before_fullscreen.take();
-            if !maximized {
+            if !maximized && half.is_none() {
                 place.unmaximized_at = before.map(|r| r.loc);
             }
             before
@@ -661,6 +663,9 @@ impl State {
             state.states.unset(XdgState::Fullscreen);
             state.size = if maximized {
                 Some((area.size.w, area.size.h - bar).into())
+            } else if let Some(half) = half {
+                let frame = half_frame(area, half);
+                Some((frame.size.w, frame.size.h - bar).into())
             } else {
                 // Without a size from before, the app chooses.
                 before.map(|r| r.size)
@@ -733,6 +738,10 @@ impl State {
     /// right take a half and from the other half go back to the place from
     /// before; up maximizes; down goes back. Fullscreen stays.
     pub fn arrow_key(&mut self, arrow: Arrow) {
+        // A drag decides where the window goes.
+        if self.seat.get_pointer().is_some_and(|p| p.is_grabbed()) {
+            return;
+        }
         let Some(window) = self.active_window() else {
             return;
         };
@@ -1071,6 +1080,12 @@ const DRAG_THRESHOLD: f64 = 4.0;
 
 impl MoveGrab {
     fn follow(&mut self, state: &mut State, location: Point<f64, Logical>) {
+        // Closed meanwhile (Alt+F4): nothing to move, no place to show.
+        if !self.window.alive() {
+            self.zone = None;
+            state.set_snap_preview(None);
+            return;
+        }
         let delta = location - self.start.location;
         if self.holds {
             if delta.x.hypot(delta.y) < DRAG_THRESHOLD {
