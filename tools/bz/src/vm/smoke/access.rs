@@ -375,7 +375,7 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         .with_context(|| format!("could not measure the login: {lines:?}"))?;
 
     let started = Instant::now();
-    let (status, lines) = shell.capture("run0 bash -c 'echo BEIZE-UID-$(id -u)'")?;
+    let (status, lines) = shell.capture(&through_file("echo BEIZE-UID-$(id -u)"))?;
     let run0_ms = started.elapsed().saturating_sub(PASSWORD_PAUSE).as_millis();
     ensure!(
         status == 0 && lines.iter().any(|l| l.contains("BEIZE-UID-0")),
@@ -397,7 +397,7 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
          {run0_ms} ms (without typing)"
     );
     // Nobody logs in as root: no password matches its entry.
-    let (_, lines) = shell.capture("run0 getent shadow root")?;
+    let (_, lines) = shell.capture(&through_file("getent shadow root"))?;
     ensure!(
         lines.iter().any(|l| l.starts_with("root:!*:")),
         "root's password is not locked: {lines:?}"
@@ -525,7 +525,7 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
         "beize-account passwd did not change the owner's password (exit status {status}): \
          {lines:?}"
     );
-    let (status, lines) = shell.capture("run0 bash -c 'echo BEIZE-NEW-$(id -u)'")?;
+    let (status, lines) = shell.capture(&through_file("echo BEIZE-NEW-$(id -u)"))?;
     ensure!(
         status == 0 && lines.iter().any(|l| l.contains("BEIZE-NEW-0")),
         "run0 did not take the owner's new password (exit status {status}): {lines:?}"
@@ -582,4 +582,16 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  measured: password change {passwd_ms} ms (with typing)");
     shell.stop()?;
     machine.remove()
+}
+
+/// `command` as root through run0, its output read back from a file: run0 can
+/// lose the last output of what it ran (systemd 262.1: `ptyfwd.c`'s `drained()`
+/// asks only `TIOCINQ`, while the PTY's flip buffer may still hold it; a gate went
+/// red on 1.11. with exit status 0 and no output). Reported upstream by the owner;
+/// the check here is about root, not about the PTY.
+fn through_file(command: &str) -> String {
+    format!(
+        "run0 bash -c '{{ {command}; }} > /run/beize-run0.out 2>&1'; s=$?; \
+         cat /run/beize-run0.out 2>/dev/null; (exit $s)"
+    )
 }
