@@ -71,6 +71,23 @@ pub fn is_shell(stream: &UnixStream) -> Result<bool> {
     Ok(shell.is_ok_and(|shell| shell.ino() == peer))
 }
 
+/// The cgroup of the client at the other end of `stream`: what makes
+/// processes one app (`forward`).
+pub fn cgroup_of_client(stream: &UnixStream) -> Result<u64> {
+    cgroup_of(&peer_pidfd(stream)?)
+}
+
+/// The name of the unit with the cgroup `id`, among the user's apps.
+pub fn unit_of(id: u64) -> Option<String> {
+    let session = shell_cgroup().ok()?;
+    let manager = session.parent()?.parent()?;
+    std::fs::read_dir(manager.join("app.slice"))
+        .ok()?
+        .flatten()
+        .find(|entry| entry.metadata().is_ok_and(|m| m.ino() == id))
+        .and_then(|entry| entry.file_name().into_string().ok())
+}
+
 /// The process that connected, as a pidfd.
 fn peer_pidfd(stream: &UnixStream) -> Result<OwnedFd> {
     let mut fd: c_int = -1;

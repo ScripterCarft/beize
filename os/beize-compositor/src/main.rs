@@ -29,6 +29,7 @@ mod corners;
 mod cursor;
 mod decorations;
 mod error;
+mod forward;
 mod glass;
 mod gpu;
 mod idle;

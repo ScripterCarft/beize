@@ -702,6 +702,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
     viewport(&shell, &machine)?;
     activation(&shell)?;
+    not_forward(&shell)?;
     grabs(&shell, &qmp)?;
     load(&shell, &machine, &qmp, screen)?;
     phases.done("Beize UI and load");
@@ -823,6 +824,9 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
         thread::sleep(Duration::from_secs(pause));
     }
     wait_for_compositor_line(shell, "no screen connected: the desktop starts once one is")?;
+    // The test's programs start from outside, as no app would, and are to come
+    // to the front (`forward`).
+    shell.capture("mkdir -p ~/.config/beize && echo beize- > ~/.config/beize/come-forward")?;
     // The mouse moves meanwhile: no screen to keep it on (the compositor once
     // died of this). From a place it is not at: the same place is no event.
     drag(qmp, (1280, 800), (100, 100), (200, 200), false)?;
@@ -3616,6 +3620,30 @@ fn activation(shell: &Shell) -> Result<()> {
         "  ok: an app handed on activation with a token of its focus; one of a focus gone, \
          and one without a serial, activated nothing"
     );
+    Ok(())
+}
+
+/// A window nobody asked for opens behind the active one, without the keyboard.
+fn not_forward(shell: &Shell) -> Result<()> {
+    const UNIT: &str = "unasked-window";
+    let (_, lines) = shell.capture(&format!(
+        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --seconds 30; \
+         for i in $(seq 100); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         && break; sleep 0.2; done; sleep 1; journalctl --user -u {UNIT} -o cat \
+         | grep -E '^(configure|keyboard focus)'; systemctl --user stop {UNIT}; \
+         journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -c 'opens behind the active window'"
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l.starts_with("configure "))
+            && !lines.iter().any(|l| l.starts_with("keyboard focus")),
+        "a window nobody asked for got the keyboard: {lines:?}"
+    );
+    ensure!(
+        lines.last().is_some_and(|l| l.trim() == "1"),
+        "the compositor did not say it opened behind: {lines:?}"
+    );
+    say!("  ok: a window nobody asked for opened behind the active one, without the keyboard");
     Ok(())
 }
 

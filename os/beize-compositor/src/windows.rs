@@ -84,6 +84,8 @@ const SMALLEST: (i32, i32) = (64, 32);
 /// What the compositor remembers of a window.
 #[derive(Debug, Default)]
 struct Place {
+    /// Asked with a token before it was placed (`activation`).
+    activation_asked: bool,
     /// Where it was before it was maximized.
     restore: Option<Rectangle<i32, Logical>>,
     /// Where it was before it went fullscreen.
@@ -103,6 +105,15 @@ struct Resize {
     initial: Rectangle<i32, Logical>,
     /// When the button went up: the last commit for the drag ends it.
     released: Option<Instant>,
+}
+
+/// `window`, not yet placed, asked with a valid token to be active.
+pub fn ask_activation(window: &Window) {
+    with_place(window, |place| place.activation_asked = true);
+}
+
+pub fn activation_asked(window: &Window) -> bool {
+    with_place(window, |place| place.activation_asked)
 }
 
 fn with_place<T>(window: &Window, f: impl FnOnce(&mut Place) -> T) -> T {
@@ -465,7 +476,14 @@ impl State {
             self.space.map_element(window.clone(), at, false);
             self.list_window(&window);
             self.switcher_window_new(&window);
-            self.focus(Some(window));
+            let active = self.active_window();
+            if self.takes_forward(&window) {
+                self.focus(Some(window));
+            } else if let Some(active) = active {
+                // It went on top by being mapped: the active one stays in front.
+                self.space.raise_element(&active, true);
+                self.changed();
+            }
             // It may have opened under the pointer.
             crate::input::refresh_pointer(self);
             return;
@@ -655,7 +673,12 @@ impl State {
             toplevel.send_pending_configure();
         }
         info!("fullscreen {}", app_id(&window));
-        if self.space.element_location(&window).is_some() {
+        // Only the active one, or one of those that may: asking for the screen
+        // is no way to the keyboard (and the clipboard, which goes with it).
+        let active = self.active_window().as_ref() == Some(&window);
+        if self.space.element_location(&window).is_some()
+            && (active || self.may_come_forward(&window))
+        {
             self.focus(Some(window));
         }
     }
@@ -1099,8 +1122,12 @@ const DRAG_THRESHOLD: f64 = 4.0;
 
 impl MoveGrab {
     fn follow(&mut self, state: &mut State, location: Point<f64, Logical>) {
-        // Closed meanwhile (Alt+F4): nothing to move, no place to show.
-        if !self.window.alive() {
+        // Closed or minimized meanwhile, or fullscreen by its app: nothing to
+        // move (mapping it again would put a minimized window on the screen).
+        if !self.window.alive()
+            || state.space.element_location(&self.window).is_none()
+            || fullscreen(&self.window)
+        {
             self.zone = None;
             state.set_snap_preview(None);
             return;
@@ -1218,6 +1245,22 @@ impl ResizeGrab {
         });
         toplevel.with_pending_state(|state| state.states.unset(XdgState::Resizing));
         toplevel.send_pending_configure();
+    }
+
+    /// Whatever ended the grab: the window is not resizing any more.
+    fn finish(&mut self) {
+        let Some(toplevel) = self.window.toplevel().cloned() else {
+            return;
+        };
+        if toplevel.with_pending_state(|state| state.states.contains(XdgState::Resizing)) {
+            with_place(&self.window, |place| {
+                if let Some(resize) = &mut place.resize {
+                    resize.released = Some(Instant::now());
+                }
+            });
+            toplevel.with_pending_state(|state| state.states.unset(XdgState::Resizing));
+            toplevel.send_pending_configure();
+        }
     }
 }
 
@@ -1351,7 +1394,7 @@ macro_rules! drag_grab {
             }
 
             fn unset(&mut self, data: &mut State) {
-                ($unset)(data);
+                ($unset)(self, data);
             }
         }
     };
@@ -1361,13 +1404,15 @@ drag_grab!(
     MoveGrab,
     MoveGrab::follow,
     MoveGrab::release,
-    |state: &mut State| state.set_snap_preview(None)
+    |_: &mut MoveGrab, state: &mut State| state.set_snap_preview(None)
 );
 drag_grab!(
     ResizeGrab,
     |grab: &mut ResizeGrab, state: &mut State, at| grab.follow(state, at),
     ResizeGrab::release,
-    |_: &mut State| {}
+    // Released already, it says nothing new; replaced, the window stops
+    // resizing with it.
+    |grab: &mut ResizeGrab, _: &mut State| grab.finish()
 );
 
 #[cfg(test)]

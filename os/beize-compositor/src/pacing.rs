@@ -220,7 +220,9 @@ impl Pacing {
             let who = if times.committed > begins {
                 self.run.late_drawing += 1;
                 "drawing"
-            } else if ready > begins {
+            // Ready, but inside the margin the flip needs (`schedule::MARGIN`):
+            // over 1500 such frames of 0.5.126 were called the display's.
+            } else if ready + crate::schedule::MARGIN > begins {
                 self.run.late_gpu += 1;
                 "GPU"
             } else {

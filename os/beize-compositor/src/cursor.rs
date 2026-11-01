@@ -36,6 +36,9 @@ use xcursor::CursorTheme;
 
 /// The theme's name: "default" inherits Beize's (recipes/bibata-cursor.toml),
 /// as libXcursor and wayland-cursor look it up.
+/// The largest image a client may name for the pointer, a side in pixels.
+const MOST_SIZE: u32 = 512;
+
 const THEME: &str = "default";
 /// The pointer's size in pixels at scale 1: GNOME's and KDE's default.
 const SIZE: u32 = 24;
@@ -283,6 +286,10 @@ fn surface_image(surface: &WlSurface, id: u64) -> Option<Image> {
             u32::try_from(data.width).ok()?,
             u32::try_from(data.height).ok()?,
         );
+        // No cursor is this large; copying one would stand the compositor.
+        if width > MOST_SIZE || height > MOST_SIZE {
+            return None;
+        }
         let offset = usize::try_from(data.offset).ok()?;
         let stride = usize::try_from(data.stride).ok()?;
         let row = width as usize * 4;

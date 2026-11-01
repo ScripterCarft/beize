@@ -85,6 +85,8 @@ impl XdgActivationHandler for State {
             .any(|w| *w == window)
         {
             self.bring_back(window);
+        } else {
+            crate::windows::ask_activation(&window);
         }
     }
 }

@@ -179,6 +179,10 @@ pub struct State {
     /// entitles a client to a menu that grabs (`shell::grab`).
     pub last_key: Option<(Serial, ClientId)>,
     pub last_button: Option<(Serial, ClientId)>,
+    /// Windows expected from what the user started through Beize, since the
+    /// last input to an app (`forward`). A count: two Ctrl+Alt+T may come
+    /// before the first window.
+    pub launching: u32,
     /// Frames that failed in a row (`retry_frame`).
     frames_failed: u32,
     /// Every app's handle on the glass, which hears the appearance (`glass`).
@@ -196,6 +200,7 @@ pub struct State {
     /// appearance (`backdrop_for`, numbered by `backdrops`).
     backdrop: Option<Backdrop>,
     backdrop_for: Option<(Size<i32, Physical>, Appearance)>,
+    backdrop_retry: Option<Duration>,
     backdrops: u64,
     /// What lies behind live glass, per panel that has it.
     live_glass: Vec<LiveGlass>,
@@ -309,6 +314,8 @@ pub struct ClientState {
     pub compositor: CompositorClientState,
     /// The client is Beize's shell (`trust`): it may draw panels.
     pub shell: bool,
+    /// Its cgroup (`forward`).
+    pub cgroup: Option<u64>,
     /// The shell said its panels are drawn (`beize_shell_v1.ready`).
     pub ready: AtomicBool,
     /// Where the shell's end is told, with whether it was ready
@@ -411,6 +418,7 @@ impl State {
             overlay_keyboard: None,
             last_key: None,
             last_button: None,
+            launching: 0,
             frames_failed: 0,
             glass_managers: Vec::new(),
             snap_preview: None,
@@ -420,6 +428,7 @@ impl State {
             appearance: Appearance::chosen(),
             backdrop: None,
             backdrop_for: None,
+            backdrop_retry: None,
             backdrops: 0,
             live_glass: Vec::new(),
             opening: Opening::Waiting { shell: false },
@@ -1033,13 +1042,21 @@ impl State {
         // The background and the glass, once per size and appearance: drawn
         // with this frame, ahead of it.
         let want = (area.size.to_physical(1), self.appearance);
-        if self.backdrop_for != Some(want) {
-            self.backdrop_for = Some(want);
+        if self.backdrop_for != Some(want) && self.backdrop_retry.is_none_or(|retry| began >= retry)
+        {
             self.backdrops += 1;
             self.backdrop = match Backdrop::new(gpu.renderer(), want.0, want.1, self.backdrops) {
-                Ok(backdrop) => Some(backdrop),
+                Ok(backdrop) => {
+                    self.backdrop_for = Some(want);
+                    self.backdrop_retry = None;
+                    Some(backdrop)
+                }
+                // With it would go the glass and the snap preview, until the
+                // size or appearance changed. Not each frame: a second later.
                 Err(e) => {
-                    warn!("drawing the background: {e}; a plain colour instead");
+                    warn!("drawing the background: {e}; a plain colour until it works");
+                    self.backdrop_for = None;
+                    self.backdrop_retry = Some(began + Duration::from_secs(1));
                     None
                 }
             };
@@ -2088,7 +2105,8 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some(window) = self.window_for(&root) {
+            // Also minimized: `bring_back` places it by this geometry.
+            if let Some(window) = self.any_window(&root) {
                 window.on_commit();
             }
         }
@@ -2238,6 +2256,7 @@ pub fn insert_client(state: &mut State, stream: std::os::unix::net::UnixStream) 
     }
     let data = ClientState {
         shell,
+        cgroup: crate::trust::cgroup_of_client(&stream).ok(),
         ended: shell.then(|| state.shell_ended.clone()),
         ..ClientState::default()
     };

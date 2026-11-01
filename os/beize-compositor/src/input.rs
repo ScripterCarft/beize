@@ -77,10 +77,10 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
     let pressed = event.state() == KeyState::Pressed;
     let keyboard = state.keyboard.clone();
     let serial = SERIAL_COUNTER.next_serial();
-    state.last_key = keyboard
+    let client = keyboard
         .current_focus()
-        .and_then(|surface| surface.client())
-        .map(|client| (serial, client.id()));
+        .and_then(|surface| surface.client());
+    state.last_key = client.as_ref().map(|client| (serial, client.id()));
     let action = keyboard.input(
         state,
         code,
@@ -119,7 +119,14 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
                     state.taken_keys.insert(code);
                     FilterResult::Intercept(Some(action))
                 }
-                None => FilterResult::Forward,
+                None => {
+                    // A modifier is no input yet: the next Ctrl+Alt+T's Ctrl
+                    // does not end what the last one started.
+                    if !keysym.modified_sym().is_modifier_key() {
+                        state.input_to(client.as_ref());
+                    }
+                    FilterResult::Forward
+                }
             }
         },
     );
@@ -129,7 +136,10 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
                 warn!("switching to VT {vt}: {e}");
             }
         }
-        Some(Action::OpenTerminal) => apps::open_terminal(),
+        Some(Action::OpenTerminal) => {
+            state.launching += 1;
+            apps::open_terminal();
+        }
         Some(Action::ToggleFullscreen) => {
             let active = keyboard
                 .current_focus()
@@ -317,10 +327,11 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
         }
     }
     if let Some(pointer) = state.seat.get_pointer() {
-        state.last_button = pointer
-            .current_focus()
-            .and_then(|surface| surface.client())
-            .map(|client| (serial, client.id()));
+        let client = pointer.current_focus().and_then(|surface| surface.client());
+        state.last_button = client.as_ref().map(|client| (serial, client.id()));
+        if pressed {
+            state.input_to(client.as_ref());
+        }
         pointer.button(
             state,
             &ButtonEvent {

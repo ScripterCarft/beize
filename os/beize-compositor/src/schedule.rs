@@ -67,7 +67,7 @@ use std::time::Duration;
 
 /// Ready this long before the vblank begins, for the kernel to program the
 /// display (KWin's `s_safetyMarginMinimum`).
-const MARGIN: Duration = Duration::from_millis(1);
+pub const MARGIN: Duration = Duration::from_millis(1);
 /// The least a frame's drawing counts for (KWin's `minimumTime`).
 const FLOOR: Duration = Duration::from_millis(2);
 /// The most that is learnt on top of `MARGIN`; also at most half a refresh
