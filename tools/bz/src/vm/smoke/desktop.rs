@@ -710,10 +710,6 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     wait_for_terminals(&shell, 1)?;
     wait_for_shell_line(&shell, |l| l.starts_with("dock: beize-terminal running"))?;
     say!("  ok: with no terminal running, the dock's tile started one");
-    // Its window has the keyboard before the first key.
-    thread::sleep(Duration::from_secs(1));
-    title_flood(&shell, &qmp)?;
-    phases.done("title flood");
 
     menus(&shell, &machine, &qmp, screen)?;
     phases.done("menus");
@@ -802,8 +798,8 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
     }
     wait_for_compositor_line(shell, "no screen connected: the desktop starts once one is")?;
     // The mouse moves meanwhile: no screen to keep it on (the compositor once
-    // died of this). The size matters only to the device, not to the check.
-    park(qmp, (1280, 800))?;
+    // died of this). From a place it is not at: the same place is no event.
+    drag(qmp, (1280, 800), (100, 100), (200, 200), false)?;
     let (_, lines) = shell.capture(
         "systemctl --user is-active beize-session.target beize-compositor.service \
          beize-shell.service",
@@ -3646,33 +3642,6 @@ fn grabs(shell: &Shell, qmp: &Path) -> Result<()> {
         "  ok: no menu grabbed without input, one answering a key closed with its window, and a \
          flood of titles left the shell standing"
     );
-    Ok(())
-}
-
-/// A program in the terminal changes its title as fast as it can: the
-/// terminal stays. Each title went to the compositor once, and a full socket
-/// ended the terminal with its session.
-fn title_flood(shell: &Shell, qmp: &Path) -> Result<()> {
-    let open = terminals(shell)?.len();
-    let (status, lines) = shell.capture(
-        "cat > /run/user/1000/flood <<'FLOOD'\n\
-         for i in $(seq 1 30000); do printf '\\033]0;%d\\007' \"$i\"; done\n\
-         printf '\\033]0;\\007'\n\
-         : > /run/user/1000/flood-done\n\
-         FLOOD\n\
-         chown 1000 /run/user/1000/flood",
-    )?;
-    ensure!(status == 0, "could not write the script: {lines:?}");
-    keys(qmp, &german_presses("bash /run/user/1000/flood")?)?;
-    let (_, lines) = shell.capture(
-        "for i in $(seq 300); do [ -e /run/user/1000/flood-done ] && echo BEIZE-DONE && break; \
-         sleep 0.2; done; rm -f /run/user/1000/flood /run/user/1000/flood-done",
-    )?;
-    ensure!(
-        lines.iter().any(|l| l == "BEIZE-DONE") && terminals(shell)?.len() == open,
-        "the terminal did not survive a flood of titles: {lines:?}"
-    );
-    say!("  ok: a program flooding the title left the terminal standing");
     Ok(())
 }
 

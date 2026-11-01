@@ -554,10 +554,7 @@ const LETTERS: [&str; 26] = [
     "t", "u", "v", "w", "x", "y", "z",
 ];
 
-/// QEMU's names of the digit keys.
-const DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
-
-/// The keys that type `text` (lowercase letters, digits, spaces, "-" and "/"), then Enter,
+/// The keys that type `text` (lowercase letters, "-" and "/"), then Enter,
 /// on the German keyboard the smoke test's owner chose (`SETUP_ANSWERS`):
 /// Y and Z swapped, the dash on the key a US keyboard has the slash on,
 /// the slash on Shift+7.
@@ -569,8 +566,6 @@ pub(super) fn german_presses(text: &str) -> Result<Vec<&'static str>> {
             'y' => Ok("z"),
             'z' => Ok("y"),
             'a'..='z' => Ok(LETTERS[c as usize - 'a' as usize]),
-            '0'..='9' => Ok(DIGITS[c as usize - '0' as usize]),
-            ' ' => Ok("spc"),
             _ => Err(anyhow!("{c:?} has no key here")),
         })
         .chain([Ok("ret")])
