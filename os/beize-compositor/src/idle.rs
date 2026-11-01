@@ -20,7 +20,8 @@ use std::time::Duration;
 
 /// macOS' "Turn display off when inactive" on a desktop. Until Beize's
 /// settings hold the choice, `BEIZE_SCREEN_OFF_AFTER` (seconds, 0 for
-/// never) in the desktop's environment sets it (tests).
+/// never) in the desktop's environment sets it (tests), and
+/// `BEIZE_SCREEN_FADE` (seconds) the fade (the smoke test's 2 s).
 const AFTER: Duration = Duration::from_secs(10 * 60);
 
 /// GNOME's fade to black before the screen blanks.
@@ -55,6 +56,8 @@ pub enum Woken {
 pub struct Idle {
     /// None: never off.
     after: Option<Duration>,
+    /// How long the fade to black takes (`FADE`).
+    fade: Duration,
     /// The last use: input, or an inhibitor seen.
     used: Duration,
     phase: Phase,
@@ -71,12 +74,21 @@ impl Idle {
             },
             Err(_) => Some(AFTER),
         };
-        Idle::new(after, now)
+        let fade = std::env::var("BEIZE_SCREEN_FADE")
+            .ok()
+            .and_then(|seconds| seconds.trim().parse::<u64>().ok())
+            .filter(|&seconds| seconds > 0)
+            .map_or(FADE, Duration::from_secs);
+        Idle {
+            fade,
+            ..Idle::new(after, now)
+        }
     }
 
     fn new(after: Option<Duration>, now: Duration) -> Idle {
         Idle {
             after,
+            fade: FADE,
             used: now,
             phase: Phase::Awake,
         }
@@ -145,7 +157,7 @@ impl Idle {
         };
         let next = self.step(now)? + 1;
         // The first nanosecond of that step (rounded up).
-        let nanos = (next * FADE.as_nanos()).div_ceil(STEPS);
+        let nanos = (next * self.fade.as_nanos()).div_ceil(STEPS);
         (next <= STEPS).then(|| since + Duration::from_nanos(nanos as u64))
     }
 
@@ -154,7 +166,7 @@ impl Idle {
         let Phase::Fading(since) = self.phase else {
             return None;
         };
-        Some(now.saturating_sub(since).as_nanos() * STEPS / FADE.as_nanos())
+        Some(now.saturating_sub(since).as_nanos() * STEPS / self.fade.as_nanos())
     }
 
     /// The fade is all black at `now`: time for the screen to go off.

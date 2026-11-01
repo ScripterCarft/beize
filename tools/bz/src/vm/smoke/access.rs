@@ -587,8 +587,8 @@ pub(super) fn privileges(paths: &Paths, installed: &Installed) -> Result<()> {
 /// `command` as root through run0, its output read back from a file: run0 can
 /// lose the last output of what it ran (systemd 262.1: `ptyfwd.c`'s `drained()`
 /// asks only `TIOCINQ`, while the PTY's flip buffer may still hold it; a gate went
-/// red on 1.11. with exit status 0 and no output). Reported upstream by the owner;
-/// the check here is about root, not about the PTY.
+/// red on 1.11. with exit status 0 and no output). To be reported upstream (the owner's,
+/// ~/upstream/systemd-ptyfwd-drain); the check here is about root, not the PTY.
 fn through_file(command: &str) -> String {
     format!(
         "run0 bash -c '{{ {command}; }} > /run/beize-run0.out 2>&1'; s=$?; \

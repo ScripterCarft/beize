@@ -294,13 +294,15 @@ const FRAMED_MOVE_BY: (i32, i32) = (-120, 60);
 /// (os/beize-compositor, `idle::FADE`); how long a part of it may take
 /// beyond that, in a VM beside others.
 const SCREEN_OFF_AFTER: Duration = Duration::from_secs(3);
-const SCREEN_FADE: Duration = Duration::from_secs(10);
+const SCREEN_FADE: Duration = Duration::from_secs(3);
 const SCREEN_OFF_SLACK: Duration = Duration::from_secs(5);
-/// How far into the fade the screen is looked at, and by how much the
-/// middle of the desktop (the background: no window) is darker then, at
-/// least, in the mean of its channels: 30 % black over a background of
-/// some 150 takes 45.
-const FADE_LOOKED_AT: Duration = Duration::from_secs(3);
+/// How long anything awaited may take, at most: long, as a wait that comes
+/// costs nothing, and the VM's vCPUs can stand still for 21 s (#41). No check
+/// here asserts a pace (`beize-no-vm-timing`): that is measured on hardware.
+const DEADLINE: Duration = Duration::from_secs(60);
+/// By how much the middle of the desktop (the background: no window) gets
+/// darker in the fade, at least, in the mean of its channels: 30 % black over
+/// a background of some 150 takes 45.
 const FADE_DARKER: f64 = 20.0;
 /// How long a client draws with the screen off, and how many frames at most:
 /// its first two come without a wait, then one each `HIDDEN_FRAMES`
@@ -311,20 +313,20 @@ const OFF_DRAWING: Duration = Duration::from_secs(3);
 const OFF_FRAMES_MOST: usize = 6;
 
 /// The load test's scene (os/beize-ui, `beize-load-test`): its windows, how
-/// long it runs, and how many frames each window must have drawn at least
-/// – in the VM about 35 a second, on CI's runner fewer; fewer than two a
-/// second would mean it stalls. Long enough for the drag behind the dock
+/// long it runs, and how many frames each window must have drawn at least –
+/// one: it draws at all; how fast is measured on hardware, as a stand of the
+/// VM's vCPUs (#41) makes any pace here a guess. Long enough for the drag behind the dock
 /// and the glass's check; what it measures counts on hardware only, which
 /// runs it longer (`measure/hw-test.sh`).
 const LOAD_WINDOWS: usize = 12;
 const LOAD_SECONDS: u64 = 6;
-const LOAD_LEAST_FRAMES: usize = 2 * LOAD_SECONDS as usize;
+const LOAD_LEAST_FRAMES: usize = 1;
 /// How far above the dock the test drags the scene's top window by its
 /// bar: the window's content then lies behind the dock.
 const LOAD_ABOVE_DOCK: usize = 150;
 
 /// How long a screen may take to become what its reference shows.
-const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
+const SCREEN_TIMEOUT: Duration = DEADLINE;
 
 /// By when the compositor has ended a run of frames after its last one:
 /// 250 ms without a frame (`IDLE`, os/beize-compositor/src/pacing.rs),
@@ -416,7 +418,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
         "could not start the test client (exit status {status}): {lines:?}"
     );
     let (_, lines) = shell.capture(
-        "for i in $(seq 50); do journalctl --user -u beize-testclient -o cat | grep -q '^configure ' \
+        "for i in $(seq 300); do journalctl --user -u beize-testclient -o cat | grep -q '^configure ' \
          && break; sleep 0.2; done; journalctl --user -u beize-testclient -o cat",
     )?;
     let configured = |lines: &[String]| {
@@ -573,7 +575,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let (_, lines) = shell.capture(
         "systemctl --user stop beize-testclient \
          && systemd-run --user --unit=beize-ui-test /run/t/beize-ui-test --seconds 60 \
-         && for i in $(seq 50); do journalctl --user -u beize-ui-test -o cat \
+         && for i in $(seq 300); do journalctl --user -u beize-ui-test -o cat \
          | grep -q '^configure ' && break; sleep 0.2; done; \
          journalctl --user -u beize-ui-test -o cat",
     )?;
@@ -685,7 +687,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     click(&qmp, screen, close, 1)?;
     park(&qmp, screen)?;
     let (_, lines) = shell.capture(
-        "for i in $(seq 50); do systemctl --user -q is-active beize-ui-test || break; \
+        "for i in $(seq 300); do systemctl --user -q is-active beize-ui-test || break; \
          sleep 0.2; done; systemctl --user is-active beize-ui-test; \
          journalctl --user -u beize-ui-test -o cat | grep -x done | tail -n 1",
     )?;
@@ -843,7 +845,7 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
     );
     set_screen(shell, "detect")?;
     let (_, lines) = shell.capture(
-        "for i in $(seq 100); do systemctl --user -q is-active beize-session.target && break; \
+        "for i in $(seq 300); do systemctl --user -q is-active beize-session.target && break; \
          sleep 0.2; done; systemctl --user is-active beize-session.target",
     )?;
     ensure!(
@@ -898,7 +900,7 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
     // The shell: its own process in its system call filter, which the
     // compositor knows as the shell by its unit; its menu bar on the screen.
     let (_, lines) = shell.capture(&format!(
-        "for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 1 ] && break; sleep 0.2; done; \
+        "for i in $(seq 300); do [ \"$({SHELL_CONNECTED})\" -ge 1 ] && break; sleep 0.2; done; \
          echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
          p=$(systemctl --user show -P MainPID beize-shell.service); \
          while read -r k v; do [ \"$k\" = Seccomp: ] && echo BEIZE-SECCOMP-$v; \
@@ -1096,11 +1098,14 @@ fn confirmation(
         terminals(shell)?.len() == open_terminals,
         "Alt+F4 closed the window behind the dialog"
     );
-    // In the terminal, far from the dialog: Return goes there.
+    // In the terminal where the compositor placed it, near its top left, far
+    // from the dialog in the middle: Return goes there. A fixed point hit the
+    // terminal only as long as the windows before it happened to stack so.
+    let ((x, y), _) = last_placed(shell, "beize-terminal")?;
     click(
         qmp,
         screen,
-        (40, i32::try_from(MENU_BAR + TITLE_BAR)? + 40),
+        (i32::try_from(x + 40)?, i32::try_from(y + TITLE_BAR + 40)?),
         1,
     )?;
     thread::sleep(Duration::from_millis(300));
@@ -2601,8 +2606,8 @@ fn frames(shell: &Shell) -> Result<()> {
     let summed = pacing_summaries(shell)?;
     let (status, lines) = shell.capture(&format!(
         "systemd-run --user --unit=beize-testclient-frames /run/t/beize-testclient --frames 120 \
-         --seconds 20 && for i in $(seq 100); do [ \"$({PACING} | wc -l)\" -gt {summed} ] \
-         && break; sleep 0.2; done; {PACING} | tail -n +{}",
+         --seconds 20 && for i in $(seq 300); do [ \"$({PACING} | wc -l)\" -gt {summed} ] \
+         && break; sleep 0.2; done; sleep 1; {PACING} | tail -n +{}",
         summed + 1
     ))?;
     let Some(pacing) = lines.iter().find(|l| l.starts_with("pacing: ")) else {
@@ -2612,11 +2617,13 @@ fn frames(shell: &Shell) -> Result<()> {
              last said: {said:?}"
         );
     };
-    let frames = pacing
-        .strip_prefix("pacing: ")
-        .and_then(|s| s.split_once(' '))
-        .and_then(|(n, _)| n.parse::<u32>().ok())
-        .with_context(|| format!("a pacing summary without frames: {pacing}"))?;
+    // A stand of the VM's vCPUs (#41) ends a run and starts another: all of
+    // them since, summed.
+    let frames: u32 = lines
+        .iter()
+        .filter_map(|l| l.strip_prefix("pacing: "))
+        .filter_map(|s| s.split_once(' ')?.0.parse::<u32>().ok())
+        .sum();
     // A frame or two more for the menu bar (its minute) is no mix.
     ensure!(
         (100..=125).contains(&frames),
@@ -2810,7 +2817,7 @@ fn syncobj(shell: &Shell) -> Result<()> {
 fn client_summary(shell: &Shell, unit: &str, args: &str, last: &str) -> Result<Vec<String>> {
     let (_, lines) = shell.capture(&format!(
         "systemd-run --user --unit={unit} /run/t/beize-testclient {args} --seconds 20 \
-         && for i in $(seq 100); do journalctl --user -u {unit} -o cat | grep -q '^{last}' \
+         && for i in $(seq 300); do journalctl --user -u {unit} -o cat | grep -q '^{last}' \
          && break; sleep 0.2; done; journalctl --user -u {unit} -o cat \
          | grep -E '^(presentation|fifo|timed|(activation|syncobj) [a-z ]+): '; \
          systemctl --user stop {unit}"
@@ -2833,7 +2840,7 @@ fn shell_restarts(
     // back, the desktop and the window stay.
     let (_, lines) = shell.capture(&format!(
         "systemctl --user kill -s KILL beize-shell.service; \
-         for i in $(seq 50); do [ \"$({SHELL_CONNECTED})\" -ge 2 ] && break; sleep 0.2; done; \
+         for i in $(seq 300); do [ \"$({SHELL_CONNECTED})\" -ge 2 ] && break; sleep 0.2; done; \
          echo BEIZE-SHELL-$({SHELL_CONNECTED}); \
          systemctl --user is-active beize-shell.service beize-compositor.service \
          beize-session.target"
@@ -2870,7 +2877,7 @@ fn shell_restarts(
     let (_, lines) = shell.capture(
         "k() { journalctl --user -b -u beize-compositor.service -o cat \
          | grep -c '^the shell failed: '; }; systemctl --user stop beize-shell.service; \
-         for i in $(seq 50); do [ \"$(k)\" -ge 2 ] && break; sleep 0.1; done; sleep 0.5; \
+         for i in $(seq 300); do [ \"$(k)\" -ge 2 ] && break; sleep 0.1; done; sleep 0.5; \
          echo BEIZE-KEPT-$(k); systemctl --user is-active beize-shell.service",
     )?;
     ensure!(
@@ -2891,7 +2898,7 @@ fn shell_restarts(
     let (_, lines) = shell.capture(
         "r() { journalctl --user -b -u beize-compositor.service -o cat \
          | grep -c '^a new shell is ready '; }; systemctl --user start beize-shell.service; \
-         for i in $(seq 50); do [ \"$(r)\" -ge 2 ] && break; sleep 0.2; done; \
+         for i in $(seq 300); do [ \"$(r)\" -ge 2 ] && break; sleep 0.2; done; \
          echo BEIZE-REPLACED-$(r)",
     )?;
     ensure!(
@@ -2911,7 +2918,7 @@ fn layout_follows(shell: &Shell) -> Result<()> {
     let (_, lines) = shell.capture(
         "( n() { journalctl --user -b -u beize-compositor.service -o cat \
          | grep -c '^keyboard layout '; }; \
-         w() { for i in $(seq 50); do [ \"$(n)\" -gt \"$1\" ] && break; sleep 0.2; done; \
+         w() { for i in $(seq 300); do [ \"$(n)\" -gt \"$1\" ] && break; sleep 0.2; done; \
          journalctl --user -b -u beize-compositor.service -o cat | grep '^keyboard layout ' \
          | tail -n 1 | sed 's/^/BEIZE-LAYOUT /'; }; \
          . /etc/vconsole.conf; s=$(n); \
@@ -3035,7 +3042,7 @@ fn still_and_signed_out(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
     thread::sleep(Duration::from_millis(500));
     keys(qmp, &["ret"])?;
     let (_, lines) = shell.capture(
-        "for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
+        "for i in $(seq 300); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
          || break; sleep 0.2; done; \
          systemctl --user is-active beize-session.target beize-compositor.service \
          beize-shell.service graphical-session.target; systemctl --user show-environment",
@@ -3073,9 +3080,11 @@ fn still_and_signed_out(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
 /// Nothing warns but Smithay's known warnings.
 fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
     let after = SCREEN_OFF_AFTER.as_secs();
+    let fade = SCREEN_FADE.as_secs();
     let (_, lines) = shell.capture(&format!(
-        "systemctl --user set-environment BEIZE_SCREEN_OFF_AFTER={after} && \
-         for i in $(seq 50); do pgrep -t tty1 -x agetty > /dev/null && break; sleep 0.2; done; \
+        "systemctl --user set-environment BEIZE_SCREEN_OFF_AFTER={after} \
+         BEIZE_SCREEN_FADE={fade} && \
+         for i in $(seq 300); do pgrep -t tty1 -x agetty > /dev/null && break; sleep 0.2; done; \
          echo BEIZE-SINCE-$(date +%s.%N)"
     ))?;
     let since = lines
@@ -3105,38 +3114,36 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
         dpms(shell)? == "On",
         "the screen is not on after signing in"
     );
+    let desktop = screen(machine, "desktop-before-fade")?;
 
     // Without input it fades; darker a while in; a key takes it back.
     const FADES: &str = "no input for [0-9]* s: the screen fades to black";
-    said(FADES, 1, SCREEN_OFF_AFTER + SCREEN_OFF_SLACK)?;
-    thread::sleep(FADE_LOOKED_AT);
-    let faded = screen(machine, "fading")?;
-    keys(qmp, &["shift"])?;
-    said(
-        "input: the fade to black is taken back",
-        1,
-        SCREEN_OFF_SLACK,
-    )?;
-    wait_for_panels(machine)?;
-    let desktop = screen(machine, "fade-taken-back")?;
+    said(FADES, 1, DEADLINE)?;
+    wait_until_screen(machine, "fading", |shown| {
+        let darker = centre_mean(&desktop) - centre_mean(shown);
+        ensure!(
+            darker >= FADE_DARKER,
+            "the screen is not darker than the desktop by {FADE_DARKER} but by {darker:.1}"
+        );
+        Ok(())
+    })?;
+    let faded = screen(machine, "faded")?;
     let darker = centre_mean(&desktop) - centre_mean(&faded);
-    ensure!(
-        darker >= FADE_DARKER,
-        "{} s into the fade the screen was not darker than the desktop by {FADE_DARKER} \
-         but by {darker:.1}; the screens are in the logs as fading and fade-taken-back",
-        FADE_LOOKED_AT.as_secs()
-    );
+    keys(qmp, &["shift"])?;
+    said("input: the fade to black is taken back", 1, DEADLINE)?;
+    wait_for_panels(machine)?;
+    // The desktop as the fade left it: what the screen shows again later.
+    let desktop = screen(machine, "fade-taken-back")?;
     say!(
-        "  ok: without input for {after} s the screen faded to black, {darker:.0} darker {} s \
-         in, and a key took the fade back",
-        FADE_LOOKED_AT.as_secs()
+        "  ok: without input for {after} s the screen faded to black, {darker:.0} darker, \
+         and a key took the fade back"
     );
 
     // A window with an idle inhibitor keeps it from fading, for twice the
     // time; ended, the screen fades and goes off.
     let (_, lines) = shell.capture(
         "systemd-run --user --unit=beize-testclient-inhibit /run/t/beize-testclient --inhibit \
-         --seconds 60 && for i in $(seq 50); do journalctl --user -u beize-testclient-inhibit \
+         --seconds 60 && for i in $(seq 300); do journalctl --user -u beize-testclient-inhibit \
          -o cat | grep -q '^configure ' && break; sleep 0.2; done; \
          journalctl --user -u beize-testclient-inhibit -o cat",
     )?;
@@ -3151,8 +3158,8 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
         "the screen faded with a window that inhibits idling on it ({fades} fades)"
     );
     shell.capture("systemctl --user stop beize-testclient-inhibit")?;
-    said(FADES, 2, SCREEN_OFF_AFTER + SCREEN_OFF_SLACK)?;
-    said("the screen is off", 1, SCREEN_FADE + SCREEN_OFF_SLACK)?;
+    said(FADES, 2, DEADLINE)?;
+    said("the screen is off", 1, DEADLINE)?;
     let state = dpms(shell)?;
     ensure!(
         state == "Off",
@@ -3193,7 +3200,7 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
 
     // A key turns it on, with the desktop as it was.
     keys(qmp, &["shift"])?;
-    said("input: the screen is on again", 1, SCREEN_OFF_SLACK)?;
+    said("input: the screen is on again", 1, DEADLINE)?;
     wait_for_panels(machine)?;
     let state = dpms(shell)?;
     ensure!(
@@ -3220,8 +3227,8 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
     let (_, lines) = shell.capture(
         "s=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p'); \
          loginctl terminate-session \"$s\"; \
-         for i in $(seq 50); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
-         || break; sleep 0.2; done; systemctl --user unset-environment BEIZE_SCREEN_OFF_AFTER; \
+         for i in $(seq 300); do systemctl --user show-environment | grep -q '^XDG_SESSION_ID=' \
+         || break; sleep 0.2; done; systemctl --user unset-environment BEIZE_SCREEN_OFF_AFTER BEIZE_SCREEN_FADE; \
          systemctl --user is-active beize-compositor.service",
     )?;
     ensure!(
@@ -3413,11 +3420,9 @@ fn load(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)) ->
         .split_once(" frames in ")
         .and_then(|(_, rest)| rest.split_once(" s")?.0.parse::<f64>().ok())
         .with_context(|| format!("no length in {pacing:?}"))?;
-    ensure!(
-        seconds >= (LOAD_SECONDS - 1) as f64,
-        "the compositor's last run took {seconds} s, not the load test's {LOAD_SECONDS}: \
-         {pacing}"
-    );
+    // Only said: a stand of the VM splits the run, and its pace counts on
+    // hardware (`measure/hw-test.sh`).
+    let _ = seconds;
     let least = drawn.iter().min().copied().unwrap_or(0);
     say!(
         "  ok: the load test's {LOAD_WINDOWS} windows each drew {least} frames or more in \
@@ -3443,7 +3448,7 @@ fn framed(
     const UNIT: &str = "beize-testclient-framed";
     let (_, lines) = shell.capture(&format!(
         "systemd-run --user --unit={UNIT} /run/t/beize-testclient --server-side --seconds 60 \
-         && for i in $(seq 50); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         && for i in $(seq 300); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
          && break; sleep 0.2; done; journalctl --user -u {UNIT} -o cat"
     ))?;
     ensure!(
@@ -3517,7 +3522,7 @@ fn framed(
     click(qmp, screen, close, 1)?;
     park(qmp, screen)?;
     let (_, lines) = shell.capture(&format!(
-        "for i in $(seq 50); do systemctl --user -q is-active {UNIT} || break; sleep 0.2; done; \
+        "for i in $(seq 300); do systemctl --user -q is-active {UNIT} || break; sleep 0.2; done; \
          systemctl --user is-active {UNIT}; journalctl --user -u {UNIT} -o cat | tail -n 1"
     ))?;
     ensure!(
@@ -3539,7 +3544,7 @@ fn viewport(shell: &Shell, machine: &Machine) -> Result<()> {
     const UNIT: &str = "beize-testclient-viewport";
     let (status, lines) = shell.capture(&format!(
         "systemd-run --user --unit={UNIT} /run/t/beize-testclient --viewport --seconds 60 \
-         && for i in $(seq 50); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         && for i in $(seq 300); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
          && break; sleep 0.2; done; journalctl --user -u {UNIT} -o cat"
     ))?;
     ensure!(
@@ -3633,15 +3638,15 @@ fn hidden_window(shell: &Shell, qmp: &Path) -> Result<()> {
     // Its window opens, then Alt+Tab brings back the terminal before it, on the
     // left half as the window tests left it, and Super+Up gives it the screen.
     shell.capture(&format!(
-        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --frames 100000 --seconds 20; \
-         for i in $(seq 100); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --frames 100000 --seconds 8; \
+         for i in $(seq 300); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
          && break; sleep 0.2; done"
     ))?;
     keys(qmp, &["alt+tab"])?;
     thread::sleep(Duration::from_millis(500));
     keys(qmp, &["meta_l+up"])?;
     let (_, lines) = shell.capture(&format!(
-        "for i in $(seq 100); do journalctl --user -u {UNIT} -o cat | grep -q '^frames: ' \
+        "for i in $(seq 300); do journalctl --user -u {UNIT} -o cat | grep -q '^frames: ' \
          && break; sleep 0.2; done; journalctl --user -u {UNIT} -o cat | grep '^frames: '; \
          systemctl --user stop {UNIT}"
     ))?;
@@ -3704,7 +3709,7 @@ fn not_forward(shell: &Shell) -> Result<()> {
     const UNIT: &str = "unasked-window";
     let (_, lines) = shell.capture(&format!(
         "systemd-run --user --unit={UNIT} /run/t/beize-testclient --seconds 30; \
-         for i in $(seq 100); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         for i in $(seq 300); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
          && break; sleep 0.2; done; sleep 1; journalctl --user -u {UNIT} -o cat \
          | grep -E '^(configure|keyboard focus)'; systemctl --user stop {UNIT}; \
          journalctl --user -b -u beize-compositor.service -o cat \
@@ -3737,7 +3742,7 @@ fn grabs(shell: &Shell, qmp: &Path) -> Result<()> {
     };
     let (_, before) = shell.capture(&format!(
         "{restarts}; systemd-run --user --unit={UNIT} /run/t/beize-testclient --grabs; \
-         for i in $(seq 100); do journalctl --user -u {UNIT} -o cat \
+         for i in $(seq 300); do journalctl --user -u {UNIT} -o cat \
          | grep -q '^grabs without input: ' && break; sleep 0.2; done"
     ))?;
     keys(qmp, &["a"])?;
@@ -3819,7 +3824,7 @@ fn wait_for_terminals(shell: &Shell, count: usize) -> Result<Vec<String>> {
 fn wait_for_prompt(shell: &Shell, unit: &str) -> Result<()> {
     let (_, lines) = shell.capture(&format!(
         "d=/sys/fs/cgroup$(systemctl --user show -P ControlGroup '{unit}'); r=; \
-         for i in $(seq 50); do for p in $(cat \"$d/cgroup.procs\"); do \
+         for i in $(seq 300); do for p in $(cat \"$d/cgroup.procs\"); do \
          [ \"$(cat /proc/$p/comm)\" != beize-terminal ] && stty -F /proc/$p/fd/0 -a 2>/dev/null \
          | grep -qw -- -icanon && r=1; done; [ -n \"$r\" ] && break; sleep 0.2; done; \
          echo BEIZE-PROMPT-${{r:-none}}"
@@ -3859,6 +3864,16 @@ fn placed(shell: &Shell, app: &str, count: usize) -> Result<Window> {
         "the compositor placed {} windows of {app}, not {count}",
         found.len()
     )
+}
+
+/// Where the compositor last placed a window of `app`.
+fn last_placed(shell: &Shell, app: &str) -> Result<Window> {
+    let (_, lines) = shell.capture(PLACED)?;
+    lines
+        .iter()
+        .filter_map(|l| placement(l, app))
+        .next_back()
+        .with_context(|| format!("the compositor placed no window of {app}"))
 }
 
 /// A window: its top left corner on the screen and its size.
@@ -4301,7 +4316,7 @@ fn fast_resize(shell: &Shell, qmp: &Path, screen: (usize, usize), window: Window
     park(qmp, screen)?;
     let wanted = format!("resized beize-ui-test to {w}x{h}, ");
     let (_, lines) = shell.capture(&format!(
-        "for i in $(seq 50); do journalctl --user -b -u beize-compositor.service -o cat \
+        "for i in $(seq 300); do journalctl --user -b -u beize-compositor.service -o cat \
          | grep -q '^{wanted}' && break; sleep 0.2; done; \
          journalctl --user -b -u beize-compositor.service -o cat | grep '^resized ' | tail -n 1"
     ))?;
@@ -4330,7 +4345,7 @@ fn fast_resize(shell: &Shell, qmp: &Path, screen: (usize, usize), window: Window
 
 fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<String> {
     let (_, lines) = shell.capture(&format!(
-        "for i in $(seq 50); do journalctl --user -b -u beize-compositor.service -o cat \
+        "for i in $(seq 300); do journalctl --user -b -u beize-compositor.service -o cat \
          | grep -qx '{line}' && break; sleep 0.2; done; \
          journalctl --user -b -u beize-compositor.service -o cat | grep -x '{line}' \
          | sed 's/^/BEIZE-SAID /' | tail -n 1"
