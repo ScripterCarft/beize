@@ -244,6 +244,8 @@ pub struct State {
     pacing_timer: Option<RegistrationToken>,
     /// "Frame done" for clients when nothing was drawn.
     frame_timer: Option<RegistrationToken>,
+    /// When hidden windows hear "frame done" next (`hidden_tick`).
+    hidden_timer: Option<RegistrationToken>,
     /// Watches a commit for its vblank (`watch_flip`), and when it fires.
     flip_watch: Option<(RegistrationToken, Duration)>,
     /// Draws an animated pointer's next frame.
@@ -453,6 +455,7 @@ impl State {
             draw_timer: None,
             pacing_timer: None,
             frame_timer: None,
+            hidden_timer: None,
             flip_watch: None,
             cursor_timer: None,
             presenting: None,
@@ -1397,6 +1400,24 @@ impl State {
     /// "Frame done" one refresh from now, for clients that committed
     /// without changing what the screen shows; without a screen, as for
     /// hidden ones.
+    /// "Frame done" for the hidden windows in `after`.
+    fn hidden_tick(&mut self, after: Duration) {
+        if self.hidden_timer.is_some() {
+            return;
+        }
+        let token = self
+            .handle
+            .insert_source(Timer::from_duration(after), |_, _, state| {
+                state.hidden_timer = None;
+                state.frame_done(None);
+                TimeoutAction::Drop
+            });
+        match token {
+            Ok(token) => self.hidden_timer = Some(token),
+            Err(e) => warn!("hidden windows' timer: {}", e.error),
+        }
+    }
+
     fn frame_done_later(&mut self) {
         if self.frame_timer.is_some() {
             return;
@@ -1674,21 +1695,35 @@ impl State {
         let drawn = shows.then_some(&self.drawn);
         let msec = time.as_millis() as u32;
         let mut fifo = Vec::new();
+        let mut withheld = false;
         self.each_surface(|surface, states| {
             if drawn.is_some_and(|d| d.element_was_presented(surface)) {
                 return;
             }
+            let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+            let waiting = &mut attributes.current().frame_callbacks;
             if callbacks {
-                let mut attributes = states.cached_state.get::<SurfaceAttributes>();
-                for callback in attributes.current().frame_callbacks.drain(..) {
+                for callback in waiting.drain(..) {
                     callback.done(msec);
                 }
+            } else if !waiting.is_empty() {
+                withheld = true;
             }
             if !shows {
                 fifo.extend(take_fifo(surface, states));
             }
         });
         self.unblock(lift(fifo));
+        // A hidden window waits for its second: someone must wake then. Only a
+        // frame of a window still shown did (0.5.127: with all of them covered,
+        // 3 s in the VM), as Mutter throttles hidden windows with a timer.
+        if withheld {
+            let at = self
+                .hidden_done
+                .map_or(time, |last| last + HIDDEN_FRAMES)
+                .saturating_sub(time);
+            self.hidden_tick(at);
+        }
         let shown = shows.then(|| output.clone());
         if let Some(surface) = self.cursor.surface() {
             send_frames_surface_tree(surface, &output, time, Some(HIDDEN_FRAMES), |_, _| {

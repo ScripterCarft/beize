@@ -702,6 +702,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
     viewport(&shell, &machine)?;
     activation(&shell)?;
+    hidden_window(&shell, &qmp)?;
     not_forward(&shell)?;
     protocol_errors(&shell)?;
     grabs(&shell, &qmp)?;
@@ -3620,6 +3621,55 @@ fn activation(shell: &Shell) -> Result<()> {
     say!(
         "  ok: an app handed on activation with a token of its focus; one of a focus gone, \
          and one without a serial, activated nothing"
+    );
+    Ok(())
+}
+
+/// A window hidden behind another hears "frame done" once a second (Mutter's
+/// throttle), also when nothing on the screen changes: a still desktop drew
+/// nothing that would wake it, and it waited 3 s and more (0.5.127, VM).
+fn hidden_window(shell: &Shell, qmp: &Path) -> Result<()> {
+    const UNIT: &str = "beize-hidden-window";
+    // Its window opens, then Alt+Tab brings back the terminal before it, on the
+    // left half as the window tests left it, and Super+Up gives it the screen.
+    shell.capture(&format!(
+        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --frames 100000 --seconds 20; \
+         for i in $(seq 100); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
+         && break; sleep 0.2; done"
+    ))?;
+    keys(qmp, &["alt+tab"])?;
+    thread::sleep(Duration::from_millis(500));
+    keys(qmp, &["meta_l+up"])?;
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 100); do journalctl --user -u {UNIT} -o cat | grep -q '^frames: ' \
+         && break; sleep 0.2; done; journalctl --user -u {UNIT} -o cat | grep '^frames: '; \
+         systemctl --user stop {UNIT}"
+    ))?;
+    let line = lines
+        .iter()
+        .find(|l| l.starts_with("frames: "))
+        .with_context(|| format!("the hidden client said nothing: {lines:?}"))?;
+    let most: f64 = line
+        .rsplit("at most ")
+        .next()
+        .and_then(|t| t.trim_end_matches(" ms").parse().ok())
+        .with_context(|| format!("no longest wait in {line:?}"))?;
+    // A second each; 10 s leaves room for the VM's vCPUs standing (#41). Without a
+    // timer it waits for the next change on the screen, here none for the run.
+    // Shown, it would draw at the screen's pace: then nothing was tested.
+    ensure!(
+        most >= 500.0,
+        "the client drew at the screen's pace (at most {most} ms between frames): it was not \
+         hidden behind the terminal, or once hidden it heard \"frame done\" no more: {line}"
+    );
+    ensure!(
+        most < 10_000.0,
+        "a hidden window waited {most} ms for \"frame done\", not about a second: {line}"
+    );
+    // Back to the left half, where the tests after it look for the terminal.
+    keys(qmp, &["meta_l+left"])?;
+    say!(
+        "  ok: a window behind the maximized terminal heard \"frame done\" at least every {most:.0} ms"
     );
     Ok(())
 }
