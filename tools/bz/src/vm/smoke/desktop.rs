@@ -3114,6 +3114,8 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
         dpms(shell)? == "On",
         "the screen is not on after signing in"
     );
+    // Once the desktop has faded in (its opening): the screen to compare with.
+    wait_for_panels(machine)?;
     let desktop = screen(machine, "desktop-before-fade")?;
 
     // Without input it fades; darker a while in; a key takes it back.
