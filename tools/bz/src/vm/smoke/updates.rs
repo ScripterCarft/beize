@@ -283,8 +283,8 @@ pub(super) fn interrupted_update(paths: &Paths, installed: &Installed, good: &Pa
     let (_, lines) = shell.capture(&format!(
         "beize-update install {} >/dev/null 2>&1 & \
          for i in $(seq 1200); do cat /proc/[0-9]*/comm 2>/dev/null \
-         | grep -qE '^systemd-(import|pull)' && {{ sleep 0.3; echo BEIZE-WRITING; break; }}; \
-         sleep 0.05; done",
+         | grep -qE '^systemd-(import|pull)' && {{ echo BEIZE-WRITING; break; }}; \
+         sleep 0.02; done",
         server.url()
     ))?;
     ensure!(
@@ -295,10 +295,12 @@ pub(super) fn interrupted_update(paths: &Paths, installed: &Installed, good: &Pa
     drop(server);
     // While it writes, sysupdate gives the free slot a type of its own, so
     // nothing takes it for a /usr: the running one and at most the other half.
+    // Or it was on its last transfer, the UKI, which waits under a name of its own.
     let labels = usr_labels(&machine.disk)?;
+    let ukis = checks::uki_listing(&machine.disk)?;
     ensure!(
-        labels.len() < 4,
-        "the power went at no point of writing a slot: {labels:?}"
+        labels.len() < 4 || ukis.iter().any(|name| name.contains("partial")),
+        "the power went at no point of writing: {labels:?}, {ukis:?}"
     );
     install_update(&machine, good, &version)?;
     boot_healthy(&machine, 3, &Answers::none())?;

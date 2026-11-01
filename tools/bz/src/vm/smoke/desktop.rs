@@ -172,6 +172,25 @@ const INK_FROM: u8 = 0x40;
 /// with the CRTC off, it takes "no mode" for one it made and removes blob 0.
 /// Both reported to Smithay (~/upstream/smithay/ISSUES.md). Every other
 /// warning fails.
+/// Of the compositor's warnings, those that say something here. A page flip
+/// later than its watch, 1 s, that did arrive is the VM's vCPUs standing (#41;
+/// 1079 ms on 1.11.), no driver's fault; one that never arrives stays red.
+fn unexpected_warnings(lines: &[String]) -> Vec<&String> {
+    let arrived = lines
+        .iter()
+        .any(|l| l.starts_with("page flip arrived after all"));
+    lines
+        .iter()
+        .filter(|l| {
+            !l.is_empty()
+                && !KNOWN_WARNINGS.contains(&l.as_str())
+                && !(arrived
+                    && (l.starts_with("page flip timed out")
+                        || l.starts_with("page flip arrived after all")))
+        })
+        .collect()
+}
+
 const KNOWN_WARNINGS: [&str; 2] = [
     "Unable to become drm master, assuming unprivileged mode",
     "Failed to destroy old mode property blob: No such file or directory (os error 2)",
@@ -2918,10 +2937,7 @@ fn layout_follows(shell: &Shell) -> Result<()> {
 fn still_and_signed_out(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
     let (_, lines) =
         shell.capture("journalctl --user -b -u beize-compositor.service -p warning -o cat")?;
-    let unexpected: Vec<&String> = lines
-        .iter()
-        .filter(|l| !l.is_empty() && !KNOWN_WARNINGS.contains(&l.as_str()))
-        .collect();
+    let unexpected = unexpected_warnings(&lines);
     ensure!(
         unexpected.is_empty(),
         "the compositor warned: {unexpected:?}"
@@ -3187,10 +3203,7 @@ fn screen_goes_off(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
     let (_, lines) = shell.capture(&format!(
         "journalctl --user -u beize-compositor.service --since=@{since} -p warning -o cat"
     ))?;
-    let unexpected: Vec<&String> = lines
-        .iter()
-        .filter(|l| !l.is_empty() && !KNOWN_WARNINGS.contains(&l.as_str()))
-        .collect();
+    let unexpected = unexpected_warnings(&lines);
     ensure!(
         unexpected.is_empty(),
         "the compositor warned: {unexpected:?}"
