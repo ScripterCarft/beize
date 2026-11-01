@@ -119,6 +119,10 @@ enum Command {
         /// the scenarios that tamper with firmware, TPM and image
         #[arg(long)]
         quick: bool,
+        /// Only these scenarios after the installation, e.g. `--only desktop`
+        /// (a wrong name lists them); for a quick look, never instead of the gate
+        #[arg(long)]
+        only: Vec<String>,
     },
     /// Show where a boot spent its time, from its journal (e.g. one copied
     /// from real hardware, see docs/hardware.md)
@@ -231,7 +235,9 @@ fn main() -> Result<()> {
         Command::Gate => check::gate(&paths),
         // Never the image of an earlier state or another branch; nothing
         // changed costs 0.1 s.
-        Command::Smoke { quick } => build_all(&paths).and_then(|()| vm::smoke(&paths, quick)),
+        Command::Smoke { quick, only } => {
+            build_all(&paths).and_then(|()| vm::smoke(&paths, quick, &only))
+        }
         Command::BootTimes { journal, boot, gap } => boottimes::show(&journal, &boot, gap),
         Command::HwCheck { journal, boot } => hwcheck::show(&paths, &journal, &boot),
         Command::Outdated => outdated::show(&paths),

@@ -71,7 +71,7 @@ pub fn gate(paths: &Paths) -> Result<()> {
     check()?;
     util::set_locked(true);
     build_all(paths)?;
-    vm::smoke(paths, false)?;
+    vm::smoke(paths, false, &[])?;
     fs::write(&record, working_tree(paths)?)?;
     say!("\n  ok: the gate passed in {} s", began.elapsed().as_secs());
     Ok(())

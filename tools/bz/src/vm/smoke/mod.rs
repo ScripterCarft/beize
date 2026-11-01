@@ -211,13 +211,18 @@ impl Scenario {
 }
 
 /// Runs the smoke test (`quick`: only [`Install`]).
-pub fn smoke(paths: &Paths, quick: bool) -> Result<()> {
+/// The whole test; with `only`, the installation and just those scenarios
+/// (their names as `bz smoke --only` lists them), for a quick look at one
+/// change. A commit needs the whole (`bz gate`).
+pub fn smoke(paths: &Paths, quick: bool, only: &[String]) -> Result<()> {
+    let only = chosen(only)?;
     clear_boot_logs(paths)?;
     let started = Instant::now();
     let waiting = VecDeque::from([Install]);
     let smoke = Smoke {
         paths,
         quick,
+        only,
         installed: OnceLock::new(),
         next_release: OnceLock::new(),
         test_keys: secureboot::Keys::test(paths, secureboot::Profile::WithWindows)?,
@@ -250,6 +255,34 @@ pub fn smoke(paths: &Paths, quick: bool) -> Result<()> {
     tree::remove(&next_release_dir(paths))
 }
 
+/// A scenario's name for `--only`: its own, in lowercase with dashes.
+fn name(scenario: Scenario) -> String {
+    let mut name = String::new();
+    for (i, c) in format!("{scenario:?}").chars().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            name.push('-');
+        }
+        name.push(c.to_ascii_lowercase());
+    }
+    name
+}
+
+/// The scenarios `names` asks for; an unknown name fails with the list.
+fn chosen(names: &[String]) -> Result<Vec<Scenario>> {
+    names
+        .iter()
+        .map(|wanted| {
+            AFTER_INSTALL
+                .into_iter()
+                .find(|s| name(*s) == *wanted)
+                .with_context(|| {
+                    let all: Vec<String> = AFTER_INSTALL.into_iter().map(name).collect();
+                    format!("no scenario {wanted:?}; there are: {}", all.join(", "))
+                })
+        })
+        .collect()
+}
+
 /// Where the release of the next version that the updates share lies.
 fn next_release_dir(paths: &Paths) -> PathBuf {
     paths.variant_work.join("smoke-next-release")
@@ -266,6 +299,8 @@ struct Installed {
 struct Smoke<'a> {
     paths: &'a Paths,
     quick: bool,
+    /// Only these after the installation (`--only`); all when empty.
+    only: Vec<Scenario>,
     installed: OnceLock<Installed>,
     /// The release of the next version, signed with the test keys, which
     /// the updates install: built once, by the first scenario that needs it
@@ -356,9 +391,11 @@ impl Smoke<'_> {
             eprintln!("{line}");
         }
         if scenario == Install && !self.quick {
-            let next = AFTER_INSTALL
-                .into_iter()
-                .filter(|s| s.applies(self.paths) && (passed || !s.needs_installation()));
+            let next = AFTER_INSTALL.into_iter().filter(|s| {
+                s.applies(self.paths)
+                    && (passed || !s.needs_installation())
+                    && (self.only.is_empty() || self.only.contains(s))
+            });
             state.waiting.extend(next);
         }
         state.running -= 1;
