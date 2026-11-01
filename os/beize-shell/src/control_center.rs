@@ -5,7 +5,7 @@
 //! closes it; the smoke takes no input.
 //!
 //! Its grid is macOS 26's, measured in Apple's press image of it (3840 px,
-//! ~3.94 px per pt by the menu bar's cap height; CLAUDE.md §11): four
+//! ~3.94 px per pt by the menu bar's cap height; as its commit says): four
 //! columns of 64 pt with 12 pt between – 292 pt across, which the image
 //! confirms –, at Beize's scale (`measures::SCALE`), 6.5 % smaller (`SIZE`,
 //! the owner's); its right edge under the clock's. A tile is one cell

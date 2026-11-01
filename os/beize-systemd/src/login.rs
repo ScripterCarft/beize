@@ -7,7 +7,7 @@
 //! that display when a session starts, not when beize-session makes tty1 a
 //! Wayland session (SetType): with an earlier login elsewhere it stays
 //! there, and polkit asks for a password – a gap in logind, patch for
-//! upstream prepared (CLAUDE.md §11).
+//! upstream prepared (`~/upstream/systemd-logind-display`).
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr;

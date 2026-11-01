@@ -198,7 +198,7 @@ fn copy_sparse(from: &Path, to: &Path) -> Result<()> {
 /// stay for bz beside them (the releases and images scenarios build).
 /// Measured 25.10. on 24 CPUs: six VMs took 128 s a run, five 141 s; with
 /// six, a guest's CPU went unwoken for up to 21 s (`rcu_preempt detected
-/// stalls`, nested KVM under WSL, CLAUDE.md §11) and broke the desktop in 2
+/// stalls`, nested KVM under WSL, as its commit says) and broke the desktop in 2
 /// of 12 runs, with five it happened in 1 of 3 runs without harm. The stall
 /// is not the VMs' number; until it is understood, the margin.
 pub(super) fn parallel_vms() -> usize {

@@ -74,7 +74,7 @@ noch fehlen) + `measure/hw-test.sh`, Version `0.5.<n>` (`OS_VERSION` auf dem Zwe
 von `main` ersetzt ihn. Claude baut und prüft ihn (Smoke, Skript in der VM) und taggt ihn
 als `measure/desktop-0.5.<n>`; der Besitzer signiert nur. Ergebnisse: ADR 0027 §6, Logs in
 `~/hw-logs/results-*`. Zuletzt 0.5.103 (25.10.): Testfenster 3 von 4803 Bildern spät, Lasttest
-223 von 9381; Befund (Terminal stirbt beim Resizen) in CLAUDE.md §11, behoben in 0.5.104.
+223 von 9381; Befund (Terminal stirbt beim Resizen), behoben in 0.5.104.
 
 **A. Vorbereiten (WSL, dein eigenes Terminal, 1Password entsperrt)**
 

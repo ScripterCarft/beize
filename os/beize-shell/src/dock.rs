@@ -10,7 +10,7 @@
 //! it.
 //!
 //! Its measures are macOS 26's, measured in Apple's press image of it (a
-//! 14-inch MacBook Pro, 1512 pt across; CLAUDE.md §11), in Beize's measures
+//! 14-inch MacBook Pro, 1512 pt across; as its commit says), in Beize's measures
 //! as the menu bar (`measures`), its corners the continuous ones of
 //! `beize_vulkan`'s shader. Beize's apps show their
 //! symbols (`AppIcon`), others their icons (hicolor, `apps`), an app

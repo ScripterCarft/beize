@@ -8,7 +8,7 @@
 use crate::draw::{Color, Rect, Scene};
 
 /// The corners' radius, of the side: the mask of Apple's App Icon Template
-/// (CLAUDE.md §11).
+/// (as its commit says).
 pub const RADIUS: f32 = 0.2449;
 /// The motif's square, of the side: Beize's own choice, so that its ink
 /// (the terminal's prompt spans 78 % of Phosphor's square) covers a little

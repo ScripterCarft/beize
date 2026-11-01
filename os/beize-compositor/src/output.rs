@@ -126,7 +126,7 @@ pub fn surface(drm: &mut DrmDevice, connector: &connector::Info) -> Result<(DrmS
     let name = name(connector);
     // The mode the screen had when taken, the console's: a different
     // one makes the monitor lock on anew (the black gap on the way to
-    // the session, CLAUDE.md §11).
+    // the session, as its commit says).
     let had = connector
         .current_encoder()
         .and_then(|e| fd.get_encoder(e).ok())
