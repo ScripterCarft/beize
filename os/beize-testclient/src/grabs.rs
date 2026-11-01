@@ -55,6 +55,8 @@ struct App {
     /// The serial of the keyboard's enter, of a key press.
     entered: Option<u32>,
     pressed: Option<u32>,
+    enters: u32,
+    leaves: u32,
 }
 
 fn bind<I>(globals: &GlobalList, qh: &QueueHandle<App>, version: u32) -> Result<I, String>
@@ -203,6 +205,35 @@ pub fn run() -> Result<(), String> {
     println!("grabs minimized: {answer}");
     menu.close();
 
+    // A second window, mapped, then a null buffer: it must go, with the keyboard.
+    let second = compositor.create_surface(&qh, ());
+    let second_xdg = wm_base.get_xdg_surface(&second, &qh, Which::Window);
+    let second_toplevel = second_xdg.get_toplevel(&qh, ());
+    second_toplevel.set_app_id("beize-testclient".into());
+    app.window_configured = false;
+    second.commit();
+    wait(&mut queue, &mut app, |a| a.window_configured)?;
+    let enters = app.enters;
+    let second_buffer = buffer(&shm, &qh)?;
+    second.attach(Some(&second_buffer), 0, 0);
+    second.commit();
+    wait(&mut queue, &mut app, |a| a.enters > enters)?;
+    let leaves = app.leaves;
+    second.attach(None, 0, 0);
+    second.commit();
+    queue
+        .roundtrip(&mut app)
+        .map_err(|e| format!("roundtrip: {e}"))?;
+    queue
+        .roundtrip(&mut app)
+        .map_err(|e| format!("roundtrip: {e}"))?;
+    let answer = if app.leaves > leaves {
+        "keyboard gone"
+    } else {
+        "kept"
+    };
+    println!("grabs unmapped: {answer}");
+
     let (titles, length) = FLOOD;
     for i in 0..titles {
         let mut title = "x".repeat(length);
@@ -321,7 +352,9 @@ impl Dispatch<WlKeyboard, ()> for App {
         match event {
             wl_keyboard::Event::Enter { serial, .. } => {
                 app.entered.get_or_insert(serial);
+                app.enters += 1;
             }
+            wl_keyboard::Event::Leave { .. } => app.leaves += 1,
             wl_keyboard::Event::Key {
                 serial,
                 state: WEnum::Value(wl_keyboard::KeyState::Pressed),

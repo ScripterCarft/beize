@@ -703,6 +703,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     viewport(&shell, &machine)?;
     activation(&shell)?;
     not_forward(&shell)?;
+    protocol_errors(&shell)?;
     grabs(&shell, &qmp)?;
     load(&shell, &machine, &qmp, screen)?;
     phases.done("Beize UI and load");
@@ -3623,6 +3624,31 @@ fn activation(shell: &Shell) -> Result<()> {
     Ok(())
 }
 
+/// The errors Beize's own protocols promise (`--protocol-errors`): a second
+/// menu or glass, a menu without a window, glass for a toplevel.
+fn protocol_errors(shell: &Shell) -> Result<()> {
+    let (_, lines) = shell.capture(
+        "systemd-run --user --wait --unit=protocol-errors /run/t/beize-testclient \
+         --protocol-errors; journalctl --user -u protocol-errors -o cat | grep '^protocol '",
+    )?;
+    for case in [
+        "second menu: error 0",
+        "menu without window: error 1",
+        "glass for a toplevel: error 1",
+        "second glass: error 0",
+    ] {
+        ensure!(
+            lines.iter().any(|l| *l == format!("protocol {case}")),
+            "not \"protocol {case}\": {lines:?}"
+        );
+    }
+    say!(
+        "  ok: a second menu or glass, a menu without a window and glass for a toplevel were \
+         protocol errors"
+    );
+    Ok(())
+}
+
 /// A window nobody asked for opens behind the active one, without the keyboard.
 fn not_forward(shell: &Shell) -> Result<()> {
     const UNIT: &str = "unasked-window";
@@ -3675,6 +3701,7 @@ fn grabs(shell: &Shell, qmp: &Path) -> Result<()> {
         "grabs without input: refused",
         "grabs with a key: open",
         "grabs minimized: closed",
+        "grabs unmapped: keyboard gone",
         "grabs flood: sent",
         "active",
     ] {

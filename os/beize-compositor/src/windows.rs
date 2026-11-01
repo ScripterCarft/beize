@@ -561,6 +561,24 @@ impl State {
         }
     }
 
+    /// `window` committed no buffer: off the screen and out of the lists
+    /// until it maps again; if it was active, the one below takes over.
+    pub fn unmap_window(&mut self, window: &Window) {
+        let active = self.active_window().as_ref() == Some(window);
+        info!("unmapped {}", app_id(window));
+        self.switcher_window_gone(window);
+        self.unlist_window(window);
+        self.space.unmap_elem(window);
+        self.minimized.retain(|w| w != window);
+        window.set_activated(false);
+        self.unmapped.push(window.clone());
+        if active {
+            self.activate_next();
+        }
+        crate::input::refresh_pointer(self);
+        self.changed();
+    }
+
     /// Takes `window` off the screen; the one below it becomes active.
     pub fn minimize(&mut self, window: &Window) {
         let Some(at) = self.space.element_location(window) else {

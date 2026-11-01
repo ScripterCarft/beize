@@ -9,6 +9,7 @@
 //! active window (`State::popup_grab_ended`). A minimized window comes back through the
 //! shell (`windows`, `shell_v1`).
 
+use smithay::backend::renderer::utils::with_renderer_surface_state;
 use smithay::desktop::{
     PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy, find_popup_root_surface,
     get_popup_toplevel_coords,
@@ -258,6 +259,14 @@ impl State {
 /// After a commit: the first configure of a new window or popup, which the
 /// protocol wants only after the client's initial commit.
 pub fn committed(state: &mut State, surface: &WlSurface) {
+    // No buffer any more: the window is unmapped, and starts over with a new
+    // initial commit (xdg_surface: "a null buffer to a mapped surface").
+    if let Some(window) = state.any_window(surface)
+        && !state.unmapped.contains(&window)
+        && with_renderer_surface_state(surface, |s| s.buffer().is_none()).unwrap_or(true)
+    {
+        state.unmap_window(&window);
+    }
     if let Some(window) = state.window_for(surface) {
         if let Some(toplevel) = window.toplevel()
             && !toplevel.is_initial_configure_sent()

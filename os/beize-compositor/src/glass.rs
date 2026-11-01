@@ -11,6 +11,8 @@
 //! An app's glass stays inside its own surface and has no smoke (`confined`):
 //! only the shell's reaches beyond it. Shapes are limited for every client.
 
+use std::cell::RefCell;
+
 use beize_protocols::app::server::beize_glass_manager_v1::{self, BeizeGlassManagerV1};
 use beize_protocols::app::server::beize_glass_v1::{self, BeizeGlassV1};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -18,7 +20,8 @@ use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum,
 };
 use smithay::utils::{Logical, Rectangle};
-use smithay::wayland::compositor::{Cacheable, with_states};
+use smithay::wayland::compositor::{Cacheable, get_role, with_states};
+use smithay::wayland::shell::xdg::XDG_TOPLEVEL_ROLE;
 
 use crate::state::{ClientState, State};
 
@@ -110,19 +113,50 @@ impl GlobalDispatch<BeizeGlassManagerV1, ()> for State {
     }
 }
 
+/// The glass object a surface has, so a second is refused.
+struct HasGlass(RefCell<Option<BeizeGlassV1>>);
+
 impl Dispatch<BeizeGlassManagerV1, ()> for State {
     fn request(
         _: &mut State,
         client: &Client,
-        _: &BeizeGlassManagerV1,
+        manager: &BeizeGlassManagerV1,
         request: beize_glass_manager_v1::Request,
         _: &(),
         _: &DisplayHandle,
         data_init: &mut DataInit<'_, State>,
     ) {
         if let beize_glass_manager_v1::Request::GetGlass { id, surface } = request {
+            if get_role(&surface) == Some(XDG_TOPLEVEL_ROLE) {
+                manager.post_error(
+                    beize_glass_manager_v1::Error::BadSurface,
+                    "a toplevel gets no glass",
+                );
+                return;
+            }
+            let taken = with_states(&surface, |states| {
+                states
+                    .data_map
+                    .insert_if_missing(|| HasGlass(RefCell::new(None)));
+                states
+                    .data_map
+                    .get::<HasGlass>()
+                    .is_some_and(|has| has.0.borrow().as_ref().is_some_and(Resource::is_alive))
+            });
+            if taken {
+                manager.post_error(
+                    beize_glass_manager_v1::Error::AlreadyConstructed,
+                    "the surface has a glass already",
+                );
+                return;
+            }
             set_pending(&surface, |state| state.confined = is_app(client));
-            data_init.init(id, surface);
+            let glass = data_init.init(id, surface.clone());
+            with_states(&surface, |states| {
+                if let Some(has) = states.data_map.get::<HasGlass>() {
+                    *has.0.borrow_mut() = Some(glass);
+                }
+            });
         }
     }
 }

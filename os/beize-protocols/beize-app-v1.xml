@@ -17,6 +17,11 @@
       On bind the compositor tells the appearance.
     </description>
 
+    <enum name="error">
+      <entry name="already_constructed" value="0" summary="the surface has one already"/>
+      <entry name="bad_surface" value="1" summary="the surface has the wrong role"/>
+    </enum>
+
     <enum name="appearance">
       <entry name="light" value="0"/>
       <entry name="dark" value="1"/>
@@ -37,6 +42,8 @@
         are double-buffered state of the surface: they apply with the
         surface's next commit. One per surface; it may lie in several places
         (add_shape), as the control center's tiles. A toplevel gets none.
+        A second for a surface raises already_constructed, one for a toplevel
+        bad_surface.
       </description>
       <arg name="id" type="new_id" interface="beize_glass_v1"/>
       <arg name="surface" type="object" interface="wl_surface"/>
@@ -124,10 +131,17 @@
   <interface name="beize_menu_manager_v1" version="1">
     <description summary="an app's menus for the menu bar"/>
 
+    <enum name="error">
+      <entry name="already_constructed" value="0" summary="the surface has one already"/>
+      <entry name="bad_surface" value="1" summary="the surface has the wrong role"/>
+    </enum>
+
     <request name="get_menu">
       <description summary="the menus of a window">
         Of the xdg_toplevel with the surface, shown in the menu bar while the
-        window is active. One per window.
+        window is active. One per window: a second raises
+        already_constructed, a surface without the xdg_toplevel role
+        bad_surface.
       </description>
       <arg name="id" type="new_id" interface="beize_app_menu_v1"/>
       <arg name="surface" type="object" interface="wl_surface"/>

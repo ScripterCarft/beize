@@ -112,17 +112,31 @@ impl Dispatch<BeizeMenuManagerV1, ()> for State {
     fn request(
         state: &mut State,
         _: &Client,
-        _: &BeizeMenuManagerV1,
+        manager: &BeizeMenuManagerV1,
         request: beize_menu_manager_v1::Request,
         _: &(),
         _: &DisplayHandle,
         data_init: &mut DataInit<'_, State>,
     ) {
         if let beize_menu_manager_v1::Request::GetMenu { id, surface } = request {
-            let app = data_init.init(id, surface.clone());
-            if let Some(window) = state.any_window(&surface) {
-                with_menus(&window, |menus| menus.app = Some(app));
+            let Some(window) = state.any_window(&surface) else {
+                manager.post_error(
+                    beize_menu_manager_v1::Error::BadSurface,
+                    "menus belong to a toplevel",
+                );
+                return;
+            };
+            if with_menus(&window, |menus| {
+                menus.app.as_ref().is_some_and(Resource::is_alive)
+            }) {
+                manager.post_error(
+                    beize_menu_manager_v1::Error::AlreadyConstructed,
+                    "the window has its menus already",
+                );
+                return;
             }
+            let app = data_init.init(id, surface.clone());
+            with_menus(&window, |menus| menus.app = Some(app));
         }
     }
 }

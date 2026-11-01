@@ -107,6 +107,8 @@ struct Listed {
     sent: Shown,
     /// Its menus changed since the shell last heard them.
     menus_changed: bool,
+    /// The shell heard it closed; it may come again (`list_window`).
+    closed: bool,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -215,7 +217,7 @@ impl State {
 
     /// `window` was placed: the shell hears of it.
     pub fn list_window(&mut self, window: &Window) {
-        if with_listed(window, |_| ()).is_some() {
+        if with_listed(window, |listed| !listed.closed).unwrap_or(false) {
             return;
         }
         let number = self.shell_windows.next;
@@ -233,14 +235,21 @@ impl State {
             }
             send(handle, &shown, None);
         }
-        window.user_data().insert_if_missing(|| {
-            RefCell::new(Listed {
-                number,
-                handles,
-                sent: shown,
-                menus_changed: false,
-            })
-        });
+        let listed = Listed {
+            number,
+            handles,
+            sent: shown,
+            menus_changed: false,
+            closed: false,
+        };
+        // A window mapped again is listed anew, under a new number.
+        if window.user_data().get::<RefCell<Listed>>().is_some() {
+            with_listed(window, |old| *old = listed);
+        } else {
+            window
+                .user_data()
+                .insert_if_missing(|| RefCell::new(listed));
+        }
     }
 
     /// What may have changed for the listed windows reaches the shell.
@@ -248,7 +257,7 @@ impl State {
         for window in self.listed_windows() {
             let now = shown(self, &window);
             with_listed(&window, |listed| {
-                if listed.sent == now && !listed.menus_changed {
+                if listed.closed || (listed.sent == now && !listed.menus_changed) {
                     return;
                 }
                 listed.handles.retain(Resource::is_alive);
@@ -301,6 +310,7 @@ impl State {
     /// `window` is gone: the shell hears of it last.
     pub fn unlist_window(&mut self, window: &Window) {
         with_listed(window, |listed| {
+            listed.closed = true;
             for handle in listed.handles.drain(..).filter(Resource::is_alive) {
                 handle.closed();
             }

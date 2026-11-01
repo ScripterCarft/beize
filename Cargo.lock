@@ -254,6 +254,7 @@ dependencies = [
 name = "beize-testclient"
 version = "0.1.0"
 dependencies = [
+ "beize-protocols",
  "rustix 1.1.5",
  "wayland-client",
  "wayland-protocols",
