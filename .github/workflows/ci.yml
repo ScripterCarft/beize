@@ -117,14 +117,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      # The compositor alone, as its recipe builds it: beize-draw without
-      # `icons`, which the workspace turns on for Beize UI.
-      - run: cargo clippy -p beize-compositor --all-targets -- -D warnings
-      - run: cargo test --workspace
-      # The Rust dependencies: RustSec advisories, licenses, origin (deny.toml).
-      - run: cargo deny check
+      # The one list, as before every push (tools/bz/src/check.rs).
+      - run: ./bz check
 
   # Known vulnerabilities of what the image contains (NVD, ADR 0022): weekly
   # and by hand. Red on an unassessed one of CVSS 7.0 or more.

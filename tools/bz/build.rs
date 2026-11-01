@@ -12,12 +12,17 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 /// Paths below `src/` whose code never changes what a build step produces.
-const NOT_BUILD_CODE: [&str; 8] = [
+const NOT_BUILD_CODE: [&str; 11] = [
     "vm",
     "boottimes.rs",
     "cve.rs",
     "hwcheck.rs",
     "outdated.rs",
+    // The commands and which steps they call; each step has its own stamp.
+    "main.rs",
+    "check.rs",
+    // Compares sizes with their ratchet; changes nothing that is built.
+    "sizes.rs",
     // Order and parallelism of the builds, not their results.
     "schedule.rs",
     "jobserver.rs",

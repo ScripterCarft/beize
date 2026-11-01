@@ -7,6 +7,7 @@ mod boottimes;
 mod buildroot;
 mod cargo;
 mod cgroup;
+mod check;
 mod cve;
 mod debuginfo;
 mod elf;
@@ -107,7 +108,12 @@ enum Command {
         /// moves the mouse
         commands: Vec<String>,
     },
-    /// Install the image on a fresh test disk, boot it twice and verify everything
+    /// Format, lints, tests and dependencies, as the CI's `check` job
+    Check,
+    /// What a push to `main` needs: `check`, the build as the CI runs it and
+    /// the whole smoke test (`.githooks/pre-push` asks for it)
+    Gate,
+    /// Build, install the image on a fresh test disk, boot it twice and verify everything
     Smoke {
         /// Only install and boot twice (all checks of a normal start), skip
         /// the scenarios that tamper with firmware, TPM and image
@@ -221,7 +227,11 @@ fn main() -> Result<()> {
             screen,
             &commands,
         ),
-        Command::Smoke { quick } => vm::smoke(&paths, quick),
+        Command::Check => check::check(),
+        Command::Gate => check::gate(&paths),
+        // Never the image of an earlier state or another branch; nothing
+        // changed costs 0.1 s.
+        Command::Smoke { quick } => build_all(&paths).and_then(|()| vm::smoke(&paths, quick)),
         Command::BootTimes { journal, boot, gap } => boottimes::show(&journal, &boot, gap),
         Command::HwCheck { journal, boot } => hwcheck::show(&paths, &journal, &boot),
         Command::Outdated => outdated::show(&paths),
@@ -316,14 +326,24 @@ fn verify_sources(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
-/// The toolchain, then the kernel and the packages of the image side by
-/// side, then the image's parts from them.
 /// The toolchain the kernel is compiled with ([`kernel::TOOLCHAIN`]).
 fn build_toolchain(paths: &Paths) -> Result<()> {
     packages::build(paths, &kernel::TOOLCHAIN.map(str::to_owned)).map(drop)
 }
 
+/// Builds the image. When that fails, the image of the state before goes
+/// too, so nothing can test it believing it is this one (`bz debug`, `bz run`).
 fn build_all(paths: &Paths) -> Result<()> {
+    let built = build_steps(paths);
+    if built.is_err() {
+        let _ = std::fs::remove_file(paths.image.join("disk.img"));
+    }
+    built
+}
+
+/// The toolchain, then the kernel and the packages of the image side by
+/// side, then the image's parts from them.
+fn build_steps(paths: &Paths) -> Result<()> {
     space::tidy(paths)?;
     let image_packages = paths.variant.packages();
     // The kernel needs the toolchain, and so does every package but three

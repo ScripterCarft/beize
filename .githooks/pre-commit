@@ -1,0 +1,4 @@
+#!/bin/sh
+# Format first: seconds here, a red CI run otherwise (twice in October).
+# `./bz` sets core.hooksPath to this directory.
+exec ./bz exec cargo fmt --all --check

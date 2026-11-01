@@ -92,6 +92,7 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
         } else {
             planned.push(Planned {
                 recipe,
+                target_key: self::fingerprint(&environment, recipe, "", &fingerprints),
                 fingerprint: fingerprint.clone(),
                 visible: visible.clone(),
             });
@@ -115,6 +116,9 @@ pub fn build(paths: &Paths, names: &[String]) -> Result<Vec<Recipe>> {
 struct Planned<'a> {
     recipe: &'a Recipe,
     fingerprint: String,
+    /// The fingerprint without the repository's content: what Cargo cannot
+    /// see of a build (`cargo_target`).
+    target_key: String,
     /// Everything it depends on, directly or not.
     visible: BTreeSet<String>,
 }
@@ -210,8 +214,15 @@ fn build_planned(paths: &Paths, planned: &[Planned]) -> Result<()> {
                 let done = done.clone();
                 scope.spawn(move || {
                     let result = jobs.acquire().and_then(|token| {
-                        let built =
-                            build_one(paths, next.recipe, &sysroot, jobs, limit_mib, &holds);
+                        let built = build_one(
+                            paths,
+                            next.recipe,
+                            &next.target_key,
+                            &sysroot,
+                            jobs,
+                            limit_mib,
+                            &holds,
+                        );
                         drop(token);
                         built
                     });
@@ -436,14 +447,33 @@ fn prefix_map(paths: &Paths) -> String {
     format!("{}=/beize", paths.root.display())
 }
 
+/// Where Cargo builds a recipe. Beize's own code keeps its crates between
+/// builds: an edit of one file compiles that crate, not the 147 under it.
+/// Cargo sees a change to source, toolchain and flags, but not to what lies
+/// in the sysroot, so the directory holds only for one `key`: a new
+/// dependency, recipe or buildroot starts it over. Foreign code builds from
+/// scratch, as its fingerprint never changes by an edit.
+fn cargo_target(paths: &Paths, recipe: &Recipe, key: &str, build_dir: &Path) -> Result<PathBuf> {
+    if recipe.repo.is_empty() {
+        return Ok(build_dir.join("target"));
+    }
+    let dir = paths.work.join("cargo-target").join(&recipe.name);
+    let stored = dir.join("bz-key");
+    if !fs::read_to_string(&stored).is_ok_and(|s| s == key) {
+        tree::recreate(&dir)?;
+        fs::write(&stored, key)?;
+    }
+    Ok(dir)
+}
+
 /// Cargo for building Beize's own Rust code for the target: the toolchain
 /// running bz (rust-toolchain.toml), crates cached under build/cache.
-fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path, sysroot: &Path) {
+fn cargo_env(cmd: &mut Command, paths: &Paths, target: &Path, sysroot: &Path) {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let cargo = Path::new(&cargo);
     cmd.env("CARGO", cargo)
         .env("CARGO_HOME", paths.cache.join("cargo"))
-        .env("CARGO_TARGET_DIR", build_dir.join("target"))
+        .env("CARGO_TARGET_DIR", target)
         .env("REPO", &paths.root)
         // Only target artifacts link with the cross compiler against the
         // sysroot; build scripts and proc macros stay with the host's cc.
@@ -473,6 +503,7 @@ fn cargo_env(cmd: &mut Command, paths: &Paths, build_dir: &Path, sysroot: &Path)
 fn build_one(
     paths: &Paths,
     recipe: &Recipe,
+    target_key: &str,
     sysroot: &Path,
     jobs: &Jobserver,
     limit_mib: u64,
@@ -573,7 +604,8 @@ fn build_one(
                 "MESON_NATIVE",
                 write_meson_native_file(paths, &recipe.name)?,
             );
-            cargo_env(&mut cmd, paths, &build_dir, sysroot);
+            let target = cargo_target(paths, recipe, target_key, &build_dir)?;
+            cargo_env(&mut cmd, paths, &target, sysroot);
         }
     }
 

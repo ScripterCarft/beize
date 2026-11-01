@@ -334,7 +334,19 @@ impl Drop for JournalOnFailure<'_> {
     }
 }
 
+/// Says how long each part of the desktop's scenario took: where the smoke
+/// test's minutes go.
+struct Phases(Instant);
+
+impl Phases {
+    fn done(&mut self, part: &str) {
+        say!("  time: {part} {:.1} s", self.0.elapsed().as_secs_f64());
+        self.0 = Instant::now();
+    }
+}
+
 pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
+    let mut phases = Phases(Instant::now());
     let mut machine = installed.machine.copy_as(paths, "smoke-desktop")?;
     machine.test_medium = test_medium(paths)?;
     // Drags land on the pixel (`console::drag`).
@@ -362,6 +374,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
 
     sign_in(&shell, &machine, &qmp)?;
     let terminal = screenshot_and_terminals(paths, &shell, &machine, &qmp)?;
+    phases.done("boot and sign-in");
     // A client started by the service manager, which knows the socket only
     // from beize-session; its desktop file names its icon.
     let (status, lines) = shell.capture(CLIENT_ICON)?;
@@ -518,11 +531,17 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     );
 
     screen_comes_back(&shell, &machine, moved, grown)?;
+    phases.done("client windows");
     snap(&shell, &machine, &qmp, screen, moved, grown)?;
+    phases.done("snap");
     switcher(&shell, &machine, &qmp, screen)?;
+    phases.done("switcher");
     fullscreen(&shell, &machine, &qmp, screen, moved, grown)?;
+    phases.done("fullscreen");
     dock_glass(&shell, &machine, &qmp, screen, moved, grown)?;
+    phases.done("dock glass");
     frames(&shell)?;
+    phases.done("frames");
     // Beize UI: its window through Vulkan's WSI shows the sample as the
     // reference has it – the same renderer, glyphs and blending offscreen.
     let (_, lines) = shell.capture(
@@ -658,6 +677,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     viewport(&shell, &machine)?;
     activation(&shell)?;
     load(&shell, &machine, &qmp, screen)?;
+    phases.done("Beize UI and load");
 
     // Over the second terminal where it covers only the desktop, its text
     // cursor; the terminals stop under the still pointer: the arrow.
@@ -691,12 +711,19 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     say!("  ok: with no terminal running, the dock's tile started one");
 
     menus(&shell, &machine, &qmp, screen)?;
+    phases.done("menus");
     context_menus(&shell, &machine, &qmp, screen)?;
+    phases.done("context menus");
     confirmation(&shell, &machine, &qmp, screen)?;
+    phases.done("confirmation");
     app_menus(&shell, &machine, &qmp, screen)?;
+    phases.done("app menus");
     layout_follows(&shell)?;
+    phases.done("layout");
     still_and_signed_out(&shell, &qmp, screen)?;
+    phases.done("still and sign-out");
     screen_goes_off(&shell, &machine, &qmp)?;
+    phases.done("screen off");
     journal.passed = true;
     drop(journal);
     shell.stop()?;

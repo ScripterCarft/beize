@@ -17,12 +17,17 @@ run_bz() {
         shift
         exec "$@"
     fi
-    exec cargo run --quiet --release -p bz -- "$@"
+    exec cargo run --quiet --profile bz -p bz -- "$@"
 }
 
 # In the buildroot already: the CI's jobs, or entered below.
 if [ -e /etc/beize-buildroot ]; then
     run_bz "$@"
+fi
+
+# The checks before a commit and a push (.githooks): every clone has them.
+if [ "$(git config core.hooksPath)" != .githooks ]; then
+    git config core.hooksPath .githooks
 fi
 
 command=

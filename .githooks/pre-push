@@ -1,0 +1,21 @@
+#!/bin/sh
+# `main` gets only what `./bz gate` passed on (tools/bz/src/check.rs). What
+# only documents needs no second gate. Other branches, such as the measuring
+# branch, are not held here.
+record=build/work/gate-passed
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+    [ "$remote_ref" = refs/heads/main ] || continue
+    if [ ! -s "$record" ]; then
+        echo "pre-push: no gate has passed; run ./bz gate" >&2
+        exit 1
+    fi
+    if ! changed=$(git diff --name-only "$(cat "$record")" "$local_sha^{tree}" -- . ':!*.md' ':!docs/'); then
+        echo "pre-push: cannot compare with the tree the gate passed on; run ./bz gate" >&2
+        exit 1
+    fi
+    if [ -n "$changed" ]; then
+        echo "pre-push: changed since the gate passed; run ./bz gate:" >&2
+        echo "$changed" >&2
+        exit 1
+    fi
+done
