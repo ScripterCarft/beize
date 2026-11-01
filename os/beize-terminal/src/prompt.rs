@@ -10,11 +10,9 @@
 //!
 //! A shell draws for the size it read when the signal came; a size that
 //! follows before its drawing arrives (a drag gives one each frame) puts
-//! that drawing on a grid of another width. kitty waits for the drag to
-//! pause (`resize_debounce_time`); Beize's terminal waits for the shell
-//! instead: a shell at its prompt is told one size at a time, the next once
-//! it drew (it takes about a millisecond), the grid meanwhile stays at the
-//! size the shell knows.
+//! that drawing on a grid of another width. So the grid and the shell take a
+//! new size only when the drag pauses, as foot (`resize-delay-ms`) and kitty
+//! (`resize_debounce_time`) do (`main.rs`, `RESIZE_QUIET`).
 //!
 //! The shell says when it waits at its prompt with the marks of OSC 133
 //! (FinalTerm's, as kitty, Ghostty, VTE, iTerm2 and Windows Terminal read
@@ -41,17 +39,11 @@ pub struct Prompt {
     waiting: bool,
     /// How much of `MARK` the output ended with so far.
     matched: usize,
-    /// The shell was told a size and has not drawn since.
-    told: bool,
 }
 
 impl Prompt {
-    /// Takes note of the shell's output, before the terminal reads it. True
-    /// when it is the shell's answer to a size: the next may follow.
-    pub fn output(&mut self, bytes: &[u8]) -> bool {
-        if bytes.is_empty() {
-            return false;
-        }
+    /// Takes note of the shell's output, before the terminal reads it.
+    pub fn output(&mut self, bytes: &[u8]) {
         for &byte in bytes {
             if self.matched == MARK.len() {
                 match byte {
@@ -67,14 +59,6 @@ impl Prompt {
                 usize::from(byte == MARK[0])
             };
         }
-        // Any output: a shell that draws something else than its prompt
-        // (bash's Ctrl+R) does not hold the window's size.
-        std::mem::take(&mut self.told)
-    }
-
-    /// The shell has not yet drawn for the last size: the next waits.
-    pub fn answering(&self) -> bool {
-        self.told
     }
 
     /// Resizes `term`, a waiting shell's prompt emptied for it to draw
@@ -86,7 +70,6 @@ impl Prompt {
         for _ in 0..down.unwrap_or(0) {
             term.linefeed();
         }
-        self.told = at_prompt;
     }
 }
 
@@ -178,18 +161,16 @@ mod tests {
             shell
         }
 
-        /// The window gets `columns`; `wait`: until bash drew its prompt
-        /// in it.
-        fn drag(&mut self, columns: usize, wait: bool) {
+        /// The window gets `columns` and the drag pauses there: the size
+        /// goes to the shell, which draws its prompt.
+        fn drag(&mut self, columns: usize) {
             self.window = Size { columns, lines: 24 };
             self.resize();
-            if wait {
-                self.wait_for_prompt();
-            }
+            self.wait_for_prompt();
         }
 
         fn resize(&mut self) {
-            if self.prompt.answering() || self.window == self.size {
+            if self.window == self.size {
                 return;
             }
             self.size = self.window;
@@ -210,11 +191,8 @@ mod tests {
                 poll(&mut fds, Some(&timeout)).unwrap();
                 let mut output = Vec::new();
                 self.pty.read(&mut output, 1 << 16).unwrap();
-                let answered = self.prompt.output(&output);
+                self.prompt.output(&output);
                 self.parser.advance(&mut self.term, &output);
-                if answered {
-                    self.resize();
-                }
             }
         }
 
@@ -269,18 +247,9 @@ mod tests {
     #[test]
     fn bash_keeps_one_prompt_through_resizes() {
         let mut shell = Shell::start(80);
-        // Narrower than the prompt and wide again, some sizes following
-        // before bash drew the last: the owner's drag on 0.5.104.
-        for (columns, wait) in [
-            (40, true),
-            (4, false),
-            (2, true),
-            (3, true),
-            (60, false),
-            (5, true),
-            (80, true),
-        ] {
-            shell.drag(columns, wait);
+        // Narrower than the prompt and wide again: the owner's drag on 0.5.104.
+        for columns in [40, 2, 3, 5, 80] {
+            shell.drag(columns);
         }
         assert_eq!(shell.text(), [PROMPT]);
     }

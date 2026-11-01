@@ -58,7 +58,17 @@ fn run() -> Result<(), String> {
     let state = manager
         .property(&target, UNIT, "ActiveState")
         .map_err(at("the target's state"))?;
-    if !matches!(state.as_str(), "inactive" | "failed") {
+    // The compositor too: the target goes down first, and a login meanwhile
+    // would have its environment taken back by the old session's end.
+    let compositor = manager
+        .unit_path(COMPOSITOR)
+        .map_err(at("loading the compositor's unit"))?;
+    let stopping = manager
+        .property(&compositor, UNIT, "ActiveState")
+        .map_err(at("the compositor's state"))?;
+    if !matches!(state.as_str(), "inactive" | "failed")
+        || !matches!(stopping.as_str(), "inactive" | "failed")
+    {
         return Err("the desktop already runs, in another login".into());
     }
 
@@ -68,9 +78,6 @@ fn run() -> Result<(), String> {
         .map_err(at("setting the session's environment"))?;
     // Watched is the compositor, not the target: the target is ordered
     // after it, so on stopping it goes down first, and the compositor last.
-    let compositor = manager
-        .unit_path(COMPOSITOR)
-        .map_err(at("loading the compositor's unit"))?;
     let mut desktop = Desktop::default();
     let watched = manager.watch(&compositor, &mut desktop, |manager| {
         manager.start(TARGET).map_err(at("starting the target"))

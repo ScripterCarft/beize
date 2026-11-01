@@ -22,7 +22,7 @@ use std::cell::RefCell;
 use std::os::fd::{AsFd as _, OwnedFd};
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
@@ -54,6 +54,9 @@ const OPENS_WITH: (usize, usize) = (80, 24);
 /// its progress.
 const READ_LIMIT: usize = 1 << 20;
 const TITLE: &str = "Terminal";
+/// How long a drag must pause for the grid and shell to take the new size:
+/// foot's `resize-delay-ms` by default, kitty's `resize_debounce_time`.
+const RESIZE_QUIET: Duration = Duration::from_millis(100);
 
 fn main() -> ExitCode {
     beize_ui::log::init("BEIZE_TERMINAL_LOG");
@@ -175,6 +178,10 @@ struct App {
     paste: Option<(OwnedFd, Vec<u8>)>,
     /// Something changed since the last frame.
     dirty: bool,
+    /// When the new size applies, if the window has one; whether it has had
+    /// its first.
+    resize_at: Option<Instant>,
+    sized: bool,
     /// What the shell last named the window, and what the window was told.
     title: String,
     title_sent: String,
@@ -244,6 +251,8 @@ fn run() -> Result<(), String> {
         outgoing: Vec::new(),
         paste: None,
         dirty: true,
+        resize_at: None,
+        sized: false,
         title: TITLE.to_owned(),
         title_sent: TITLE.to_owned(),
         context: None,
@@ -264,6 +273,9 @@ impl App {
                 .parser
                 .sync_timeout()
                 .sync_timeout()
+                .into_iter()
+                .chain(self.resize_at)
+                .min()
                 .map(|t| t.saturating_duration_since(now));
             // Input the PTY did not take yet (a large paste into a busy
             // program) goes once it takes more, as poll(2) tells.
@@ -291,6 +303,9 @@ impl App {
             if events.configured {
                 self.resize();
             }
+            if self.resize_at.is_some_and(|at| at <= Instant::now()) {
+                self.apply_size();
+            }
             if let Some(events) = context {
                 self.context_events(&events);
             }
@@ -316,12 +331,9 @@ impl App {
                     .pty
                     .read(&mut output, READ_LIMIT)
                     .map_err(|e| format!("reading from the shell: {e}"))?;
-                let answered = self.prompt.output(&output);
+                self.prompt.output(&output);
                 self.parser.advance(&mut self.term, &output);
                 self.dirty |= !output.is_empty();
-                if answered {
-                    self.resize();
-                }
                 // Every slave closed: nothing can come any more, and poll
                 // would report it forever. The window goes, as in foot and
                 // Alacritty, also if the shell lives on without a terminal.
@@ -371,13 +383,22 @@ impl App {
         }
     }
 
-    /// A new window size: a new grid, and the shell learns of it – a shell
-    /// at its prompt once it drew for the last (prompt.rs).
+    /// A new window size: the grid and the shell take it once the drag
+    /// pauses (prompt.rs), the first at once: a new window has no text to keep.
     fn resize(&mut self) {
         self.dirty = true;
-        if self.prompt.answering() {
-            return;
+        if self.sized {
+            self.resize_at = Some(Instant::now() + RESIZE_QUIET);
+        } else {
+            self.sized = true;
+            self.apply_size();
         }
+    }
+
+    /// The grid and the shell get the window's size.
+    fn apply_size(&mut self) {
+        self.resize_at = None;
+        self.dirty = true;
         let (columns, lines) = view::grid(self.ui.size(self.window), &self.fonts.regular);
         let size = Size { columns, lines };
         if size == self.size {
