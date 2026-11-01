@@ -65,8 +65,13 @@ fn main() -> ExitCode {
         Some("emergency") => emergency::run(),
         Some("keymap") => keymap::run(std::env::args().nth(2).as_deref()),
         Some("wipe-keys") => memory::run(std::env::args().nth(2).as_deref()),
+        Some("recovery-unconfirmed") => luks::recovery_unconfirmed(
+            std::env::args().nth(2).as_deref(),
+            std::env::args().nth(3).as_deref(),
+        ),
         _ => Err(
-            "usage: beize-tpm reseal | check-boot | emergency | keymap save|load | wipe-keys VERB"
+            "usage: beize-tpm reseal | check-boot | emergency | keymap save|load | wipe-keys VERB \
+             | recovery-unconfirmed set|clear|check DEVICE"
                 .into(),
         ),
     };
@@ -142,6 +147,12 @@ fn power_off() -> ! {
 }
 
 fn reseal() -> Result<(), String> {
+    // No TPM to bind to: the recovery start skips its setup on purpose, and a
+    // computer may have none. What the data is bound to stays as it was.
+    if !Path::new(CURRENT_SRK).exists() {
+        println!("No TPM in this start: nothing to bind the data to.");
+        return Ok(());
+    }
     let current_srk = read(CURRENT_SRK)?;
     let bound_srk = fs::read(BOUND_SRK).ok();
 

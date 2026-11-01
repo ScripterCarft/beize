@@ -1,0 +1,49 @@
+[Unit]
+Description=Check that the compositor can draw
+Documentation=file:/usr/lib/beize/beize-compositor
+# Part of what makes a start good (boot-health, images/desktop/running-units.txt):
+# a version whose desktop cannot start goes back like one that does not boot.
+# It needs no screen and no login, so a computer without a monitor starts well.
+# The GPU's driver may still be loading: then lavapipe answers, which still
+# proves the program, Vulkan and its shaders.
+After=systemd-udev-trigger.service
+Before=beize-boot-health.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/beize/beize-compositor --check
+TimeoutStartSec=60
+# Nothing is kept of it.
+Environment=MESA_SHADER_CACHE_DISABLE=true
+# Sandbox (images/desktop/security.toml), as the compositor's: Vulkan opens the
+# GPU's render node itself, lavapipe compiles shaders to machine code.
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+# As every unit of the desktop: the start "(Basis)" runs without it (ADR 0025).
+WantedBy=graphical.target

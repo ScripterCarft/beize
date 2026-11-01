@@ -1,0 +1,4 @@
+# What the desktop runs beyond the base (see the base's running-units.txt).
+
+# Part of what makes a start good (the compositor can draw).
+beize-compositor-check.service

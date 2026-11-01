@@ -10,7 +10,7 @@
 usr = 116676
 
 [programs]
-"usr/lib/beize/beize-tpm" = 534
+"usr/lib/beize/beize-tpm" = 555
 "usr/lib/beize/beize-setup" = 539
 "usr/lib/beize/beize-accountsd" = 400
 "usr/lib/beize/beize-updated" = 457

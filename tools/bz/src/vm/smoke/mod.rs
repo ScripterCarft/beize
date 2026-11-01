@@ -50,6 +50,8 @@ mod updates;
 /// A part of the smoke test, run on its own machine beside the others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Scenario {
+    InterruptedUpdate,
+    KeyNotConfirmed,
     Install,
     ChangedBoot,
     SecureBootUpdate,
@@ -77,8 +79,10 @@ use Scenario::*;
 /// release the broken update waits for. Those that start from a copy of
 /// the installation only if it passed, and only those that
 /// [`Scenario::applies`] to the variant.
-const AFTER_INSTALL: [Scenario; 15] = [
+const AFTER_INSTALL: [Scenario; 17] = [
     Update,
+    InterruptedUpdate,
+    KeyNotConfirmed,
     OwnerKeys,
     BrokenUpdate,
     Desktop,
@@ -99,6 +103,10 @@ impl Scenario {
     fn title(self) -> &'static str {
         match self {
             Install => "Install, first boot (setup, recovery key) and second boot",
+            InterruptedUpdate => "An update cut short by a power failure installs when tried again",
+            KeyNotConfirmed => {
+                "A first start cut short at the recovery key shows a new one, and only that opens"
+            }
             ChangedBoot => {
                 "A boot with something added must stop before asking for the recovery key"
             }
@@ -155,7 +163,10 @@ impl Scenario {
     /// Whether it starts from a copy of the installation; the others
     /// install an image of their own.
     fn needs_installation(self) -> bool {
-        !matches!(self, OwnerKeys | CorruptedUsr | UnsignedUki)
+        !matches!(
+            self,
+            OwnerKeys | CorruptedUsr | UnsignedUki | KeyNotConfirmed
+        )
     }
 
     fn run(self, smoke: &Smoke) -> Result<()> {
@@ -173,6 +184,7 @@ impl Scenario {
             SecureBootOff => trust::secure_boot_off(paths, smoke.installed()?),
             UnsignedUki => trust::unsigned_uki(paths),
             CorruptedUsr => integrity::corrupted_usr(paths),
+            KeyNotConfirmed => integrity::key_not_confirmed(paths),
             OwnerKeys => trust::owner_workflow(paths),
             EmergencyGate => access::emergency_gate(paths, smoke.installed()?),
             Privileges => access::privileges(paths, smoke.installed()?),
@@ -185,6 +197,9 @@ impl Scenario {
                 smoke.next_release()?,
             ),
             Desktop => desktop::desktop(paths, smoke.installed()?),
+            InterruptedUpdate => {
+                updates::interrupted_update(paths, smoke.installed()?, smoke.next_release()?)
+            }
             BrokenUpdate => updates::broken_update(
                 paths,
                 &smoke.test_keys,
@@ -410,6 +425,10 @@ fn install(paths: &Paths) -> Result<Installed> {
         "first boot did not wait for the recovery key to be confirmed as saved"
     );
     say!("  ok: first boot showed a recovery key and waited until it was saved");
+    ensure!(
+        crate::vm::checks::root_recovery_keys(&machine.disk, &paths.work)? == (1, false),
+        "after a first boot the root partition should have one confirmed recovery key"
+    );
     let created = format!("Account \"{SMOKE_USER}\" created");
     ensure!(
         first.console.iter().any(|line| line.contains(&created)),

@@ -15,6 +15,7 @@
 # Beize's services with a Varlink interface for unprivileged callers.
 "beize-accounts@.service" = 1.7
 "beize-update@.service" = 2.9
+"beize-update-cleanup.service" = 3.0
 "beize-update-fetch@.service" = 1.5
 # Beize's boot steps and first-boot setup, each in a sandbox that leaves it
 # exactly what it writes (see its unit); the smoke test checks each.

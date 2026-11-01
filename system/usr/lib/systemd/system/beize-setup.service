@@ -29,7 +29,9 @@ TTYReset=yes
 # beize-accountsd, and writes /etc (time zone, root's shadow entry) and
 # its marker in /var/lib/beize.
 ProtectSystem=strict
-ReadWritePaths=/etc /var/lib/beize
+ReadWritePaths=/etc
+StateDirectory=beize
+StateDirectoryMode=0755
 CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN
 ProtectKernelTunables=yes
 ProtectHome=yes

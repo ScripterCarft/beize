@@ -94,7 +94,13 @@ pub(crate) fn notify_ready() {
 
 fn main() -> ExitCode {
     log::init();
-    match run() {
+    // `beize-compositor-check.service`: part of what makes a start good.
+    let result = if std::env::args().nth(1).as_deref() == Some("--check") {
+        gpu::check()
+    } else {
+        run()
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             error!("{e}");

@@ -5,12 +5,15 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 
 use crate::image;
 use crate::paths::Paths;
 use crate::say;
-use crate::vm::console::{Answers, ConsoleEvent, SMOKE_CREDENTIALS, Session, strip_ansi};
+use crate::vm::checks::{self, boot_healthy};
+use crate::vm::console::{
+    Answers, ConsoleEvent, SMOKE_CREDENTIALS, Session, find_recovery_key, strip_ansi,
+};
 use crate::vm::machine::Machine;
 use crate::vm::report::REPORT_MARKER;
 
@@ -92,6 +95,42 @@ impl FailedStart {
     }
 }
 
+/// Power goes while the recovery key is on screen: nobody saw it for sure. The
+/// next start shows a new one, and the first opens nothing any more.
+pub(super) fn key_not_confirmed(paths: &Paths) -> Result<()> {
+    let machine = Machine::install(paths, "smoke-key-not-confirmed")?;
+    let session = Session::start(&machine, &Answers::key_unconfirmed(), &SMOKE_CREDENTIALS)?;
+    let deadline = Instant::now() + FAILED_START_TIMEOUT;
+    let mut console = Vec::new();
+    let first = loop {
+        if let Some(key) = find_recovery_key(&console) {
+            break key;
+        }
+        let Some(event) = session.next(deadline) else {
+            bail!("the first start showed no recovery key");
+        };
+        if let ConsoleEvent::Line(line) = event {
+            console.push(strip_ansi(&line));
+        }
+    };
+    session.power_off_within(Duration::ZERO)?;
+    ensure!(
+        checks::root_recovery_keys(&machine.disk, &paths.work)? == (1, true),
+        "the key on screen should be marked as not confirmed"
+    );
+
+    let next = boot_healthy(&machine, 1, &Answers::none())?;
+    let second = find_recovery_key(&next.console)
+        .context("the start after the power cut showed no recovery key")?;
+    ensure!(first != second, "the same recovery key was shown twice");
+    ensure!(
+        checks::root_recovery_keys(&machine.disk, &paths.work)? == (1, false),
+        "after the confirmation there should be one recovery key, no mark"
+    );
+    say!("  ok: cut short at the recovery key, the next start showed a new one and replaced it");
+    machine.remove()
+}
+
 /// Starts `machine` once, expecting the start to fail: it either restarts
 /// by itself (QEMU ends, `-no-reboot`) or waits at the emergency gate.
 pub(super) fn failed_start(machine: &Machine) -> Result<FailedStart> {
@@ -102,11 +141,14 @@ pub(super) fn failed_start(machine: &Machine) -> Result<FailedStart> {
         verity_corrupted: false,
         failed: Vec::new(),
     };
+    let mut split = String::new();
     while let Some(event) = session.next(deadline) {
         let ConsoleEvent::Line(line) = event else {
             continue;
         };
-        let line = strip_ansi(&line);
+        let Some(line) = whole_line(&mut split, strip_ansi(&line)) else {
+            continue;
+        };
         if line.contains(REPORT_MARKER) || line.contains("Welcome to") {
             bail!("the system started from a modified /usr");
         } else if line.contains("verity") && line.contains("is corrupted") {
@@ -128,9 +170,62 @@ pub(super) fn failed_start(machine: &Machine) -> Result<FailedStart> {
     // closes a moment before QEMU has exited.
     let ended = session.power_off_within(Duration::from_secs(5))?;
     ensure!(
-        ended && start.restarted.is_some(),
+        ended,
         "the failed start neither restarted nor reached the emergency gate within {}s",
         FAILED_START_TIMEOUT.as_secs()
     );
+    ensure!(
+        start.restarted.is_some(),
+        "the failed start ended the VM without saying it restarts"
+    );
     Ok(start)
+}
+
+/// A console line in one piece. The kernel writes to the serial port itself,
+/// also into the middle of a line user space is writing: `[FAILED] Failed to
+/// [    0.98] Buffer I/O error…`, and the rest of the line comes after. Such a
+/// line waits in `split` for its rest: split, a match for a question or a
+/// verdict is missed.
+fn whole_line(split: &mut String, line: String) -> Option<String> {
+    if let Some(at) = kernel_stamp(&line).filter(|at| *at > 0) {
+        split.push_str(&line[..at]);
+        return None;
+    }
+    if split.is_empty() {
+        return Some(line);
+    }
+    let whole = std::mem::take(split) + &line;
+    Some(whole)
+}
+
+/// Where a kernel message's stamp `[    0.980958]` starts in `line`.
+fn kernel_stamp(line: &str) -> Option<usize> {
+    line.match_indices('[').map(|(at, _)| at).find(|at| {
+        line[*at + 1..].split_once(']').is_some_and(|(stamp, _)| {
+            let stamp = stamp.trim_start();
+            let (seconds, micros) = stamp.split_once('.').unwrap_or(("", ""));
+            !seconds.is_empty()
+                && micros.len() == 6
+                && seconds.bytes().all(|b| b.is_ascii_digit())
+                && micros.bytes().all(|b| b.is_ascii_digit())
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_kernel_message_inside_a_line_leaves_it_whole() {
+        let mut split = String::new();
+        let first = "Restar[    0.980958] Buffer I/O error on dev vda".to_owned();
+        assert_eq!(whole_line(&mut split, first), None);
+        assert_eq!(
+            whole_line(&mut split, "ting now".to_owned()),
+            Some("Restarting now".to_owned())
+        );
+        let plain = "[    0.980958] a kernel line".to_owned();
+        assert_eq!(whole_line(&mut split, plain.clone()), Some(plain));
+    }
 }

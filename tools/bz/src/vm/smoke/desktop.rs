@@ -283,12 +283,13 @@ const SCREEN_OFF_SLACK: Duration = Duration::from_secs(5);
 /// some 150 takes 45.
 const FADE_LOOKED_AT: Duration = Duration::from_secs(3);
 const FADE_DARKER: f64 = 20.0;
-/// How long a client draws with the screen off, and how many frames tell
-/// the screen's pace, some 60 a second, from a hidden window's, one
-/// (`HIDDEN_FRAMES`, os/beize-compositor/src/state.rs). No exact count: the
-/// VM's vCPUs stall (#41), CI once saw 6 for the expected 5.
+/// How long a client draws with the screen off, and how many frames at most:
+/// its first two come without a wait, then one each `HIDDEN_FRAMES`
+/// (os/beize-compositor/src/state.rs), and 3 s hold three or four of those,
+/// by where they begin: 5 here, 6 in the nights of 28. to 31.10. A stall only
+/// makes fewer. At the screen's pace it was 188.
 const OFF_DRAWING: Duration = Duration::from_secs(3);
-const OFF_FRAMES_MOST: usize = 20;
+const OFF_FRAMES_MOST: usize = 6;
 
 /// The load test's scene (os/beize-ui, `beize-load-test`): its windows, how
 /// long it runs, and how many frames each window must have drawn at least
@@ -312,6 +313,12 @@ const SCREEN_TIMEOUT: Duration = Duration::from_secs(10);
 const RUN_ENDED: Duration = Duration::from_secs(1);
 /// How long the still desktop is watched for waking.
 const IDLE_SECONDS: u64 = 3;
+/// How long the minute's frame is still at work when a minute began. The window
+/// must not begin in it: 1 in 20 runs landed there and read as "the desktop woke"
+/// (measured 1.11.: 4 to 29 task switches in the 3 s from :00, 0 from :10). The
+/// bar's clock draws, and its frame arms the timer that sums up frames
+/// (`PACING_CHECK`, 500 ms).
+const AFTER_TICK: u64 = 3;
 
 /// A failed check puts the session's journal into the console's log
 /// (`build/work/logs/boot`): the machine it leaves keeps none of it – two
@@ -2954,7 +2961,8 @@ fn still_and_signed_out(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
     let (_, lines) = shell.capture(&format!(
         "c() {{ cat /proc/$1/task/*/status | awk '/ctxt_switches/ {{s += $2}} END {{print s}}'; }}; \
          for try in 1 2; do \
-         while [ $((10#$(date +%S))) -gt $((58 - {IDLE_SECONDS})) ]; do sleep 0.5; done; \
+         while s=$((10#$(date +%S))); [ $s -gt $((58 - {IDLE_SECONDS})) ] || [ $s -lt {AFTER_TICK} ]; \
+         do sleep 0.5; done; \
          minute=$(date +%H%M); \
          : > /tmp/idle-threads; for n in beize-compositor beize-shell beize-terminal; do \
          p=$(pgrep -f \"^/usr/lib/beize/$n\" | head -n 1); echo \"$n $p $(c $p)\"; \

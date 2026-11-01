@@ -183,6 +183,12 @@ pub(super) fn update(
         lines.iter().any(|l| l.trim() == expected),
         "a boot with a failed unit was not judged as failed (expected {expected}): {lines:?}"
     );
+    // And nothing replaces the last good version from such a start.
+    let (status, lines) = shell.capture("beize-update install http://127.0.0.1:1/none")?;
+    ensure!(
+        status != 0 && lines.iter().any(|l| l.contains("not been marked good")),
+        "an update from a start not marked good was not refused (exit status {status}): {lines:?}"
+    );
     shell.power_off()?;
     let listing = checks::uki_listing(&machine.disk)?;
     let tried_once = format!(
@@ -260,6 +266,47 @@ pub(super) fn update(
 ///
 /// A damaged hash tree header fails when dm-verity is set up; damaged data
 /// when /usr is mounted – `corrupted_usr` shows that. Both fail at once.
+/// Power goes while the update writes its /usr slot: the system starts as
+/// before, and the same update installs and starts then.
+pub(super) fn interrupted_update(paths: &Paths, installed: &Installed, good: &Path) -> Result<()> {
+    let machine = installed
+        .machine
+        .copy_as(paths, "smoke-interrupted-update")?;
+    let version = next_version();
+    let server = Server::start(good)?;
+    let shell = Shell::boot(
+        &machine,
+        &Answers::none(),
+        &DEBUG_CONSOLE_CREDENTIALS,
+        false,
+    )?;
+    let (_, lines) = shell.capture(&format!(
+        "beize-update install {} >/dev/null 2>&1 & \
+         for i in $(seq 1200); do cat /proc/[0-9]*/comm 2>/dev/null \
+         | grep -qE '^systemd-(import|pull)' && {{ sleep 0.3; echo BEIZE-WRITING; break; }}; \
+         sleep 0.05; done",
+        server.url()
+    ))?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-WRITING"),
+        "the update never began writing a slot: {lines:?}"
+    );
+    shell.stop()?;
+    drop(server);
+    // While it writes, sysupdate gives the free slot a type of its own, so
+    // nothing takes it for a /usr: the running one and at most the other half.
+    let labels = usr_labels(&machine.disk)?;
+    ensure!(
+        labels.len() < 4,
+        "the power went at no point of writing a slot: {labels:?}"
+    );
+    install_update(&machine, good, &version)?;
+    boot_healthy(&machine, 3, &Answers::none())?;
+    check_blessed(&machine.disk, &version)?;
+    say!("  ok: power lost while writing a slot; the same update installed then and started");
+    machine.remove()
+}
+
 pub(super) fn broken_update(
     paths: &Paths,
     keys: &secureboot::Keys,
@@ -337,6 +384,22 @@ pub(super) fn broken_update(
         "  ok: then the previous version {} started again; {used_up} has no tries left",
         layout::OS_VERSION
     );
+    // Installed again, it would never start: the update says so.
+    let shell = Shell::boot(
+        &machine,
+        &Answers::none(),
+        &DEBUG_CONSOLE_CREDENTIALS,
+        false,
+    )?;
+    let server = Server::start(&broken)?;
+    let (status, lines) = shell.capture(&format!("beize-update install {}", server.url()))?;
+    ensure!(
+        status != 0 && lines.iter().any(|l| l.contains("no tries left")),
+        "installing the version that used up its tries was not refused \
+         (exit status {status}): {lines:?}"
+    );
+    drop(server);
+    shell.power_off()?;
 
     damage_verity(&machine.disk, image::USR_VERITY_OFFSET)?;
     let start = failed_start(&machine)?;

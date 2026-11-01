@@ -463,6 +463,20 @@ fn root_tpm2_token(disk: &Path, scratch: &Path) -> Result<serde_json::Value> {
         .context("the root partition has no systemd-tpm2 token")
 }
 
+/// How many recovery keys the root partition has, and whether it still marks
+/// one as not confirmed.
+pub(super) fn root_recovery_keys(disk: &Path, scratch: &Path) -> Result<(usize, bool)> {
+    let (_, metadata) = root_luks(disk, scratch)?;
+    let tokens = metadata["tokens"]
+        .as_object()
+        .context("the root partition has no tokens")?;
+    let of_type = |name: &str| tokens.values().filter(|t| t["type"] == name).count();
+    Ok((
+        of_type("systemd-recovery"),
+        of_type("beize-recovery-unconfirmed") > 0,
+    ))
+}
+
 /// Damages the file system inside the encrypted root partition without the
 /// key, as anyone with the disk could: one flipped byte of the ciphertext
 /// garbles 16 bytes of the first ext4 group descriptor. The LUKS2 header

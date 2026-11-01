@@ -173,6 +173,8 @@ pub(super) struct Answers {
     /// Further questions and what is typed at them, one after the other
     /// (see [`Answers::answering`]).
     more: Vec<(&'static str, Vec<String>)>,
+    /// The recovery key stays on screen, unconfirmed.
+    key_unconfirmed: bool,
 }
 
 impl Answers {
@@ -186,6 +188,15 @@ impl Answers {
 
     pub(super) fn none() -> Self {
         Self::default()
+    }
+
+    /// The first boot's question whether the recovery key is saved stays
+    /// unanswered.
+    pub(super) fn key_unconfirmed() -> Self {
+        Self {
+            key_unconfirmed: true,
+            ..Self::default()
+        }
     }
 
     pub(super) fn recovery_key(key: &str) -> Self {
@@ -247,9 +258,14 @@ impl Answers {
     /// often, it stays unanswered.
     fn replies(&self) -> Vec<(&'static str, Vec<String>)> {
         let owned = |typed: &[&str]| typed.iter().map(|t| (*t).to_owned()).collect();
+        let saved: &[&str] = if self.key_unconfirmed {
+            &[]
+        } else {
+            &["stored"]
+        };
         let mut replies = vec![
             (ADOPT_TPM_PROMPT, owned(&[self.adopt_tpm.unwrap_or("no")])),
-            (RECOVERY_KEY_SAVED_PROMPT, owned(&["stored"])),
+            (RECOVERY_KEY_SAVED_PROMPT, owned(saved)),
         ];
         if self.passwords.is_empty() {
             replies.extend(

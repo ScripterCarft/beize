@@ -1,0 +1,4 @@
+# What the desktop enables beyond the base (see the base's system.preset).
+
+# Part of what makes a start good: the desktop could draw.
+enable beize-compositor-check.service

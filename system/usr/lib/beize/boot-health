@@ -17,6 +17,11 @@ done < /usr/lib/beize/running-units.txt
 
 # One state per unit, in order.
 mapfile -t states < <(systemctl is-failed "${units[@]}")
+# No answer is no success: the bus down must not mark a version good.
+if (( ${#states[@]} != ${#units[@]} )); then
+    echo "This boot failed: systemd answered for ${#states[@]} of ${#units[@]} units."
+    exit 1
+fi
 failed=()
 for i in "${!units[@]}"; do
     [[ ${states[i]:-} == failed ]] && failed+=("${units[i]}")

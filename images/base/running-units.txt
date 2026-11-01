@@ -75,3 +75,6 @@ systemd-sysupdate-notify-sysext.socket
 systemd-report.socket systemd-report-basic.socket systemd-report-cgroup.socket
 systemd-report-files.socket systemd-report-sign-plain.socket
 systemd-report-sign-tpm2.socket
+
+# An interrupted update's remains go before anything reads the slots (ADR 0020).
+beize-update-cleanup.service

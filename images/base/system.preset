@@ -11,6 +11,7 @@ enable dbus-broker.service
 
 # Beize's own units.
 enable beize-boot-chain.service
+enable beize-update-cleanup.service
 enable beize-boot-report.service
 enable beize-save-clock.timer
 enable beize-setup.service

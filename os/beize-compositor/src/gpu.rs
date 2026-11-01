@@ -159,6 +159,32 @@ fn device(session: &mut LibSeatSession, path: &Path) -> Result<(DrmDevice, DrmDe
     DrmDevice::new(fd, false).context("DRM device")
 }
 
+/// Whether this version can draw at all, with no session and no screen: Vulkan
+/// comes up and the renderer's shaders build, on the first GPU or else on
+/// lavapipe. What gnome-session-check-accelerated asks before a session. The
+/// screen stays out of it: a start without a monitor is a good start.
+pub fn check() -> Result<()> {
+    let instance = Instance::new(
+        Version::VERSION_1_3,
+        Some(AppInfo {
+            name: "beize-compositor".into(),
+            version: Version::from_raw(vk::make_api_version(0, 0, 1, 0)),
+        }),
+    )
+    .context("Vulkan")?;
+    let devices: Vec<PhysicalDevice> = PhysicalDevice::enumerate(&instance)
+        .context("Vulkan devices")?
+        .collect();
+    let device = devices
+        .iter()
+        .find(|d| d.ty() != vk::PhysicalDeviceType::CPU)
+        .or_else(|| devices.first())
+        .context("no Vulkan driver, and no lavapipe")?;
+    VkRenderer::new(device)?;
+    info!("the compositor can draw, on {}", device.name());
+    Ok(())
+}
+
 /// The Vulkan device for the GPU: its own driver, or lavapipe.
 fn vulkan(drm: &DrmDevice, node: DrmNode) -> Result<(VkRenderer, Images)> {
     let instance = Instance::new(
