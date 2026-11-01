@@ -87,10 +87,11 @@ pub struct Renderer {
     pub(crate) gpu: Gpu,
     pool: vk::CommandPool,
     in_flight: Vec<InFlight>,
-    /// Each window's frames; None for an offscreen image's. They live as
-    /// long as the renderer, as an app's windows do (`App` destroys them
-    /// together); once a window can close alone, its ring has to go with it.
+    /// Each window's frames; None for an offscreen image's. A window closed
+    /// leaves its frames to the next (`forget`): an app's menus come and go.
     rings: HashMap<Option<WindowId>, Ring>,
+    /// Frames of closed windows.
+    spare: Vec<[usize; IN_FLIGHT]>,
     submitted: u64,
     glyphs: Glyphs,
     atlas: GpuAtlas,
@@ -114,6 +115,7 @@ impl Renderer {
             pool: vk::CommandPool::null(),
             in_flight: Vec::new(),
             rings: HashMap::new(),
+            spare: Vec::new(),
             submitted: 0,
             glyphs: Glyphs::new(),
             atlas: GpuAtlas::new(ATLAS_FORMAT, ATLAS_SIZE),
@@ -140,14 +142,28 @@ impl Renderer {
         if let Some(ring) = self.rings.get(&window) {
             return Ok(ring.frames[ring.next]);
         }
-        let mut frames = [0; IN_FLIGHT];
-        for slot in &mut frames {
-            *slot = self.in_flight.len();
-            let frame = self.in_flight_new()?;
-            self.in_flight.push(frame);
-        }
+        let frames = match self.spare.pop() {
+            Some(frames) => frames,
+            None => {
+                let mut frames = [0; IN_FLIGHT];
+                for slot in &mut frames {
+                    *slot = self.in_flight.len();
+                    let frame = self.in_flight_new()?;
+                    self.in_flight.push(frame);
+                }
+                frames
+            }
+        };
         self.rings.insert(window, Ring { frames, next: 0 });
         Ok(frames[0])
+    }
+
+    /// `window` closed, the GPU idle since: its frames are for the next
+    /// window. They stay made, as many as windows were open at once.
+    pub fn forget(&mut self, window: WindowId) {
+        if let Some(ring) = self.rings.remove(&Some(window)) {
+            self.spare.push(ring.frames);
+        }
     }
 
     fn in_flight_new(&self) -> Result<InFlight> {

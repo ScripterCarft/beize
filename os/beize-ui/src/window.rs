@@ -29,8 +29,8 @@ use ash::vk;
 use beize_vulkan::error::{Context, Result, error};
 use beize_vulkan::image::{self, Sampled, own_image};
 use tracing::debug;
-use wayland_client::QueueHandle;
 use wayland_client::protocol::{wl_compositor::WlCompositor, wl_region::WlRegion, wl_seat::WlSeat};
+use wayland_client::{Proxy, QueueHandle};
 use wayland_protocols::xdg::shell::client::{
     xdg_popup::XdgPopup, xdg_surface::XdgSurface, xdg_toplevel::XdgToplevel, xdg_wm_base::XdgWmBase,
 };
@@ -663,7 +663,17 @@ impl Window {
                 _xdg_surface.destroy();
                 _wm_base.destroy();
             }
-            Role::Panel { layer, .. } => layer.destroy(),
+            Role::Panel {
+                layer,
+                _layer_shell,
+                ..
+            } => {
+                layer.destroy();
+                // A handle per panel; its request came with version 3.
+                if _layer_shell.version() >= 3 {
+                    _layer_shell.destroy();
+                }
+            }
             Role::Popup {
                 _wm_base,
                 xdg_surface,

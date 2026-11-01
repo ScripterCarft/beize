@@ -14,6 +14,7 @@ use ash::vk;
 use beize_vulkan::error::{Context, Result, error};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use tracing::warn;
+use wayland_client::backend::WaylandError;
 use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{
     wl_callback::{self, WlCallback},
@@ -55,6 +56,18 @@ use crate::renderer::Renderer;
 use crate::window::{PopupParent, Role, Window};
 use beize_draw::titlebar::{Appearance, TitleBar};
 use beize_draw::{Scene, Text};
+
+/// Sends what is queued; false if the socket is full, which is no failure: the
+/// compositor is busy, and what is queued goes once it has read (poll's OUT in
+/// `App::dispatch`, as calloop-wayland-source does). Treated as an error it
+/// ended the app with its windows.
+fn send_queued<T>(queue: &EventQueue<T>) -> Result<bool> {
+    match queue.flush() {
+        Ok(()) => Ok(true),
+        Err(WaylandError::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+        Err(e) => Err(error(format!("sending to the compositor: {e}"))),
+    }
+}
 
 /// One of the app's windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -596,7 +609,7 @@ impl App {
     /// Sends what the app asked of the compositor now, not with the next
     /// `dispatch`: a menu closed before the app blocks on something else.
     pub fn flush(&mut self) -> Result<()> {
-        self.queue.flush().context("sending to the compositor")?;
+        send_queued(&self.queue)?;
         Ok(())
     }
 
@@ -624,6 +637,7 @@ impl App {
         }
         window.unmap();
         window.destroy(gpu);
+        self.renderer.forget(id);
         if let Some(j) = self.state.surfaces.iter().position(|s| s.id == id) {
             self.state.surfaces.swap_remove(j).wl.destroy();
         }
@@ -1043,7 +1057,7 @@ impl App {
             .dispatch_pending(&mut self.state)
             .context("dispatching")?;
         self.state.apply_configures();
-        queue.flush().context("sending to the compositor")?;
+        let sent = send_queued(queue)?;
         // Mesa's WSI reads the same socket and may have queued events
         // already: then only a look, no waiting.
         let pending = self.state.surfaces.iter().any(|s| s.events.any())
@@ -1067,7 +1081,14 @@ impl App {
         let connection = guard.as_ref().map(|g| g.connection_fd());
         let mut fds: Vec<PollFd<'_>> = connection
             .iter()
-            .map(|fd| PollFd::new(fd, PollFlags::IN))
+            .map(|fd| {
+                let also_out = if sent {
+                    PollFlags::empty()
+                } else {
+                    PollFlags::OUT
+                };
+                PollFd::new(fd, PollFlags::IN | also_out)
+            })
             .chain(also.iter().map(|watch| match watch {
                 Watch::Read(fd) => PollFd::new(fd, PollFlags::IN),
                 Watch::Write(fd) => PollFd::new(fd, PollFlags::OUT),
@@ -1086,7 +1107,8 @@ impl App {
             .filter(|(_, fd)| readable(fd))
             .map(|(i, _)| i)
             .collect();
-        let incoming = connection.is_some() && readable(&fds[0]);
+        // Room in the socket alone is nothing to read.
+        let incoming = connection.is_some() && !(fds[0].revents() - PollFlags::OUT).is_empty();
         drop(fds);
         if let Some(guard) = guard
             && incoming

@@ -36,7 +36,8 @@ use smithay::desktop::utils::{
     surface_presentation_feedback_flags_from_states,
 };
 use smithay::desktop::{
-    LayerSurface, PopupGrab, PopupManager, Space, Window, layer_map_for_output,
+    LayerSurface, PopupGrab, PopupManager, PopupUngrabStrategy, Space, Window,
+    find_popup_root_surface, layer_map_for_output,
 };
 use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
 use smithay::input::pointer::{CursorIcon, CursorImageStatus};
@@ -57,8 +58,8 @@ use smithay::reexports::wayland_server::protocol::wl_callback::WlCallback;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::utils::{
-    Clock, ClockSource, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Size,
-    Transform,
+    Clock, ClockSource, Logical, Monotonic, Physical, Point, Rectangle, SERIAL_COUNTER, Serial,
+    Size, Transform,
 };
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::commit_timing::CommitTimingManagerState;
@@ -116,6 +117,8 @@ const REPEAT_RATE: i32 = 33;
 
 /// Surfaces not on the screen hear "frame done" at most this often.
 const HIDDEN_FRAMES: Duration = Duration::from_secs(1);
+/// The longest wait before a frame is tried again (`retry_frame`).
+const FAILED_AT_MOST: Duration = Duration::from_secs(1);
 /// How often a run of frames is checked for its end (`Pacing`).
 const PACING_CHECK: Duration = Duration::from_millis(500);
 /// How long the global of a replaced screen stays, hidden, before it goes:
@@ -172,6 +175,12 @@ pub struct State {
     pub switcher: Option<crate::switcher::Switcher>,
     /// The overlay with the keyboard (`layers`).
     pub overlay_keyboard: Option<WlSurface>,
+    /// The serial of the last key and button event and whose it was: what
+    /// entitles a client to a menu that grabs (`shell::grab`).
+    pub last_key: Option<(Serial, ClientId)>,
+    pub last_button: Option<(Serial, ClientId)>,
+    /// Frames that failed in a row (`retry_frame`).
+    frames_failed: u32,
     /// Every app's handle on the glass, which hears the appearance (`glass`).
     pub glass_managers:
         Vec<beize_protocols::app::server::beize_glass_manager_v1::BeizeGlassManagerV1>,
@@ -400,6 +409,9 @@ impl State {
             popup_grab: None,
             switcher: None,
             overlay_keyboard: None,
+            last_key: None,
+            last_button: None,
+            frames_failed: 0,
             glass_managers: Vec::new(),
             snap_preview: None,
             snap_preview_id: Id::new(),
@@ -947,6 +959,39 @@ impl State {
         }
     }
 
+    /// Draws again after a failed frame: one refresh later, each further
+    /// failure in a row twice as late, at most `FAILED_AT_MOST`. At once would
+    /// turn a lasting failure (a lost device, a refused commit) into a loop
+    /// on one CPU that fills the journal.
+    fn retry_frame(&mut self) {
+        self.redraw = true;
+        if self.draw_timer.is_some() {
+            return;
+        }
+        let refresh = self
+            .gpu
+            .as_ref()
+            .and_then(Gpu::refresh)
+            .unwrap_or(FAILED_AT_MOST);
+        let wait = refresh
+            .saturating_mul(1 << self.frames_failed.min(16))
+            .min(FAILED_AT_MOST);
+        self.frames_failed = self.frames_failed.saturating_add(1);
+        let token = self
+            .handle
+            .insert_source(Timer::from_duration(wait), |_, _, state| {
+                state.draw_timer = None;
+                if state.redraw {
+                    state.schedule_render();
+                }
+                TimeoutAction::Drop
+            });
+        match token {
+            Ok(token) => self.draw_timer = Some(token),
+            Err(e) => self.fail(error(format!("draw timer: {}", e.error))),
+        }
+    }
+
     /// Draws what changed and places the cursor.
     fn render(&mut self) {
         if !self.session.is_active() {
@@ -1133,6 +1178,9 @@ impl State {
         if !matches!(frame, Ok(Frame::Deferred)) {
             self.changed_at = None;
         }
+        if frame.is_ok() {
+            self.frames_failed = 0;
+        }
         match frame {
             Ok(Frame::Queued(shown)) => {
                 self.hold_read(Some(&shown));
@@ -1158,14 +1206,14 @@ impl State {
                 self.frame_done_later();
             }
             // One frame lost, not the session with its windows: said, and
-            // drawn again at the next vblank, as Mutter, KWin and niri go on
-            // after a frame that failed. What it would have shown waits
-            // for that frame, its clients' callbacks with it.
+            // drawn again, as Mutter, KWin and niri go on after a frame that
+            // failed. What it would have shown waits for that frame, its
+            // clients' callbacks with it.
             Err(e) => {
                 warn!("a frame failed: {e:#}");
                 // It may have reached the GPU: all it could have read.
                 self.hold_read(None);
-                self.changed();
+                self.retry_frame();
             }
         }
         self.watch_flip();
@@ -1908,11 +1956,58 @@ impl State {
         }
     }
 
+    /// The active window left: the top one takes over. An overlay with the
+    /// keyboard keeps it: an app's window ending must not send the next
+    /// Return past a dialog to what lies behind it.
+    pub fn activate_next(&mut self) {
+        let overlay = self.overlay_keyboard.clone();
+        let next = self.space.elements().last().cloned();
+        self.focus(next);
+        if let Some(overlay) = overlay {
+            self.give_overlay_keyboard(overlay);
+        }
+    }
+
+    /// The keyboard moves to `window`, or to nothing: an app's menu grabbing
+    /// it ends unless it belongs to that window, or the keys would go to a
+    /// menu of a window no longer active, or no longer there, as niri's
+    /// `update_keyboard_focus`. A menu of the shell's is no window's: it ends
+    /// only when another window becomes active.
+    fn focus_ends_popup_grab(&mut self, window: Option<&Window>) {
+        let Some(mut grab) = self.popup_grab.take() else {
+            return;
+        };
+        let surface = window
+            .and_then(Window::toplevel)
+            .map(|toplevel| toplevel.wl_surface().clone());
+        let root = grab
+            .current_grab()
+            .and_then(|menu| self.popups.find_popup(&menu))
+            .and_then(|kind| find_popup_root_surface(&kind).ok());
+        let shell = root
+            .as_ref()
+            .and_then(|root| root.client())
+            .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
+            .unwrap_or(false);
+        let keeps = if shell {
+            window.is_none() || self.active_window().as_ref() == window
+        } else {
+            root.is_some() && root == surface
+        };
+        if !keeps && !grab.has_ended() {
+            grab.ungrab(PopupUngrabStrategy::All);
+            self.let_go_of(&grab);
+        }
+        // It ends once the app has destroyed its menus (`popup_grab_ended`).
+        self.popup_grab = Some(grab);
+    }
+
     /// Raises `window`, makes it the active one and gives it the keyboard.
     /// A window still waiting for its first configure gets the state with
     /// it (`shell::committed`): the protocol sends none before the
     /// client's initial commit.
     pub fn focus(&mut self, window: Option<Window>) {
+        self.focus_ends_popup_grab(window.as_ref());
         self.overlay_keyboard = None;
         for other in self.space.elements().chain(&self.minimized) {
             if Some(other) != window.as_ref() {

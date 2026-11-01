@@ -550,10 +550,13 @@ impl State {
         };
         with_place(window, |place| place.minimized_at = Some(at));
         info!("minimized {}", app_id(window));
+        let active = self.active_window().as_ref() == Some(window);
         self.space.unmap_elem(window);
         self.minimized.push(window.clone());
-        let next = self.space.elements().last().cloned();
-        self.focus(next);
+        if active {
+            window.set_activated(false);
+            self.activate_next();
+        }
         // The pointer may have been over it.
         crate::input::refresh_pointer(self);
     }
@@ -753,9 +756,9 @@ impl State {
             .cloned()
     }
 
-    /// Super+arrow on the active window (ADR 0028 §7, as Windows): left and
-    /// right take a half and from the other half go back to the place from
-    /// before; up maximizes; down goes back. Fullscreen stays.
+    /// Super+arrow on the active window (ADR 0028 §7): left and right take
+    /// that half, from anywhere; up maximizes; only down goes back, as the
+    /// Window menu names them. Fullscreen stays.
     pub fn arrow_key(&mut self, arrow: Arrow) {
         // A drag decides where the window goes.
         if self.seat.get_pointer().is_some_and(|p| p.is_grabbed()) {
@@ -770,10 +773,7 @@ impl State {
         if toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen)) {
             return;
         }
-        let half = snap_pending(&toplevel);
         match arrow {
-            Arrow::Left if half == Some(Half::Right) => self.unmaximize(&toplevel, None),
-            Arrow::Right if half == Some(Half::Left) => self.unmaximize(&toplevel, None),
             Arrow::Left => self.snap(&toplevel, Half::Left, None),
             Arrow::Right => self.snap(&toplevel, Half::Right, None),
             Arrow::Up => self.maximize(&toplevel),

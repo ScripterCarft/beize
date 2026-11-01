@@ -960,7 +960,7 @@ fn run() -> Result<(), String> {
             info!("ready: menu bar and dock drawn");
             // Once, for the journal, after the desktop shows: what logind
             // lets the Beize menu do.
-            info!("Beize menu may: {}", may());
+            on_the_side(|| info!("Beize menu may: {}", may()));
         }
     }
 }
@@ -1185,12 +1185,23 @@ fn choose(command: Option<Command>) {
         return;
     };
     info!("Beize menu: {command:?}");
-    let done = match command {
-        Command::Power(power) => login::power(power),
-        Command::LogOut => login::log_out(),
-    };
-    if let Err(e) = done {
-        warn!("{command:?}: {e}");
+    on_the_side(move || {
+        let done = match command {
+            Command::Power(power) => login::power(power),
+            Command::LogOut => login::log_out(),
+        };
+        if let Err(e) = done {
+            warn!("{command:?}: {e}");
+        }
+    });
+}
+
+/// A call that waits for another service, on a thread of its own with its own
+/// bus connection: logind or polkit may take up to sd-bus' 25 s to answer, and
+/// the bar and dock must go on meanwhile (`beize_systemd::apps::start` too).
+fn on_the_side(job: impl FnOnce() + Send + 'static) {
+    if let Err(e) = std::thread::Builder::new().spawn(job) {
+        warn!("starting a thread: {e}");
     }
 }
 
@@ -1198,7 +1209,7 @@ fn choose(command: Option<Command>) {
 /// as macOS names the user in "Log Out".
 fn user_name() -> String {
     // SAFETY: getpwuid's entry is read at once, before any other call to it
-    // (the shell has one thread).
+    // (only this thread calls it; `on_the_side` does not).
     unsafe {
         let entry = libc::getpwuid(libc::getuid());
         if entry.is_null() {

@@ -127,7 +127,7 @@ impl Dispatch<BeizeMenuManagerV1, ()> for State {
     }
 }
 
-fn cut(text: String) -> String {
+pub fn cut(text: String) -> String {
     text.chars().take(MAX_TEXT).collect()
 }
 

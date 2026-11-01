@@ -676,6 +676,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     framed(&shell, &machine, &qmp, screen, &ui_buttons)?;
     viewport(&shell, &machine)?;
     activation(&shell)?;
+    grabs(&shell, &qmp)?;
     load(&shell, &machine, &qmp, screen)?;
     phases.done("Beize UI and load");
 
@@ -709,6 +710,10 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     wait_for_terminals(&shell, 1)?;
     wait_for_shell_line(&shell, |l| l.starts_with("dock: beize-terminal running"))?;
     say!("  ok: with no terminal running, the dock's tile started one");
+    // Its window has the keyboard before the first key.
+    thread::sleep(Duration::from_secs(1));
+    title_flood(&shell, &qmp)?;
+    phases.done("title flood");
 
     menus(&shell, &machine, &qmp, screen)?;
     phases.done("menus");
@@ -796,6 +801,9 @@ fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()> {
         thread::sleep(Duration::from_secs(pause));
     }
     wait_for_compositor_line(shell, "no screen connected: the desktop starts once one is")?;
+    // The mouse moves meanwhile: no screen to keep it on (the compositor once
+    // died of this). The size matters only to the device, not to the check.
+    park(qmp, (1280, 800))?;
     let (_, lines) = shell.capture(
         "systemctl --user is-active beize-session.target beize-compositor.service \
          beize-shell.service",
@@ -1081,10 +1089,24 @@ fn confirmation(
     thread::sleep(Duration::from_millis(300));
     keys(qmp, &["esc"])?;
     wait_for_shell_count(shell, "asked: Power(Restart), no", 2)?;
+    // An app's window ending, the active one, under the open dialog: Return must
+    // not go past it to what lies behind (it did).
+    let shown = shell_count(shell, "menu bar: beize-testclient")?;
+    shell.capture(
+        "systemd-run --user --unit=beize-testclient-under /run/t/beize-testclient \
+         --frames 100000 --seconds 60",
+    )?;
+    wait_for_shell_count(shell, "menu bar: beize-testclient", shown + 1)?;
+    ask(3)?;
+    thread::sleep(Duration::from_millis(300));
+    shell.capture("systemctl --user stop beize-testclient-under")?;
+    thread::sleep(Duration::from_millis(500));
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "asked: Power(Restart), no", 3)?;
     park(qmp, screen)?;
     say!(
         "  ok: Restart asked first; an arrow and Return said no; with a window clicked Return did not answer \
-         the dialog, and a click on it gave it the keyboard back"
+         the dialog, a click on it gave it the keyboard back, and a window ending left it there"
     );
     Ok(())
 }
@@ -1559,8 +1581,8 @@ fn switcher(shell: &Shell, machine: &Machine, qmp: &Path, screen: (usize, usize)
 }
 
 /// Snap (ADR 0028 §2, §7), on the client's window at `moved`, `grown`:
-/// Super+arrows take the halves, maximize and go back, and the opposite
-/// arrow from a half goes back to where it was. Held on the screen's edge in
+/// Super+arrows take the halves from anywhere and maximize, and only down goes
+/// back to where it was. Held on the screen's edge in
 /// a drag a preview shows, inset and with round corners, and the release takes
 /// the half, the margin (os/beize-compositor's `SNAP_MARGIN`) all round;
 /// dragged off, the window is its size from before under the pointer; into
@@ -1580,10 +1602,11 @@ fn snap(
     let left = ((MARGIN, top), (room / 2, high));
     let right = ((2 * MARGIN + room / 2, top), (room - room / 2, high));
     let whole = ((0, MENU_BAR), (screen.0, area_h));
-    let steps: [(&str, Window, &str); 7] = [
+    let steps: [(&str, Window, &str); 8] = [
         ("meta_l+left", left, "snap-left"),
-        ("meta_l+right", (moved, grown), "snap-back"),
         ("meta_l+right", right, "snap-right"),
+        ("meta_l+down", (moved, grown), "snap-back"),
+        ("meta_l+right", right, "snap-right-again"),
         ("meta_l+up", whole, "snap-maximized"),
         ("meta_l+left", left, "snap-left-maximized"),
         ("meta_l+down", (moved, grown), "snap-down"),
@@ -1594,8 +1617,8 @@ fn snap(
         wait_for_pattern(shell, machine, at, size, name)?;
     }
     say!(
-        "  ok: Super+arrows took each half, from the other half went back to the place from \
-         before, maximized, from maximized took a half and went back"
+        "  ok: Super+arrows took each half, also from the other, maximized, from maximized \
+         took a half, and only Super+Down went back"
     );
 
     // The drag: over the title strip, to the left edge, and held there.
@@ -3576,6 +3599,80 @@ fn activation(shell: &Shell) -> Result<()> {
         "  ok: an app handed on activation with a token of its focus; one of a focus gone, \
          and one without a serial, activated nothing"
     );
+    Ok(())
+}
+
+/// Menus that grab, and what an app may send (the test client's `--grabs`): no
+/// menu with the keys unless it answers input; it ends with its window; and a
+/// flood of titles leaves the shell standing.
+fn grabs(shell: &Shell, qmp: &Path) -> Result<()> {
+    const UNIT: &str = "beize-testclient-grabs";
+    let restarts = "echo BEIZE-RESTARTS-$(systemctl --user show -P NRestarts beize-shell.service)";
+    let count = |lines: &[String]| {
+        lines
+            .iter()
+            .find(|l| l.starts_with("BEIZE-RESTARTS-"))
+            .cloned()
+    };
+    let (_, before) = shell.capture(&format!(
+        "{restarts}; systemd-run --user --unit={UNIT} /run/t/beize-testclient --grabs; \
+         for i in $(seq 100); do journalctl --user -u {UNIT} -o cat \
+         | grep -q '^grabs without input: ' && break; sleep 0.2; done"
+    ))?;
+    keys(qmp, &["a"])?;
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 150); do journalctl --user -u {UNIT} -o cat \
+         | grep -q '^grabs flood: ' && break; sleep 0.2; done; \
+         journalctl --user -u {UNIT} -o cat | grep '^grabs '; {restarts}; \
+         systemctl --user is-active beize-shell.service; systemctl --user stop {UNIT}"
+    ))?;
+    for wanted in [
+        "grabs without input: refused",
+        "grabs with a key: open",
+        "grabs minimized: closed",
+        "grabs flood: sent",
+        "active",
+    ] {
+        ensure!(
+            lines.iter().any(|l| l == wanted),
+            "not \"{wanted}\": {lines:?}"
+        );
+    }
+    ensure!(
+        count(&before).is_some() && count(&before) == count(&lines),
+        "the flood of titles restarted the shell: {before:?} before, {lines:?}"
+    );
+    say!(
+        "  ok: no menu grabbed without input, one answering a key closed with its window, and a \
+         flood of titles left the shell standing"
+    );
+    Ok(())
+}
+
+/// A program in the terminal changes its title as fast as it can: the
+/// terminal stays. Each title went to the compositor once, and a full socket
+/// ended the terminal with its session.
+fn title_flood(shell: &Shell, qmp: &Path) -> Result<()> {
+    let open = terminals(shell)?.len();
+    let (status, lines) = shell.capture(
+        "cat > /run/user/1000/flood <<'FLOOD'\n\
+         for i in $(seq 1 30000); do printf '\\033]0;%d\\007' \"$i\"; done\n\
+         printf '\\033]0;\\007'\n\
+         : > /run/user/1000/flood-done\n\
+         FLOOD\n\
+         chown 1000 /run/user/1000/flood",
+    )?;
+    ensure!(status == 0, "could not write the script: {lines:?}");
+    keys(qmp, &german_presses("bash /run/user/1000/flood")?)?;
+    let (_, lines) = shell.capture(
+        "for i in $(seq 300); do [ -e /run/user/1000/flood-done ] && echo BEIZE-DONE && break; \
+         sleep 0.2; done; rm -f /run/user/1000/flood /run/user/1000/flood-done",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-DONE") && terminals(shell)?.len() == open,
+        "the terminal did not survive a flood of titles: {lines:?}"
+    );
+    say!("  ok: a program flooding the title left the terminal standing");
     Ok(())
 }
 

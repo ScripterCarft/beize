@@ -18,7 +18,8 @@ use smithay::backend::libinput::LibinputInputBackend;
 use smithay::backend::session::Session;
 use smithay::input::keyboard::{FilterResult, Keysym, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
-use smithay::utils::{Logical, Point, SERIAL_COUNTER};
+use smithay::reexports::wayland_server::Resource;
+use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use tracing::warn;
 
 use crate::apps;
@@ -75,11 +76,16 @@ fn key<B: InputBackend>(state: &mut State, event: &B::KeyboardKeyEvent) {
     let code = event.key_code();
     let pressed = event.state() == KeyState::Pressed;
     let keyboard = state.keyboard.clone();
+    let serial = SERIAL_COUNTER.next_serial();
+    state.last_key = keyboard
+        .current_focus()
+        .and_then(|surface| surface.client())
+        .map(|client| (serial, client.id()));
     let action = keyboard.input(
         state,
         code,
         event.state(),
-        SERIAL_COUNTER.next_serial(),
+        serial,
         event.time_msec(),
         |state, modifiers, keysym| {
             if !pressed {
@@ -227,13 +233,26 @@ pub fn refresh_pointer(state: &mut State) {
     move_to(state, at, time);
 }
 
-fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
-    let area = state.screen_area().to_f64();
-    // The last pixel is the limit: the cursor never leaves the screen.
-    let to = Point::from((
+/// `to` kept on the screen: the last pixel is the limit, the cursor never
+/// leaves it. Without a screen (`area` empty) the pointer is nowhere, which a
+/// clamp to an empty range would make a panic.
+fn on_screen(
+    area: Rectangle<f64, Logical>,
+    to: Point<f64, Logical>,
+) -> Option<Point<f64, Logical>> {
+    if area.size.w < 1.0 || area.size.h < 1.0 {
+        return None;
+    }
+    Some(Point::from((
         to.x.clamp(area.loc.x, area.loc.x + area.size.w - 1.0),
         to.y.clamp(area.loc.y, area.loc.y + area.size.h - 1.0),
-    ));
+    )))
+}
+
+fn move_to(state: &mut State, to: Point<f64, Logical>, time: u32) {
+    let Some(to) = on_screen(state.screen_area().to_f64(), to) else {
+        return;
+    };
     state.pointer = to;
     state.reveal();
     state.bar_hover(to);
@@ -298,6 +317,10 @@ fn button<B: InputBackend>(state: &mut State, event: &B::PointerButtonEvent) {
         }
     }
     if let Some(pointer) = state.seat.get_pointer() {
+        state.last_button = pointer
+            .current_focus()
+            .and_then(|surface| surface.client())
+            .map(|client| (serial, client.id()));
         pointer.button(
             state,
             &ButtonEvent {
@@ -343,6 +366,17 @@ fn axis<B: InputBackend>(state: &mut State, event: &B::PointerAxisEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn without_a_screen_the_pointer_is_nowhere() {
+        let none = Rectangle::<f64, Logical>::default();
+        assert_eq!(on_screen(none, (5.0, 5.0).into()), None);
+        let screen = Rectangle::from_size((100.0, 50.0).into());
+        assert_eq!(
+            on_screen(screen, (500.0, -5.0).into()),
+            Some((99.0, 0.0).into())
+        );
+    }
 
     fn held(ctrl: bool, alt: bool, shift: bool) -> ModifiersState {
         ModifiersState {

@@ -175,6 +175,9 @@ struct App {
     paste: Option<(OwnedFd, Vec<u8>)>,
     /// Something changed since the last frame.
     dirty: bool,
+    /// What the shell last named the window, and what the window was told.
+    title: String,
+    title_sent: String,
     /// The context menu while it is open, its commands by entry, and whether
     /// it waits to be drawn.
     context: Option<(WindowId, Menu, Vec<Option<Command>>)>,
@@ -241,6 +244,8 @@ fn run() -> Result<(), String> {
         outgoing: Vec::new(),
         paste: None,
         dirty: true,
+        title: TITLE.to_owned(),
+        title_sent: TITLE.to_owned(),
         context: None,
         context_dirty: false,
         copy_shown: false,
@@ -317,8 +322,12 @@ impl App {
                 if answered {
                     self.resize();
                 }
+                // Every slave closed: nothing can come any more, and poll
+                // would report it forever. The window goes, as in foot and
+                // Alacritty, also if the shell lives on without a terminal.
                 if !open {
-                    debug!("the PTY closed");
+                    info!("the PTY closed");
+                    return Ok(());
                 }
             }
             if self
@@ -346,6 +355,13 @@ impl App {
             // goes into the same frame, as in Alacritty and VTE.
             if self.dirty && self.ui.ready(self.window) {
                 self.dirty = false;
+                // The title with the frame, and only a new one: a program can
+                // change it faster than the compositor reads, as foot sends
+                // its own once per frame.
+                if self.title != self.title_sent {
+                    self.ui.set_title(self.window, &self.title);
+                    self.title_sent.clone_from(&self.title);
+                }
                 let size = self.ui.size(self.window);
                 let scene = view::draw(&self.term, &self.fonts, self.focused, size);
                 self.ui
@@ -580,10 +596,8 @@ impl App {
                 }
                 Event::ClipboardStore(ClipboardType::Clipboard, text) => self.ui.copy(text),
                 // No title: the app's name, as xterm's default.
-                Event::Title(title) if !title.trim().is_empty() => {
-                    self.ui.set_title(self.window, &title);
-                }
-                Event::Title(_) | Event::ResetTitle => self.ui.set_title(self.window, TITLE),
+                Event::Title(title) if !title.trim().is_empty() => self.title = title,
+                Event::Title(_) | Event::ResetTitle => self.title = TITLE.to_owned(),
                 Event::MouseCursorDirty | Event::CursorBlinkingChange | Event::Wakeup => {
                     self.dirty = true
                 }

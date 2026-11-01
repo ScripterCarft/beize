@@ -13,10 +13,13 @@
 //! (`opening`).
 
 use std::cell::RefCell;
+use std::time::Duration;
 
 use beize_protocols::shell::server::beize_shell_v1::{self, BeizeShellV1};
 use beize_protocols::shell::server::beize_window_v1::{self, BeizeWindowV1};
 use smithay::desktop::Window;
+use smithay::reexports::calloop::RegistrationToken;
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
 use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum,
@@ -28,6 +31,10 @@ use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 use crate::backdrop::{Appearance, Tone};
 use crate::state::{ClientState, State};
 
+/// How often at most a client's changes reach the shell: a menu's 16 KiB four
+/// times a second fill the socket's 200 KiB only if the shell stands 3 s.
+const LISTING_EVERY: Duration = Duration::from_millis(250);
+
 /// The shell's bound instances of the global.
 #[derive(Default)]
 pub struct ShellWindows {
@@ -36,6 +43,10 @@ pub struct ShellWindows {
     next: u64,
     /// How light the background is behind the menu bar, once measured.
     tone: Option<Tone>,
+    /// Set while the next change must wait (`listing_changed`), and whether
+    /// one does.
+    timer: Option<RegistrationToken>,
+    waiting: bool,
 }
 
 impl ShellWindows {
@@ -94,6 +105,8 @@ struct Listed {
     number: u64,
     handles: Vec<BeizeWindowV1>,
     sent: Shown,
+    /// Its menus changed since the shell last heard them.
+    menus_changed: bool,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -129,8 +142,8 @@ fn shown(state: &State, window: &Window) -> Shown {
         bits |= beize_window_v1::State::Minimized;
     }
     Shown {
-        app_id: app_id.unwrap_or_default(),
-        title: title.unwrap_or_default(),
+        app_id: crate::app_menu::cut(app_id.unwrap_or_default()),
+        title: crate::app_menu::cut(title.unwrap_or_default()),
         state: bits.bits(),
     }
 }
@@ -225,6 +238,7 @@ impl State {
                 number,
                 handles,
                 sent: shown,
+                menus_changed: false,
             })
         });
     }
@@ -234,12 +248,14 @@ impl State {
         for window in self.listed_windows() {
             let now = shown(self, &window);
             with_listed(&window, |listed| {
-                if listed.sent == now {
+                if listed.sent == now && !listed.menus_changed {
                     return;
                 }
                 listed.handles.retain(Resource::is_alive);
-                // It became active: the bar shows its menus now.
-                let menus = is_active(&now) && !is_active(&listed.sent);
+                // It became active, or changed them while active: the bar
+                // shows its menus now.
+                let menus = is_active(&now) && (listed.menus_changed || !is_active(&listed.sent));
+                listed.menus_changed = false;
                 for handle in &listed.handles {
                     if menus {
                         send_menus(handle, &window);
@@ -253,19 +269,33 @@ impl State {
 
     /// `window`'s menus changed: if it is active, the bar shows them.
     pub fn menus_changed(&mut self, window: &Window) {
-        let active = window
-            .toplevel()
-            .is_some_and(|t| t.with_pending_state(|s| s.states.contains(XdgState::Activated)));
-        if !active {
+        with_listed(window, |listed| listed.menus_changed = true);
+        self.listing_changed();
+    }
+
+    /// A client changed what the shell shows. It hears at once, and at most
+    /// every `LISTING_EVERY` after: a full socket would end the shell's
+    /// connection (wayland-backend), so nothing a client does may send without
+    /// bound. One place for the latest state, as niri's `foreign_toplevel`
+    /// refresh, not an answer to each request.
+    pub fn listing_changed(&mut self) {
+        if self.shell_windows.timer.is_some() {
+            self.shell_windows.waiting = true;
             return;
         }
-        with_listed(window, |listed| {
-            listed.handles.retain(Resource::is_alive);
-            for handle in &listed.handles {
-                send_menus(handle, window);
-                handle.done();
+        self.refresh_listing();
+        let timer = Timer::from_duration(LISTING_EVERY);
+        let armed = self.handle.insert_source(timer, |_, _, state| {
+            state.shell_windows.timer = None;
+            if std::mem::take(&mut state.shell_windows.waiting) {
+                state.listing_changed();
             }
+            TimeoutAction::Drop
         });
+        match armed {
+            Ok(token) => self.shell_windows.timer = Some(token),
+            Err(e) => tracing::warn!("the listing's timer: {}", e.error),
+        }
     }
 
     /// `window` is gone: the shell hears of it last.

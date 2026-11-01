@@ -12,6 +12,10 @@ After=beize-compositor.service
 [Service]
 ExecStart=/usr/lib/beize/beize-shell
 Restart=on-failure
+# Without these, five quick failures would end it for good, and the session
+# would have no menu to log out with. launchd throttles the Dock so too.
+RestartSec=1
+StartLimitIntervalSec=0
 # Next to the compositor: what the session cannot do without
 # (systemd.special(7)). The compositor knows the shell by this unit's
 # cgroup in this slice (os/beize-compositor/src/trust.rs).

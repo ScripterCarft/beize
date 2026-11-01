@@ -52,6 +52,7 @@
 //!
 //! `--syncobj` checks explicit sync instead of all that (`syncobj`).
 
+mod grabs;
 mod syncobj;
 
 use std::fs::File;
@@ -160,6 +161,7 @@ struct Options {
     activation: bool,
     inhibit: bool,
     syncobj: bool,
+    grabs: bool,
 }
 
 /// What the next of the frames waits for.
@@ -183,6 +185,7 @@ fn options() -> Result<Options> {
         activation: false,
         inhibit: false,
         syncobj: false,
+        grabs: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -206,6 +209,7 @@ fn options() -> Result<Options> {
             "--activation" => options.activation = true,
             "--inhibit" => options.inhibit = true,
             "--syncobj" => options.syncobj = true,
+            "--grabs" => options.grabs = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -361,6 +365,11 @@ fn run() -> Result<()> {
     let options = options()?;
     if options.syncobj {
         syncobj::run()?;
+        println!("done");
+        return Ok(());
+    }
+    if options.grabs {
+        grabs::run()?;
         println!("done");
         return Ok(());
     }

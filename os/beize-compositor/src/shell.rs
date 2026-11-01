@@ -15,7 +15,9 @@ use smithay::desktop::{
 };
 use smithay::input::Seat;
 use smithay::input::pointer::Focus;
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::{
+    self, State as XdgState,
+};
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::{
     wl_output::WlOutput, wl_seat, wl_surface::WlSurface,
@@ -38,12 +40,14 @@ impl XdgShellHandler for State {
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        let active = surface.with_pending_state(|s| s.states.contains(XdgState::Activated));
         self.window_destroyed(surface.wl_surface());
         // The window leaves the space with its surface (`Space::refresh`);
-        // the one below takes over.
+        // if it was the active one, the one below takes over.
         self.space.refresh();
-        let next = self.space.elements().last().cloned();
-        self.focus(next);
+        if active {
+            self.activate_next();
+        }
     }
 
     fn move_request(&mut self, surface: ToplevelSurface, _seat: wl_seat::WlSeat, serial: Serial) {
@@ -67,11 +71,11 @@ impl XdgShellHandler for State {
     }
 
     fn app_id_changed(&mut self, _surface: ToplevelSurface) {
-        self.refresh_listing();
+        self.listing_changed();
     }
 
     fn title_changed(&mut self, _surface: ToplevelSurface) {
-        self.refresh_listing();
+        self.listing_changed();
     }
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
@@ -129,19 +133,28 @@ impl XdgShellHandler for State {
             surface.send_popup_done();
             return;
         };
-        // An app's menu answers its own input: the button it holds, or the
-        // keyboard it has. The shell's may follow a press long past (moving
-        // from menu to menu in the bar).
+        // An app's menu answers input it got itself, named by that event's
+        // serial, or opens from its menu already grabbing (a submenu), as
+        // Mutter's `meta_wayland_seat_can_popup`. Having the keyboard is not
+        // enough: no menu that takes the keys without the user asking. The
+        // shell's may follow a press long past (from menu to menu in the bar).
         let shell = root
             .client()
             .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
             .unwrap_or(false);
-        let holds = seat.get_pointer().is_some_and(|p| p.has_grab(serial))
-            || seat
-                .get_keyboard()
-                .and_then(|k| k.current_focus())
-                .is_some_and(|focus| focus.client() == root.client());
-        if !shell && !holds {
+        let client = root.client().map(|c| c.id());
+        let answers = [&self.last_key, &self.last_button]
+            .into_iter()
+            .flatten()
+            .any(|(input, whose)| *input == serial && Some(whose) == client.as_ref());
+        let submenu = self.popup_grab.as_ref().is_some_and(|grab| {
+            !grab.has_ended()
+                && grab
+                    .current_grab()
+                    .and_then(|menu| menu.client().map(|c| c.id()))
+                    == client
+        });
+        if !shell && !answers && !submenu {
             surface.send_popup_done();
             return;
         }
