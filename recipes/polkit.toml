@@ -4,7 +4,7 @@
 # socket-activated agent helper, a sandboxed service: nothing is setuid.
 # pkexec is not shipped (setuid root by design).
 name = "polkit"
-version = "127"
+version = "128"
 stage = "target"
 deps = ["gcc", "glibc", "glib", "duktape", "expat", "linux-pam", "systemd", "dbus"]
 
@@ -12,8 +12,8 @@ deps = ["gcc", "glibc", "glib", "duktape", "expat", "linux-pam", "systemd", "dbu
 latest = { release-monitoring = 3682 }
 git = "https://github.com/polkit-org/polkit.git"
 tag = "{version}"
-commit = "9e4894c969eecf26a3ba762f4f7a268aa0fb3e51"
-unsigned = "polkit signs neither release tags (lightweight) nor commits and publishes no archives of its own (checked 2026-10-11); pinned to the commit of the release tag"
+commit = "e6373dc19975d8583568c6cd7025d03e682ca956"
+unsigned = "polkit signs neither release tags (lightweight) nor commits and publishes no archives of its own (checked 2026-10-11, again 2026-11-15 for 128); pinned to the commit of the release tag"
 
 [build]
 script = '''

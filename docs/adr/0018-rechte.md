@@ -23,7 +23,7 @@ Rezepte (`--disable-makeinstall-setuid`, Installation ohne root), nicht abgesich
   als root zu starten: ein frischer Dienst mit sauberer Umgebung und eigenem Terminal,
   im Journal sichtbar, ohne Programm mit Sonderrechten auf der Seite des Aufrufers.
   systemd bringt run0 seit Version 256 genau als Ersatz für sudo mit.
-- **Ob jemand darf, entscheidet polkit 127** (duktape als JavaScript-Engine, seit 126
+- **Ob jemand darf, entscheidet polkit 128** (seit 15.11.; duktape als JavaScript-Engine, seit 126
   upstream die einzige). Administrator ist, wer in `wheel` ist – upstreams eigene
   `50-default.rules`, keine Beize-Regel. Gefragt wird nach dem **eigenen** Passwort;
   andere Benutzer bräuchten das eines Administrators. Die Vorgaben von systemd und
@@ -32,9 +32,8 @@ Rezepte (`--disable-makeinstall-setuid`, Installation ohne root), nicht abgesich
   zu fragen.
 - **Passwörter prüft ein abgeschotteter Dienst**, nicht ein setuid-Programm: der
   socket-aktivierte `polkit-agent-helper@.service` (seit 127). Auf der Konsole fragt
-  `pkttyagent`, das run0 selbst startet. Ein Drop-in schickt die Fehlermeldungen des
-  Helfers ins Journal statt in den Socket zum Agenten – upstreams eigene Korrektur nach
-  127 (3d07db95a4); mit polkit 128 entfällt es.
+  `pkttyagent`, das run0 selbst startet. Seine Fehlermeldungen gehen ins Journal statt in
+  den Socket zum Agenten: bis 127 per Drop-in, seit 128 upstream (3d07db95a4).
 - **pkexec wird nicht ausgeliefert** (setuid-root by design, PwnKit).
 - **root hat kein Passwort** (`!*`), wie das deaktivierte root von macOS und root bei
   Fedora mit Administrator-Konto. beize-setup sperrt root ausdrücklich, auch wenn es
