@@ -22,6 +22,11 @@ keyring = "ntpd-rs"
 rustls = { version = "0.23.46", why = "RUSTSEC-2026-0285, -0346, -0348, -0349" }
 crossbeam-epoch = { version = "0.9.20", why = "RUSTSEC-2026-0204" }
 webpki-root-certs = { version = "1.0.10", why = "RUSTSEC-2026-0383 (in the lock only, not linked with --features openssl)" }
+hickory-net = { version = "0.26.3", why = "RUSTSEC-2026-0506 to -0509, -0517 to -0520, -0539 to -0541; it brings hickory-proto 0.26.3, RUSTSEC-2026-0487 to -0491 (in the lock only: built without hickory)" }
+hickory-resolver = { version = "0.26.3", why = "RUSTSEC-2026-0513 to -0516 (in the lock only: built without hickory)" }
+tokio = { version = "1.54.1", why = "RUSTSEC-2026-0386" }
+anyhow = { version = "1.0.104", why = "RUSTSEC-2026-0190" }
+chacha20 = { version = "0.10.2", why = "0.10.0 yanked" }
 
 [build]
 script = '''
