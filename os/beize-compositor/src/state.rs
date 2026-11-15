@@ -2013,6 +2013,21 @@ impl State {
         }
     }
 
+    /// The surface a menu's `grab` started from: a panel of the shell or an
+    /// app's window.
+    fn grab_root(&self, grab: &PopupGrab<State>) -> Option<WlSurface> {
+        grab.current_grab()
+            .and_then(|menu| self.popups.find_popup(&menu))
+            .and_then(|kind| find_popup_root_surface(&kind).ok())
+    }
+
+    /// A menu of the shell's holds pointer and keyboard now (`forward`).
+    pub fn shell_menu_grabs(&self) -> bool {
+        self.popup_grab
+            .as_ref()
+            .is_some_and(|grab| !grab.has_ended() && is_shells(self.grab_root(grab).as_ref()))
+    }
+
     /// The keyboard moves to `window`, or to nothing: an app's menu grabbing
     /// it ends unless it belongs to that window, or the keys would go to a
     /// menu of a window no longer active, or no longer there, as niri's
@@ -2025,15 +2040,8 @@ impl State {
         let surface = window
             .and_then(Window::toplevel)
             .map(|toplevel| toplevel.wl_surface().clone());
-        let root = grab
-            .current_grab()
-            .and_then(|menu| self.popups.find_popup(&menu))
-            .and_then(|kind| find_popup_root_surface(&kind).ok());
-        let shell = root
-            .as_ref()
-            .and_then(|root| root.client())
-            .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
-            .unwrap_or(false);
+        let root = self.grab_root(&grab);
+        let shell = is_shells(root.as_ref());
         let keeps = if shell {
             window.is_none() || self.active_window().as_ref() == window
         } else {
@@ -2290,4 +2298,12 @@ pub fn insert_client(state: &mut State, stream: std::os::unix::net::UnixStream) 
     if let Err(e) = state.display.insert_client(stream, Arc::new(data)) {
         warn!("a client could not connect: {e}");
     }
+}
+
+/// Whether `surface` is the shell's.
+fn is_shells(surface: Option<&WlSurface>) -> bool {
+    surface
+        .and_then(|surface| surface.client())
+        .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
+        .unwrap_or(false)
 }

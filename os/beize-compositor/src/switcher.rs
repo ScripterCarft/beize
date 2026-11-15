@@ -220,6 +220,14 @@ impl State {
             info!("switcher hidden");
             self.tell_switcher_end();
         }
+        // A window that opened while it held the keys with none active is
+        // the active one now (`forward`): it has them, nothing chosen or not.
+        if self.keyboard.current_focus().is_none() && self.overlay_keyboard.is_none() {
+            let active = self.active_window();
+            if active.is_some() {
+                self.focus(active);
+            }
+        }
     }
 
     /// `window` opened: it joins the end of the list.

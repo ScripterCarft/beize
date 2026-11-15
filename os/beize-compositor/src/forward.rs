@@ -15,8 +15,12 @@
 //! The front always has the keyboard (owner, 1.11.): a window in front that
 //! the keys did not reach would take a password typed into the terminal
 //! behind it. So a new window opens behind the active one only while Beize
-//! itself holds the keyboard - a menu, Alt+Tab, an overlay of the shell -
-//! not to take it from there; then it is not active either.
+//! itself holds the keyboard - a menu of the shell, Alt+Tab, an overlay of
+//! the shell - not to take it from there; then it is not active either.
+//! With no window active it becomes the active one, and has the keyboard
+//! once Beize lets go of it (`popup_grab_ended`, `layer_destroyed`). An
+//! app's own menu holds nothing back: the new window's focus ends it, as
+//! Mutter's and niri's.
 
 use smithay::desktop::Window;
 use tracing::info;
@@ -26,8 +30,7 @@ use crate::state::State;
 impl State {
     /// Whether `window`, new, comes to the front with the keyboard.
     pub fn takes_forward(&self, window: &Window) -> bool {
-        let held =
-            self.overlay_keyboard.is_some() || self.switcher.is_some() || self.popup_grab.is_some();
+        let held = self.beize_holds_keyboard();
         if held {
             info!(
                 "{} opens behind: Beize holds the keyboard",
@@ -35,5 +38,11 @@ impl State {
             );
         }
         !held
+    }
+
+    /// Beize itself has the keys: an overlay of the shell, Alt+Tab, or a
+    /// menu of the shell still grabbing.
+    pub fn beize_holds_keyboard(&self) -> bool {
+        self.overlay_keyboard.is_some() || self.switcher.is_some() || self.shell_menu_grabs()
     }
 }

@@ -84,8 +84,6 @@ const SMALLEST: (i32, i32) = (64, 32);
 /// What the compositor remembers of a window.
 #[derive(Debug, Default)]
 struct Place {
-    /// Asked with a token before it was placed (`activation`).
-    activation_asked: bool,
     /// Where it was before it was maximized.
     restore: Option<Rectangle<i32, Logical>>,
     /// Where it was before it went fullscreen.
@@ -105,15 +103,6 @@ struct Resize {
     initial: Rectangle<i32, Logical>,
     /// When the button went up: the last commit for the drag ends it.
     released: Option<Instant>,
-}
-
-/// `window`, not yet placed, asked with a valid token to be active.
-pub fn ask_activation(window: &Window) {
-    with_place(window, |place| place.activation_asked = true);
-}
-
-pub fn activation_asked(window: &Window) -> bool {
-    with_place(window, |place| place.activation_asked)
 }
 
 fn with_place<T>(window: &Window, f: impl FnOnce(&mut Place) -> T) -> T {
@@ -483,6 +472,14 @@ impl State {
                 // It went on top by being mapped: the active one stays in front.
                 self.space.raise_element(&active, true);
                 self.changed();
+            } else {
+                // Nothing to stay in front: it is the active one, and has the
+                // keyboard when Beize lets go of it (`forward`).
+                window.set_activated(true);
+                if let Some(toplevel) = window.toplevel() {
+                    toplevel.send_pending_configure();
+                }
+                self.changed();
             }
             // It may have opened under the pointer.
             crate::input::refresh_pointer(self);
@@ -691,12 +688,17 @@ impl State {
             toplevel.send_pending_configure();
         }
         info!("fullscreen {}", app_id(&window));
-        // Only the active one, or one asked for with a token (`activation`):
-        // asking for the screen is no way to the keyboard (and the clipboard,
-        // which goes with it).
+        // Only the active one comes in front: asking for the screen is no way
+        // to the keyboard (and the clipboard, which goes with it), nor past
+        // a dialog or menu of Beize's holding it (ADR 0030).
         let active = self.active_window().as_ref() == Some(&window);
-        if self.space.element_location(&window).is_some() && (active || activation_asked(&window)) {
-            self.focus(Some(window));
+        if active && self.space.element_location(&window).is_some() {
+            if self.beize_holds_keyboard() {
+                self.space.raise_element(&window, true);
+                self.changed();
+            } else {
+                self.focus(Some(window));
+            }
         }
     }
 

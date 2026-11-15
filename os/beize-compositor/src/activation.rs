@@ -77,7 +77,8 @@ impl XdgActivationHandler for State {
             return;
         }
         info!("activated {app}");
-        // One not yet placed becomes active when it is.
+        // One not yet placed comes forward when it is, as any new window
+        // (`forward`).
         if self
             .space
             .elements()
@@ -85,8 +86,6 @@ impl XdgActivationHandler for State {
             .any(|w| *w == window)
         {
             self.bring_back(window);
-        } else {
-            crate::windows::ask_activation(&window);
         }
     }
 }

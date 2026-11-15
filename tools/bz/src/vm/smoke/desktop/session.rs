@@ -163,7 +163,7 @@ pub(super) fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()
     // it does not know there is ignored, quietly but for this line
     // (beize-shell's start limit sat under [Service] until 0.6).
     let (_, lines) = shell.capture(
-        "journalctl --user -b -o cat | grep -E 'Unknown (key|section)|Failed to parse' \
+        "journalctl --user -b -t systemd -o cat | grep -E 'Unknown (key|section)|Failed to parse' \
          | sort -u",
     )?;
     ensure!(
