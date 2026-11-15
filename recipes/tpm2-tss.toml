@@ -2,14 +2,14 @@
 # the root partition to the TPM. Only the layers systemd needs are built:
 # no FAPI (would pull in libcurl), no policy library, only the kernel device TCTI.
 name = "tpm2-tss"
-version = "4.2.0"
+version = "4.2.2"
 stage = "target"
 deps = ["gcc", "glibc", "openssl"]
 
 [source]
 latest = { release-monitoring = 12683 }
 url = "https://github.com/tpm2-software/tpm2-tss/releases/download/{version}/tpm2-tss-{version}.tar.gz"
-sha256 = "b53f0c5c8c4ce17f05701a410ca9688f725ca380c9bc4640eacd0eadb1fea124"
+sha256 = "bd4efc89ee01aca8ff771cae268d84333b7594c2d4afee50bb13b859f1113c3f"
 signature = "https://github.com/tpm2-software/tpm2-tss/releases/download/{version}/tpm2-tss-{version}.tar.gz.asc"
 keyring = "tpm2-tss"
 
