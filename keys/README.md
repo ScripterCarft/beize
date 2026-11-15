@@ -74,7 +74,7 @@ Prüfen aller Quellen: `./bz verify`
 | `tzdata` | Paul Eggert | `7E37 92A9 D8AC F7D6 33BC 1588 ED97 E90E 62AA 7E34` | keys.openpgp.org; derselbe Schlüssel steht (abgelaufen) im GNU-Keyring |
 | `util-linux` | Karel Zak | `B0C6 4D14 301C C6EF AEDF 60E4 E4B7 1D5E EC39 C284` | keyserver.ubuntu.com |
 | `vulkan` | Khronos signiert weder Tags noch Commits und veröffentlicht keine signierten Archive (Vulkan-Headers, Vulkan-Loader; geprüft 2026-10-17) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
-| `wayland` | Simon Ser (signiert wayland, wayland-protocols und libdrm) | `34FF 9526 CFEF 0E97 A340 E2E4 0FDE 7BE0 E88F 5E48` | keys.openpgp.org (keyserver.ubuntu.com hat eine 2025 abgelaufene Fassung; diese gilt bis 2027-04-12) |
+| `wayland` | Simon Ser (signiert wayland, wayland-protocols und libdrm); Daniel Stone (wayland-protocols seit 1.50) | `34FF 9526 CFEF 0E97 A340 E2E4 0FDE 7BE0 E88F 5E48`, `A66D 805F 7C93 29B4 C5D8 2767 CCC4 F07F AC64 1EFF` | Simon Ser: keys.openpgp.org (keyserver.ubuntu.com hat eine 2025 abgelaufene Fassung; diese gilt bis 2027-04-12). Daniel Stone: keyserver.ubuntu.com; deckungsgleich mit Arch Linux' `validpgpkeys` für wayland-protocols, Autor des GitLab-Releases 1.50 |
 | `xkeyboard-config` | Sergey Udaltsov | `FFB4 CCD2 75AA A422 F5F9 808E 0661 D98F C933 A145` | keyserver.ubuntu.com |
 | `xz` | Lasse Collin | `3690 C240 CE51 B467 0D30 AD1C 38EE 757D 6918 4620` | keyserver.ubuntu.com; deckungsgleich mit `tukaani.org/misc/lasse_collin_pubkey.txt` |
 | `zlib` | Mark Adler | `5ED4 6A67 21D3 6558 7791 E2AA 783F CD8E 58BC AFBA` (DSA) | keyserver.ubuntu.com; signiert die Archive auf zlib.net |
