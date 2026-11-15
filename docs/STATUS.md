@@ -6,11 +6,15 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 ## Stand (15.11.2026)
 
 - **M3 Compositor:** Desktop mit Shell (ADR 0028 (a)–(f)) läuft auf dem PC des Besitzers
-  (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.127.
+  (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.128.
 - **Fokus (ADR 0030, 15.11.):** neue Fenster kommen mit der Tastatur nach vorne wie bei Mutter
   (1Passwords Linux-App ist darauf gebaut); vorhandene brauchen ein Token; hält Beize die
   Tastatur (Dialog, Alt+Tab, Shell-Menü), öffnet ein neues hinten. `come-forward` und der
-  Startzähler sind weg. Auf Hardware offen: `op`, `git push` (SSH-Agent), Browser-Erweiterung.
+  Startzähler sind weg. 0.5.128 auf Hardware: ein Fenster von außen kommt beim Tippen nach vorne
+  und bekommt die Tasten, bei offenem Shell-Menü öffnet es hinten ohne sie. Alt+Tab war nicht
+  prüfbar (mit einem Fenster geht der Umschalter nicht auf; der Smoke-Test prüft es).
+- **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren, und Electrons
+  Bibliotheken (GTK3, NSS u. a.) fehlen. Der echte Test (`op`, SSH-Agent, Browser) kommt damit.
 - **Updates 15.11.:** expat 2.10.0, zlib 1.4, tpm2-tss 4.2.2 (Sicherheit), systemd 262.2,
   openssl 4.1.0 und kleinere; neue Signaturschlüssel iproute2 (Unterschlüssel), tpm2-tss
   (Moritz Buhl), wayland-protocols (Daniel Stone). xkeyboard-config 2.49 ohne signiertes Archiv:
@@ -23,13 +27,12 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes
 
-1. **Messbau mit dem Fokus** für den Besitzer: `op`, `git push`, Browser-Erweiterung, Schnellsuche.
-2. **polkit-Dialog der Shell** (eigenes ADR, Mock-up vorher): Beize hat auf dem Desktop keinen
+1. **polkit-Dialog der Shell** (eigenes ADR, Mock-up vorher): Beize hat auf dem Desktop keinen
    polkit-Agenten (nur `pkttyagent` auf der Konsole); damit auch 1Passwords
    Systemauthentifizierung. polkit 128 mit diesem Schritt.
-3. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
+2. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
    Vulkan, linux-firmware.
-4. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
+3. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
 
 ## Offen, mit Ort
 
@@ -48,6 +51,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 - **Tests:** Desktop-Szenario in eigenständige Teile (parallele VMs); ein Journal-Leser statt
   ~170 Abfragen; Menü-Ereignisse statt fester Pausen.
 - **VM:** #41 vCPU steht bis 21 s (verschachteltes KVM), Ursache offen.
+- **Apps installieren:** Beize hat keinen Weg dafür; Voraussetzung für 1Password und jede
+  Drittanbieter-App. Eigene Entscheidung mit ADR, Zeitpunkt beim Besitzer.
 - **Issues:** `gh issue list` (M3-Plan: #14, #17, #34, #35).
 
 ## Beim Besitzer
