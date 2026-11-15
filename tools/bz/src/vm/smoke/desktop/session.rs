@@ -68,9 +68,6 @@ pub(super) fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()
         thread::sleep(Duration::from_secs(pause));
     }
     wait_for_compositor_line(shell, "no screen connected: the desktop starts once one is")?;
-    // The test's programs start from outside, as no app would, and are to come
-    // to the front (`forward`).
-    shell.capture("mkdir -p ~/.config/beize && echo beize- > ~/.config/beize/come-forward")?;
     // The mouse moves meanwhile: no screen to keep it on (the compositor once
     // died of this). From a place it is not at: the same place is no event.
     drag(qmp, (1280, 800), (100, 100), (200, 200), false)?;
@@ -162,6 +159,18 @@ pub(super) fn sign_in(shell: &Shell, machine: &Machine, qmp: &Path) -> Result<()
         "desktop shown with the shell, [0-9]* ms after the screen",
     )?;
     say!("  ok: the desktop appeared with the shell's panels: {shown}");
+    // The service manager read every unit of the session as written: a key
+    // it does not know there is ignored, quietly but for this line
+    // (beize-shell's start limit sat under [Service] until 0.6).
+    let (_, lines) = shell.capture(
+        "journalctl --user -b -o cat | grep -E 'Unknown (key|section)|Failed to parse' \
+         | sort -u",
+    )?;
+    ensure!(
+        lines.is_empty(),
+        "the service manager ignored settings of the session's units: {lines:?}"
+    );
+    say!("  ok: the service manager took every setting of the session's units");
 
     Ok(())
 }
