@@ -1,0 +1,122 @@
+# 0031 – Anmeldedialog: die Shell als polkit-Agent
+
+Status: Angenommen · 2026-11-15 (Besitzer, am Mock-up)
+
+## Kontext
+
+polkit fragt nach dem Passwort nur über einen **Agenten**, der für die Sitzung angemeldet
+ist. Beize hat auf dem Desktop keinen. Es gibt nur `pkttyagent`, das run0 im Terminal
+selbst startet (ADR 0018). Deshalb wird jede Aktion, die eine grafische App anfragt und die
+eine Anmeldung braucht, ohne Frage abgelehnt. Betroffen sind zum Beispiel:
+- Uhrzeit oder Zeitzone stellen (timedated),
+- Neustart, während jemand anderes angemeldet ist (logind),
+- später die Einstellungen,
+- die Systemauthentifizierung von 1Password.
+
+Wie andere Desktops das lösen:
+- **GNOME Shell** ist selbst der Agent (`Shell.PolkitAuthenticationAgent`, über
+  libpolkit-agent-1). Der Dialog ist systemmodal und enthält den Namen des Benutzers, ein
+  Passwortfeld sowie „Cancel“ und „Authenticate“. Bei einem Fehler zeigt er „Sorry, that
+  didn't work. Please try again.“
+- **KDE** nutzt einen eigenen Prozess (polkit-kde-agent-1). **COSMIC** baut den Agenten in
+  Rust in cosmic-osd ein und spricht den Helfer direkt an.
+- **macOS** zeigt das Autorisierungsfenster: „*App* wants to make changes.“, darunter Name und
+  Passwort, dann „Cancel“ und „OK“. Bei einem falschen Passwort schüttelt es sich und leert
+  das Feld.
+
+Für den Agenten sind zwei Wege belegt, beide am Quelltext von polkit 127/128 (das Protokoll
+ist zwischen den Versionen gleich):
+- **Agent:** Der Agent meldet sich bei `org.freedesktop.PolicyKit1.Authority` mit
+  `RegisterAuthenticationAgent(subject, locale, object_path)` für eine Sitzung an. polkitd ruft
+  dann `BeginAuthentication` auf, mit der Aktion, der Meldung, den Details, einem Cookie und den
+  Identitäten, die die Aktion erlauben dürfen. Zum Abbruch ruft polkitd `CancelAuthentication`.
+  Die Details enthalten `polkit.subject-pid` und `polkit.caller-pid`.
+- **Helfer:** Der Agent verbindet sich mit `/run/polkit/agent-helper.socket` und schickt eine
+  Zeile mit dem Benutzernamen und eine mit dem Cookie. Der Helfer antwortet zeilenweise mit
+  `PAM_PROMPT_ECHO_OFF …`, `PAM_PROMPT_ECHO_ON …`, `PAM_ERROR_MSG …` und `PAM_TEXT_INFO …`. Auf
+  eine Frage antwortet der Agent mit einer Zeile. Am Ende sendet der Helfer `SUCCESS` oder
+  `FAILURE`. Den Aufrufer erkennt der Helfer selbst über `SO_PEERCRED`/`SO_PEERPIDFD`; das
+  Ergebnis meldet er polkitd direkt, nicht über den Agenten.
+
+run0 startet `pkttyagent` mit `--fallback` (systemd 262, `src/shared/polkit-agent.c`).
+polkitd nimmt einen solchen Agenten nur, wenn die Sitzung keinen eigenen hat
+(`polkitbackendinteractiveauthority.c`). Mit einem Agenten der Shell fragt also auch run0 im
+Terminal über den Dialog, genau wie unter GNOME und KDE.
+
+## Entscheidung
+
+- **Die Shell ist der Agent,** wie bei GNOME Shell und COSMIC. Ein eigener Prozess hätte keinen
+  Grund: Den Dialog, das Overlay und die Tastatur hat die Shell schon (ADR 0028 §3, ADR 0030).
+  Sie meldet sich beim Start für ihre Sitzung an, also die Display-Sitzung des Benutzers (wie
+  bei `may()`, ADR 0028), über die eigene sd-bus-Anbindung (`beize-systemd`). Dazu kommt dort
+  ein Objekt, das Aufrufe annimmt.
+- **Den Helfer spricht sie direkt über den Socket an,** ohne libpolkit-agent-1 (GObject).
+  Einen setuid-Helfer als Ausweichweg gibt es nicht (ADR 0018). Fehlt der Socket, wird
+  abgelehnt und ins Journal geschrieben.
+- **Der Dialog** ist `beize_ui::dialog` mit einem Passwortfeld zwischen Text und Knöpfen, in
+  der Breite der Knöpfe, auf einem Overlay mit Tastatur. Solange er offen ist, hält Beize die
+  Tastatur: Ein neues Fenster öffnet sich dahinter und kann kein Tippen abfangen
+  (ADR 0030). Ein Klick auf ein Fenster nimmt ihm die Tastatur, wie beim Bestätigungsdialog
+  (ADR 0028 §3).
+  Aufbau wie macOS 26, alles linksbündig (Besitzer, 15.11., Entwurf A am Mock-up; Bilder
+  von macOS 15 und 26 zum Vergleich aus Eclectic Light, 18.12.2025):
+  - **Symbol oben links:** das Symbol der App, 48 px, mit einem blauen Schloss-Abzeichen
+    (22 px) unten rechts, wie macOS' App-Symbol mit Abzeichen. Die App ergibt sich aus der Unit
+    von `polkit.subject-pid` (`app-…`, Symbol und Name wie im Dock). Ist keine zu finden,
+    steht dort nur das Schloss. Das Abzeichen beurteilt der Besitzer im Messbau noch einmal
+    („ganz gut so“, 15.11.).
+  - **Titel:** der Name der App, fett, 12 px unter dem Symbol.
+  - **Was sie will:** „*App* wants to *…*.“, gebildet aus der Meldung der Aktion von polkit:
+    „Authentication is required to …“ und „… required for an application to …“ werden zu
+    „*App* wants to …“. Das gilt für 133 der 134 Aktionen in Beize. Eine andere Meldung
+    steht unverändert da. Englisch wie bisher (ADR 0017).
+  - **Was zu tun ist:** „Enter your password to allow this.“ (macOS), 8 px unter dem Absatz
+    davor.
+  - **Feld:** Platzhalter „Password“, Punkte statt Zeichen, Beizes blauer Umriss, solange es
+    die Tastatur hat. Rechts im Feld steht das Caps-Lock-Zeichen, nur solange Caps Lock an ist
+    (macOS). Es ist kein Knopf. Ein Auge zum Aufdecken gibt es nicht (macOS). Einfügen geht,
+    Kopieren nicht (macOS). Fragt PAM mit `ECHO_ON`, steht der Text offen da. Geschätzt:
+    35 hoch wie die Knöpfe, Ecken 10, 16 unter dem Text.
+  - **Knöpfe nebeneinander:** „Cancel“ links, „Allow“ rechts, je halb so breit, 8 Abstand
+    (Besitzer, 15.11.). „Allow“ ist das Verb aus dem Satz darüber, wie die HIG Knöpfe
+    benennt. Return ist „Allow“, Escape ist „Cancel“, Pfeile und Tab wie beim
+    Bestätigungsdialog.
+  - **Falsches Passwort:** Das Feld wird leer und behält die Tastatur. Darunter steht rot
+    (13 px, Apples Systemrot) „Sorry, that didn't work. Please try again.“ (GNOME). Das
+    Schütteln von macOS kommt mit den Federanimationen (Shell g). Während PAM prüft, nimmt
+    das Feld nichts an.
+  - `PAM_ERROR_MSG` und `PAM_TEXT_INFO` stehen an derselben Stelle wie die Fehlerzeile.
+  - Ob der Bestätigungsdialog (Neustart usw.) ebenfalls Knöpfe nebeneinander bekommt, ist
+    eine eigene Frage an den Besitzer. Bis dahin bleibt er, wie er angenommen ist.
+- **Identität:** der Benutzer selbst, wenn polkit ihn unter den Identitäten nennt. Das ist
+  der Normalfall, weil der Besitzer in `wheel` ist. Sonst wird zwischen mehreren über ein Menü
+  gewählt (GNOME, `beize_ui::menu`), eine einzelne wird genannt.
+- **Eine Anfrage nach der anderen:** Weitere warten, bis die erste beantwortet ist (GNOME).
+  `CancelAuthentication` schließt den Dialog.
+- **Das Passwort** liegt nur in einem Puffer, der nach dem Senden überschrieben wird. Es
+  steht in keinem Log, wird nur an den Helfer geschickt und bleibt nicht im Feld zurück.
+- **polkit 128** (15.11.): die beiden Lücken im Helfer (CVE-2026-4897, CVE-2026-85498) sind
+  geschlossen. Das war die Voraussetzung, dass die Shell mit dem Helfer spricht.
+
+## Prüfungen (Smoke-Test, Desktop)
+
+- `run0 true` im Terminal des Desktops öffnet den Dialog (Overlay `authentication`). Mit dem
+  Passwort über QMP-Tasten endet run0 mit 0. Mit einem falschen Passwort bleibt der Dialog
+  offen, die Fehlerzeile steht da und das Feld ist leer. Escape lässt run0 ablehnen.
+- Der Text: Die Shell meldet Titel und Sätze ins Journal (ohne Passwort). Für run0 lauten
+  sie „Terminal“ und „Terminal wants to manage system services or other units.“
+- Ein neues Fenster während des Dialogs öffnet sich dahinter, ohne Tastatur (ADR 0030).
+- Das Passwort steht in keinem Journal des Starts (`journalctl -b | grep -c` = 0).
+- Gegenprobe: Ohne den Agenten der Shell fragt run0 wieder im Terminal; mit einem falschen
+  Cookie antwortet der Helfer `FAILURE`.
+
+## Konsequenzen
+
+- run0 im Terminal des Desktops fragt im Dialog, nicht mehr im Terminal (polkits Entwurf, wie
+  GNOME und KDE). Auf der Konsole ohne Desktop bleibt `pkttyagent`.
+- Grafische Apps, die polkit nutzen, funktionieren. Für 1Password braucht es zusätzlich einen
+  Weg, Apps zu installieren (STATUS).
+- Neu in beize-ui ist ein Textfeld (Passwortmodus zuerst). Es wird der Baustein für
+  Einstellungen und Sift.
+- Schütteln, eine Auswahl der Identität mit Bild und Touch-ID-artige Wege (fprintd) kommen
+  später.

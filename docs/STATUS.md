@@ -27,9 +27,10 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes
 
-1. **polkit-Dialog der Shell** (eigenes ADR, Mock-up vorher): Beize hat auf dem Desktop keinen
-   polkit-Agenten (nur `pkttyagent` auf der Konsole); damit auch 1Passwords
-   Systemauthentifizierung. polkit 128 mit diesem Schritt.
+1. **Anmeldedialog der Shell** (ADR 0031, am Mock-up angenommen 15.11., polkit 128 ist da):
+   Textfeld in beize-ui, die Shell als polkit-Agent über den Helfer-Socket, Smoke mit
+   Gegenprobe, dann Messbau (Schloss-Abzeichen beurteilen). Offen beim Besitzer: Knöpfe
+   nebeneinander auch im Bestätigungsdialog?
 2. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
    Vulkan, linux-firmware.
 3. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
