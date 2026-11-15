@@ -674,27 +674,70 @@ pub(super) fn hidden_window(shell: &Shell, qmp: &Path) -> Result<()> {
     Ok(())
 }
 
-/// A window nobody asked for opens behind the active one, without the keyboard.
-pub(super) fn not_forward(shell: &Shell) -> Result<()> {
-    const UNIT: &str = "unasked-window";
-    let (_, lines) = shell.capture(&format!(
-        "systemd-run --user --unit={UNIT} /run/t/beize-testclient --seconds 30; \
-         for i in $(seq 300); do journalctl --user -u {UNIT} -o cat | grep -q '^configure ' \
-         && break; sleep 0.2; done; sleep 1; journalctl --user -u {UNIT} -o cat \
-         | grep -E '^(configure|keyboard focus)'; systemctl --user stop {UNIT}; \
-         journalctl --user -b -u beize-compositor.service -o cat \
-         | grep -c 'opens behind the active window'"
-    ))?;
+/// A new window of another app comes to the front with the keyboard, as
+/// Mutter's (ADR 0030): started from outside, by no app, as 1Password's
+/// unlock window opens for `op` in the terminal. While Beize holds the
+/// keyboard - Alt+Tab held here - it opens behind instead, without it, and
+/// the compositor says so: the front never shows a window the keys miss.
+pub(super) fn new_window(shell: &Shell, qmp: &Path) -> Result<()> {
+    const UNIT: &str = "new-window";
+    let run = |unit: &str| -> Result<Vec<String>> {
+        let (_, lines) = shell.capture(&format!(
+            "systemd-run --user --unit={unit} /run/t/beize-testclient --seconds 30; \
+             for i in $(seq 300); do journalctl --user -u {unit} -o cat | grep -q '^configure ' \
+             && break; sleep 0.2; done; sleep 1; journalctl --user -u {unit} -o cat \
+             | grep -E '^(configure|keyboard focus)'; \
+             journalctl --user -b -u beize-compositor.service -o cat \
+             | grep -c 'opens behind: Beize holds the keyboard' | sed 's/^/BEIZE-COUNT /'"
+        ))?;
+        Ok(lines)
+    };
+    let behind = |lines: &[String]| -> usize {
+        lines
+            .iter()
+            .find_map(|l| l.strip_prefix("BEIZE-COUNT ")?.trim().parse().ok())
+            .unwrap_or(0)
+    };
+
+    // Counted from here: Alt+Tab's test opened one behind on purpose.
+    let (_, counted) = shell.capture(
+        "journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -c 'opens behind: Beize holds the keyboard' | sed 's/^/BEIZE-COUNT /'",
+    )?;
+    let before = behind(&counted);
+    let lines = run(UNIT)?;
+    shell.capture(&format!("systemctl --user stop {UNIT}"))?;
+    ensure!(
+        lines.iter().any(|l| l.starts_with("configure "))
+            && lines.iter().any(|l| l.starts_with("keyboard focus")),
+        "a new window of another app did not come to the front with the keyboard: {lines:?}"
+    );
+    ensure!(
+        behind(&lines) == before,
+        "the compositor kept a new window behind with nothing holding the keyboard: {lines:?}"
+    );
+
+    const HELD: &str = "new-window-held";
+    hold(qmp, "alt", true)?;
+    keys(qmp, &["tab"])?;
+    let lines = run(HELD);
+    keys(qmp, &["esc"])?;
+    hold(qmp, "alt", false)?;
+    let lines = lines?;
+    shell.capture(&format!("systemctl --user stop {HELD}"))?;
     ensure!(
         lines.iter().any(|l| l.starts_with("configure "))
             && !lines.iter().any(|l| l.starts_with("keyboard focus")),
-        "a window nobody asked for got the keyboard: {lines:?}"
+        "a new window took the keyboard from Alt+Tab: {lines:?}"
     );
     ensure!(
-        lines.last().is_some_and(|l| l.trim() == "1"),
-        "the compositor did not say it opened behind: {lines:?}"
+        behind(&lines) == before + 1,
+        "the compositor did not say the window opened behind while Alt+Tab was held: {lines:?}"
     );
-    say!("  ok: a window nobody asked for opened behind the active one, without the keyboard");
+    say!(
+        "  ok: a new window of another app came to the front with the keyboard; while Alt+Tab \
+         held it, one opened behind without it"
+    );
     Ok(())
 }
 

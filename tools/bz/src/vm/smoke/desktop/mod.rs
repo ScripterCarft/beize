@@ -721,7 +721,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     viewport(&shell, &machine)?;
     activation(&shell)?;
     hidden_window(&shell, &qmp)?;
-    not_forward(&shell)?;
+    new_window(&shell, &qmp)?;
     protocol_errors(&shell)?;
     grabs(&shell, &qmp)?;
     load(&shell, &machine, &qmp, screen)?;

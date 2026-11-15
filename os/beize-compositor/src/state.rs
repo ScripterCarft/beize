@@ -179,10 +179,6 @@ pub struct State {
     /// entitles a client to a menu that grabs (`shell::grab`).
     pub last_key: Option<(Serial, ClientId)>,
     pub last_button: Option<(Serial, ClientId)>,
-    /// Windows expected from what the user started through Beize, since the
-    /// last input to an app (`forward`). A count: two Ctrl+Alt+T may come
-    /// before the first window.
-    pub launching: u32,
     /// Frames that failed in a row (`retry_frame`).
     frames_failed: u32,
     /// Every app's handle on the glass, which hears the appearance (`glass`).
@@ -316,8 +312,6 @@ pub struct ClientState {
     pub compositor: CompositorClientState,
     /// The client is Beize's shell (`trust`): it may draw panels.
     pub shell: bool,
-    /// Its cgroup (`forward`).
-    pub cgroup: Option<u64>,
     /// The shell said its panels are drawn (`beize_shell_v1.ready`).
     pub ready: AtomicBool,
     /// Where the shell's end is told, with whether it was ready
@@ -420,7 +414,6 @@ impl State {
             overlay_keyboard: None,
             last_key: None,
             last_button: None,
-            launching: 0,
             frames_failed: 0,
             glass_managers: Vec::new(),
             snap_preview: None,
@@ -2291,7 +2284,6 @@ pub fn insert_client(state: &mut State, stream: std::os::unix::net::UnixStream) 
     }
     let data = ClientState {
         shell,
-        cgroup: crate::trust::cgroup_of_client(&stream).ok(),
         ended: shell.then(|| state.shell_ended.clone()),
         ..ClientState::default()
     };

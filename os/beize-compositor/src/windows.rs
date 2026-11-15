@@ -691,12 +691,11 @@ impl State {
             toplevel.send_pending_configure();
         }
         info!("fullscreen {}", app_id(&window));
-        // Only the active one, or one of those that may: asking for the screen
-        // is no way to the keyboard (and the clipboard, which goes with it).
+        // Only the active one, or one asked for with a token (`activation`):
+        // asking for the screen is no way to the keyboard (and the clipboard,
+        // which goes with it).
         let active = self.active_window().as_ref() == Some(&window);
-        if self.space.element_location(&window).is_some()
-            && (active || self.may_come_forward(&window))
-        {
+        if self.space.element_location(&window).is_some() && (active || activation_asked(&window)) {
             self.focus(Some(window));
         }
     }
