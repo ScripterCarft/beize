@@ -2,7 +2,8 @@
 # A measurement build for the owner's PC, in three steps (CLAUDE.md, "Messbau"):
 #
 #   ci/measure.sh start 0.5.128   branch measure/desktop-0.5.128 from main, with
-#                                 the last one's hw-test.sh and kernel/measure;
+#                                 the last one's hw-test.sh and kernel/measure
+#                                 (less what kernel/patches has now);
 #                                 then edit hw-test.sh (only what this build
 #                                 measures) and add MEASURE lines to the code
 #   ci/measure.sh finish          commit, tag, build, the whole smoke test, and
@@ -33,6 +34,13 @@ start)
     chmod +x measure/hw-test.sh
     if git cat-file -e "$last:kernel/measure" 2>/dev/null; then
         git checkout "$last" -- kernel/measure
+        # One main took since (kernel/patches) would be applied twice.
+        for patch in kernel/measure/*.patch; do
+            if cmp -s "$patch" "kernel/patches/$(basename "$patch")"; then
+                git rm -q -f "$patch"
+                echo "on main already, dropped: $patch"
+            fi
+        done
     fi
     sed -i "s/^pub const OS_VERSION: &str = \".*\";/pub const OS_VERSION: \&str = \"$version\";/" \
         tools/bz/src/layout.rs
