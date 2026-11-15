@@ -6,14 +6,14 @@
 # the first C++ in Beize (libstdc++ is shipped anyway): its frames show
 # their names, not `_Z…`.
 name = "elfutils"
-version = "0.196"
+version = "0.197"
 stage = "target"
 deps = ["gcc", "glibc", "gcc-runtime", "zlib", "xz", "zstd"]
 
 [source]
 latest = { release-monitoring = 5679 }
 url = "https://sourceware.org/elfutils/ftp/{version}/elfutils-{version}.tar.bz2"
-sha256 = "fd5cc6b77ad6773cac93cb3f415f9318ac3b3455eecf801f6b4a742c4f6c7209"
+sha256 = "1fdf525f22dcf796d99a99ba3ea00a1f7b1ae5421bc62e8443a708920b99b904"
 signature = "https://sourceware.org/elfutils/ftp/{version}/elfutils-{version}.tar.bz2.sig"
 keyring = "elfutils"
 

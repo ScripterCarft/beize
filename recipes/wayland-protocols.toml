@@ -2,14 +2,14 @@
 # linux-dmabuf, presentation-time …), XML read while building. Nothing of
 # it is needed at run time.
 name = "wayland-protocols"
-version = "1.49"
+version = "1.50"
 stage = "target"
 deps = ["wayland-scanner"]
 
 [source]
 latest = { release-monitoring = 13997 }
 url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/{version}/downloads/wayland-protocols-{version}.tar.xz"
-sha256 = "ec4c8f74942d6dff7ace8b4ce4764f0ef9ff618a935d974ea77edee2ad240b14"
+sha256 = "4460c20cfcf68b994a5ee206ed15fc19ad312f16c96075186e83b0e3f4aa48a5"
 signature = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/{version}/downloads/wayland-protocols-{version}.tar.xz.sig"
 keyring = "wayland"
 

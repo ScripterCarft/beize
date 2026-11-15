@@ -2,7 +2,7 @@
 # local time (ADR 0012). Compiled with zic from the same release; zic is
 # built for the build host and never shipped.
 name = "tzdata"
-version = "2026e"
+version = "2026f"
 stage = "target"
 
 # The tz releases are tarballs without a top-level directory; data and code
@@ -10,14 +10,14 @@ stage = "target"
 [source]
 latest = { release-monitoring = 5021 }
 url = "https://data.iana.org/time-zones/releases/tzdata{version}.tar.gz"
-sha256 = "b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652"
+sha256 = "01b4a91cec5167ed48c11e8ab78f2048cead78ce94b0cafcad0ae8c5a3044d3d"
 signature = "https://data.iana.org/time-zones/releases/tzdata{version}.tar.gz.asc"
 keyring = "tzdata"
 flat = true
 
 [[extra]]
 url = "https://data.iana.org/time-zones/releases/tzcode{version}.tar.gz"
-sha256 = "cc3d27ca2a0d8399504551b920970d80af83bfb9c216e8082a15491921935d54"
+sha256 = "5a18da01393679ef2559214dc687563f7f3d05691f6f58b7fbc0166f3e796cd6"
 signature = "https://data.iana.org/time-zones/releases/tzcode{version}.tar.gz.asc"
 keyring = "tzdata"
 flat = true

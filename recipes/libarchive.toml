@@ -3,7 +3,7 @@
 # carries 18 patches for it, among them three vulnerabilities and the clash
 # with acl 2.4 – Beize builds no other projects' patches.
 name = "libarchive"
-version = "3.8.10"
+version = "3.8.11"
 stage = "target"
 # Archives with ACLs and extended attributes; compressed with gzip, xz and
 # zstd; OpenSSL for encrypted zip files and mtree digests. Without bzip2,
@@ -13,7 +13,7 @@ deps = ["gcc", "glibc", "acl", "zlib", "xz", "zstd", "openssl"]
 [source]
 latest = { release-monitoring = 1558 }
 url = "https://github.com/libarchive/libarchive/releases/download/v{version}/libarchive-{version}.tar.xz"
-sha256 = "56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96"
+sha256 = "a3dc0872b1b39da34dc18ef1b944f0f11ffd37425d70ae04be679279f1cf43d2"
 signature = "https://github.com/libarchive/libarchive/releases/download/v{version}/libarchive-{version}.tar.xz.asc"
 keyring = "libarchive"
 
