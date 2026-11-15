@@ -3,31 +3,33 @@
 Was gerade gilt. Verlauf steht in den Commits (`git log`), Entscheidungen in den ADRs,
 Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht angehängt.
 
-## Stand (1.11.2026)
+## Stand (15.11.2026)
 
 - **M3 Compositor:** Desktop mit Shell (ADR 0028 (a)–(f)) läuft auf dem PC des Besitzers
   (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.127.
-- **Fehlersuche 1.11.** (fünf Prüf-Agenten, alles mit Smoke-Prüfung und Gegenprobe): Recovery-Key
-  nach abgebrochenem ersten Start, Update nach Stromausfall und aus unbestätigtem Start,
-  Start-Bestätigung samt Desktop (`beize-compositor-check`), Fokus und Menü-Grabs, Titel-/Menüflut,
-  voller Socket in Beize UI, Bildfehler-Schleife, verdeckte Fenster ohne Wecker, Popup-Leck,
-  `told`-Drossel im Terminal ersetzt, Protokollfehler, Null-Buffer. Werkzeuge: `bz check`/`gate`,
-  Hooks, Cargo-Target bleibt, Smoke ohne VM-Takt, `--only`, `desktop/` geteilt, `ci/measure.sh`.
+- **Fokus (ADR 0030, 15.11.):** neue Fenster kommen mit der Tastatur nach vorne wie bei Mutter
+  (1Passwords Linux-App ist darauf gebaut); vorhandene brauchen ein Token; hält Beize die
+  Tastatur (Dialog, Alt+Tab, Shell-Menü), öffnet ein neues hinten. `come-forward` und der
+  Startzähler sind weg. Auf Hardware offen: `op`, `git push` (SSH-Agent), Browser-Erweiterung.
+- **Updates 15.11.:** expat 2.10.0, zlib 1.4, tpm2-tss 4.2.2 (Sicherheit), systemd 262.2,
+  openssl 4.1.0 und kleinere; neue Signaturschlüssel iproute2 (Unterschlüssel), tpm2-tss
+  (Moritz Buhl), wayland-protocols (Daniel Stone). xkeyboard-config 2.49 ohne signiertes Archiv:
+  bleibt 2.48.
 - **0.5.127 auf Hardware:** Vorschau gehalten 0,6–0,85 ms GPU, 0 späte Bilder; nur die ersten
   ~1,5 s bis 4,9 ms (GPU-Takt, erschlossen). Taste bis Bild 2–6 ms. Verdeckte Fenster 1 Bild/s
   (gewollt).
-- **CI:** schneller Lauf je Push, nachts voll; zuletzt grün auf 7308929. Push braucht entsperrtes
-  1Password.
+- **CI:** schneller Lauf je Push, nachts voll; vom 11. bis 14.11. rot (rustix-Meldung, expat,
+  zlib-Signatur weg), mit den Updates behoben. Push braucht entsperrtes 1Password.
 
 ## Als Nächstes
 
-1. **Fokus neu (eigener Chat, Besitzer 1.11.):** keine Ausnahmeliste (`come-forward`) und kein
-   Startzähler; eine strenge Regel mit Tokens für jeden Start durch das System, Passwortfeld
-   stellt auch gültige Tokens zurück, Abgelehnte melden sich. Prüfstein des Besitzers: `op` im
-   Terminal → Entsperrdialog von 1Password vorn mit Fokus im Feld, wie Windows
-   (`AllowSetForegroundWindow`) und macOS (`yieldActivation`) – erst recherchieren (was macht
-   1Password unter Linux), dann Vorschlag, dann bauen. Der Hinweis im Dock kommt später.
-2. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
+1. **Messbau mit dem Fokus** für den Besitzer: `op`, `git push`, Browser-Erweiterung, Schnellsuche.
+2. **polkit-Dialog der Shell** (eigenes ADR, Mock-up vorher): Beize hat auf dem Desktop keinen
+   polkit-Agenten (nur `pkttyagent` auf der Konsole); damit auch 1Passwords
+   Systemauthentifizierung. polkit 128 mit diesem Schritt.
+3. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
+   Vulkan, linux-firmware.
+4. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
 
 ## Offen, mit Ort
 
