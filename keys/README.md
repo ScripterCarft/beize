@@ -36,7 +36,7 @@ Prüfen aller Quellen: `./bz verify`
 | `gzip` | Jim Meyering | `155D 3FC5 00C8 3448 6D1E EA67 7FD9 FCCB 000B EEEE` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `intel-microcode` | Intel signiert weder Archive noch Tags oder Commits (geprüft 2026-10-10) | Archiv per SHA-256 gepinnt; jedes Microcode-Update trägt Intels Signatur, die die CPU vor dem Einspielen prüft |
 | `inter` | Inter signiert weder Releases noch Tags (geprüft 2026-10-22) | Schriftdatei per SHA-256 gepinnt; vom Release-Tag, byte-gleich mit der im Release-Archiv |
-| `iproute2` | Stephen Hemminger | `9F6F C345 B05B E7E7 66B8 3C8F 80A7 7F60 95CD E47E` | keyserver.ubuntu.com; deckungsgleich mit dem pgpkeys-Repository von kernel.org und Arch Linux' `validpgpkeys`; signiert das unkomprimierte Archiv |
+| `iproute2` | Stephen Hemminger | `9F6F C345 B05B E7E7 66B8 3C8F 80A7 7F60 95CD E47E` | keyserver.ubuntu.com; deckungsgleich mit dem pgpkeys-Repository von kernel.org und Arch Linux' `validpgpkeys`; signiert das unkomprimierte Archiv, seit 7.3.0 mit dem Unterschlüssel `110B 8614 708F 62B8 3DD1 9F23 F028 172E C6AE B2B3` (2026-10-14, bis 2028-10-13) |
 | `iputils` | Petr Vorel (SUSE) | `2016 FEA4 858B 1C36 B32E 833A C0DE C2EE 72F3 3A5F` | keyserver.ubuntu.com; signiert die Release-Archive und die Tags auf GitHub |
 | `jetbrains-mono` | JetBrains signiert weder Releases noch Tags von JetBrains Mono (geprüft 2026-10-22) | Schriftdateien per SHA-256 gepinnt; vom Release-Tag, byte-gleich mit denen im Release-Archiv |
 | `json-c` | Upstream signiert weder Release-Archive noch Tags (geprüft 2026-10-07) | Commit des Release-Tags gepinnt; derselbe Tag, aus dem Arch Linux baut |
