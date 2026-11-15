@@ -29,8 +29,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 1. **Anmeldedialog der Shell** (ADR 0031, am Mock-up angenommen 15.11., polkit 128 ist da):
    Textfeld in beize-ui, die Shell als polkit-Agent über den Helfer-Socket, Smoke mit
-   Gegenprobe, dann Messbau (Schloss-Abzeichen beurteilen). Offen beim Besitzer: Knöpfe
-   nebeneinander auch im Bestätigungsdialog?
+   Gegenprobe, dann Messbau. Knöpfe nebeneinander auch im Bestätigungsdialog; Schloss aus
+   Fluent Emoji 3D (eigene System-Symbole später).
 2. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
    Vulkan, linux-firmware.
 3. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).

@@ -60,16 +60,23 @@ Terminal über den Dialog, genau wie unter GNOME und KDE.
   (ADR 0028 §3).
   Aufbau wie macOS 26, alles linksbündig (Besitzer, 15.11., Entwurf A am Mock-up; Bilder
   von macOS 15 und 26 zum Vergleich aus Eclectic Light, 18.12.2025):
-  - **Symbol oben links:** das Symbol der App, 48 px, mit einem blauen Schloss-Abzeichen
-    (22 px) unten rechts, wie macOS' App-Symbol mit Abzeichen. Die App ergibt sich aus der Unit
-    von `polkit.subject-pid` (`app-…`, Symbol und Name wie im Dock). Ist keine zu finden,
-    steht dort nur das Schloss. Das Abzeichen beurteilt der Besitzer im Messbau noch einmal
-    („ganz gut so“, 15.11.).
+  - **Symbol oben links:** ein Schloss in 3D, 56 px, mit dem Symbol der App als Abzeichen
+    unten rechts (30 px, etwa 0,55 des Schlosses wie in macOS 26, ragt 10 px über). So zeigt
+    macOS 26 seine Passwortabfrage (Bild des Besitzers, 15.11.). Das Schloss ist „Locked“ aus
+    Microsofts Fluent Emoji 3D (MIT, PNG mit 256 px, als Rezept mit SHA-256 festgelegt wie
+    Phosphor, der leere Rand der Emoji-Fläche abgeschnitten). Ein flaches Phosphor-Schloss,
+    ob im Squircle oder freistehend, lehnte der Besitzer ab („hässlich“). Fluent nahm er als
+    „gut, nicht perfekt“: Ein eigener Satz System-Symbole in dieser Art kommt später. Die
+    App ergibt sich aus der Unit von `polkit.subject-pid` (`app-…`, Symbol und Name wie im
+    Dock). Ist keine zu finden, steht das Schloss allein. Das Bild wird einmal als Textur
+    geladen, wenn der Dialog aufgeht, und kostet beim Zeichnen so viel wie ein Buchstabe.
   - **Titel:** der Name der App, fett, 12 px unter dem Symbol.
   - **Was sie will:** „*App* wants to *…*.“, gebildet aus der Meldung der Aktion von polkit:
     „Authentication is required to …“ und „… required for an application to …“ werden zu
     „*App* wants to …“. Das gilt für 133 der 134 Aktionen in Beize. Eine andere Meldung
-    steht unverändert da. Englisch wie bisher (ADR 0017).
+    steht unverändert da. Englisch wie bisher (ADR 0017). Wie genau der Satz ist, legt der
+    Dienst fest: systemd setzt die Unit ein („Terminal wants to restart 'sshd.service'.“, aus
+    `polkit_message_for_job`), eine eigene Aktion von Sift könnte den Ordner nennen.
   - **Was zu tun ist:** „Enter your password to allow this.“ (macOS), 8 px unter dem Absatz
     davor.
   - **Feld:** Platzhalter „Password“, Punkte statt Zeichen, Beizes blauer Umriss, solange es
@@ -86,8 +93,11 @@ Terminal über den Dialog, genau wie unter GNOME und KDE.
     Schütteln von macOS kommt mit den Federanimationen (Shell g). Während PAM prüft, nimmt
     das Feld nichts an.
   - `PAM_ERROR_MSG` und `PAM_TEXT_INFO` stehen an derselben Stelle wie die Fehlerzeile.
-  - Ob der Bestätigungsdialog (Neustart usw.) ebenfalls Knöpfe nebeneinander bekommt, ist
-    eine eigene Frage an den Besitzer. Bis dahin bleibt er, wie er angenommen ist.
+  - **Auch der Bestätigungsdialog** (Neustart, Ausschalten, Abmelden) bekommt die Knöpfe
+    nebeneinander, „Cancel“ links, die Aktion rechts: in Bestätigungsdialogen immer
+    (Besitzer, 15.11., am Mock-up: 148 statt 191 px hoch). Ob Auswahldialoge mit mehreren
+    Möglichkeiten sie untereinander stapeln, wird besprochen, wenn es einen gibt. Damit
+    ändert sich ADR 0028 §3 an dieser Stelle.
 - **Identität:** der Benutzer selbst, wenn polkit ihn unter den Identitäten nennt. Das ist
   der Normalfall, weil der Besitzer in `wheel` ist. Sonst wird zwischen mehreren über ein Menü
   gewählt (GNOME, `beize_ui::menu`), eine einzelne wird genannt.
