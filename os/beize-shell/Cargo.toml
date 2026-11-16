@@ -20,6 +20,9 @@ libc = "0.2"
 # networkd's state files watched (inotify).
 rustix = { version = "1.1", default-features = false, features = ["std", "time", "fs"] }
 tracing = "0.1"
+# The password and a paste into its field overwritten when they go
+# (ADR 0031), as Beize UI's field.
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 
 [lints]
 workspace = true

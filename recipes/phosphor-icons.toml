@@ -21,9 +21,9 @@ unsigned = "Phosphor signs neither its npm releases nor its tags (checked 2026-1
 # shell's: the network (globe-simple, -x; the owner, 28.10.: unfilled), the
 # control center's switch and light/dark (filled, as the mock-ups). The
 # menus': a command that opens a menu, Move & Resize, the marks of a list of
-# windows.
+# windows. A password field's Caps Lock (ADR 0031).
 script = '''
-for name in x square copy-simple globe-simple globe-simple-x square-half; do
+for name in x square copy-simple globe-simple globe-simple-x square-half arrow-fat-line-up; do
   install -Dm644 "$SRC/assets/regular/$name.svg" "$PKG/usr/share/beize/symbols/$name.svg"
 done
 for name in terminal-bold caret-right-bold check-bold; do

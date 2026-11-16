@@ -564,13 +564,17 @@ fn recovery_key_presses(key: &str, dash: &'static str) -> Vec<&'static str> {
         .collect()
 }
 
+/// QEMU's names of the digit keys, the same on a German keyboard.
+const DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
 /// QEMU's names of the letter keys, where a US keyboard has them.
 const LETTERS: [&str; 26] = [
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
     "t", "u", "v", "w", "x", "y", "z",
 ];
 
-/// The keys that type `text` (lowercase letters, "-" and "/"), then Enter,
+/// The keys that type `text` (lowercase letters, digits, spaces, "-" and
+/// "/"), then Enter,
 /// on the German keyboard the smoke test's owner chose (`SETUP_ANSWERS`):
 /// Y and Z swapped, the dash on the key a US keyboard has the slash on,
 /// the slash on Shift+7.
@@ -579,6 +583,8 @@ pub(super) fn german_presses(text: &str) -> Result<Vec<&'static str>> {
         .map(|c| match c {
             '-' => Ok("slash"),
             '/' => Ok("shift+7"),
+            ' ' => Ok("spc"),
+            '0'..='9' => Ok(DIGITS[c as usize - '0' as usize]),
             'y' => Ok("z"),
             'z' => Ok("y"),
             'a'..='z' => Ok(LETTERS[c as usize - 'a' as usize]),
@@ -981,6 +987,10 @@ mod tests {
             ["b", "e", "i", "y", "e", "slash", "z", "y", "ret"]
         );
         assert_eq!(german_presses("/t").unwrap(), ["shift+7", "t", "ret"]);
+        assert_eq!(
+            german_presses("run0 x").unwrap(),
+            ["r", "u", "n", "0", "spc", "x", "ret"]
+        );
         assert!(german_presses("A").is_err());
     }
 

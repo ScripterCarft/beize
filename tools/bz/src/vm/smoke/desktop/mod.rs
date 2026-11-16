@@ -31,6 +31,8 @@
 //! every running app with it, the client with the icon its desktop file
 //! names in the owner's hicolor theme; a click starts the terminal once
 //! none runs.
+//! run0 in the terminal asks for the password in the shell's dialog (ADR
+//! 0031, `auth`).
 //! The menu bar names the active app; the shell's list of windows is
 //! offered to no app. The pointer is the theme's (ADR 0028 §8): the text
 //! cursor the terminal names over its text (cursor-shape-v1), a resize
@@ -42,8 +44,8 @@
 //! compositor sums its frames up. The VM checks that it works, not how fast
 //! (lavapipe): the hardware test measures that.
 //! Beize's mark opens the Beize menu on its glass (ADR 0028 §3), logind
-//! lets the session sleep, restart and shut down (but where logind keeps
-//! the serial console as the user's display, `menus`); Escape closes it, and so
+//! lets the session sleep, restart and shut down, tty1 being the user's
+//! display although the serial console signed in first; Escape closes it, and so
 //! does a click elsewhere (the popup's grab), and its press on the control
 //! center's button opens that instead. The control center's light/dark tile
 //! switches the appearance, which the compositor keeps (§5, §6).
@@ -74,6 +76,7 @@ use crate::vm::console::{
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
 
+mod auth;
 mod frames;
 mod glass;
 mod image;
@@ -82,6 +85,7 @@ mod session;
 mod wait;
 mod windows;
 
+use self::auth::*;
 use self::frames::*;
 use self::glass::*;
 use self::image::*;
@@ -764,6 +768,8 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     phases.done("context menus");
     confirmation(&shell, &machine, &qmp, screen)?;
     phases.done("confirmation");
+    authentication(&shell, &machine, &qmp, screen)?;
+    phases.done("authentication");
     app_menus(&shell, &machine, &qmp, screen)?;
     phases.done("app menus");
     layout_follows(&shell)?;

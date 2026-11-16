@@ -111,6 +111,7 @@ mod tests {
         ctrl: false,
         alt: false,
         logo: false,
+        caps_lock: false,
     };
     const CTRL: Modifiers = Modifiers { ctrl: true, ..NONE };
     const ALT: Modifiers = Modifiers { alt: true, ..NONE };

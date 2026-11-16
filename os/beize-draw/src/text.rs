@@ -8,10 +8,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use beize_vulkan::error::{Context, Result, error};
+/// Laid out text (`Text::layout`), for those that keep it to draw later.
+pub use parley::Layout;
 use parley::fontique::{Blob, Collection, CollectionOptions, GenericFamily, SourceCache};
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontData, FontFamily, FontFamilyName, FontWeight,
-    Layout, LayoutContext, PositionedLayoutItem, StyleProperty,
+    LayoutContext, PositionedLayoutItem, StyleProperty,
 };
 use skrifa::{FontRef, MetadataProvider};
 

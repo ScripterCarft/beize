@@ -8,6 +8,7 @@ mod app;
 mod clipboard;
 mod desktop;
 pub mod dialog;
+pub mod field;
 pub mod gpu;
 pub mod input;
 pub mod log;

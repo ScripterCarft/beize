@@ -51,6 +51,8 @@ pub struct Modifiers {
     pub alt: bool,
     /// The Super key (Windows key; Cmd on Apple keyboards).
     pub logo: bool,
+    /// Caps Lock is on (locked), which a password field shows.
+    pub caps_lock: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,6 +189,7 @@ impl Keyboard {
                         ctrl: active(xkb::MOD_NAME_CTRL),
                         alt: active(xkb::MOD_NAME_ALT),
                         logo: active(xkb::MOD_NAME_LOGO),
+                        caps_lock: active(xkb::MOD_NAME_CAPS),
                     };
                 }
             }

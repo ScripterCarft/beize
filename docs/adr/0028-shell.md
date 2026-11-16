@@ -259,9 +259,9 @@ Einstellung, die dann zur Laufzeit umschaltet.
   Öffnen und nach einem Klick auf ihn; ein Klick auf ein Fenster nimmt sie ihm, sodass Tippen nie
   einen Dialog hinter einem aktiv wirkenden Fenster beantwortet (Prüf-Agent; macOS' Alerts
   sperren das System auch nicht). Aufbau und Maße aus dem Alert der HIG (`alert-macos@2x.png`, in
-  325 px Breite): Text links, Knöpfe gestapelt über die volle Breite, die Aktion oben (Besitzer, 31.10.;
-  seit 15.11. nebeneinander, „Cancel“ links, ADR 0031),
-  Knöpfe 35 hoch mit 8 Abstand, 20 vom Rand; Schrift wie in Menüs. Ecken 26 und Titel zu Text 8
+  325 px Breite): Text links, die Knöpfe nebeneinander, „Cancel“ links, die Aktion rechts, je halb
+  so breit (Besitzer, 15.11., am Mock-up, ADR 0031; 148 statt 191 px hoch), ein Alert mit nur OK
+  über die volle Breite. Knöpfe 35 hoch mit 8 Abstand, 20 vom Rand; Schrift wie in Menüs. Ecken 26 und Titel zu Text 8
   statt der 37,5 und 16 der HIG (Besitzer, 31.10., im Betrieb „sehr rund“). Pfeile und Tab wählen einen
   Knopf, zu sehen an einem blauen Umriss von 2 px erst ab dem Druck, Return und Leertaste nehmen
   ihn; der erste Druck verlässt die Aktion. „Über“ nutzt denselben Dialog mit nur OK.

@@ -35,6 +35,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 # Compose; the same crate and version as Smithay's. Linked, not loaded: the
 # desktop has it for the compositor, the buildroot to link that.
 xkbcommon = { version = "0.8", default-features = false, features = ["wayland"] }
+# A password field's text overwritten when it goes (`field`, ADR 0031):
+# RustCrypto's, so the compiler cannot drop the writes as dead.
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }
 
 [lints]
 workspace = true

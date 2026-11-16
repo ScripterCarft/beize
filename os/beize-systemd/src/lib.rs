@@ -3,10 +3,12 @@
 //! over its private socket (as `systemctl --user`, no session bus needed),
 //! sd-event for the bus and the signals of the login. beize-session starts
 //! the desktop with it, the compositor and the shell the apps (`apps`,
-//! ADR 0027 §9). For the shell also logind on the system bus (`login`).
+//! ADR 0027 §9). For the shell also logind on the system bus (`login`), and
+//! polkit's authentication agent (`polkit`, ADR 0031).
 
 pub mod apps;
 pub mod login;
+pub mod polkit;
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ptr;

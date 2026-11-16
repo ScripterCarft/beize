@@ -1,0 +1,83 @@
+# Fluent Emoji 3D (Microsoft), Beize's images where a symbol needs depth
+# (ADR 0031): the lock of the authentication dialog, as macOS 26 shows its
+# own 3D lock there. The owner chose "Locked" over flat Phosphor locks
+# (15.11.); Beize's own system images in this style come later. The PNG of
+# the repository as it is (256 px), with the empty margin around the emoji
+# cut off in the build, so that its size in the dialog is the lock's. The
+# project has no releases or tags: the file at the commit that last changed
+# it; `bz outdated` compares it with the one on main.
+name = "fluent-emoji"
+version = "2022-08-06"
+stage = "target"
+
+[source]
+latest = { file = "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets/Locked/3D/locked_3d.png" }
+url = "https://raw.githubusercontent.com/microsoft/fluentui-emoji/e8a613a0baedbca8f144fa70950714f2583318a8/assets/Locked/3D/locked_3d.png"
+sha256 = "8c8e9209b8420ac7caf8c94fde6586044d9b91e85728aaaf4b98c2482761ea16"
+unsigned = "Microsoft signs neither the repository's commits nor its files and publishes no releases (checked 2026-11-16); pinned by commit and SHA-256"
+
+[build]
+# The smallest square around the emoji's opaque pixels, centred on them:
+# for "Locked" 224 of 256 px. Python's standard library only (zlib), no
+# image library in the buildroot for one crop: PNG's RGBA at 8 bits,
+# without interlacing, its five row filters undone, the square written
+# unfiltered.
+script = '''
+python3 - "$SRC/locked_3d.png" "$PKG/usr/share/beize/images/locked.png" <<'PY'
+import os, struct, sys, zlib
+data = open(sys.argv[1], "rb").read()
+assert data[:8] == b"\x89PNG\r\n\x1a\n"
+pos, idat, header = 8, b"", None
+while pos < len(data):
+    length, kind = struct.unpack_from(">I4s", data, pos)
+    body = data[pos + 8:pos + 8 + length]
+    if kind == b"IHDR":
+        header = struct.unpack(">IIBBBBB", body)
+    elif kind == b"IDAT":
+        idat += body
+    pos += 12 + length
+width, height, depth, colour, _, _, interlace = header
+assert (depth, colour, interlace) == (8, 6, 0), header
+raw, stride, rows, prev = zlib.decompress(idat), 4 * width, [], bytearray(4 * width)
+for y in range(height):
+    kind, row = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+    for i in range(stride):
+        a, b = row[i - 4] if i >= 4 else 0, prev[i]
+        c = prev[i - 4] if i >= 4 else 0
+        if kind == 1: row[i] = (row[i] + a) & 255
+        elif kind == 2: row[i] = (row[i] + b) & 255
+        elif kind == 3: row[i] = (row[i] + (a + b) // 2) & 255
+        elif kind == 4:
+            p = a + b - c
+            pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+            row[i] = (row[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        else: assert kind == 0, kind
+    rows.append(row)
+    prev = row
+opaque = [(x, y) for y in range(height) for x in range(width) if rows[y][4 * x + 3]]
+x0, x1 = min(x for x, _ in opaque), max(x for x, _ in opaque) + 1
+y0, y1 = min(y for _, y in opaque), max(y for _, y in opaque) + 1
+side = max(x1 - x0, y1 - y0)
+left, top = x0 - (side - (x1 - x0)) // 2, y0 - (side - (y1 - y0)) // 2
+assert 0 <= left and left + side <= width and 0 <= top and top + side <= height, (left, top, side)
+out = b"".join(b"\0" + bytes(rows[y][4 * left:4 * (left + side)]) for y in range(top, top + side))
+def chunk(kind, body):
+    return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+os.makedirs(os.path.dirname(sys.argv[2]), exist_ok=True)
+open(sys.argv[2], "wb").write(b"\x89PNG\r\n\x1a\n"
+    + chunk(b"IHDR", struct.pack(">IIBBBBB", side, side, 8, 6, 0, 0, 0))
+    + chunk(b"sRGB", b"\0") + chunk(b"IDAT", zlib.compress(out, 9)) + chunk(b"IEND", b""))
+print(f"locked.png: {side} px from ({left}, {top})")
+PY
+'''
+
+[sbom]
+# As the repository states it (LICENSE).
+license = "MIT"
+# No CPE: images (data); the NVD lists no product for them.
+cpe = []
+
+[files]
+image = [
+  "usr/share/beize/images/locked.png",
+]

@@ -69,20 +69,21 @@ pub(super) fn confirmation(
     thread::sleep(Duration::from_millis(300));
     let asked = self::screen(machine, "confirm")?;
     asked.write_png(&machine.logs.join("confirm.png"))?;
-    // Stacked, as macOS' alerts: the action in the accent colour, Cancel below
-    // it not, left of the labels (os/beize-ui's dialog, 189 px high).
-    let beside = middle.0 - 100;
-    let (action, cancel) = (
-        asked.pixel(beside, middle.1 + 14),
-        asked.pixel(beside, middle.1 + 57),
+    // Side by side (ADR 0031): Cancel on the left not in the accent colour,
+    // the action on the right in it, beside their labels (os/beize-ui's
+    // dialog, 148 px high, its buttons 19 to 54 px below the middle).
+    let (cancel, action) = (
+        asked.pixel(middle.0 - 125, middle.1 + 36),
+        asked.pixel(middle.0 + 125, middle.1 + 36),
     );
     ensure!(
         leads(action, 2) && !leads(cancel, 2),
-        "the dialog's buttons are not stacked: {action:?} above {cancel:?}"
+        "the dialog's buttons are not side by side: {cancel:?} left of {action:?}"
     );
-    // The first arrow leaves the action: Return then says no, with an outline.
+    // The first arrow leaves the action: Return then says no, with an outline
+    // above Cancel.
     keys(qmp, &["down"])?;
-    let outlined = (middle.0, middle.1 + 57 - 35 / 2 - 3);
+    let outlined = (middle.0 - 73, middle.1 + 19 - 3);
     wait_until_screen(machine, "confirm-picked", |shown| {
         ensure!(
             !same(
@@ -527,12 +528,10 @@ pub(super) fn menus(
     let may = wait_for_shell_line(shell, |l| l.starts_with("Beize menu may: "))?;
     let allowed = may.contains("restart yes") && may.contains("shut down yes");
     // polkit takes the user's display session for the shell, which runs
-    // outside any session (sd_uid_get_display). logind elects it when a
-    // session starts, not when beize-session makes tty1 a Wayland session
-    // (SetType): the serial console, signed in first, stays the display –
-    // without a seat, not local to polkit, which asks for a password. The
-    // fix is upstream's to take (~/upstream/systemd-logind-display, sent by
-    // the owner); until then exactly that case is said, any other fails.
+    // outside any session (sd_uid_get_display). The serial console signed
+    // in first; logind elects tty1 once beize-session makes it a Wayland
+    // session (SetType, recipes/patches/systemd), so polkit sees the active
+    // local session and lets it act.
     let (_, said) = shell.capture(
         "d=$(loginctl show-user $(id -u) -p Display --value); loginctl show-session $d \
          -p TTY -p Seat | paste -sd ' ' | sed 's/^/BEIZE-SAID /'",
@@ -544,18 +543,10 @@ pub(super) fn menus(
         .trim()
         .to_owned();
     let fields: Vec<&str> = display.split_whitespace().collect();
-    let upstream = fields.contains(&"TTY=ttyS0") && fields.contains(&"Seat=");
     ensure!(
-        allowed || upstream,
+        allowed && fields.contains(&"TTY=tty1") && fields.contains(&"Seat=seat0"),
         "logind does not let the session act: {may} (display session: {display})"
     );
-    if !allowed {
-        say!(
-            "  known: logind keeps the serial console as the display ({display}), polkit asks \
-             for a password ({may}) – logind's SetType elects no display, upstream patch \
-             prepared"
-        );
-    }
     wait_until_screen(machine, "beize-menu", |shown| {
         let p = shown.pixel(inside.0, inside.1);
         ensure!(

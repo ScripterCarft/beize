@@ -3,7 +3,7 @@
 Was gerade gilt. Verlauf steht in den Commits (`git log`), Entscheidungen in den ADRs,
 Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht angehängt.
 
-## Stand (15.11.2026)
+## Stand (16.11.2026)
 
 - **M3 Compositor:** Desktop mit Shell (ADR 0028 (a)–(f)) läuft auf dem PC des Besitzers
   (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.128.
@@ -13,6 +13,12 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   Startzähler sind weg. 0.5.128 auf Hardware: ein Fenster von außen kommt beim Tippen nach vorne
   und bekommt die Tasten, bei offenem Shell-Menü öffnet es hinten ohne sie. Alt+Tab war nicht
   prüfbar (mit einem Fenster geht der Umschalter nicht auf; der Smoke-Test prüft es).
+- **Anmeldedialog (ADR 0031, 16.11., Smoke grün, noch kein Messbau):** Die Shell ist polkits
+  Agent für die Display-Sitzung. run0 im Desktop-Terminal und grafische Apps fragen im Dialog:
+  Schloss (Fluent Emoji 3D) mit dem Symbol der App, Passwortfeld, die Knöpfe nebeneinander.
+  Der Bestätigungsdialog hat die Knöpfe auch nebeneinander. logind wählt die Display-Sitzung
+  nach `SetType` neu: eigener Patch in `recipes/patches/systemd` (bz trägt Rezept-Patches wie
+  die Kernel-Patches). Damit fällt auch die „known“-Ausnahme im Menü-Test weg.
 - **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren, und Electrons
   Bibliotheken (GTK3, NSS u. a.) fehlen. Der echte Test (`op`, SSH-Agent, Browser) kommt damit.
 - **Updates 15.11.:** expat 2.10.0, zlib 1.4, tpm2-tss 4.2.2 (Sicherheit), systemd 262.2,
@@ -27,10 +33,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes
 
-1. **Anmeldedialog der Shell** (ADR 0031, am Mock-up angenommen 15.11., polkit 128 ist da):
-   Textfeld in beize-ui, die Shell als polkit-Agent über den Helfer-Socket, Smoke mit
-   Gegenprobe, dann Messbau. Knöpfe nebeneinander auch im Bestätigungsdialog; Schloss aus
-   Fluent Emoji 3D (eigene System-Symbole später).
+1. **Messbau mit dem Anmeldedialog** für den PC des Besitzers (run0 im Terminal, Aussehen
+   hell/dunkel, Caps Lock).
 2. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
    Vulkan, linux-firmware.
 3. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
@@ -52,6 +56,15 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 - **Tests:** Desktop-Szenario in eigenständige Teile (parallele VMs); ein Journal-Leser statt
   ~170 Abfragen; Menü-Ereignisse statt fester Pausen.
 - **VM:** #41 vCPU steht bis 21 s (verschachteltes KVM), Ursache offen.
+- **Smoke, Snap (16.11., einmal in `gate`):** Das Testclient-Fenster war beim Ziehen an den Rand
+  weg, und es kam keine Vorschau, obwohl der Client den Druck bekam. Die VM war überlastet (GPU
+  bis 80 ms, libinput „too slow“). Erschlossen: `xdg_toplevel.move` kam erst, als der Zeiger
+  schon am Rand war. Das Benutzer-Journal dieses Starts fehlte; beim nächsten Auftreten mit
+  Messzeilen im Compositor (Grab-Start, Zeiger dabei) belegen.
+- **Anmeldedialog:** Auswahl zwischen mehreren Admins per Menü fehlt (ADR 0031; heute: der
+  Benutzer selbst, sonst der erste genannte, mit Namen im Satz); der Cursor im Feld blinkt
+  nicht; Schütteln kommt mit den Federanimationen. Im Smoke nicht abgedeckt: `CancelAuthentication`
+  und die Warteschlange; das Klicken ins Terminal wartet fest 300 ms statt auf den Fokus.
 - **Apps installieren:** Beize hat keinen Weg dafür; Voraussetzung für 1Password und jede
   Drittanbieter-App. Eigene Entscheidung mit ADR, Zeitpunkt beim Besitzer.
 - **Issues:** `gh issue list` (M3-Plan: #14, #17, #34, #35).
@@ -59,10 +72,11 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 ## Beim Besitzer
 
 - **Upstream senden** (Entwürfe in WSL `~/upstream/`, Text schreibt der Besitzer):
-  systemd run0-Ausgabe (`systemd-ptyfwd-drain/`), systemd logind (`systemd-logind-display/`),
+  systemd run0-Ausgabe (`systemd-ptyfwd-drain/`),
   sbsigntools Monat (`sbsigntools-month-patch/`), Smithay-Berichte (`smithay/ISSUES.md`).
   Gesendet, warten: nouveau EDID (21.10.) und GSP-IRQDEST (23.10.) – beide in `kernel/patches/`,
-  `bz` meldet, wenn ein neuer Kernel sie enthält; Smithay PR #2244 gemergt, `[patch]` fällt mit
+  `bz` meldet, wenn ein neuer Kernel sie enthält; systemd logind (#44842, 16.11.), Beize trägt
+  ihn in `recipes/patches/systemd`, `bz` meldet, wenn systemd ihn enthält; Smithay PR #2244 gemergt, `[patch]` fällt mit
   dem Release nach 0.7.0; ntpd-rs #2539.
 - **Windows:** `nvlddmkm` 153 nach Messbauten zählen (`docs/hardware.md`); 0 seit 30.10. 22:23.
 - **Entscheidungen, die nur hier stehen:** Menüleiste über Vollbild darf dunkel satter/hell

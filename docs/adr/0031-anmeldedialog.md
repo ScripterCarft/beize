@@ -49,7 +49,15 @@ Terminal über den Dialog, genau wie unter GNOME und KDE.
   Grund: Den Dialog, das Overlay und die Tastatur hat die Shell schon (ADR 0028 §3, ADR 0030).
   Sie meldet sich beim Start für ihre Sitzung an, also die Display-Sitzung des Benutzers (wie
   bei `may()`, ADR 0028), über die eigene sd-bus-Anbindung (`beize-systemd`). Dazu kommt dort
-  ein Objekt, das Aufrufe annimmt.
+  ein Objekt, das Aufrufe annimmt. Die Shell läuft außerhalb jeder Sitzung, deshalb nimmt
+  polkit für sie `sd_uid_get_display` (`polkitbackendsessionmonitor-systemd.c`). Nur für diese
+  Sitzung darf sie sich anmelden, und für sie fragen auch die Apps, die ebenfalls im
+  Service-Manager laufen. GNOME Shell im systemd-Modus macht es ebenso. GDM legt ihre Sitzung
+  aber gleich als Wayland an, Beizes tty1 wird es erst mit `SetType`. logind wählt die
+  Display-Sitzung dabei nicht neu, also bliebe eine frühere Anmeldung (serielle Konsole, SSH)
+  Display, und der Agent würde für deren `run0` fragen. Das behebt der eigene Patch in
+  `recipes/patches/systemd` (gesendet vom Besitzer). Bis Upstream ihn hat, trägt Beize ihn wie
+  die Kernel-Patches.
 - **Den Helfer spricht sie direkt über den Socket an,** ohne libpolkit-agent-1 (GObject).
   Einen setuid-Helfer als Ausweichweg gibt es nicht (ADR 0018). Fehlt der Socket, wird
   abgelehnt und ins Journal geschrieben.
@@ -70,7 +78,8 @@ Terminal über den Dialog, genau wie unter GNOME und KDE.
     App ergibt sich aus der Unit von `polkit.subject-pid` (`app-…`, Symbol und Name wie im
     Dock). Ist keine zu finden, steht das Schloss allein. Das Bild wird einmal als Textur
     geladen, wenn der Dialog aufgeht, und kostet beim Zeichnen so viel wie ein Buchstabe.
-  - **Titel:** der Name der App, fett, 12 px unter dem Symbol.
+  - **Titel:** der Name der App, fett, 12 px unter dem Symbol. Ohne erkennbare App
+    „Authentication Required“ (GNOME), und die Meldung steht unverändert da.
   - **Was sie will:** „*App* wants to *…*.“, gebildet aus der Meldung der Aktion von polkit:
     „Authentication is required to …“ und „… required for an application to …“ werden zu
     „*App* wants to …“. Das gilt für 133 der 134 Aktionen in Beize. Eine andere Meldung
@@ -110,15 +119,21 @@ Terminal über den Dialog, genau wie unter GNOME und KDE.
 
 ## Prüfungen (Smoke-Test, Desktop)
 
+- Der Agent gehört zur Display-Sitzung, und die ist tty1, obwohl sich die serielle Konsole
+  vorher angemeldet hat (logind-Patch). Deren run0 fragt weiter auf der Konsole.
 - `run0 true` im Terminal des Desktops öffnet den Dialog (Overlay `authentication`). Mit dem
   Passwort über QMP-Tasten endet run0 mit 0. Mit einem falschen Passwort bleibt der Dialog
-  offen, die Fehlerzeile steht da und das Feld ist leer. Escape lässt run0 ablehnen.
-- Der Text: Die Shell meldet Titel und Sätze ins Journal (ohne Passwort). Für run0 lauten
-  sie „Terminal“ und „Terminal wants to manage system services or other units.“
+  offen, und die Fehlerzeile steht da. Danach muss allein das richtige Passwort reichen, das
+  Feld war also leer. Escape lässt run0 ablehnen.
+- Der Text: Die Shell meldet Titel, Sätze und Abzeichen ins Journal (ohne Passwort). Für run0
+  lauten sie „Terminal“ und systemds Satz für den Job, „Terminal wants to start transient
+  unit 'run-….service'.“; das Abzeichen ist das eigene Symbol des Terminals.
 - Ein neues Fenster während des Dialogs öffnet sich dahinter, ohne Tastatur (ADR 0030).
-- Das Passwort steht in keinem Journal des Starts (`journalctl -b | grep -c` = 0).
-- Gegenprobe: Ohne den Agenten der Shell fragt run0 wieder im Terminal; mit einem falschen
-  Cookie antwortet der Helfer `FAILURE`.
+- Keines der beiden Passwörter steht in einem Journal des Starts, auch nicht im System-Journal
+  mit dem Helfer.
+- Gegenproben: Das richtige Passwort mit einem Cookie, das polkitd nie vergab, bekommt vom
+  Helfer `FAILURE`. Der Benutzer selbst darf den Agenten nicht aufrufen (`busctl`: Access
+  denied), nur polkitd. Ohne angemeldeten Agenten wird der Test rot (am 16.11. so gesehen).
 
 ## Konsequenzen
 

@@ -24,8 +24,12 @@
 //! with their windows. Restart, Shut Down and Log Out ask first, as macOS'
 //! with their ellipses (`beize_ui::dialog`), without its countdown: nothing
 //! happens unattended. Sleep acts at once.
+//!
+//! The shell is polkit's agent for the user's session: an action that needs
+//! the password asks in its dialog (`auth`, ADR 0031).
 
 mod apps;
+mod auth;
 mod clock;
 mod control_center;
 mod dock;
@@ -236,9 +240,19 @@ fn run() -> Result<(), String> {
     // desktop's windows it names.
     let mut switching: Option<(WindowId, Switcher)> = None;
     let mut redraw_switching = false;
+    // polkit's agent and its dialog (ADR 0031).
+    let mut auth = auth::Auth::new();
     loop {
         let mut watches = vec![Watch::Read(minutes.fd())];
         watches.extend(monitor.as_ref().map(|m| Watch::Read(m.fd())));
+        let (auth_fds, auth_watched) = match &auth {
+            Some(auth) => {
+                let (fds, watched) = auth.watches(watches.len());
+                (fds, Some(watched))
+            }
+            None => (Vec::new(), None),
+        };
+        watches.extend(auth_fds.into_iter().map(Watch::Read));
         let mut dispatched = app.dispatch(None, &watches).map_err(|e| e.to_string())?;
         drop(watches);
         let bar_events = dispatched.take(bar);
@@ -247,6 +261,10 @@ fn run() -> Result<(), String> {
         let submenu_events = submenu.as_ref().map(|(id, ..)| dispatched.take(*id));
         let asking_events = asking.as_ref().map(|(id, ..)| dispatched.take(*id));
         let switching_events = switching.as_ref().map(|(id, _)| dispatched.take(*id));
+        let auth_events = auth
+            .as_ref()
+            .and_then(auth::Auth::window)
+            .map(|id| dispatched.take(id));
         if bar_events.closed || dock_events.closed {
             // Its screen went: a failure, so the service manager starts the
             // shell again.
@@ -278,6 +296,9 @@ fn run() -> Result<(), String> {
             redraw_bar = true;
             redraw_dock = true;
             redraw_open = open.is_some();
+            if let Some(auth) = &mut auth {
+                auth.appearance_changed();
+            }
         }
         if app.menu_bar_backdrop() != backdrop {
             backdrop = app.menu_bar_backdrop();
@@ -589,7 +610,8 @@ fn run() -> Result<(), String> {
             let size = app.size(*id);
             for input in &events.input {
                 match dialog.input(input, size) {
-                    dialog::Outcome::None => {}
+                    // No field in these.
+                    dialog::Outcome::None | dialog::Outcome::Paste => {}
                     dialog::Outcome::Changed => redraw_asking = true,
                     dialog::Outcome::Confirmed => answer = Some(true),
                     dialog::Outcome::Cancelled => answer = Some(false),
@@ -627,7 +649,8 @@ fn run() -> Result<(), String> {
         let was = open.map(|(o, _)| o);
         if (pressed(&bar_events)
             || pressed(&dock_events)
-            || asking_events.as_ref().is_some_and(pressed))
+            || asking_events.as_ref().is_some_and(pressed)
+            || auth_events.as_ref().is_some_and(pressed))
             && let Some((which, id)) = open.take()
         {
             if let Some((sub_id, ..)) = submenu.take() {
@@ -639,6 +662,17 @@ fn run() -> Result<(), String> {
             beize_menu = Menu::new(beize_menu_entries());
             dock_menu = None;
             redraw_bar = true;
+        }
+        if let (Some(agent), Some(watched)) = (&mut auth, &auth_watched)
+            && !agent.handle(
+                &mut app,
+                &dispatched.ready,
+                watched,
+                auth_events,
+                &mut names,
+            )
+        {
+            auth = None;
         }
         // The bar's buttons: a press opens their menu, or closes it.
         for input in &bar_events.input {
@@ -915,6 +949,9 @@ fn run() -> Result<(), String> {
             app.set_glass(id, Some(Dialog::glass(size)));
             let scene = dialog.draw(app.text(), size, appearance);
             app.draw(id, &scene).map_err(|e| e.to_string())?;
+        }
+        if let Some(auth) = &mut auth {
+            auth.draw(&mut app, appearance)?;
         }
         if let Some((id, switcher)) = &switching
             && redraw_switching

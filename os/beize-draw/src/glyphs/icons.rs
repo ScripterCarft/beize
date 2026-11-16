@@ -163,7 +163,10 @@ fn read_image(path: &FilePath, size: u32) -> Result<Vec<u8>, String> {
         let at = fit(tree.size().width(), tree.size().height());
         resvg::render(&tree, at, &mut pixmap.as_mut());
     } else {
-        let image = tiny_skia::Pixmap::decode_png(&data).map_err(|e| e.to_string())?;
+        let image = halved_to(
+            tiny_skia::Pixmap::decode_png(&data).map_err(|e| e.to_string())?,
+            size,
+        );
         let paint = tiny_skia::PixmapPaint {
             quality: tiny_skia::FilterQuality::Bicubic,
             ..tiny_skia::PixmapPaint::default()
@@ -176,6 +179,31 @@ fn read_image(path: &FilePath, size: u32) -> Result<Vec<u8>, String> {
         .iter()
         .flat_map(|&p| premultiplied_in_linear_light(p))
         .collect())
+}
+
+/// `image` halved while it is at least twice `size`, as mipmaps are: each
+/// half's pixel is the mean of four (bilinear, sampled between them), so the
+/// last step – bicubic, which reads only the texels around a point – scales by
+/// less than two and drops none. In one step a lock of 224 px drawn at 56
+/// would read a quarter of its texels and lose its fine edges.
+fn halved_to(mut image: tiny_skia::Pixmap, size: u32) -> tiny_skia::Pixmap {
+    let paint = tiny_skia::PixmapPaint {
+        quality: tiny_skia::FilterQuality::Bilinear,
+        ..tiny_skia::PixmapPaint::default()
+    };
+    while image.width().min(image.height()) >= 2 * size.max(1) {
+        let (w, h) = (image.width() / 2, image.height() / 2);
+        let Some(mut half) = tiny_skia::Pixmap::new(w, h) else {
+            break;
+        };
+        let scale = tiny_skia::Transform::from_scale(
+            w as f32 / image.width() as f32,
+            h as f32 / image.height() as f32,
+        );
+        half.draw_pixmap(0, 0, image.as_ref(), &paint, scale, None);
+        image = half;
+    }
+    image
 }
 
 /// A pixel of tiny-skia's – premultiplied as encoded – as the colour atlas

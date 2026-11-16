@@ -51,8 +51,12 @@
 //! player does (zwp_idle_inhibit_v1), until it ends.
 //!
 //! `--syncobj` checks explicit sync instead of all that (`syncobj`).
+//!
+//! `--polkit-helper COOKIE` talks to polkit's helper as an agent does
+//! instead (`helper`, ADR 0031).
 
 mod grabs;
+mod helper;
 mod protocol;
 mod syncobj;
 
@@ -366,6 +370,11 @@ struct Shown {
 }
 
 fn run() -> Result<()> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("--polkit-helper") {
+        let cookie = args.next().ok_or("--polkit-helper needs a cookie")?;
+        return helper::run(&cookie);
+    }
     let options = options()?;
     if options.syncobj {
         syncobj::run()?;
