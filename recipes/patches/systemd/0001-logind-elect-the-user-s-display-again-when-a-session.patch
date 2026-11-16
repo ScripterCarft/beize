@@ -1,0 +1,78 @@
+From 554f0eb36ec51802f5309d97236ab79dadcee55b Mon Sep 17 00:00:00 2001
+From: Joe <joe@sudmix.de>
+Date: Wed, 28 Oct 2026 17:32:53 +0100
+Subject: [PATCH] logind: elect the user's display again when a session changes
+ its type or class
+
+A compositor started from a text login calls SetType("wayland") on its
+session, but the user's display stays whatever was elected when the
+session started. If the user had another session before, e.g. on a serial
+console or over SSH, that one remains the display, although
+elect_display_compare() prefers graphical sessions.
+
+Programs outside the session, e.g. services of the user's service manager,
+are then attributed to the wrong session by polkit, which falls back to
+sd_uid_get_display(), and are denied actions allowed for the active local
+session.
+
+Elect the display again when the type or the class changes, before the
+session is saved (its state file records whether it is the display), and
+save the previous display and the user and announce the change, as
+session_start() does.
+
+Signed-off-by: Joe <joe@sudmix.de>
+---
+ src/login/logind-session.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/src/login/logind-session.c b/src/login/logind-session.c
+index 1070c38..531a197 100644
+--- a/src/login/logind-session.c
++++ b/src/login/logind-session.c
+@@ -1267,6 +1267,27 @@ int session_set_locked_hint(Session *s, bool b) {
+         return 1;
+ }
+ 
++static void session_reelect_display(Session *s) {
++        Session *previous;
++
++        assert(s);
++
++        /* The session's type or class changed, so it may now be the better choice for the user's
++         * display, e.g. a session that a compositor started from a text login made graphical with
++         * SetType(). Called before the session is saved, as its state file records whether it is
++         * the display. */
++
++        previous = s->user->display;
++        user_elect_display(s->user);
++        if (s->user->display == previous)
++                return;
++
++        if (previous && previous != s)
++                (void) session_save(previous);
++        (void) user_save(s->user);
++        (void) user_send_changed(s->user, "Display");
++}
++
+ void session_set_type(Session *s, SessionType t) {
+         assert(s);
+ 
+@@ -1274,6 +1295,7 @@ void session_set_type(Session *s, SessionType t) {
+                 return;
+ 
+         s->type = t;
++        session_reelect_display(s);
+         (void) session_save(s);
+         (void) session_send_changed(s, "Type");
+ }
+@@ -1285,6 +1307,7 @@ void session_set_class(Session *s, SessionClass c) {
+                 return;
+ 
+         s->class = c;
++        session_reelect_display(s);
+         (void) session_save(s);
+         (void) session_send_changed(s, "Class");
+ 
+-- 
+2.53.0
+

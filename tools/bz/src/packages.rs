@@ -418,17 +418,20 @@ fn fingerprint(
 }
 
 /// Digest over the paths and contents of the repository files a recipe
-/// builds from (`repo = [...]`); empty for recipes without any, so their
-/// fingerprints stay what they were before `repo` existed.
+/// builds from (`repo = [...]`), and its own patches (`patches`); empty for
+/// recipes without either, so their fingerprints stay what they were
+/// before `repo` existed.
 fn repo_digest(paths: &Paths, recipe: &Recipe) -> Result<String> {
+    let patches = crate::patches::digest(&crate::patches::of(paths, recipe)?)?;
     if recipe.repo.is_empty() {
-        return Ok(String::new());
+        return Ok(patches);
     }
     let mut hasher = Sha256::new();
     for entry in &recipe.repo {
         stamp::hash_tree(&mut hasher, &paths.root, &paths.root.join(entry))
             .with_context(|| format!("{}: repo path {entry}", recipe.name))?;
     }
+    hasher.update(patches);
     Ok(util::hex(&hasher.finalize()))
 }
 
@@ -519,7 +522,11 @@ fn build_one(
         .with_context(|| format!("{} has no build script", recipe.name))?;
 
     let src = match recipe.source {
-        Some(_) => Some(cargo::source(paths, recipe, &recipe.unpack(paths)?)?),
+        Some(_) => {
+            // With Beize's own fixes sent upstream (`patches`).
+            let src = crate::patches::apply_own(paths, recipe, recipe.unpack(paths)?)?;
+            Some(cargo::source(paths, recipe, &src)?)
+        }
         None => None,
     };
     util::step(&format!("Building {} {}", recipe.name, recipe.version));

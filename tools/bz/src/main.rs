@@ -24,6 +24,7 @@ mod layout;
 mod microcode;
 mod outdated;
 mod packages;
+mod patches;
 mod paths;
 mod privileges;
 mod recipe;

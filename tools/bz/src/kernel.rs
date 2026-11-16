@@ -19,6 +19,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use crate::jobserver;
 use crate::packages::{self, TARGET};
+use crate::patches::git_apply;
 use crate::paths::Paths;
 use crate::recipe::Recipe;
 use crate::say;
@@ -130,7 +131,7 @@ pub fn build(paths: &Paths) -> Result<Kernel> {
     unpatch(&src)?;
     for patch in &patches {
         say!("  applying {}", patch.display());
-        git_apply(&src, patch, false)?;
+        git_apply(&src, patch, false, "kernel/patches")?;
         let mut applied = fs::read_to_string(src.join(APPLIED)).unwrap_or_default();
         applied.push_str(&format!("{}\n", patch.display()));
         fs::write(src.join(APPLIED), applied)?;
@@ -383,39 +384,6 @@ pub fn module_name(file: &Path) -> String {
         .replace('-', "_")
 }
 
-/// Beize's fragments in `kernel/config`, in name order.
-/// `git apply` on the unpacked source. That tree lies inside Beize's own
-/// repository, where git would take the patch's paths from the repository's
-/// top and skip them silently: the ceiling keeps git out of it. The check
-/// afterwards proves the patch is (or is no longer) in the tree.
-fn git_apply(src: &Path, patch: &Path, reverse: bool) -> Result<()> {
-    let git = |args: &[&str]| {
-        let mut cmd = Command::new("git");
-        cmd.current_dir(src)
-            .env("GIT_CEILING_DIRECTORIES", src.parent().unwrap_or(src))
-            .arg("apply")
-            .args(args)
-            .arg(patch);
-        cmd
-    };
-    if let Err(e) = util::run(&mut git(if reverse { &["--reverse"] } else { &[] })) {
-        // Already in the source: upstream took it, and it goes from here.
-        if !reverse && util::run(&mut git(&["--reverse", "--check"])).is_ok() {
-            bail!(
-                "{} is in this kernel already (upstream took it): remove it from kernel/patches",
-                patch.display()
-            );
-        }
-        return Err(e);
-    }
-    util::run(&mut git(if reverse {
-        &["--check"]
-    } else {
-        &["--reverse", "--check"]
-    }))
-    .with_context(|| format!("{} did not change the kernel source", patch.display()))
-}
-
 /// The patches applied to the unpacked source, one path a line, until taken
 /// back: a build that stopped between leaves them for the next to take back.
 const APPLIED: &str = ".beize-patches-applied";
@@ -426,30 +394,20 @@ fn unpatch(src: &Path) -> Result<()> {
         return Ok(());
     };
     for patch in applied.lines().rev().filter(|l| !l.is_empty()) {
-        git_apply(src, Path::new(patch), true)?;
+        git_apply(src, Path::new(patch), true, "kernel/patches")?;
     }
     fs::remove_file(src.join(APPLIED))?;
     Ok(())
 }
 
 fn patches(paths: &Paths) -> Result<Vec<PathBuf>> {
-    let mut patches = Vec::new();
-    for dir in ["kernel/patches", "kernel/measure"] {
-        let dir = paths.root.join(dir);
-        if !dir.is_dir() {
-            continue;
-        }
-        for entry in fs::read_dir(&dir)? {
-            let path = entry?.path();
-            if path.extension().is_some_and(|e| e == "patch") {
-                patches.push(path);
-            }
-        }
-    }
-    patches.sort_by_key(|p| p.file_name().map(ToOwned::to_owned));
-    Ok(patches)
+    let mut all = crate::patches::list(&paths.root.join("kernel/patches"))?;
+    all.extend(crate::patches::list(&paths.root.join("kernel/measure"))?);
+    all.sort_by_key(|p| p.file_name().map(ToOwned::to_owned));
+    Ok(all)
 }
 
+/// Beize's fragments in `kernel/config`, in name order.
 fn own_fragments(paths: &Paths) -> Result<Vec<PathBuf>> {
     let mut fragments: Vec<PathBuf> = fs::read_dir(paths.root.join("kernel/config"))?
         .map(|entry| entry.map(|e| e.path()))

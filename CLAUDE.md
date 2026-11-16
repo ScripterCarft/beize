@@ -20,7 +20,8 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
   messen. Symptom-Pflaster entfernen, wenn die Ursache gefunden ist, und das berichten.
 - **Nichts Eigenes ohne Vorbild:** Weston, Mutter, KWin, niri, GTK, macOS, Windows nennen. Wenig
   eigener Code: Upstream + Standardkonfiguration. Keine fremden Patches; eigene Upstream-Fixes
-  mit Bericht, gesendet vom Besitzer (`kernel/patches/README.md`, `~/upstream/`).
+  mit Bericht, gesendet vom Besitzer (`kernel/patches/README.md`, `recipes/patches/README.md`,
+  `~/upstream/`).
 - **Keine getunten festen Zeiten** („damit es geht“): Ereignisse statt Timer, Konzept statt Zahl.
 - Neue Architektur: ADR vorab abstimmen. **Werte und Aussehen**, die der Besitzer abgenommen hat,
   ändern sich nur nach seinem Ja (Mock-ups vorher). Bei Problemen einen Schritt zurück,
@@ -79,7 +80,7 @@ gut ist ein Start, wenn `beize-boot-health` alle Units aus `running-units.txt` o
 | `os/beize-tpm`, `beize-setup`, `beize-accounts`, `beize-update`, `beize-varlink`, `beize-systemd`, `beize-session` | Start, Konten, Updates, Systemanbindung |
 | `os/beize-protocols`, `beize-testclient` | eigene Wayland-Protokolle; Testclient (nur Test-Medium) |
 | `tools/bz/src/` | Build-Werkzeug; `vm/smoke/` der Abnahmetest, `desktop/` in Teilen |
-| `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt, signiert), `deps`, `[build]`, `[sbom]`, `[files]` |
+| `recipes/*.toml` | ein Rezept pro Paket: Quelle (gepinnt, signiert), `deps`, `[build]`, `[sbom]`, `[files]`; `recipes/patches/<paket>/` eigene Upstream-Fixes bis Upstream sie hat |
 | `images/<variante>/` | Pakete, Presets, `running-units.txt`, `security.toml`, `sizes.toml` (Ratschen) |
 | `system/usr/`, `system/initrd/` | eigene Dateien; initrd ohne coreutils |
 | `kernel/config/`, `kernel/patches/` | Fragmente mit Grund; eigene Upstream-Fixes bis Upstream sie hat |
