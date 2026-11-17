@@ -18,6 +18,7 @@ use smithay::backend::libinput::LibinputInputBackend;
 use smithay::backend::session::Session;
 use smithay::input::keyboard::{FilterResult, Keysym, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
+use smithay::reexports::input::DeviceCapability;
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use tracing::warn;
@@ -42,6 +43,14 @@ pub fn handle(state: &mut State, event: InputEvent<LibinputInputBackend>) {
         state.input_came();
     }
     match event {
+        // A keyboard's lights show the state it joins (niri does so too).
+        InputEvent::DeviceAdded { mut device } => {
+            if device.has_capability(DeviceCapability::Keyboard) {
+                device.led_update(state.keyboard.led_state().into());
+                state.keyboards.push(device);
+            }
+        }
+        InputEvent::DeviceRemoved { device } => state.keyboards.retain(|k| *k != device),
         InputEvent::Keyboard { event } => key::<LibinputInputBackend>(state, &event),
         InputEvent::PointerMotion { event } => {
             let to = state.pointer + event.delta();

@@ -39,7 +39,7 @@ use smithay::desktop::{
     LayerSurface, PopupGrab, PopupManager, PopupUngrabStrategy, Space, Window,
     find_popup_root_surface, layer_map_for_output,
 };
-use smithay::input::keyboard::{KeyboardHandle, Keycode, XkbConfig};
+use smithay::input::keyboard::{KeyboardHandle, Keycode, LedState, XkbConfig};
 use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode as OutputMode, Output as WlOutput, PhysicalProperties, Subpixel};
@@ -155,6 +155,9 @@ pub struct State {
 
     pub seat: Seat<State>,
     pub keyboard: KeyboardHandle<State>,
+    /// The keyboards libinput has: their Caps, Num and Scroll Lock lights
+    /// follow the keyboard's state (`led_state_changed`), as in niri.
+    pub keyboards: Vec<smithay::reexports::input::Device>,
     /// What localed last set (`reload_layout`).
     layout: Layout,
     /// Keys pressed for the compositor (`input`): their release stays with
@@ -402,6 +405,7 @@ impl State {
             seat_state,
             seat,
             keyboard,
+            keyboards: Vec::new(),
             layout,
             taken_keys: HashSet::new(),
             space: Space::default(),
@@ -2218,6 +2222,12 @@ impl SeatHandler for State {
         let now = self.clock.now().into();
         self.cursor.set(image, now);
         self.changed();
+    }
+
+    fn led_state_changed(&mut self, _seat: &Seat<State>, leds: LedState) {
+        for keyboard in &mut self.keyboards {
+            keyboard.led_update(leds.into());
+        }
     }
 }
 
