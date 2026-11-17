@@ -27,7 +27,7 @@ use smithay::backend::renderer::element::RenderElementStates;
 use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::{Id, Kind};
 use smithay::backend::renderer::utils::CommitCounter;
-use smithay::backend::renderer::utils::on_commit_buffer_handler;
+use smithay::backend::renderer::utils::{on_commit_buffer_handler, with_renderer_surface_state};
 use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -96,6 +96,7 @@ use smithay::{
 };
 use tracing::{error, info, warn};
 
+use crate::animation::{Animations, Picture};
 use crate::backdrop::{Appearance, Backdrop, LiveGlass};
 use crate::cursor::Cursor;
 use crate::decorations::{Decorations, Hit};
@@ -206,6 +207,8 @@ pub struct State {
     /// The desktop's start (`opening`): when the screen was taken, the
     /// wait for the shell, the black it fades in from.
     opening: Opening,
+    /// Windows opening and closing (ADR 0032).
+    pub animations: Animations,
     screen_at: Option<Duration>,
     wait_timer: Option<RegistrationToken>,
     veil_id: Id,
@@ -431,6 +434,7 @@ impl State {
             backdrops: 0,
             live_glass: Vec::new(),
             opening: Opening::Waiting { shell: false },
+            animations: Animations::from_environment(),
             screen_at: None,
             wait_timer: None,
             veil_id: Id::new(),
@@ -1030,6 +1034,7 @@ impl State {
         } else {
             Vec::new()
         };
+        let refresh = self.refresh();
         let (Some(gpu), Some(output)) = (&mut self.gpu, &self.output) else {
             return;
         };
@@ -1071,6 +1076,9 @@ impl State {
         // comes late shows them where they are then, not behind. Before
         // 17.11. they were taken at when drawing began, a little early.
         let shown_at = gpu.aim().unwrap_or(began);
+        self.animations.start(shown_at, refresh);
+        // What the windows' pictures drew: shown with them (`animation`).
+        let mut offscreen = RenderElementStates::default();
         let veil = self.opening.veil(shown_at);
         let shade = match (veil, self.idle.black(shown_at)) {
             (Veil::None, Some(black)) if black > 0.0 => Veil::Fading(black),
@@ -1152,6 +1160,9 @@ impl State {
             area,
             preview,
             self.backdrop.as_mut(),
+            &mut self.animations,
+            shown_at,
+            &mut offscreen,
             &mut elements,
         );
         let lower = scene::lend(source, false, shown, &mut elements);
@@ -1204,8 +1215,15 @@ impl State {
             self.frames_failed = 0;
         }
         match frame {
-            Ok(Frame::Queued(shown)) => {
+            Ok(Frame::Queued(mut shown)) => {
+                shown.states.extend(offscreen.states);
                 self.hold_read(Some(&shown));
+                // The closed windows' pictures are drawn with it: their
+                // buffers are kept as long as what it read.
+                let kept = self.animations.drawn();
+                if let Some(gpu) = &self.gpu {
+                    self.holds.add(gpu.renderer_ref().submitted(), kept);
+                }
                 let (mut taken, hidden) = self.take_shown(&shown);
                 // Drawn: their clients may draw the next frame now, a
                 // refresh ahead of the next drawing (`take_shown`).
@@ -1220,7 +1238,8 @@ impl State {
                 self.unblock(lift(hidden));
             }
             Ok(Frame::Deferred) => self.redraw = true,
-            Ok(Frame::Unchanged(shown)) => {
+            Ok(Frame::Unchanged(mut shown)) => {
+                shown.states.extend(offscreen.states);
                 let (taken, hidden) = self.take_shown(&shown);
                 self.unchanged.push(taken);
                 self.drawn = shown;
@@ -1240,6 +1259,7 @@ impl State {
         }
         self.watch_flip();
         self.animate_cursor(began);
+        self.animations.end(shown_at);
     }
 
     /// An animated pointer (`cursor`): draws again when its next frame is
@@ -1658,6 +1678,67 @@ impl State {
         self.clock.now().into()
     }
 
+    /// Whether a screen shows what is drawn.
+    pub fn shows(&self) -> bool {
+        self.gpu.as_ref().is_some_and(Gpu::shows)
+    }
+
+    /// `window` closes – its toplevel destroyed, or a commit without a
+    /// buffer –: drawn into a picture that fades where it was, while its
+    /// buffers are still there (`animation`). Without a screen, nothing.
+    pub fn close_picture(&mut self, window: &Window) {
+        let from = self.animations.stop(window);
+        let Some(geometry) = self.space.element_geometry(window) else {
+            return;
+        };
+        // Fullscreen leaves at once, as it comes (ADR 0032 §5).
+        if crate::windows::fullscreen(window) {
+            return;
+        }
+        let (Some(toplevel), Some(gpu)) = (window.toplevel(), self.gpu.as_mut()) else {
+            return;
+        };
+        // Gone with its client – a disconnect destroys the surface before
+        // its toplevel –: nothing left to draw, as a crashed app's window
+        // goes on macOS.
+        let surface = toplevel.wl_surface();
+        if !gpu.shows()
+            || !surface.is_alive()
+            || !with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false)
+        {
+            return;
+        }
+        let app = crate::windows::app_id(window);
+        let renderer = gpu.renderer();
+        let bar = self
+            .decorations
+            .elements(renderer, &[(window.clone(), geometry)])
+            .pop()
+            .map(|(_, bar)| bar);
+        let own = scene::own(renderer, window, geometry, bar);
+        let mut picture = Picture::new();
+        if let Err(e) = picture.draw(renderer, own, scene::anchor(window, geometry)) {
+            warn!("animation: {app} closes without its picture: {e}");
+            return;
+        }
+        let mut kept = Vec::new();
+        with_surface_tree_downward(
+            toplevel.wl_surface(),
+            (),
+            |_, _, &()| TraversalAction::DoChildren(()),
+            |_, states, &()| kept.extend(syncobj::keep(states)),
+            |_, _, &()| true,
+        );
+        let behind = self
+            .space
+            .elements()
+            .take_while(|w| *w != window)
+            .cloned()
+            .collect();
+        self.animations.close(app, picture, from, behind, kept);
+        self.changed();
+    }
+
     /// The time between two vblanks; without a screen, 16 ms.
     pub fn refresh(&self) -> Duration {
         self.gpu
@@ -1743,10 +1824,12 @@ impl State {
         // Without a screen nothing shows the fade, and nothing would end it:
         // it ends at once (ADR 0032 §3) instead of asking for frames each
         // refresh.
-        if !self.gpu.as_ref().is_some_and(Gpu::shows) {
+        if let Some(gpu) = self.gpu.as_mut().filter(|g| !g.shows()) {
             self.opening.finish();
+            self.animations.finish();
+            gpu.renderer().drop_canvases();
         }
-        if matches!(self.opening, Opening::Fading(_)) {
+        if matches!(self.opening, Opening::Fading(_)) || self.animations.moving() {
             self.changed();
         }
         // The fade to black (`idle`) asks for its next step once one is
@@ -2145,6 +2228,23 @@ impl CompositorHandler for State {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
+        // A window's commit without a buffer closes it (`shell::committed`):
+        // its picture first, while the renderer still has its buffer.
+        if let Some(window) = self.window_for(surface)
+            && self.space.element_geometry(&window).is_some()
+            && smithay::wayland::compositor::with_states(surface, |states| {
+                matches!(
+                    states
+                        .cached_state
+                        .get::<SurfaceAttributes>()
+                        .current()
+                        .buffer,
+                    Some(smithay::wayland::compositor::BufferAssignment::Removed)
+                )
+            })
+        {
+            self.close_picture(&window);
+        }
         if let Some(gpu) = &self.gpu {
             let replaced = syncobj::applied(gpu.renderer_ref(), surface);
             let submission = gpu.renderer_ref().submitted();

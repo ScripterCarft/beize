@@ -463,6 +463,10 @@ impl State {
                 at.y
             );
             self.space.map_element(window.clone(), at, false);
+            // It grows in, but for fullscreen (ADR 0032 §5).
+            if !fullscreen(&window) && self.shows() {
+                self.animations.open(&window, app_id(&window));
+            }
             self.list_window(&window);
             self.switcher_window_new(&window);
             let active = self.active_window();
@@ -544,6 +548,7 @@ impl State {
     pub fn window_destroyed(&mut self, surface: &WlSurface) {
         let window = self.any_window(surface);
         if let Some(window) = &window {
+            self.animations.stop(window);
             self.switcher_window_gone(window);
             self.unlist_window(window);
             self.space.unmap_elem(window);
@@ -563,6 +568,7 @@ impl State {
     pub fn unmap_window(&mut self, window: &Window) {
         let active = self.active_window().as_ref() == Some(window);
         info!("unmapped {}", app_id(window));
+        self.animations.stop(window);
         self.switcher_window_gone(window);
         self.unlist_window(window);
         self.space.unmap_elem(window);
@@ -583,6 +589,7 @@ impl State {
         };
         with_place(window, |place| place.minimized_at = Some(at));
         info!("minimized {}", app_id(window));
+        self.animations.stop(window);
         let active = self.active_window().as_ref() == Some(window);
         self.space.unmap_elem(window);
         self.minimized.push(window.clone());

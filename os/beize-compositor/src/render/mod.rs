@@ -201,6 +201,8 @@ pub struct VkRenderer {
     submitted: u64,
     uploads: Vec<Upload>,
     passes: Vec<Pass>,
+    /// Pictures drawn, to be recorded with the next frame (`frame::Canvas`).
+    canvases: Vec<frame::Canvas>,
     dmabufs: HashMap<WeakDmabuf, VkTexture>,
     dmabuf_formats: smithay::backend::allocator::format::FormatSet,
     context: ContextId<VkTexture>,
@@ -249,6 +251,7 @@ impl VkRenderer {
             submitted: 0,
             uploads: Vec::new(),
             passes: Vec::new(),
+            canvases: Vec::new(),
             dmabufs: HashMap::new(),
             dmabuf_formats: Default::default(),
             context: ContextId::new(),
@@ -1448,7 +1451,18 @@ impl VkRenderer {
         }
         drop(uploads);
         let passes = std::mem::take(&mut self.passes);
-        // The passes', then the frame's, then those of its live glass.
+        // The pictures go with a frame for the screen; a read back leaves
+        // them for the next.
+        let mut canvases = Vec::new();
+        let mut frame = frame;
+        if let Some(frame) = frame.as_deref_mut() {
+            canvases = std::mem::take(&mut self.canvases);
+            for canvas in &mut canvases {
+                canvas.join(frame);
+            }
+        }
+        // The passes', then the frame's, then those of its live glass, then
+        // the pictures'.
         let mut lists: Vec<&[Quad]> = passes.iter().map(|p| p.quads.as_slice()).collect();
         if let Some(frame) = &frame {
             lists.push(&frame.quads);
@@ -1456,6 +1470,7 @@ impl VkRenderer {
                 lists.extend(insert.passes.iter().map(|p| p.quads.as_slice()));
             }
         }
+        lists.extend(canvases.iter().map(|c| c.quads.as_slice()));
         let addresses = self.write_quads(i, &lists)?;
         let drawing = Instant::now();
         self.spent.begin += drawing - recording;
@@ -1486,6 +1501,12 @@ impl VkRenderer {
                 .iter()
                 .map(|insert| rest.by_ref().take(insert.passes.len()).collect())
                 .collect();
+            let mut drawn = Vec::with_capacity(canvases.len());
+            for (canvas, address) in canvases.into_iter().zip(rest) {
+                let pipelines = self.pipelines.get(&d, canvas.format)?;
+                self.spent.quads_drawn += canvas.quads.len();
+                drawn.push((canvas, pipelines, address));
+            }
             let queries = self.in_flight[i].queries;
             self.in_flight[i].blurs = queries.map_or(0, |_| frame.inserts.len().min(BLURS_TIMED));
             let draws = frame::record_frame(
@@ -1496,6 +1517,7 @@ impl VkRenderer {
                 pass_pipelines,
                 quads,
                 &insert_addresses,
+                &drawn,
                 frame,
                 submission,
                 queries.map(|pool| (pool, BLURS_TIMED)),
@@ -1613,6 +1635,20 @@ impl VkRenderer {
     }
 
     /// Ends a frame: submits it and hands out its end.
+    /// A picture drawn (`frame::Canvas`): recorded with the next frame for
+    /// the screen; one drawn again before replaces it.
+    fn queue_canvas(&mut self, canvas: frame::Canvas) {
+        self.canvases
+            .retain(|c| !Arc::ptr_eq(&c.picture.0, &canvas.picture.0));
+        self.canvases.push(canvas);
+    }
+
+    /// Lets go of the pictures not recorded yet: nothing will show them (no
+    /// screen).
+    pub fn drop_canvases(&mut self) {
+        self.canvases.clear();
+    }
+
     fn finish_frame(&mut self, frame: &mut frame::Recorded<'_>) -> Result<SyncPoint> {
         let submission = self.submit(Some(frame), None)?;
         let target = &mut *frame.target;

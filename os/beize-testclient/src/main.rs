@@ -481,7 +481,7 @@ fn run() -> Result<()> {
     toplevel.set_app_id("beize-testclient".into());
     // Kept until the end: dropping it would not end it, but its frame
     // ends with it in the protocol.
-    let _decoration = if options.server_side {
+    let decoration = if options.server_side {
         let manager: ZxdgDecorationManagerV1 = globals
             .bind(&qh, 1..=1, ())
             .map_err(missing("zxdg_decoration_manager_v1"))?;
@@ -540,6 +540,17 @@ fn run() -> Result<()> {
         report_frames(&app.frame_times, options.frames);
         report_drawing(&app.draw_times);
     }
+    // Closed as toolkits close a window, not left to the disconnect: its
+    // toplevel first, while its surface still shows – the compositor draws
+    // its picture then (ADR 0032) –, its decoration before it, as the
+    // protocol wants.
+    if let Some(decoration) = decoration {
+        decoration.destroy();
+    }
+    app.toplevel.destroy();
+    xdg_surface.destroy();
+    app.surface.destroy();
+    queue.flush().map_err(|e| format!("sending: {e}"))?;
     println!("done");
     Ok(())
 }

@@ -341,6 +341,29 @@ pub fn held(renderer: &VkRenderer, states: &SurfaceData) -> Option<Held> {
     })
 }
 
+/// The buffer a surface shows, synchronised explicitly or not, kept until a
+/// picture of it is drawn (`animation`): its client hears of its release
+/// (`wl_buffer.release`, its release point) only then, and cannot draw into
+/// it before.
+pub fn keep(states: &SurfaceData) -> Option<Held> {
+    let buffer = states
+        .data_map
+        .get::<RendererSurfaceStateUserData>()?
+        .lock()
+        .ok()?
+        .buffer()?
+        .clone();
+    let reattached = states
+        .data_map
+        .get::<Reattached>()
+        .map(|r| r.0.borrow().clone())
+        .unwrap_or_default();
+    Some(Held {
+        _buffer: Some(buffer),
+        _reattached: reattached,
+    })
+}
+
 /// The buffers frames on the GPU read, by submission.
 #[derive(Debug, Default)]
 pub struct Holds(Vec<(u64, Vec<Held>)>);

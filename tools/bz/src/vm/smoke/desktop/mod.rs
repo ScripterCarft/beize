@@ -76,6 +76,7 @@ use crate::vm::console::{
 use crate::vm::debug::Shell;
 use crate::vm::machine::{DESKTOP_MEMORY_MIB, Machine, test_medium};
 
+mod animations;
 mod auth;
 mod frames;
 mod glass;
@@ -392,6 +393,8 @@ impl Phases {
         self.0 = Instant::now();
     }
 }
+
+pub(super) use self::animations::animations;
 
 pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let mut phases = Phases(Instant::now());

@@ -6,13 +6,15 @@
 //! behind it.
 
 use std::ops::Range;
+use std::time::Duration;
 
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::element::surface::{
     WaylandSurfaceRenderElement, render_elements_from_surface_tree,
 };
+use smithay::backend::renderer::element::texture::TextureRenderElement;
 use smithay::backend::renderer::element::utils::RescaleRenderElement;
-use smithay::backend::renderer::element::{Id, Kind};
+use smithay::backend::renderer::element::{Id, Kind, RenderElementStates};
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::desktop::{PopupManager, Space, Window, layer_map_for_output};
 use smithay::output::Output as WlOutput;
@@ -21,10 +23,11 @@ use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 use smithay::wayland::shell::wlr_layer::Layer;
 use tracing::warn;
 
+use crate::animation::Animations;
 use crate::backdrop::{Appearance, Backdrop, LiveGlass};
 use crate::corners::{Rounded, Shadow};
 use crate::decorations::Decorations;
-use crate::render::VkRenderer;
+use crate::render::{VkRenderer, VkTexture};
 
 /// In a module of its own: the macro's code names `Result`, which here is
 /// the compositor's. Generic over the renderer, as Smithay's concrete form
@@ -40,6 +43,7 @@ mod element {
     use smithay::backend::renderer::element::utils::RescaleRenderElement;
     use smithay::render_elements;
 
+    use crate::animation::PictureElement;
     use crate::backdrop::Glass;
     use crate::corners::{Effects, Rounded, Shadow};
 
@@ -56,6 +60,7 @@ mod element {
         Surface=WaylandSurfaceRenderElement<R>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
+        Picture=PictureElement,
         Thumbnail=Rounded<RescaleRenderElement<WaylandSurfaceRenderElement<R>>>,
         ThumbnailBar=Rounded<RescaleRenderElement<TextureRenderElement<<R as RendererSuper>::TextureId>>>,
         Shadow=Shadow,
@@ -71,7 +76,11 @@ const MAX_POPUP_GLASS: usize = 8;
 
 /// The windows on `area`, front to back, each with its popups in front, its
 /// content, its title bar, and its shadow, added to `elements`. `preview`
-/// lies behind the first of them, the one being dragged.
+/// lies behind the first of them, the one being dragged. A window opening
+/// shows as its picture, and the pictures of those closed lie where they
+/// were (`animations`), as at `at`; the states of what pictures drew join
+/// `offscreen`.
+#[allow(clippy::too_many_arguments)]
 pub fn windows(
     renderer: &mut VkRenderer,
     space: &Space<Window>,
@@ -79,6 +88,9 @@ pub fn windows(
     area: Rectangle<i32, Logical>,
     mut preview: Option<Element>,
     mut backdrop: Option<&mut Backdrop>,
+    animations: &mut Animations,
+    at: Duration,
+    offscreen: &mut RenderElementStates,
     elements: &mut Vec<Element>,
 ) {
     let windows: Vec<_> = space
@@ -93,8 +105,7 @@ pub fn windows(
         let Some(toplevel) = window.toplevel() else {
             continue;
         };
-        let frame = crate::decorations::frame(window, *geometry);
-        let rounded = crate::corners::rounded(window, frame).then_some(frame);
+        elements.extend(animations.closing_before(Some(window), at));
         let origin = geometry.loc - window.geometry().loc;
         // Popups in front, never cut by the corners (as Smithay's
         // `Window` places them).
@@ -111,28 +122,59 @@ pub fn windows(
                 elements,
             );
         }
-        let surfaces: Vec<WaylandSurfaceRenderElement<_>> = render_elements_from_surface_tree(
-            renderer,
-            toplevel.wl_surface(),
-            origin.to_physical(1),
-            Scale::from(1.0),
-            1.0,
-            Kind::Unspecified,
-        );
-        elements.extend(
-            surfaces
-                .into_iter()
-                .map(|s| Element::Window(Rounded::new(s, rounded))),
-        );
-        if let Some(i) = bars.iter().position(|(w, _)| w == window) {
-            let bar = bars.swap_remove(i).1;
-            elements.push(Element::Bar(Rounded::new(bar, rounded)));
-        }
-        if let Some(frame) = rounded {
-            elements.push(Element::Shadow(Shadow::new(window, frame)));
-        }
+        let bar = bars
+            .iter()
+            .position(|(w, _)| w == window)
+            .map(|i| bars.swap_remove(i).1);
+        let own = own(renderer, window, *geometry, bar);
+        let anchor = anchor(window, *geometry);
+        elements.extend(animations.shown(renderer, window, own, anchor, at, offscreen));
         elements.extend(preview.take());
     }
+    // Behind all windows left.
+    elements.extend(animations.closing_before(None, at));
+}
+
+/// A window's own elements at `geometry`, front to back – its content, its
+/// title bar (`bar`) and its shadow, not its popups –: what its picture
+/// holds while it opens or closes (`animation`).
+pub fn own(
+    renderer: &mut VkRenderer,
+    window: &Window,
+    geometry: Rectangle<i32, Logical>,
+    bar: Option<TextureRenderElement<VkTexture>>,
+) -> Vec<Element> {
+    let Some(toplevel) = window.toplevel() else {
+        return Vec::new();
+    };
+    let frame = crate::decorations::frame(window, geometry);
+    let rounded = crate::corners::rounded(window, frame).then_some(frame);
+    let origin = geometry.loc - window.geometry().loc;
+    let surfaces: Vec<WaylandSurfaceRenderElement<_>> = render_elements_from_surface_tree(
+        renderer,
+        toplevel.wl_surface(),
+        origin.to_physical(1),
+        Scale::from(1.0),
+        1.0,
+        Kind::Unspecified,
+    );
+    let mut own: Vec<Element> = surfaces
+        .into_iter()
+        .map(|s| Element::Window(Rounded::new(s, rounded)))
+        .collect();
+    own.extend(bar.map(|bar| Element::Bar(Rounded::new(bar, rounded))));
+    own.extend(rounded.map(|frame| Element::Shadow(Shadow::new(window, frame))));
+    own
+}
+
+/// The centre of a window's frame at `geometry`: it grows from it and
+/// shrinks to it.
+pub fn anchor(window: &Window, geometry: Rectangle<i32, Logical>) -> Point<f64, Physical> {
+    let frame = crate::decorations::frame(window, geometry).to_physical(1);
+    Point::from((
+        f64::from(frame.loc.x) + f64::from(frame.size.w) / 2.0,
+        f64::from(frame.loc.y) + f64::from(frame.size.h) / 2.0,
+    ))
 }
 
 /// Live glass shows what lies behind it, blurred by the frame where it

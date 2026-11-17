@@ -64,6 +64,60 @@ pub(super) struct Recorded<'a> {
     pub inserts: Vec<Insert>,
 }
 
+/// A frame drawn into a picture target (`Target::picture`): not submitted
+/// on its own – a second submission each frame would leave one frame in
+/// flight, not two – but recorded with the next frame for the screen, ahead
+/// of its quads, in its submission. What it reads goes with that frame:
+/// the clients' dmabufs pass to Vulkan and back with the frame's, their
+/// writes are waited for and the frame's fence added to them, and they are
+/// kept until the frame is done (as niri draws a window offscreen in its
+/// frame for its animations).
+pub(super) struct Canvas {
+    pub picture: VkTexture,
+    pub format: vk::Format,
+    pub quads: Vec<Quad>,
+    pub blend: Vec<bool>,
+    pub textures: Vec<VkTexture>,
+    pub foreign: Vec<VkTexture>,
+    pub waits: Vec<SyncPoint>,
+}
+
+impl Canvas {
+    /// A frame into a picture, taken from what it recorded.
+    pub(super) fn take(picture: VkTexture, frame: &mut Recorded<'_>) -> Result<Canvas> {
+        if !frame.inserts.is_empty() {
+            return Err(error("live glass in a picture"));
+        }
+        Ok(Canvas {
+            picture,
+            format: frame.target.format,
+            quads: std::mem::take(&mut frame.quads),
+            blend: std::mem::take(&mut frame.blend),
+            textures: std::mem::take(&mut frame.textures),
+            foreign: std::mem::take(&mut frame.foreign),
+            waits: std::mem::take(&mut frame.waits),
+        })
+    }
+
+    /// Hands what it reads to `frame`, which it is recorded with: its
+    /// picture among the frame's textures, kept as long as theirs.
+    pub(super) fn join(&mut self, frame: &mut Recorded<'_>) {
+        let known =
+            |list: &[VkTexture], t: &VkTexture| list.iter().any(|k| Arc::ptr_eq(&k.0, &t.0));
+        for t in self.textures.drain(..).chain([self.picture.clone()]) {
+            if !known(&frame.textures, &t) {
+                frame.textures.push(t);
+            }
+        }
+        for t in self.foreign.drain(..) {
+            if !known(&frame.foreign, &t) {
+                frame.foreign.push(t);
+            }
+        }
+        frame.waits.append(&mut self.waits);
+    }
+}
+
 /// Live glass in the frame (`VkFrame::blur_behind`): once the quads before
 /// `at` are drawn, `region` of the target – what lies behind the glass, as
 /// this frame drew it – is copied to `copy` and blurred by `passes`; then
@@ -348,6 +402,11 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
 
     fn end(&mut self) -> Result<SyncPoint> {
         self.finished = true;
+        if let Some(picture) = self.recorded.target.picture.clone() {
+            let canvas = Canvas::take(picture, &mut self.recorded)?;
+            self.renderer.queue_canvas(canvas);
+            return Ok(SyncPoint::signaled());
+        }
         self.renderer.finish_frame(&mut self.recorded)
     }
 }
@@ -698,8 +757,9 @@ fn record_insert(
 
 /// The frame's quads, drawn into its target, with its live glass between
 /// (`inserts`; their passes' quads at `insert_addresses`), the first of them
-/// timed in `queries` (`gpu_time`, from its third query on). Returns the
-/// number of draw calls.
+/// timed in `queries` (`gpu_time`, from its third query on); ahead of it the
+/// `canvases` it took in (`Canvas::join`), each with its pipelines and quads.
+/// Returns the number of draw calls.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn record_frame(
     d: &ash::Device,
@@ -709,6 +769,7 @@ pub(super) fn record_frame(
     pass_pipelines: [[vk::Pipeline; 2]; 2],
     quads: u64,
     insert_addresses: &[Vec<u64>],
+    canvases: &[(Canvas, [vk::Pipeline; 2], u64)],
     frame: &mut Recorded<'_>,
     submission: u64,
     queries: Option<(vk::QueryPool, usize)>,
@@ -754,9 +815,13 @@ pub(super) fn record_frame(
         ));
     }
     barriers(d, commands, &before);
+    // The pictures, while the clients' dmabufs are Vulkan's (above).
+    let mut draws = 0;
+    for (canvas, pipelines, address) in canvases {
+        draws += record_canvas(d, commands, layouts, *pipelines, canvas, *address);
+    }
 
     let (w, h) = (target.size.w as u32, target.size.h as u32);
-    let mut draws = 0;
     let mut start = 0;
     let quad_size = std::mem::size_of::<Quad>();
     let ends = frame
@@ -878,6 +943,60 @@ pub(super) fn record_frame(
     for t in &frame.textures {
         t.used(submission);
     }
+    draws
+}
+
+/// A picture drawn whole (`Canvas`), then ready to be sampled by the frame.
+fn record_canvas(
+    d: &ash::Device,
+    commands: vk::CommandBuffer,
+    layouts: &Pipelines,
+    pipelines: [vk::Pipeline; 2],
+    canvas: &Canvas,
+    quads: u64,
+) -> usize {
+    let Some(view) = canvas.picture.0.attachment else {
+        return 0;
+    };
+    let image = canvas.picture.0.gpu.image;
+    // Drawn whole: what it held goes, once earlier reads are done.
+    barriers(
+        d,
+        commands,
+        &[barrier(
+            image,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            SHADER_READ,
+            COLOR_WRITE,
+            SAME,
+        )],
+    );
+    let size = canvas.picture.0.size;
+    let attachment = Attachment {
+        view,
+        size: (size.w as u32, size.h as u32),
+        load: false,
+    };
+    // SAFETY: the picture is in COLOR_ATTACHMENT_OPTIMAL (above), the
+    // pipelines are its format's; the quads live in this frame's buffer and
+    // what they read is the frame's (`Canvas::join`) until the submission
+    // completes.
+    let draws =
+        unsafe { layouts.record(d, commands, pipelines, &attachment, quads, &canvas.blend) };
+    barriers(
+        d,
+        commands,
+        &[barrier(
+            image,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            COLOR_WRITE,
+            SHADER_READ,
+            SAME,
+        )],
+    );
+    canvas.picture.0.filled.store(true, Ordering::Relaxed);
     draws
 }
 

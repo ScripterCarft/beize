@@ -68,6 +68,7 @@ enum Scenario {
     Update,
     BrokenUpdate,
     Desktop,
+    Animations,
 }
 
 use Scenario::*;
@@ -79,13 +80,14 @@ use Scenario::*;
 /// release the broken update waits for. Those that start from a copy of
 /// the installation only if it passed, and only those that
 /// [`Scenario::applies`] to the variant.
-const AFTER_INSTALL: [Scenario; 17] = [
+const AFTER_INSTALL: [Scenario; 18] = [
     Update,
     InterruptedUpdate,
     KeyNotConfirmed,
     OwnerKeys,
     BrokenUpdate,
     Desktop,
+    Animations,
     OtherTpm,
     ForeignDb,
     Privileges,
@@ -144,6 +146,9 @@ impl Scenario {
             Desktop => {
                 "The login on tty1 starts the desktop with a client's window; signing out stops it"
             }
+            Animations => {
+                "Windows open and close as animations that hold up neither keys nor frames"
+            }
         }
     }
 
@@ -151,7 +156,7 @@ impl Scenario {
     fn applies(self, paths: &Paths) -> bool {
         match self {
             WithoutAdditions => paths.variant.extended().is_some(),
-            Desktop => paths
+            Desktop | Animations => paths
                 .variant
                 .packages()
                 .iter()
@@ -197,6 +202,7 @@ impl Scenario {
                 smoke.next_release()?,
             ),
             Desktop => desktop::desktop(paths, smoke.installed()?),
+            Animations => desktop::animations(paths, smoke.installed()?),
             InterruptedUpdate => {
                 updates::interrupted_update(paths, smoke.installed()?, smoke.next_release()?)
             }

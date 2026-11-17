@@ -4,7 +4,10 @@
 //! into (linear, ADR 0027 §6). Where a dumb buffer is slow to read, or its
 //! row pitch is not lavapipe's, lavapipe draws into an image of its own
 //! and the frame is copied over (`Readback`). Offscreen targets are images
-//! of the renderer's own (screenshots).
+//! of the renderer's own (screenshots); a picture target is a texture the
+//! compositor draws into and then shows (a window's picture while it opens
+//! or closes, ADR 0032 §2), recorded ahead of the next frame for the
+//! screen (`frame::Canvas`).
 
 use std::sync::Arc;
 
@@ -18,7 +21,7 @@ use smithay::utils::{Buffer, Size};
 
 use super::VkRenderer;
 use super::device::{Garbage, Shared};
-use super::texture::{self, vk_format};
+use super::texture::{self, VkTexture, vk_format};
 use crate::error::{Context, Result, error};
 use beize_vulkan::image;
 
@@ -43,6 +46,8 @@ pub struct Target {
     /// Holds a frame: its content is kept (damage) rather than discarded.
     pub(super) filled: bool,
     pub(super) last_used: u64,
+    /// A picture target: the texture its image belongs to, which owns it.
+    pub(super) picture: Option<VkTexture>,
 }
 
 impl Target {
@@ -58,6 +63,11 @@ impl Target {
     pub fn fourcc(&self) -> Fourcc {
         self.fourcc
     }
+
+    /// What a picture target draws into, to be shown.
+    pub fn picture(&self) -> Option<&VkTexture> {
+        self.picture.as_ref()
+    }
 }
 
 impl std::fmt::Debug for Target {
@@ -72,6 +82,10 @@ impl std::fmt::Debug for Target {
 
 impl Drop for Target {
     fn drop(&mut self) {
+        // A picture's image and view are its texture's.
+        if self.picture.is_some() {
+            return;
+        }
         self.shared.defer(
             self.last_used,
             Garbage::Image {
@@ -133,6 +147,7 @@ impl VkRenderer {
             dmabuf: None,
             filled: false,
             last_used: 0,
+            picture: None,
         })
     }
 
@@ -178,6 +193,54 @@ impl VkRenderer {
         let (image, memory) =
             image::own_image(&self.shared, format, (size.w as u32, size.h as u32), USAGE)?;
         self.target(image, memory, fourcc, size)
+    }
+}
+
+impl VkRenderer {
+    /// A picture of `size` to draw into (`Target::picture`): with alpha,
+    /// drawn as the screen is – the same pipelines, blending as it blends –
+    /// and shown as a texture.
+    pub fn picture_target(&mut self, size: Size<i32, Buffer>) -> Result<Target> {
+        let fourcc = Fourcc::Argb8888;
+        let (format, _) = vk_format(fourcc).context(format!("format {fourcc} is not drawn"))?;
+        if size.w <= 0 || size.h <= 0 {
+            return Err(error("an empty picture"));
+        }
+        let (image, memory) = image::own_image(
+            &self.shared,
+            format,
+            (size.w as u32, size.h as u32),
+            USAGE | vk::ImageUsageFlags::SAMPLED,
+        )?;
+        let d = &self.shared.device;
+        let view = match image::view(d, image, format, true) {
+            Ok(view) => view,
+            Err(e) => {
+                // SAFETY: never used.
+                unsafe {
+                    d.destroy_image(image, None);
+                    d.free_memory(memory, None);
+                }
+                return Err(e);
+            }
+        };
+        let texture = texture::wrap(&self.shared, image, memory, fourcc, size, None, Some(view))?;
+        self.pipelines
+            .write(&self.shared.device, texture.0.gpu.slot, texture.0.gpu.view);
+        Ok(Target {
+            shared: self.shared.clone(),
+            image,
+            view,
+            memory: vk::DeviceMemory::null(),
+            readback: None,
+            size,
+            format,
+            fourcc,
+            dmabuf: None,
+            filled: false,
+            last_used: 0,
+            picture: Some(texture),
+        })
     }
 }
 

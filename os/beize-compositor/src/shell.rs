@@ -42,6 +42,10 @@ impl XdgShellHandler for State {
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let active = surface.with_pending_state(|s| s.states.contains(XdgState::Activated));
+        // Its picture while its buffers are there (`animation`).
+        if let Some(window) = self.window_for(surface.wl_surface()) {
+            self.close_picture(&window);
+        }
         self.window_destroyed(surface.wl_surface());
         // The window leaves the space with its surface (`Space::refresh`);
         // if it was the active one, the one below takes over.
