@@ -143,7 +143,7 @@ Eigentümer, Profile, echte Hardware · 0011 Netzwerk · 0012 Zeit (NTS) · 0013
 Toolchain v3 + Härtung · 0015 Kernel · 0016 initrd aus Funktionen · 0017 Tastatur · 0018 Rechte
 (run0, polkit) · 0019 Konten · 0020 Updates · 0021 Buildroot · 0022 SBOM, Schwachstellen · 0023
 Absturzberichte · 0024 Bootloader-Konfiguration · 0025 Varianten · 0026 TPM-Schlüssel „(Basis)“ ·
-0027 Grafik · 0028 Shell · 0029 Bildschirme · 0030 Fokus · 0031 Anmeldedialog. Neue Architekturentscheidung = neues ADR; spätere
+0027 Grafik · 0028 Shell · 0029 Bildschirme · 0030 Fokus · 0031 Anmeldedialog · 0032 Animationen. Neue Architekturentscheidung = neues ADR; spätere
 Änderungen in die Endfassung einarbeiten, keine Nachträge.
 
 ## 8. Regeln für Rezepte und Code

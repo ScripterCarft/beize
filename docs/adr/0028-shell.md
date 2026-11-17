@@ -456,10 +456,8 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   nicht, Klicks gehen an die neue Shell. Der Desktop startet ohne Fenster, wie macOS (das
   Terminal öffnen Dock und Strg+Alt+T). Der flackerfreie Übergang von der Konsole (Fedoras
   „flicker-free boot“, ADR 0027 §6) kommt mit der grafischen Anmeldung.
-- **Animationen** sind Federn (gedämpfte Schwingung, unterbrechbar, wie SwiftUI). Sie
-  laufen im Compositor im Takt der Bildwiederholung; jede hat einen Ursprung (Fenster aus
-  dem Dock-Symbol). Schritt 4 legt das Gerüst und kurze Überblendungen an, die gestalteten
-  Animationen (Minimieren ins Dock, Öffnen aus dem Symbol) kommen danach.
+- **Animationen** sind Federn (gedämpfte Schwingung, unterbrechbar, wie SwiftUI), im
+  Compositor im Takt der Bildwiederholung, mit Ursprung: ADR 0032.
 - **Hintergrund:** ein eigenes Standardbild, im Shader berechnet (keine Bilddatei im
   Image), vom Besitzer am 24.10. an Entwürfen gewählt: vier Farbpunkte, in Oklab gemischt (so
   werden Übergänge nicht trüb), darüber vier geschwungene Bänder mit scharfer, heller
@@ -577,7 +575,7 @@ e) Kontrollzentrum mit der Netz-Kachel, lebendiges Glas, Beize-Menü (Sperren, A
    Neustart, Ausschalten über logind). ✓ 28.10. (ohne Sperren: kommt mit dem Sperrbildschirm;
    dazu Hell/Dunkel zur Laufzeit und Menüs als Baustein in Beize UI)
 f) App-Menüs (`beize-app-v1`), Alt+Tab, Snap, dazu Rechtsklick-Menüs und die Bestätigung. ✓ 31.10.
-g) Gestaltete Federanimationen (Öffnen, Minimieren ins Dock, Snap).
+g) Gestaltete Federanimationen (Öffnen, Minimieren ins Dock, Snap): ADR 0032.
 
 Suche, Benachrichtigungen, Sperrbildschirm und die grafische Anmeldung bekommen je ein
 eigenes ADR.

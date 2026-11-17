@@ -36,12 +36,15 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes
 
-1. **Animationen (Besitzer 17.11.: „wirklich cleane Animationen, nichts darf hängen, wie bei
-   Apple sehr durchdacht“).** ADR 0028 (g) hat nur den Rahmen (Federn wie SwiftUI, im
-   Compositor im Bildtakt, unterbrechbar, mit Ursprung; Öffnen, Minimieren ins Dock, Snap).
-   Zuerst ein eigenes ADR mit Entwürfen zum Ansehen (welche Animationen, Federwerte von Apple
-   gemessen statt geraten, Unterbrechen mit Geschwindigkeit, Eingabe nie blockiert, Takt
-   gemessen), Abnahme durch den Besitzer, dann bauen. Dazu das Schütteln des Anmeldedialogs.
+1. **Animationen nach ADR 0032** (angenommen 17.11., Entwürfe
+   https://claude.ai/artifact/UUATm6qxfcen8KgjNbvDPB, danach von einem Agenten geprüft und
+   eingearbeitet). Schritt a) ist gebaut: Feder in `beize-draw` (`spring`), Startblende darauf,
+   ausgewertet an `Gpu::aim`, Ende ohne Bildschirm. Weiter mit b): Testfaktor und
+   Journalzeilen, eigene Bilder des Compositors (Pre-Commit beim Null-Puffer, Vorbild niri),
+   Öffnen/Schließen, Dialog mit Schütteln über `beize_shell_v1`; dann c) Trichter (Gitter im
+   Renderer, Dock-Symbol-Rechtecke, Tokens der Shell + transiente Unit), d) Einrasten, Menü,
+   Kontrollzentrum, Alt+Tab-Ring. Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen
+   (Besitzer). Apple-Optik bei Bewegung erwünscht, wo sauber (Trichter), keine Spielerei.
 2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.
 3. Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen, Animationen.
    `pam_faildelay` bleibt 2 s (Besitzer 17.11.).
