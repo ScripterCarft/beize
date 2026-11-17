@@ -686,7 +686,7 @@ impl State {
                 after.as_millis()
             );
         }
-        self.opening = Opening::Fading { since: now };
+        self.opening = Opening::fading(now);
         self.changed();
     }
 
@@ -1066,8 +1066,13 @@ impl State {
         // In front of all, the black the desktop fades in from, or the
         // black it fades to before the screen goes off (`idle`), the
         // pointer still over it.
-        let veil = self.opening.veil(began);
-        let shade = match (veil, self.idle.black(began)) {
+        // Animations as they are at the vblank this frame shows at, as
+        // Core Animation's `targetTimestamp` (ADR 0032 §3): a frame that
+        // comes late shows them where they are then, not behind. Before
+        // 17.11. they were taken at when drawing began, a little early.
+        let shown_at = gpu.aim().unwrap_or(began);
+        let veil = self.opening.veil(shown_at);
+        let shade = match (veil, self.idle.black(shown_at)) {
             (Veil::None, Some(black)) if black > 0.0 => Veil::Fading(black),
             _ => veil,
         };
@@ -1735,7 +1740,13 @@ impl State {
         // while drawing (until 0.5.102), its frame was dated before the
         // last one was shown, could only be drawn at that one's vblank, at
         // once – every frame of the fade late (hardware test 24.10.).
-        if matches!(self.opening, Opening::Fading { .. }) {
+        // Without a screen nothing shows the fade, and nothing would end it:
+        // it ends at once (ADR 0032 §3) instead of asking for frames each
+        // refresh.
+        if !self.gpu.as_ref().is_some_and(Gpu::shows) {
+            self.opening.finish();
+        }
+        if matches!(self.opening, Opening::Fading(_)) {
             self.changed();
         }
         // The fade to black (`idle`) asks for its next step once one is
