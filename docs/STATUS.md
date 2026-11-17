@@ -3,7 +3,7 @@
 Was gerade gilt. Verlauf steht in den Commits (`git log`), Entscheidungen in den ADRs,
 Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht angehängt.
 
-## Stand (16.11.2026)
+## Stand (17.11.2026)
 
 - **M3 Compositor:** Desktop mit Shell (ADR 0028 (a)–(f)) läuft auf dem PC des Besitzers
   (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.128.
@@ -13,7 +13,10 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   Startzähler sind weg. 0.5.128 auf Hardware: ein Fenster von außen kommt beim Tippen nach vorne
   und bekommt die Tasten, bei offenem Shell-Menü öffnet es hinten ohne sie. Alt+Tab war nicht
   prüfbar (mit einem Fenster geht der Umschalter nicht auf; der Smoke-Test prüft es).
-- **Anmeldedialog (ADR 0031, 16.11., Smoke grün, noch kein Messbau):** Die Shell ist polkits
+- **Anmeldedialog (ADR 0031):** 0.5.129 auf Hardware gut. 17.11. danach: Beim Prüfen bleiben die
+  Punkte gedimmt im Feld (ohne Rahmen/Caret), es leert sich erst mit dem Urteil; die alte
+  Fehlerzeile verschwindet beim Absenden, das Urteil erscheint neu. Tastatur-LEDs folgen jetzt
+  Caps/Num Lock (fehlte ganz). Noch nicht auf Hardware. Die Shell ist polkits
   Agent für die Display-Sitzung. run0 im Desktop-Terminal und grafische Apps fragen im Dialog:
   Schloss (Fluent Emoji 3D) mit dem Symbol der App, Passwortfeld, die Knöpfe nebeneinander.
   Der Bestätigungsdialog hat die Knöpfe auch nebeneinander. logind wählt die Display-Sitzung
@@ -33,8 +36,9 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes
 
-1. **Messbau mit dem Anmeldedialog** für den PC des Besitzers (run0 im Terminal, Aussehen
-   hell/dunkel, Caps Lock).
+1. **Beim Besitzer zu entscheiden:** `pam_faildelay` 2 s (Fedora) behalten oder kürzen;
+   Reihenfolge Federanimationen (ADR 0028 (g)) / Töne / Mitteilungen (beide brauchen ein ADR).
+   Danach ein Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen.
 2. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
    Vulkan, linux-firmware.
 3. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
@@ -63,7 +67,9 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   Messzeilen im Compositor (Grab-Start, Zeiger dabei) belegen.
 - **Anmeldedialog:** Auswahl zwischen mehreren Admins per Menü fehlt (ADR 0031; heute: der
   Benutzer selbst, sonst der erste genannte, mit Namen im Satz); der Cursor im Feld blinkt
-  nicht; Schütteln kommt mit den Federanimationen. Im Smoke nicht abgedeckt: `CancelAuthentication`
+  nicht; Schütteln kommt mit den Federanimationen. Caps Lock „verzögert“ (0.5.129): Einschalten
+  geht denselben Weg wie ein getippter Buchstabe, Ausschalten kommt mit dem Loslassen (xkb, wie
+  GTK) – im Messbau mit Zeitstempeln (Taste, Modifiers, Bild) belegen. Im Smoke nicht abgedeckt: `CancelAuthentication`
   und die Warteschlange; das Klicken ins Terminal wartet fest 300 ms statt auf den Fokus.
 - **Apps installieren:** Beize hat keinen Weg dafür; Voraussetzung für 1Password und jede
   Drittanbieter-App. Eigene Entscheidung mit ADR, Zeitpunkt beim Besitzer.
