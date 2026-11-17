@@ -36,12 +36,18 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes
 
-1. **Beim Besitzer zu entscheiden:** `pam_faildelay` 2 s (Fedora) behalten oder kürzen;
-   Reihenfolge Federanimationen (ADR 0028 (g)) / Töne / Mitteilungen (beide brauchen ein ADR).
-   Danach ein Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen.
-2. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
+1. **Animationen (Besitzer 17.11.: „wirklich cleane Animationen, nichts darf hängen, wie bei
+   Apple sehr durchdacht“).** ADR 0028 (g) hat nur den Rahmen (Federn wie SwiftUI, im
+   Compositor im Bildtakt, unterbrechbar, mit Ursprung; Öffnen, Minimieren ins Dock, Snap).
+   Zuerst ein eigenes ADR mit Entwürfen zum Ansehen (welche Animationen, Federwerte von Apple
+   gemessen statt geraten, Unterbrechen mit Geschwindigkeit, Eingabe nie blockiert, Takt
+   gemessen), Abnahme durch den Besitzer, dann bauen. Dazu das Schütteln des Anmeldedialogs.
+2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.
+3. Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen, Animationen.
+   `pam_faildelay` bleibt 2 s (Besitzer 17.11.).
+4. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
    Vulkan, linux-firmware.
-3. **Shell (g)** Federanimationen (ADR 0028), dann Optimierung (Besitzer: erst die Shell fertig).
+5. Optimierung (Besitzer: erst die Shell fertig).
 
 ## Offen, mit Ort
 
