@@ -88,6 +88,19 @@ beschreiben (`syncobj.rs`). Vorbild ist niri. Die Kopie entsteht:
 
 Die Kopie wird freigegeben, wenn ihre Animation endet.
 
+Gebaut (17.11.): Ein Bild in eine eigene Textur ist kein eigener Submit. Es wird mit dem
+nächsten Bild für den Bildschirm aufgezeichnet, vor dessen Quads (`render::frame::Canvas`). Ein
+zweiter Submit je Bild ließe bei zwei Submits im Flug nur noch eines vorlaufen. So gelten für die
+dmabufs der Apps dieselbe Übergabe, dieselben Wartepunkte und derselbe Fence wie bei einem
+gezeigten Fenster. Die Zustände dieses Zeichnens kommen zu denen des Bilds: Rückrufe,
+Präsentation und `hold_read` behandeln ein Fenster, das aufgeht, wie ein sichtbares. Beim
+Schließen hält der Compositor die Puffer (`syncobj::keep`), bis das Bild mit seiner Kopie auf
+der GPU fertig ist. Erst dann hört die App von ihrer Freigabe und darf sie wieder beschreiben.
+Trennt eine App die Verbindung, ohne ihr Fenster zu schließen (Absturz, `kill`), zerstört
+Wayland die Oberfläche vor dem Toplevel. Dann ist nichts mehr zu kopieren, und das Fenster geht
+ohne Animation, wie auf dem Mac das Fenster einer abgestürzten App. Toolkits zerstören das
+Toplevel zuerst und bekommen die Animation, der Testclient ebenso.
+
 ### 3. Ausgewertet für den vblank, an dem das Bild erscheint
 
 Vor dem Zeichnen kennt der Compositor den vblank, für den das Bild geplant ist (`Gpu::aim`:
@@ -213,14 +226,23 @@ Vorbild:
   die Geometrie des Trichters (stetige Kanten, nie breiter als das Fenster, bei p = 0,9 im
   Symbol); das Ende ohne Bildschirm.
 - **Smoke** prüft nur Ablauf und Ergebnis, nie den Takt (VM, ADR 0027). Damit „während der
-  Animation“ belegt ist, verlängert ein Faktor nur im Test alle Federn (wie
-  `BEIZE_SCREEN_FADE` und GNOMEs `slow-down-factor`). Der Compositor schreibt Anfang und Ende
-  jeder Animation ins Journal, und die Prüfung verlangt die Zeile „läuft“, bevor sie handelt:
-  - Eine Taste während des Öffnens kommt beim neuen Fenster an.
-  - Ein Klick während des Minimierens trifft das Fenster darunter.
-  - Nach dem Ende fordert keine Animation mehr Bilder an.
-  - Das eigene Bild eines geschlossenen Fensters wird freigegeben.
-  Jede Prüfung mit Gegenprobe.
+  Animation“ belegt ist, verlängert ein Faktor nur im Test alle Federn
+  (`BEIZE_ANIMATIONS_SLOWER`, wie `BEIZE_SCREEN_FADE` und GNOMEs `slow-down-factor`). Das
+  Szenario „Animationen“ läuft auf einem eigenen Desktop mit Faktor 20, neben den anderen. Der
+  Compositor schreibt Anfang und Ende jeder Animation ins Journal („animation: … opens“,
+  „… opened“, „… closes“, „… closed“), und die Prüfung verlangt die Zeile „läuft“, bevor sie
+  handelt:
+  - Eine Taste während des Öffnens kommt beim neuen Fenster an (gebaut; Gegenprobe: Tasten
+    zurückgehalten, solange eine Animation läuft, kam keine an).
+  - Ein Fenster, das schließt, während es aufgeht, blendet von dort aus und endet, und seine
+    Bilder hören auf (gebaut).
+  - Ein Klick während des Minimierens trifft das Fenster darunter (mit c).
+  - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
+    Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
+    enden, wechselte der Compositor in ihren 3 s 239-mal).
+  Jede Prüfung mit Gegenprobe. Eine Gegenprobe ohne Faktor unterschied nicht: Die VM drückte
+  die Taste auch dann noch in den 0,43 s des Öffnens. Gegenproben sind deshalb echte Fehler im
+  Compositor, nicht ein anderer Takt.
 - **Messbau auf der Hardware:** `pacing:` je Animation mit 0 späten Bildern bei 240 Hz,
   „Taste bis Bild“ während einer Animation so wie ohne (heute 2–6 ms), GPU je Bild im Budget
   von ADR 0028 §9. Ein bewegtes Fenster beschädigt jedes Bild seine alte und neue Lage, auch
@@ -231,8 +253,8 @@ Vorbild:
 a) Feder in `beize-draw`, Startblende darauf, Auswertung an `aim`, Ende ohne Bildschirm
    (✓ 17.11.).
 b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder des
-   Compositors; Öffnen am Ort, Schließen; Dialog mit Erscheinen und Schütteln
-   (`beize_shell_v1`).
+   Compositors; Öffnen am Ort, Schließen (✓ 17.11.); Dialog mit Erscheinen und Schütteln
+   (`beize_shell_v1`; sein Glas braucht dafür Deckkraft und Maßstab im Shader).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
    einer transienten Unit, Öffnen aus dem Symbol.
 d) Einrasten, Maximieren mit Überblendung; Menü, Kontrollzentrum, Alt+Tab-Ring.

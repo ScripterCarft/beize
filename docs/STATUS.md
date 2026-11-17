@@ -39,13 +39,19 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 1. **Animationen nach ADR 0032** (angenommen 17.11., Entwürfe
    https://claude.ai/artifact/UUATm6qxfcen8KgjNbvDPB, danach von einem Agenten geprüft und
    eingearbeitet). Schritt a) ist gebaut: Feder in `beize-draw` (`spring`), Startblende darauf,
-   ausgewertet an `Gpu::aim`, Ende ohne Bildschirm. Weiter mit b): Testfaktor und
-   Journalzeilen, eigene Bilder des Compositors (Pre-Commit beim Null-Puffer, Vorbild niri),
-   Öffnen/Schließen, Dialog mit Schütteln über `beize_shell_v1`; dann c) Trichter (Gitter im
+   ausgewertet an `Gpu::aim`, Ende ohne Bildschirm. Von b) gebaut (17.11.): eigene Bilder des
+   Compositors im Bild-Submit (`animation.rs`, `render::frame::Canvas`), Fenster öffnen am Ort
+   und schließen, Testfaktor `BEIZE_ANIMATIONS_SLOWER`, Journalzeilen, Smoke-Szenario
+   „Animationen“ mit Gegenproben. Offen in b): Dialog mit Erscheinen und Schütteln über
+   `beize_shell_v1` (sein Glas braucht Deckkraft und Maßstab im Shader); dann c) Trichter (Gitter im
    Renderer, Dock-Symbol-Rechtecke, Tokens der Shell + transiente Unit), d) Einrasten, Menü,
    Kontrollzentrum, Alt+Tab-Ring. Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen
    (Besitzer). Apple-Optik bei Bewegung erwünscht, wo sauber (Trichter), keine Spielerei.
 2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.
+   **Nebenbefund:** Einmal beobachtet (17.11., `bz smoke --only …` direkt nach einem Bau): Der erste Start der
+   Installation wartete vergeblich auf `/dev/gpt-auto-root-luks`, obwohl „Repartition Root
+   Disk“ fertig war; beim nächsten Lauf lief sie durch. Konsole gesichert unter
+   `build/work/install-hang-02-smoke.log`. Ursache noch nicht gefunden.
 3. Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen, Animationen.
    `pam_faildelay` bleibt 2 s (Besitzer 17.11.).
 4. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
