@@ -59,6 +59,10 @@ pub struct Field {
     /// It shows dots, not the text.
     secret: bool,
     placeholder: String,
+    /// How many characters the last `take` handed over, still shown as
+    /// dots while they are checked (macOS, GNOME): a count, not the text.
+    /// `release` lets go of them, as the verdict comes.
+    handed: usize,
 }
 
 impl Field {
@@ -77,6 +81,7 @@ impl Field {
             text: Zeroizing::new(String::with_capacity(MAX_BYTES)),
             secret,
             placeholder: placeholder.into(),
+            handed: 0,
         }
     }
 
@@ -139,8 +144,18 @@ impl Field {
     pub fn take(&mut self) -> Zeroizing<String> {
         let mut taken = Zeroizing::new(String::with_capacity(MAX_BYTES));
         taken.push_str(&self.text);
+        self.handed = if self.secret {
+            self.text.chars().count()
+        } else {
+            0
+        };
         self.clear();
         taken
+    }
+
+    /// The dots of what `take` handed over gone: the field is empty to see.
+    pub fn release(&mut self) {
+        self.handed = 0;
     }
 
     /// Empty, the bytes it held overwritten.
@@ -153,6 +168,10 @@ impl Field {
 
     /// Drawn into `scene` at `rect`: the outline while it has the keyboard
     /// (`focused`), the caret too, the Caps Lock symbol while it is on.
+    /// While what it handed over is checked (`waiting`), its dots dimmed,
+    /// with neither outline nor caret: it takes nothing then (GNOME's
+    /// insensitive entry).
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         scene: &mut Scene,
@@ -161,8 +180,13 @@ impl Field {
         appearance: Appearance,
         focused: bool,
         caps_lock: bool,
+        waiting: Option<u8>,
     ) {
-        let ink = theme::ink(appearance);
+        let focused = focused && waiting.is_none();
+        let ink = match waiting {
+            Some(by) => theme::faded(theme::ink(appearance), by),
+            None => theme::ink(appearance),
+        };
         let hint = theme::faded(ink, HINT);
         let (fill, rim) = match appearance {
             Appearance::Light => (FILL_LIGHT, RIM_LIGHT),
@@ -193,12 +217,14 @@ impl Field {
         };
         let x = rect.x + TEXT_INSET;
         let mut caret = x;
-        if self.text.is_empty() {
+        if self.text.is_empty() && self.handed == 0 {
             let layout = text.layout(&self.placeholder, &style(hint), None);
             let y = (rect.y + (rect.h - layout.height()) / 2.0).round();
             scene.text(&layout, x + CARET_WIDTH, y);
         } else {
-            let shown: Zeroizing<String> = Zeroizing::new(if self.secret {
+            let shown: Zeroizing<String> = Zeroizing::new(if self.text.is_empty() {
+                std::iter::repeat_n(DOT, self.handed).collect()
+            } else if self.secret {
                 std::iter::repeat_n(DOT, self.text.chars().count()).collect()
             } else {
                 self.text.as_str().to_owned()
@@ -297,6 +323,22 @@ mod tests {
         );
         field.set_prompt(" ", false);
         assert_eq!(field.placeholder, "Password");
+    }
+
+    #[test]
+    fn what_it_handed_over_shows_as_dots_until_released() {
+        let mut field = Field::password();
+        field.paste("pässword");
+        assert_eq!(field.take().as_str(), "pässword");
+        assert!(field.is_empty());
+        assert_eq!(field.handed, 8);
+        field.release();
+        assert_eq!(field.handed, 0);
+        // An open field shows no dots for what it handed over.
+        let mut open = Field::plain("Code");
+        open.paste("123");
+        open.take();
+        assert_eq!(open.handed, 0);
     }
 
     #[test]

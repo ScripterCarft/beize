@@ -121,6 +121,10 @@ pub struct Dialog {
     lines: Vec<String>,
     field: Option<Field>,
     note: Option<Note>,
+    /// The note is about the answer before the one being checked: hidden
+    /// while it is, so the verdict on this one shows anew (GNOME sets its
+    /// message on each failure).
+    note_stale: bool,
     action: String,
     /// It offers a choice: Cancel beside the action. An alert that only tells
     /// has its one button (`Dialog::info`).
@@ -153,6 +157,7 @@ impl Dialog {
             lines: vec![line.into()],
             field: None,
             note: None,
+            note_stale: false,
             action: action.into(),
             cancel: true,
             busy: false,
@@ -194,11 +199,20 @@ impl Dialog {
     /// The note below the field; a new one changes its height.
     pub fn set_note(&mut self, note: Option<Note>) {
         self.note = note;
+        self.note_stale = false;
     }
 
-    /// Whether it waits for its answer to be checked.
+    /// Whether it waits for its answer to be checked. Waiting, the answer's
+    /// dots stay dimmed in the field and the note before hides, in its
+    /// place; once the verdict is in, the field is empty (macOS, GNOME, UAC
+    /// empty it with the verdict, not before).
     pub fn set_busy(&mut self, busy: bool) {
         self.busy = busy;
+        if busy {
+            self.note_stale = self.note.is_some();
+        } else if let Some(field) = &mut self.field {
+            field.release();
+        }
     }
 
     /// Caps Lock is on or off: true if that changes what it shows.
@@ -554,9 +568,20 @@ impl Dialog {
         self.field_rect.set(layout.field);
         if let (Some(field), Some(rect)) = (&self.field, layout.field) {
             let focused = self.focused && self.picked.is_none();
-            field.draw(&mut scene, text, rect, appearance, focused, self.caps_lock);
+            let waiting = self.busy.then_some(WAITING);
+            field.draw(
+                &mut scene,
+                text,
+                rect,
+                appearance,
+                focused,
+                self.caps_lock,
+                waiting,
+            );
         }
-        if let (Some((note, y)), Some(rect)) = (&layout.note, layout.field) {
+        if let (Some((note, y)), Some(rect)) = (&layout.note, layout.field)
+            && !self.note_stale
+        {
             scene.text(note, rect.x + NOTE_INSET, *y);
         }
 
@@ -808,6 +833,24 @@ mod tests {
         assert_eq!(key(&mut dialog, Keysym::Escape), Outcome::Cancelled);
         dialog.set_busy(false);
         assert_eq!(dialog.paste("x"), Outcome::Changed);
+    }
+
+    #[test]
+    fn the_last_note_hides_while_the_next_answer_is_checked() {
+        let mut dialog = password();
+        let wrong = || {
+            Some(Note {
+                text: "wrong".into(),
+                error: true,
+            })
+        };
+        dialog.set_note(wrong());
+        dialog.set_busy(true);
+        assert!(dialog.note_stale);
+        // The verdict: the same words, shown anew.
+        dialog.set_note(wrong());
+        dialog.set_busy(false);
+        assert!(!dialog.note_stale && dialog.note.is_some());
     }
 
     #[test]
