@@ -231,13 +231,16 @@ Schüttelns ist so gerechnet, dass der erste Ausschlag 10 px nach links beträgt
 
 **Einrasten und Maximieren, gebaut (18.11.):** Wenn die neue Größe an die App geht
 (`send_pending_configure`), zeichnet der Compositor das Fenster mit Schatten in ein eigenes Bild
-und merkt sich die Seriennummer dieses `configure`. Der Commit, der es bestätigt, setzt den neuen
+und merkt sich die Seriennummer dieses `configure`. Das Bild entsteht gleich danach im selben
+Durchlauf, bevor die App antworten kann, also wie „vorher“. Der Commit, der es bestätigt, setzt den neuen
 Ort im Modell (ADR 0028 §2) und startet die Bewegung: vier Federn für die Kanten des Rahmens
 (¼ Pixel als Ende), das alte Bild blendet darüber aus, das lebende Fenster wird jedes Bild in ein
 eigenes Bild gezeichnet; beide sind auf den Rahmen gestreckt, wie er gerade liegt. Ein neues Ziel
 mitten in der Bewegung übernimmt Ort und Geschwindigkeit der Kanten, das alte Bild ist dann das
-Fenster, wie es gerade ist. Antwortet die App am alten Ort, gibt es keine Bewegung. Ein Griff
-mit dem Zeiger, Vollbild, Minimieren und Schließen beenden sie sofort; das Abziehen aus
+Fenster, wie es gerade ist. Antwortet die App am alten Ort, gibt es keine Bewegung. Wartet es in Ruhe auf die
+Antwort der App auf ein neues Ziel, fordert es keine Bilder an. Ein Ziehen mit dem Zeiger (bei
+eingerastet oder maximiert erst, wenn es das Fenster von dort löst), Vollbild, Minimieren und
+Schließen beenden sie sofort; ihre gehaltenen Puffer gehen mit dem nächsten Bild zurück; das Abziehen aus
 maximiert oder eingerastet bewegt sich nicht (Abschnitt 2).
 
 Größenwechsel animiert nicht den Inhalt Bild für Bild mit (wie macOS' „Zoom“). Das würde
@@ -247,8 +250,9 @@ federt der Rahmen, nicht vorher.
 
 **Kontrollzentrum, gebaut (18.11.):** Die Shell markiert sein Popup (`beize_shell_v1.grows`).
 Mit dem ersten Inhalt wächst es um die Mitte seines Knopfs (des Ankers seines Positioners), von
-der Breite des Knopfs bis ganz, und blendet dabei ein. Inhalt, Glas, Schatten und Rauch gehen
-mit (`Pose`). Liquid-Glas hat dafür eine Deckkraft im Shader (`sigma` des Quads, das es sonst
+der Breite des Knopfs bis ganz, und blendet dabei ein. Inhalt, Glas und Schatten gehen mit
+(`Pose`); der Rauch um sein Glas blendet nur ein, in voller Größe (er ist weich und reicht
+ohnehin über das Glas hinaus). Liquid-Glas hat dafür eine Deckkraft im Shader (`sigma` des Quads, das es sonst
 nicht nutzt). Geht es zu, auch mitten im Wachsen, schrumpft sein Bild mit dem Glas-Geist von dort
 zurück in den Knopf. Unterwegs gefunden: Glas meldete seine Deckkraft nicht als `alpha` seines
 Elements. Smithays Schadensverfolgung sah deshalb eine Änderung nur der Deckkraft nicht, und

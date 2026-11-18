@@ -108,7 +108,7 @@ pub(super) fn liquid_glass(
     let expected = liquid_tone(behind);
     click(qmp, screen, centre, 1)?;
     wait_for_shell_count(shell, "ControlCenter open", 3)?;
-    wait_for_control_center_grown(shell)?;
+    wait_for_control_center_grown(shell, 3)?;
     let radius = CONTROL_CENTER_TILE as f64 / 2.0;
     let round = (
         left as f64 + radius,
@@ -321,7 +321,7 @@ pub(super) fn control_center_smoke(
     }
     click(qmp, screen, centre, 1)?;
     wait_for_shell_count(shell, "ControlCenter open", 4)?;
-    wait_for_control_center_grown(shell)?;
+    wait_for_control_center_grown(shell, 4)?;
     let sharp = detail(&closed, beside.0.clone(), beside.1.clone());
     wait_until_screen(machine, "smoke", |shown| {
         let blurred = detail(shown, beside.0.clone(), beside.1.clone());

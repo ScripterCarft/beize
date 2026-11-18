@@ -115,6 +115,8 @@ pub struct Animations {
     dialogs_closing: Vec<DialogClosing>,
     genies: Vec<Genie>,
     reshapes: Vec<Reshape>,
+    /// Buffers of reshapes stopped, until the next frame went to the GPU.
+    released: Vec<Held>,
 }
 
 /// A window snapped or maximized, or back: asked for its new size, then,
@@ -156,10 +158,23 @@ impl Reshape {
         ))
     }
 
-    /// Moving: from the commit in its new place until frame and crossfade
-    /// rest.
-    fn moving(&self) -> bool {
+    /// Drawn as a reshape: from the commit in its new place until frame
+    /// and crossfade rest and no new size is awaited.
+    fn shows(&self) -> bool {
         self.edges.is_some()
+    }
+
+    /// Asks for frames: while an edge or the crossfade moves. Waiting at
+    /// rest for an app's answer to a new aim asks for none – a slow or
+    /// hung app costs no frames.
+    fn moving(&self) -> bool {
+        self.aim
+            || self.fade_aim
+            || self.fade.moving()
+            || self
+                .edges
+                .as_ref()
+                .is_some_and(|edges| edges.iter().any(Motion::moving))
     }
 
     fn done(&self) -> bool {
@@ -445,6 +460,7 @@ impl Animations {
             dialogs_closing: Vec::new(),
             genies: Vec::new(),
             reshapes: Vec::new(),
+            released: Vec::new(),
         }
     }
 
@@ -530,10 +546,16 @@ impl Animations {
     /// `window` shows in its model's place at once: taken by the pointer,
     /// or gone.
     pub fn stop_reshape(&mut self, window: &Window) {
-        self.reshapes.retain(|r| {
+        let released = &mut self.released;
+        self.reshapes.retain_mut(|r| {
             let stops = r.window == *window;
-            if stops && r.moving() {
-                info!("animation: {} stopped moving", r.app);
+            if stops {
+                if r.shows() {
+                    info!("animation: {} stopped moving", r.app);
+                }
+                // Its picture may be in the frame on its way: its buffers
+                // go back with that frame (`drawn`), not before.
+                released.append(&mut r.kept);
             }
             !stops
         });
@@ -1008,7 +1030,7 @@ impl Animations {
         if let Some(i) = self
             .reshapes
             .iter()
-            .position(|r| r.window == *window && r.moving())
+            .position(|r| r.window == *window && r.shows())
         {
             let reshape = &mut self.reshapes[i];
             // The model moved again without a commit (the panels changed
@@ -1041,7 +1063,8 @@ impl Animations {
                 // Shown as it is from the next frame on.
                 Err(e) => {
                     warn!("animation: {} moves without its picture: {e}", reshape.app);
-                    self.reshapes.remove(i);
+                    let gone = self.reshapes.remove(i);
+                    self.released.extend(gone.kept);
                     Vec::new()
                 }
             };
@@ -1152,10 +1175,12 @@ impl Animations {
             .reshapes
             .iter_mut()
             .flat_map(|r| std::mem::take(&mut r.kept));
+        let released = std::mem::take(&mut self.released);
         windows
             .chain(dialogs)
             .chain(genies)
             .chain(reshapes)
+            .chain(released)
             .collect()
     }
 
@@ -1241,7 +1266,7 @@ impl Animations {
         }
         // Waiting for its new size, the window moves at once when it comes.
         for r in self.reshapes.drain(..) {
-            if r.moving() {
+            if r.shows() {
                 info!("animation: {} moved", r.app);
             }
         }

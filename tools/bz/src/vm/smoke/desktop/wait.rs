@@ -213,16 +213,17 @@ pub(super) fn wait_for_dock(
     }
 }
 
-/// Waits until the control center that opened last has grown out of its
+/// Waits until the `nth` control center of this boot has grown out of its
 /// button (ADR 0032 §5): what is measured on it is the control center at
-/// rest, not a frame of its growing.
-pub(super) fn wait_for_control_center_grown(shell: &Shell) -> Result<()> {
-    let (_, lines) = shell.capture(
-        "for i in $(seq 300); do l=$(journalctl --user -b -u beize-compositor.service -o cat \
-         | grep -E '^animation: control center (appears|appeared|closes)$' | tail -n 1); \
-         [ \"$l\" = 'animation: control center appeared' ] && echo BEIZE-GROWN && break; \
-         sleep 0.2; done",
-    )?;
+/// rest, not a frame of its growing. Counted, so an earlier one's
+/// "appeared" never stands in for it.
+pub(super) fn wait_for_control_center_grown(shell: &Shell, nth: usize) -> Result<()> {
+    let (_, lines) = shell.capture(&format!(
+        "for i in $(seq 300); do journalctl --user -b -u beize-compositor.service -o cat \
+         | awk -v n={nth} '/^animation: control center appears$/ {{ c++ }} \
+         c == n && /^animation: control center appeared$/ {{ print \"BEIZE-GROWN\"; exit }}' \
+         | grep -q BEIZE-GROWN && echo BEIZE-GROWN && break; sleep 0.2; done"
+    ))?;
     ensure!(
         lines.iter().any(|l| l == "BEIZE-GROWN"),
         "the control center did not end growing out of its button"

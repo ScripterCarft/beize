@@ -1912,15 +1912,16 @@ impl State {
     /// content (ADR 0032 §5).
     fn grown_committed(&mut self, surface: &WlSurface) {
         if !crate::animation::grows(surface)
-            || !self.shows()
             || !with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false)
         {
             return;
         }
+        // Its first content, whether a screen shows it or not: a later one
+        // never grows an open control center.
         let first = smithay::wayland::compositor::with_states(surface, |states| {
             states.data_map.insert_if_missing_threadsafe(|| Grown)
         });
-        if !first {
+        if !first || !self.shows() {
             return;
         }
         let Some(smithay::desktop::PopupKind::Xdg(popup)) = self.popups.find_popup(surface) else {

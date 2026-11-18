@@ -1029,9 +1029,13 @@ impl State {
         if fullscreen(&window) {
             return;
         }
-        // The frame follows the pointer as it is (ADR 0032 §2).
-        self.animations.stop_reshape(&window);
+        // The frame follows the pointer as it is (ADR 0032 §2); on a half
+        // or maximized only once a drag takes it off (`leave_maximized`):
+        // a press alone, as the first of a double click, ends nothing.
         let holds = holds_its_place(toplevel);
+        if !holds {
+            self.animations.stop_reshape(&window);
+        }
         let grab = MoveGrab {
             start,
             window,
@@ -1060,9 +1064,13 @@ impl State {
         let Some(geometry) = self.space.element_geometry(&window) else {
             return;
         };
-        // The frame follows the pointer as it is (ADR 0032 §2).
-        self.animations.stop_reshape(&window);
+        // The frame follows the pointer as it is (ADR 0032 §2); on a half
+        // or maximized only once a drag takes it off (`leave_maximized`):
+        // a press alone, as the first of a double click, ends nothing.
         let holds = holds_its_place(toplevel);
+        if !holds {
+            self.animations.stop_reshape(&window);
+        }
         let grab = MoveGrab {
             start,
             window,
@@ -1271,6 +1279,7 @@ impl MoveGrab {
             let left = x - across * f64::from(size.w);
             self.initial = Rectangle::new((left.round() as i32, self.initial.loc.y).into(), size);
         }
+        state.animations.stop_reshape(&self.window);
         state.unmaximize(&toplevel, Some(self.initial.loc));
     }
 

@@ -61,6 +61,11 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    Installation wartete vergeblich auf `/dev/gpt-auto-root-luks`, obwohl „Repartition Root
    Disk“ fertig war; beim nächsten Lauf lief sie durch. Konsole gesichert unter
    `build/work/install-hang-02-smoke.log`. Ursache noch nicht gefunden.
+   **Nebenbefund 18.11. (Gate, einmal):** Im Szenario „Desktop“ zeigte das Terminal beim
+   Bildvergleich nur „/r“ vom getippten Befehl (24059 Pixel daneben), direkt nach einem Bild mit
+   2,8 s auf der GPU (VM). Im selben Journal steht „animation: beize-terminal opened“ zweimal bei
+   einem „opens“ – beides ungeklärt. Der nächste Lauf war grün. Logs in `build/work/flake-1118/`.
+   Zuerst die doppelte Zeile im Code klären (`Animations::end`/`finish`).
 3. Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen, Animationen.
    `pam_faildelay` bleibt 2 s (Besitzer 17.11.).
 4. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
