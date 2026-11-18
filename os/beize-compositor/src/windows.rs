@@ -545,6 +545,20 @@ impl State {
         {
             self.space.map_element(window.clone(), to, false);
         }
+        // Snapped, maximized or back: from this commit its frame springs
+        // to its new place (ADR 0032 §5).
+        if self.animations.reshaping(window)
+            && let Some(geometry) = self.space.element_geometry(window)
+        {
+            let acked = with_states(toplevel.wl_surface(), |states| {
+                states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .and_then(|data| data.lock().ok()?.current_serial)
+            });
+            let frame = frame(window, geometry).to_physical(1);
+            self.animations.placed(window, frame, acked);
+        }
     }
 
     /// A window that is gone, placed, minimized or not yet placed.
@@ -693,8 +707,16 @@ impl State {
                 state.size = Some((area.size.w, area.size.h - bar).into());
             }
         });
-        if toplevel.is_initial_configure_sent() {
-            toplevel.send_pending_configure();
+        self.reshape(&window, toplevel);
+    }
+
+    /// Sends `window` what it was asked to become; its frame springs there
+    /// from where it is with the commit that has it (ADR 0032 §5).
+    fn reshape(&mut self, window: &Window, toplevel: &ToplevelSurface) {
+        if toplevel.is_initial_configure_sent()
+            && let Some(asked) = toplevel.send_pending_configure()
+        {
+            self.reshape_picture(window, asked);
         }
     }
 
@@ -716,6 +738,8 @@ impl State {
         if toplevel.with_pending_state(|state| state.states.contains(XdgState::Fullscreen)) {
             return;
         }
+        // Fullscreen comes at once (ADR 0032 §5).
+        self.animations.stop_reshape(&window);
         let geometry = self.space.element_geometry(&window);
         with_place(&window, |place| {
             place.before_fullscreen = geometry;
@@ -820,9 +844,7 @@ impl State {
             set_tiled(state, Some(half));
             state.size = Some((frame.size.w, frame.size.h - bar).into());
         });
-        if toplevel.is_initial_configure_sent() {
-            toplevel.send_pending_configure();
-        }
+        self.reshape(&window, toplevel);
         info!("snapped {} {half:?}", app_id(&window));
     }
 
@@ -903,7 +925,11 @@ impl State {
             // Without a size from before, the app chooses.
             state.size = restore.map(|r| r.size);
         });
-        if toplevel.is_initial_configure_sent() {
+        // Taken off by a drag, it follows the pointer as it is (ADR 0032
+        // §2).
+        if at.is_none() {
+            self.reshape(&window, toplevel);
+        } else if toplevel.is_initial_configure_sent() {
             toplevel.send_pending_configure();
         }
     }
@@ -1003,6 +1029,8 @@ impl State {
         if fullscreen(&window) {
             return;
         }
+        // The frame follows the pointer as it is (ADR 0032 §2).
+        self.animations.stop_reshape(&window);
         let holds = holds_its_place(toplevel);
         let grab = MoveGrab {
             start,
@@ -1032,6 +1060,8 @@ impl State {
         let Some(geometry) = self.space.element_geometry(&window) else {
             return;
         };
+        // The frame follows the pointer as it is (ADR 0032 §2).
+        self.animations.stop_reshape(&window);
         let holds = holds_its_place(toplevel);
         let grab = MoveGrab {
             start,
@@ -1099,6 +1129,7 @@ impl State {
         let Some(initial) = self.space.element_geometry(&window) else {
             return;
         };
+        self.animations.stop_reshape(&window);
         // Off its half: it floats from here at the size it is dragged to.
         let half = snap_pending(toplevel).is_some();
         with_place(&window, |place| {

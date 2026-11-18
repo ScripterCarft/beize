@@ -50,6 +50,7 @@ pub(in crate::vm::smoke) fn animations(paths: &Paths, installed: &Installed) -> 
     let screen = screen_size(&machine)?;
     click_while_minimizing(&shell, &qmp, screen)?;
     open_from_dock(&shell, &qmp, screen)?;
+    click_while_snapping(&shell, &qmp, screen)?;
     journal.passed = true;
     Ok(())
 }
@@ -282,5 +283,48 @@ fn click_while_minimizing(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> 
     wait_for_compositor_line(shell, "animation: beize-testclient came back")?;
     say!("  ok: the dock brought the window back out of its symbol");
     shell.capture("systemctl --user stop animations-front")?;
+    Ok(())
+}
+
+/// A click while a window snaps to the left half, where only its new place
+/// is, reaches it: the model has the new place with the commit of its new
+/// size, only the frame drawn springs there (ADR 0032 §2, §5). Then the
+/// frame rests.
+fn click_while_snapping(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let ((x, y), (_, h)) = opened_window(shell, "animations-snap")?;
+    // Inside the left half (10 px from the screen's edge, `SNAP_MARGIN`),
+    // left of where the window is.
+    let only_new = (30, y + h / 2);
+    ensure!(
+        only_new.0 + 20 < x,
+        "the window reaches the left edge already: at {x},{y}"
+    );
+    keys(qmp, &["meta_l+left"])?;
+    wait_for_compositor_line(shell, "snapped beize-testclient Left")?;
+    wait_for_compositor_line(shell, "animation: beize-testclient moves")?;
+    click(
+        qmp,
+        screen,
+        (i32::try_from(only_new.0)?, i32::try_from(only_new.1)?),
+        1,
+    )?;
+    let (_, lines) = shell.capture(
+        "for i in $(seq 300); do journalctl --user -u animations-snap -o cat \
+         | grep -q '^button 0x110 pressed' && break; sleep 0.2; done; \
+         journalctl --user -u animations-snap -o cat | grep '^button '",
+    )?;
+    let moved = said(shell, "animation: beize-testclient moved")?;
+    ensure!(
+        lines.iter().any(|l| l == "button 0x110 pressed"),
+        "a click on its new place while the window snapped did not reach it: {lines:?}"
+    );
+    ensure!(
+        moved == 0,
+        "the frame rested before the click reached the window: the check did not run while it \
+         moved"
+    );
+    wait_for_compositor_line(shell, "animation: beize-testclient moved")?;
+    say!("  ok: a click on its new place while a window snapped reached it, then its frame rested");
+    shell.capture("systemctl --user stop animations-snap")?;
     Ok(())
 }

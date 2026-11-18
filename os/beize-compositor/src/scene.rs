@@ -131,8 +131,8 @@ pub fn windows(
             .position(|(w, _)| w == window)
             .map(|i| bars.swap_remove(i).1);
         let (own, shadow) = own(renderer, window, *geometry, bar);
-        let anchor = anchor(window, *geometry);
-        elements.extend(animations.shown(renderer, window, own, shadow, anchor, at, offscreen));
+        let frame = crate::decorations::frame(window, *geometry).to_physical(1);
+        elements.extend(animations.shown(renderer, window, own, shadow, frame, at, offscreen));
         elements.extend(preview.take());
     }
     // Behind all windows left.

@@ -1726,6 +1726,23 @@ impl State {
         true
     }
 
+    /// `window` was asked for a new size to snap, maximize or come back
+    /// from either (`asked`): drawn as it shows now, with its shadow, it
+    /// fades into the new once that commit moves its frame (`animation`).
+    /// Without a screen, and fullscreen, it changes at once.
+    pub fn reshape_picture(&mut self, window: &Window, asked: Serial) {
+        let Some(geometry) = self.space.element_geometry(window) else {
+            return;
+        };
+        let frame = crate::decorations::frame(window, geometry).to_physical(1);
+        let Some(shot) = self.window_picture(window, false) else {
+            self.animations.stop_reshape(window);
+            return;
+        };
+        self.animations
+            .reshape(window, shot.app, shot.picture, frame, shot.kept, asked);
+    }
+
     /// `window` as it shows now, drawn into a picture while its buffers are
     /// there – its shadow in it, or `apart` –, its buffers kept until the
     /// picture is drawn (`syncobj::keep`), and the windows that lie behind

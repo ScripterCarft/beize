@@ -223,6 +223,17 @@ mit dem nächsten Commit, und der kommt nicht mehr. Beides blendet über 0,2 s a
 Schüttelns ist so gerechnet, dass der erste Ausschlag 10 px nach links beträgt
 (`Spring::kick_for`).
 
+**Einrasten und Maximieren, gebaut (18.11.):** Wenn die neue Größe an die App geht
+(`send_pending_configure`), zeichnet der Compositor das Fenster mit Schatten in ein eigenes Bild
+und merkt sich die Seriennummer dieses `configure`. Der Commit, der es bestätigt, setzt den neuen
+Ort im Modell (ADR 0028 §2) und startet die Bewegung: vier Federn für die Kanten des Rahmens
+(¼ Pixel als Ende), das alte Bild blendet darüber aus, das lebende Fenster wird jedes Bild in ein
+eigenes Bild gezeichnet; beide sind auf den Rahmen gestreckt, wie er gerade liegt. Ein neues Ziel
+mitten in der Bewegung übernimmt Ort und Geschwindigkeit der Kanten, das alte Bild ist dann das
+Fenster, wie es gerade ist. Antwortet die App am alten Ort, gibt es keine Bewegung. Ein Griff
+mit dem Zeiger, Vollbild, Minimieren und Schließen beenden sie sofort; das Abziehen aus
+maximiert oder eingerastet bewegt sich nicht (Abschnitt 2).
+
 Größenwechsel animiert nicht den Inhalt Bild für Bild mit (wie macOS' „Zoom“). Das würde
 jedes Bild auf die App warten lassen, und eine langsame App würde die Bewegung hängen lassen.
 Der neue Ort kommt weiter erst mit dem Commit der neuen Größe (ADR 0028 §2). Ab diesem Commit
@@ -278,6 +289,10 @@ Vorbild:
   - Das Dock startet das Terminal in einer eigenen Unit, und sein Fenster wächst aus dem
     Symbol („… opens from its symbol“), nicht am Ort (gebaut 18.11.; Gegenprobe: Tokens der
     Shell verweigert, es öffnete am Ort).
+  - Ein Klick während des Einrastens auf eine Stelle, die nur der neue Platz deckt, kommt beim
+    Fenster an; danach ruht der Rahmen („… moves“, „… moved“) (gebaut 18.11.; Gegenproben:
+    Klicks zurückgehalten, solange das aktive Fenster einrastet, kam keiner an; ohne Start beim
+    Commit kein „moves“).
   - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
     Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
     enden, wechselte der Compositor in ihren 3 s 239-mal).
@@ -298,7 +313,7 @@ b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder d
    (✓ 18.11.).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
    einer transienten Unit, Öffnen aus dem Symbol (✓ 18.11.).
-d) Einrasten, Maximieren mit Überblendung; Menü, Kontrollzentrum, Alt+Tab-Ring.
+d) Einrasten, Maximieren mit Überblendung (✓ 18.11.); Menü, Kontrollzentrum, Alt+Tab-Ring.
 e) Messbau mit allem; der Besitzer nimmt die Werte auf der Hardware ab.
 
 ## Konsequenzen

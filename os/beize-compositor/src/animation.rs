@@ -32,6 +32,13 @@
 //! picture is drawn each frame, as when it opens. Its shadow fades as it
 //! starts to bend: it belongs to a rectangle.
 //!
+//! A window snapped, maximized or back from either changes its place with
+//! the commit of its new size (ADR 0028 §2); from that commit its frame
+//! springs from the old rectangle to the new, and its picture from before,
+//! taken as the configure went out (gnome-shell clones it so), fades into
+//! the new, both stretched to the frame as it moves. The model has the new
+//! place at once: clicks hit it there.
+//!
 //! Each runs on a spring (`beize_draw::spring`), from the vblank before the
 //! first frame that shows it, and says in the journal when it begins and
 //! ends (§7). `BEIZE_ANIMATIONS_SLOWER` makes every spring that many times
@@ -47,7 +54,7 @@ use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::{Bind, Frame, RendererSuper, Texture};
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transform};
+use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Serial, Transform};
 use smithay::wayland::compositor::with_states;
 use tracing::{info, warn};
 
@@ -78,6 +85,13 @@ const SHAKE_UNSEEN: f64 = 0.25;
 const GENIE: Spring = Spring::new(0.55, 0.0);
 /// A place moves less than a quarter of a pixel: the genie has ended.
 const GENIE_UNSEEN: f64 = 0.25;
+/// Snapping and maximizing: the frame from the old rectangle to the new,
+/// and the old picture fading into the new (gnome-shell 250 ms with a
+/// clone, Windows 11).
+const RESHAPE: Spring = Spring::new(0.4, 0.0);
+const CROSSFADE: Spring = Spring::new(0.25, 0.0);
+/// An edge moves less than a quarter of a pixel: the frame has ended.
+const EDGE_UNSEEN: f64 = 0.25;
 /// The size a window opens from and closes to, of its own.
 const SMALL: f64 = 0.94;
 /// Below half an 8-bit step of its opacity nothing more shows: there the
@@ -93,6 +107,90 @@ pub struct Animations {
     dialogs: Vec<Dialog>,
     dialogs_closing: Vec<DialogClosing>,
     genies: Vec<Genie>,
+    reshapes: Vec<Reshape>,
+}
+
+/// A window snapped or maximized, or back: asked for its new size, then,
+/// from the commit that has it, moving to its new place.
+struct Reshape {
+    window: Window,
+    app: String,
+    /// The window as it was when its new size was asked for, and its frame
+    /// then.
+    old: Picture,
+    old_frame: Rectangle<i32, Physical>,
+    /// Its buffers, until that picture is drawn.
+    kept: Vec<Held>,
+    /// The configure with the new size: the commit that acknowledges it
+    /// moves the frame. None once it did.
+    asked: Option<Serial>,
+    /// The frame's edges as shown – left, top, right, bottom –, from its
+    /// first commit in the new place on.
+    edges: Option<[Motion; 4]>,
+    /// Where the frame goes, the model's.
+    frame: Rectangle<i32, Physical>,
+    /// New springs for the edges and the crossfade with the next frame.
+    aim: bool,
+    fade_aim: bool,
+    /// How much of the old picture shows over the new.
+    fade: Motion,
+    /// The window as it is, drawn anew each frame.
+    live: Picture,
+}
+
+impl Reshape {
+    /// The frame as shown at `at`.
+    fn shown(&mut self, at: Duration) -> Option<Rectangle<i32, Physical>> {
+        let edges = self.edges.as_mut()?;
+        let [left, top, right, bottom] = [0, 1, 2, 3].map(|i| edges[i].at(at).round() as i32);
+        Some(Rectangle::new(
+            (left, top).into(),
+            ((right - left).max(1), (bottom - top).max(1)).into(),
+        ))
+    }
+
+    /// Moving: from the commit in its new place until frame and crossfade
+    /// rest.
+    fn moving(&self) -> bool {
+        self.edges.is_some()
+    }
+
+    fn done(&self) -> bool {
+        self.asked.is_none()
+            && !self.aim
+            && !self.fade_aim
+            && self
+                .edges
+                .as_ref()
+                .is_some_and(|edges| edges.iter().all(|e| !e.moving()))
+            && !self.fade.moving()
+    }
+}
+
+/// The four edges of `frame`: left, top, right, bottom.
+fn edges_of(frame: Rectangle<i32, Physical>) -> [f64; 4] {
+    [
+        f64::from(frame.loc.x),
+        f64::from(frame.loc.y),
+        f64::from(frame.loc.x + frame.size.w),
+        f64::from(frame.loc.y + frame.size.h),
+    ]
+}
+
+/// `place`, which lies about the frame `from`, stretched as `from` is to
+/// `to`: a picture with its shadow follows the frame.
+fn stretched(
+    place: Rectangle<i32, Physical>,
+    from: Rectangle<i32, Physical>,
+    to: Rectangle<i32, Physical>,
+) -> Rectangle<i32, Physical> {
+    let sx = f64::from(to.size.w) / f64::from(from.size.w.max(1));
+    let sy = f64::from(to.size.h) / f64::from(from.size.h.max(1));
+    let x = |v: i32| (f64::from(to.loc.x) + f64::from(v - from.loc.x) * sx).round() as i32;
+    let y = |v: i32| (f64::from(to.loc.y) + f64::from(v - from.loc.y) * sy).round() as i32;
+    let (left, top) = (x(place.loc.x), y(place.loc.y));
+    let (right, bottom) = (x(place.loc.x + place.size.w), y(place.loc.y + place.size.h));
+    Rectangle::new((left, top).into(), (right - left, bottom - top).into())
 }
 
 /// A window going into its app's symbol, or coming out of it.
@@ -297,6 +395,11 @@ impl Animations {
         if slower > 1.0 {
             info!("animations {slower} times slower");
         }
+        Animations::slower(slower)
+    }
+
+    /// Every spring `slower` times longer.
+    fn slower(slower: f64) -> Animations {
         Animations {
             slower,
             opening: Vec::new(),
@@ -304,7 +407,99 @@ impl Animations {
             dialogs: Vec::new(),
             dialogs_closing: Vec::new(),
             genies: Vec::new(),
+            reshapes: Vec::new(),
         }
+    }
+
+    /// `window` of `app` was asked for a new size, snapped, maximized or
+    /// back (`asked`): its `picture` from before, of its frame at `frame`,
+    /// its buffers `kept` until it is drawn. Moving already, it goes on
+    /// from where its frame is, and its picture is the new one.
+    pub fn reshape(
+        &mut self,
+        window: &Window,
+        app: String,
+        picture: Picture,
+        frame: Rectangle<i32, Physical>,
+        kept: Vec<Held>,
+        asked: Serial,
+    ) {
+        if let Some(reshape) = self.reshapes.iter_mut().find(|r| r.window == *window) {
+            reshape.old = picture;
+            reshape.old_frame = frame;
+            reshape.kept.extend(kept);
+            reshape.asked = Some(asked);
+            reshape.fade = Motion::new(1.0, UNSEEN);
+            reshape.fade_aim = false;
+            return;
+        }
+        self.reshapes.push(Reshape {
+            window: window.clone(),
+            app,
+            old: picture,
+            old_frame: frame,
+            kept,
+            asked: Some(asked),
+            edges: None,
+            frame,
+            aim: false,
+            fade_aim: false,
+            fade: Motion::new(1.0, UNSEEN),
+            live: Picture::new(),
+        });
+    }
+
+    /// Whether `window` waits for its new place or moves to it.
+    pub fn reshaping(&self, window: &Window) -> bool {
+        self.reshapes.iter().any(|r| r.window == *window)
+    }
+
+    /// `window` committed, its frame now at `frame`, with the configure
+    /// `acked` acknowledged: the commit with its new size moves the frame
+    /// there from where it was; a frame moving goes on to where the model
+    /// has it. An answer in the old place is no move.
+    pub fn placed(
+        &mut self,
+        window: &Window,
+        frame: Rectangle<i32, Physical>,
+        acked: Option<Serial>,
+    ) {
+        let Some(i) = self.reshapes.iter().position(|r| r.window == *window) else {
+            return;
+        };
+        let reshape = &mut self.reshapes[i];
+        if let Some(asked) = reshape.asked {
+            if !acked.is_some_and(|acked| acked.is_no_older_than(&asked)) {
+                return;
+            }
+            reshape.asked = None;
+            if reshape.edges.is_none() && frame == reshape.old_frame {
+                self.reshapes.remove(i);
+                return;
+            }
+            info!("animation: {} moves", reshape.app);
+            if reshape.edges.is_none() {
+                reshape.edges =
+                    Some(edges_of(reshape.old_frame).map(|e| Motion::new(e, EDGE_UNSEEN)));
+            }
+            reshape.fade_aim = true;
+        }
+        if reshape.edges.is_some() && (frame != reshape.frame || reshape.fade_aim) {
+            reshape.frame = frame;
+            reshape.aim = true;
+        }
+    }
+
+    /// `window` shows in its model's place at once: taken by the pointer,
+    /// or gone.
+    pub fn stop_reshape(&mut self, window: &Window) {
+        self.reshapes.retain(|r| {
+            let stops = r.window == *window;
+            if stops && r.moving() {
+                info!("animation: {} stopped moving", r.app);
+            }
+            !stops
+        });
     }
 
     /// `window` of `app` was minimized: drawn into `picture` (without its
@@ -323,6 +518,7 @@ impl Animations {
         kept: Vec<Held>,
     ) {
         self.stop_opening(window);
+        self.stop_reshape(window);
         let unseen = genie_unseen(picture.place, icon);
         let p = match self.genies.iter().position(|g| g.window == *window) {
             Some(i) => self.genies.remove(i).p,
@@ -565,6 +761,7 @@ impl Animations {
     /// unmapped): how far it was shown, for what follows. Going into its
     /// symbol it goes on: its picture is its own.
     pub fn stop(&mut self, window: &Window) -> Option<Motion> {
+        self.stop_reshape(window);
         self.genies.retain(|g| {
             let stops = g.live && g.window == *window;
             if stops {
@@ -643,12 +840,28 @@ impl Animations {
                 g.p.to(g.toward, genie, from);
             }
         }
+        let (reshape, crossfade) = (self.spring(RESHAPE), self.spring(CROSSFADE));
+        for r in &mut self.reshapes {
+            if r.aim
+                && let Some(edges) = &mut r.edges
+            {
+                r.aim = false;
+                for (edge, to) in edges.iter_mut().zip(edges_of(r.frame)) {
+                    edge.to(to, reshape, from);
+                }
+            }
+            if r.fade_aim {
+                r.fade_aim = false;
+                r.fade.to(0.0, crossfade, from);
+            }
+        }
     }
 
-    /// What a frame shown `at` draws of `window`: its `own` elements and
-    /// its `shadow`, or while it opens its picture of them, or while it
-    /// comes out of its symbol its picture of them bent – their states
-    /// joining `states`.
+    /// What a frame shown `at` draws of `window`, its frame at `frame`: its
+    /// `own` elements and its `shadow`, or while it opens its picture of
+    /// them, while it comes out of its symbol its picture of them bent,
+    /// while it moves to a new place its picture of them stretched to the
+    /// frame under the old one fading – their states joining `states`.
     #[allow(clippy::too_many_arguments)]
     pub fn shown(
         &mut self,
@@ -656,10 +869,55 @@ impl Animations {
         window: &Window,
         own: Vec<scene::Element>,
         shadow: Option<Shadow>,
-        anchor: Point<f64, Physical>,
+        frame: Rectangle<i32, Physical>,
         at: Duration,
         states: &mut RenderElementStates,
     ) -> Vec<scene::Element> {
+        let anchor = Point::from((
+            f64::from(frame.loc.x) + f64::from(frame.size.w) / 2.0,
+            f64::from(frame.loc.y) + f64::from(frame.size.h) / 2.0,
+        ));
+        if let Some(i) = self
+            .reshapes
+            .iter()
+            .position(|r| r.window == *window && r.moving())
+        {
+            let reshape = &mut self.reshapes[i];
+            // The model moved again without a commit (the panels changed
+            // the area): there, from where the frame is.
+            if frame != reshape.frame {
+                reshape.frame = frame;
+                reshape.aim = true;
+            }
+            let shown = reshape.shown(at).unwrap_or(frame);
+            let fade = reshape.fade.at(at).clamp(0.0, 1.0) as f32;
+            let own = own.into_iter().chain(shadow.map(scene::Element::Shadow));
+            return match reshape.live.draw(renderer, own.collect(), anchor) {
+                Ok(drawn) => {
+                    for (id, state) in drawn.states {
+                        states.states.entry(id).or_insert(state);
+                    }
+                    let old = &reshape.old;
+                    let old = (fade > 0.0)
+                        .then(|| {
+                            old.element_at(stretched(old.place, reshape.old_frame, shown), fade)
+                        })
+                        .flatten();
+                    let live = &reshape.live;
+                    let live = live.element_at(stretched(live.place, frame, shown), 1.0);
+                    old.into_iter()
+                        .chain(live)
+                        .map(scene::Element::Picture)
+                        .collect()
+                }
+                // Shown as it is from the next frame on.
+                Err(e) => {
+                    warn!("animation: {} moves without its picture: {e}", reshape.app);
+                    self.reshapes.remove(i);
+                    Vec::new()
+                }
+            };
+        }
         if let Some(i) = self
             .genies
             .iter()
@@ -762,7 +1020,15 @@ impl Animations {
             .genies
             .iter_mut()
             .flat_map(|g| std::mem::take(&mut g.kept));
-        windows.chain(dialogs).chain(genies).collect()
+        let reshapes = self
+            .reshapes
+            .iter_mut()
+            .flat_map(|r| std::mem::take(&mut r.kept));
+        windows
+            .chain(dialogs)
+            .chain(genies)
+            .chain(reshapes)
+            .collect()
     }
 
     /// Ends what is done by `at`.
@@ -812,6 +1078,15 @@ impl Animations {
             }
             !done
         });
+        self.reshapes.retain_mut(|r| {
+            r.shown(at);
+            r.fade.at(at);
+            let done = r.done();
+            if done {
+                info!("animation: {} moved", r.app);
+            }
+            !done
+        });
     }
 
     /// Without a screen nothing shows them: all end at once (ADR 0032 §3).
@@ -836,6 +1111,12 @@ impl Animations {
         for g in self.genies.drain(..) {
             g.ended();
         }
+        // Waiting for its new size, the window moves at once when it comes.
+        for r in self.reshapes.drain(..) {
+            if r.moving() {
+                info!("animation: {} moved", r.app);
+            }
+        }
     }
 
     /// Whether one is under way: it asks for the next frame.
@@ -845,6 +1126,7 @@ impl Animations {
             || !self.dialogs.is_empty()
             || !self.dialogs_closing.is_empty()
             || !self.genies.is_empty()
+            || self.reshapes.iter().any(Reshape::moving)
     }
 }
 
@@ -915,6 +1197,18 @@ impl Picture {
     /// Where what it holds lay on the screen when it was drawn.
     pub fn place(&self) -> Rectangle<i32, Physical> {
         self.place
+    }
+
+    /// Stretched onto `dst`, at `alpha`.
+    pub fn element_at(&self, dst: Rectangle<i32, Physical>, alpha: f32) -> Option<PictureElement> {
+        let texture = self.target.as_ref()?.picture()?.clone();
+        Some(PictureElement {
+            id: self.id.clone(),
+            commit: self.commit,
+            texture,
+            dst,
+            alpha,
+        })
     }
 
     /// As shown `shown` (0 to 1): from 94 % to whole, faded in as much.
@@ -1152,27 +1446,13 @@ mod tests {
 
     #[test]
     fn a_closing_ends_after_its_spring_and_the_test_slows_it() {
-        let mut animations = Animations {
-            slower: 1.0,
-            opening: Vec::new(),
-            closing: Vec::new(),
-            dialogs: Vec::new(),
-            dialogs_closing: Vec::new(),
-            genies: Vec::new(),
-        };
+        let mut animations = Animations::slower(1.0);
         closing(&mut animations);
         assert!(animations.moving());
         let end = ends(&mut animations);
         // 0.25 s, till half an 8-bit step is left: some 0.35 s.
         assert!((250..500).contains(&end), "{end} ms");
-        let mut slower = Animations {
-            slower: 10.0,
-            opening: Vec::new(),
-            closing: Vec::new(),
-            dialogs: Vec::new(),
-            dialogs_closing: Vec::new(),
-            genies: Vec::new(),
-        };
+        let mut slower = Animations::slower(10.0);
         closing(&mut slower);
         let slow = ends(&mut slower);
         assert!(
@@ -1183,14 +1463,7 @@ mod tests {
 
     #[test]
     fn nothing_shown_ends_all_at_once() {
-        let mut animations = Animations {
-            slower: 1.0,
-            opening: Vec::new(),
-            closing: Vec::new(),
-            dialogs: Vec::new(),
-            dialogs_closing: Vec::new(),
-            genies: Vec::new(),
-        };
+        let mut animations = Animations::slower(1.0);
         closing(&mut animations);
         animations.start(ms(1), ms(1));
         animations.finish();
@@ -1199,19 +1472,46 @@ mod tests {
 
     #[test]
     fn a_closing_is_placed_once_a_frame() {
-        let mut animations = Animations {
-            slower: 1.0,
-            opening: Vec::new(),
-            closing: Vec::new(),
-            dialogs: Vec::new(),
-            dialogs_closing: Vec::new(),
-            genies: Vec::new(),
-        };
+        let mut animations = Animations::slower(1.0);
         closing(&mut animations);
         animations.start(ms(16), ms(16));
         animations.closing_before(None, ms(16));
         assert!(animations.closing.iter().all(|c| c.placed));
         animations.start(ms(32), ms(16));
         assert!(animations.closing.iter().all(|c| !c.placed));
+    }
+    #[test]
+    fn a_picture_follows_its_frame_stretched() {
+        // A frame 400 x 300 at (100, 100), its shadow 20 past each side.
+        let (frame, place) = (rect(100, 100, 400, 300), rect(80, 80, 440, 340));
+        assert_eq!(stretched(place, frame, frame), place);
+        // The frame moved and twice as wide: the shadow's part too.
+        let to = rect(10, 50, 800, 300);
+        assert_eq!(stretched(place, frame, to), rect(-30, 30, 880, 340));
+    }
+
+    #[test]
+    fn a_frame_snapped_rests_after_its_spring() {
+        // ADR 0032 §5: 0.4 s; a frame's edge 600 px away rests where a
+        // quarter pixel is left, some 1.06 times the spring's duration.
+        let mut edge = Motion::new(0.0, EDGE_UNSEEN);
+        edge.to(600.0, RESHAPE, ms(0));
+        let rest = (1..3000)
+            .find(|&n| {
+                edge.at(ms(n));
+                !edge.moving()
+            })
+            .unwrap_or(0);
+        assert!((400..700).contains(&rest), "{rest} ms");
+        // The old picture is gone sooner than the frame rests.
+        let mut fade = Motion::new(1.0, UNSEEN);
+        fade.to(0.0, CROSSFADE, ms(0));
+        let gone = (1..3000)
+            .find(|&n| {
+                fade.at(ms(n));
+                !fade.moving()
+            })
+            .unwrap_or(0);
+        assert!(gone < rest, "{gone} ms, the frame {rest} ms");
     }
 }
