@@ -51,6 +51,7 @@ pub(in crate::vm::smoke) fn animations(paths: &Paths, installed: &Installed) -> 
     click_while_minimizing(&shell, &qmp, screen)?;
     open_from_dock(&shell, &qmp, screen)?;
     click_while_snapping(&shell, &qmp, screen)?;
+    key_while_menu_fades(&shell, &qmp, screen)?;
     journal.passed = true;
     Ok(())
 }
@@ -326,5 +327,37 @@ fn click_while_snapping(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
     wait_for_compositor_line(shell, "animation: beize-testclient moved")?;
     say!("  ok: a click on its new place while a window snapped reached it, then its frame rested");
     shell.capture("systemctl --user stop animations-snap")?;
+    Ok(())
+}
+
+/// A key pressed while the Beize menu fades out reaches the window: the
+/// menu's popup and its grab are gone at once, only its picture fades
+/// (ADR 0032 §2, §5). Then the fading ends.
+fn key_while_menu_fades(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    opened_window(shell, "animations-menu")?;
+    let (beize, _) = super::menus::bar_buttons(shell)?;
+    click(qmp, screen, beize, 1)?;
+    wait_for_shell_count(shell, "BeizeMenu open", 1)?;
+    keys(qmp, &["esc"])?;
+    wait_for_compositor_line(shell, "animation: menu closes")?;
+    keys(qmp, &["a"])?;
+    let (_, lines) = shell.capture(
+        "for i in $(seq 300); do journalctl --user -u animations-menu -o cat \
+         | grep -q '^key 30 pressed' && break; sleep 0.2; done; \
+         journalctl --user -u animations-menu -o cat | grep '^key '",
+    )?;
+    let closed = said(shell, "animation: menu closed")?;
+    ensure!(
+        lines.iter().any(|l| l == "key 30 pressed"),
+        "a key pressed while the menu faded did not reach the window: {lines:?}"
+    );
+    ensure!(
+        closed == 0,
+        "the menu had faded before the key reached the window: the check did not run while it \
+         faded"
+    );
+    wait_for_compositor_line(shell, "animation: menu closed")?;
+    say!("  ok: a key pressed while the Beize menu faded out reached the window, then it ended");
+    shell.capture("systemctl --user stop animations-menu")?;
     Ok(())
 }

@@ -108,6 +108,11 @@ impl XdgShellHandler for State {
         }
     }
 
+    /// A menu goes: it fades out as its picture (ADR 0032 §5).
+    fn popup_destroyed(&mut self, surface: PopupSurface) {
+        self.close_menu_picture(&surface);
+    }
+
     fn reposition_request(
         &mut self,
         surface: PopupSurface,

@@ -1850,6 +1850,79 @@ impl State {
         self.changed();
     }
 
+    /// A menu goes (its popup destroyed, `shell`), an app's or the shell's:
+    /// its content drawn into a picture where it lay while its buffer is
+    /// there, its glass's shapes kept, both fading out (`animation`). Its
+    /// popup and grab are gone at once (ADR 0032 §5).
+    pub fn close_menu_picture(&mut self, popup: &smithay::wayland::shell::xdg::PopupSurface) {
+        let surface = popup.wl_surface();
+        if !surface.is_alive() {
+            return;
+        }
+        let Some(place) = self.popup_place(popup) else {
+            return;
+        };
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        if !gpu.shows()
+            || !with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false)
+        {
+            return;
+        }
+        let renderer = gpu.renderer();
+        let content = scene::surface(renderer, surface, place.loc);
+        let mut picture = Picture::new();
+        if let Err(e) = picture.draw(renderer, content, crate::animation::centre(place)) {
+            warn!("animation: a menu closes without its picture: {e}");
+            return;
+        }
+        let ghost = self
+            .backdrop
+            .as_ref()
+            .and_then(|b| b.ghost(surface, place.loc));
+        let mut kept = Vec::new();
+        with_surface_tree_downward(
+            surface,
+            (),
+            |_, _, &()| TraversalAction::DoChildren(()),
+            |_, states, &()| kept.extend(syncobj::keep(states)),
+            |_, _, &()| true,
+        );
+        self.animations.close_menu(picture, ghost, place, kept);
+        self.changed();
+    }
+
+    /// Where `popup`'s surface lies on the screen and how far its tree
+    /// reaches, as the scene places it: from its window's place or its
+    /// panel's, by its parents' offsets and its own.
+    fn popup_place(
+        &self,
+        popup: &smithay::wayland::shell::xdg::PopupSurface,
+    ) -> Option<Rectangle<i32, Logical>> {
+        let kind = smithay::desktop::PopupKind::Xdg(popup.clone());
+        let root = find_popup_root_surface(&kind).ok()?;
+        let own = smithay::wayland::compositor::with_states(popup.wl_surface(), |states| {
+            let data = states
+                .data_map
+                .get::<smithay::wayland::shell::xdg::XdgPopupSurfaceData>()?;
+            Some(data.lock().ok()?.current.geometry.loc)
+        })?;
+        let offset = smithay::desktop::get_popup_toplevel_coords(&kind) + own;
+        let base = if let Some(window) = self.window_for(&root) {
+            self.space.element_geometry(&window)?.loc
+        } else {
+            let output = self.output.as_ref()?;
+            let map = layer_map_for_output(output);
+            let panel =
+                map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL)?;
+            map.layer_geometry(panel)?.loc
+        };
+        let at = base + offset - kind.geometry().loc;
+        let reach = smithay::desktop::utils::bbox_from_surface_tree(popup.wl_surface(), at);
+        (!reach.is_empty()).then(|| Rectangle::new(at, reach.size))
+    }
+
     /// The time between two vblanks; without a screen, 16 ms.
     pub fn refresh(&self) -> Duration {
         self.gpu

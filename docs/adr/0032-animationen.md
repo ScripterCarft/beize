@@ -165,7 +165,11 @@ gerechnet. Das ist spürbar weich, aber nicht als Federn zu sehen.
 **Menü:** macOS lässt den gewählten Punkt einmal blinken, bevor das Menü verschwindet. Das
 setzt Beize nicht um: Solange das Menü blinkt, hält sein Popup den Grab, und Tasten gingen
 an das Menü statt an die App (Abschnitt 2). Das Popup schließt sofort, der Compositor blendet
-sein eigenes Bild aus, in dem der gewählte Punkt noch hervorgehoben ist.
+sein eigenes Bild aus, in dem der gewählte Punkt noch hervorgehoben ist. Gebaut (18.11.): Wird
+ein Popup zerstört (`popup_destroyed`, Menüs der Apps und der Shell), zeichnet der Compositor
+seinen Inhalt dort, wo er lag, in ein eigenes Bild, solange sein Puffer da ist, und behält die
+Form seines Glases als Geist, wie beim Dialog. Beides blendet über 0,2 s aus, ohne zu
+schrumpfen, vor allem anderen.
 
 **Der Trichter** (Besitzer, 17.11.: „wirklich diese Verformung“): Eine Feder p von 0 bis 1
 treibt zwei überlappende Abschnitte, wie die bekannten Nachbauten und Magic Lamp:
@@ -293,6 +297,10 @@ Vorbild:
     Fenster an; danach ruht der Rahmen („… moves“, „… moved“) (gebaut 18.11.; Gegenproben:
     Klicks zurückgehalten, solange das aktive Fenster einrastet, kam keiner an; ohne Start beim
     Commit kein „moves“).
+  - Eine Taste, während das Beize-Menü nach Escape ausblendet, kommt beim Fenster an; danach
+    endet das Ausblenden („menu closes“, „menu closed“) (gebaut 18.11.; Gegenproben: Tasten
+    zurückgehalten, solange ein Menü ausblendet, kam keine an; ohne Bild beim Zerstören kein
+    „menu closes“).
   - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
     Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
     enden, wechselte der Compositor in ihren 3 s 239-mal).
@@ -313,7 +321,8 @@ b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder d
    (✓ 18.11.).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
    einer transienten Unit, Öffnen aus dem Symbol (✓ 18.11.).
-d) Einrasten, Maximieren mit Überblendung (✓ 18.11.); Menü, Kontrollzentrum, Alt+Tab-Ring.
+d) Einrasten, Maximieren mit Überblendung (✓ 18.11.); Menü (✓ 18.11.), Kontrollzentrum,
+   Alt+Tab-Ring.
 e) Messbau mit allem; der Besitzer nimmt die Werte auf der Hardware ab.
 
 ## Konsequenzen

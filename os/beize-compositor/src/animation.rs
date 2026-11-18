@@ -73,6 +73,8 @@ const CLOSE: Spring = Spring::new(0.25, 0.0);
 /// A dialog appears as a window opens and goes faster (ADR 0032 §5).
 const DIALOG_OPEN: Spring = Spring::new(0.3, 0.0);
 const DIALOG_CLOSE: Spring = Spring::new(0.2, 0.0);
+/// A menu appears at once and fades out as it goes (macOS).
+const MENU_CLOSE: Spring = Spring::new(0.2, 0.0);
 /// The shake after a wrong password: its first swing to the left, 10 px
 /// (some 3 % of a dialog's width), then 0.37 of the one before each half
 /// swing (macOS' authorization dialog).
@@ -284,9 +286,12 @@ struct Dialog {
     kick: bool,
 }
 
-/// A dialog closed: its content's picture and its glass, fading out where
-/// it lay (`place`).
+/// A dialog or a menu closed: its content's picture and its glass, fading
+/// out where it lay (`place`); a dialog shrinks as it fades.
 struct DialogClosing {
+    /// "dialog" or "menu", for the journal.
+    what: &'static str,
+    shrinks: bool,
     shown: Motion,
     started: bool,
     picture: Picture,
@@ -691,6 +696,8 @@ impl Animations {
     ) {
         info!("animation: dialog closes");
         self.dialogs_closing.push(DialogClosing {
+            what: "dialog",
+            shrinks: true,
             shown: from.unwrap_or_else(|| Motion::new(1.0, UNSEEN)),
             started: false,
             picture,
@@ -702,6 +709,29 @@ impl Animations {
 
     /// The closed dialogs as a frame shown `at` draws them, front to back,
     /// each with its place: content, then its glass's shadows and glass.
+    /// A menu closed at `place`: its content drawn into `picture`, its
+    /// glass's `ghost`, its buffers `kept` until the picture is drawn. It
+    /// fades where it was, its popup gone at once (ADR 0032 §5).
+    pub fn close_menu(
+        &mut self,
+        picture: Picture,
+        ghost: Option<Ghost>,
+        place: Rectangle<i32, Logical>,
+        kept: Vec<Held>,
+    ) {
+        info!("animation: menu closes");
+        self.dialogs_closing.push(DialogClosing {
+            what: "menu",
+            shrinks: false,
+            shown: Motion::new(1.0, UNSEEN),
+            started: false,
+            picture,
+            ghost,
+            place,
+            kept,
+        });
+    }
+
     pub fn dialogs_closing(
         &mut self,
         renderer: &mut VkRenderer,
@@ -714,18 +744,25 @@ impl Animations {
             if !closing.shown.moving() {
                 continue;
             }
+            let scale = if closing.shrinks {
+                SMALL + (1.0 - SMALL) * shown
+            } else {
+                1.0
+            };
             let pose = Pose {
-                scale: SMALL + (1.0 - SMALL) * shown,
+                scale,
                 about: centre(closing.place),
                 opacity: shown as f32,
                 shift: 0,
             };
-            let mut elements: Vec<scene::Element> = closing
-                .picture
-                .element(shown)
-                .map(scene::Element::Picture)
-                .into_iter()
-                .collect();
+            let picture = if closing.shrinks {
+                closing.picture.element(shown)
+            } else {
+                let place = closing.picture.place();
+                closing.picture.element_at(place, shown as f32)
+            };
+            let mut elements: Vec<scene::Element> =
+                picture.map(scene::Element::Picture).into_iter().collect();
             if let (Some(backdrop), Some(ghost)) = (backdrop.as_deref_mut(), &mut closing.ghost)
                 && let Some((glass, shadows)) =
                     backdrop.ghost_glass(renderer, ghost, closing.place.loc, pose)
@@ -828,9 +865,12 @@ impl Animations {
                 dialog.shake.kick(-shake.kick_for(SHAKE_REACH), shake, from);
             }
         }
+        let menu = self.spring(MENU_CLOSE);
         for closing in self.dialogs_closing.iter_mut().filter(|c| !c.started) {
             closing.started = true;
-            closing.shown.to(0.0, go, from);
+            closing
+                .shown
+                .to(0.0, if closing.shrinks { go } else { menu }, from);
         }
         let genie = self.spring(GENIE);
         for g in &mut self.genies {
@@ -1066,7 +1106,7 @@ impl Animations {
             c.shown.at(at);
             let going = !c.started || c.shown.moving();
             if !going {
-                info!("animation: dialog closed");
+                info!("animation: {} closed", c.what);
             }
             going
         });
@@ -1105,8 +1145,8 @@ impl Animations {
                 info!("animation: dialog shook");
             }
         }
-        for _ in self.dialogs_closing.drain(..) {
-            info!("animation: dialog closed");
+        for c in self.dialogs_closing.drain(..) {
+            info!("animation: {} closed", c.what);
         }
         for g in self.genies.drain(..) {
             g.ended();

@@ -50,7 +50,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    `apps`/`desktop`), das Fenster wächst aus dem Symbol; die Template-Unit des Terminals ist
    weg. Noch nicht auf Hardware; dort ansehen, ob das Bild im Hals flimmert (keine Mipmaps,
    ADR 0032 §5). In d) ist Einrasten und Maximieren gebaut (18.11.): Rahmen federt ab dem Commit
-   der neuen Größe, das alte Bild blendet über. Weiter mit Menü, Kontrollzentrum, Alt+Tab-Ring.
+   der neuen Größe, das alte Bild blendet über; Menüs blenden beim Schließen aus (Bild und
+   Glas-Geist). Weiter mit Kontrollzentrum, Alt+Tab-Ring.
    Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen (Besitzer). Apple-Optik bei Bewegung
    erwünscht, wo sauber (Trichter), keine Spielerei.
 2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.
