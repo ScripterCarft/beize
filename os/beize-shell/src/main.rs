@@ -959,11 +959,10 @@ fn run() -> Result<(), String> {
         if let Some(auth) = &mut auth {
             auth.draw(&mut app, appearance)?;
         }
-        if let Some((id, switcher)) = &switching
+        if let Some((id, switcher)) = &mut switching
             && redraw_switching
             && app.ready(*id)
         {
-            redraw_switching = false;
             let id = *id;
             let size = app.size(id);
             app.set_glass(id, Some(Switcher::glass(size)));
@@ -976,17 +975,22 @@ fn run() -> Result<(), String> {
                 |wanted| windows.iter().find(|w| w.id == wanted).cloned(),
                 &mut names,
             );
-            info!(
-                "switcher: {}x{} with {} windows, the first picture at {:?}",
-                size.0,
-                size.1,
-                switcher.pictures().len(),
-                switcher
-                    .pictures()
-                    .first()
-                    .map(|(_, r)| (r.x, r.y, r.w, r.h))
-            );
+            // Once at rest, not each frame of the ring's move.
+            if !switcher.moving() {
+                info!(
+                    "switcher: {}x{} with {} windows, the first picture at {:?}",
+                    size.0,
+                    size.1,
+                    switcher.pictures().len(),
+                    switcher
+                        .pictures()
+                        .first()
+                        .map(|(_, r)| (r.x, r.y, r.w, r.h))
+                );
+            }
             app.draw(id, &scene).map_err(|e| e.to_string())?;
+            // Its ring moves: again once it is ready.
+            redraw_switching = switcher.moving();
         }
         dock_shown |= dock_events.configured;
         if dock_shown && redraw_dock && app.ready(dock_panel) {

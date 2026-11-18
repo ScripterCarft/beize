@@ -52,7 +52,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    ADR 0032 §5). In d) ist Einrasten und Maximieren gebaut (18.11.): Rahmen federt ab dem Commit
    der neuen Größe, das alte Bild blendet über; Menüs blenden beim Schließen aus (Bild und
    Glas-Geist); das Kontrollzentrum wächst aus seinem Knopf (`beize_shell_v1.grows`, Liquid-Glas
-   blendet). Weiter mit dem Alt+Tab-Ring.
+   blendet); der Alt+Tab-Ring federt in der Shell. Damit ist d) fertig; als Nächstes e) der
+   Messbau mit allem (braucht den Besitzer).
    Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen (Besitzer). Apple-Optik bei Bewegung
    erwünscht, wo sauber (Trichter), keine Spielerei.
 2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.

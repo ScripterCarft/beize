@@ -255,6 +255,12 @@ Elements. Smithays Schadensverfolgung sah deshalb eine Änderung nur der Deckkra
 der Rauch blieb im letzten Schritt des Einblendens stehen (295 Pixel um 1 daneben). Jetzt meldet
 das Glas sie, wie der Schatten.
 
+**Alt+Tab-Ring, gebaut (18.11.):** Die Shell führt die vier Kanten der Hervorhebung auf Federn
+(`switcher.rs`, 0,15 s / 0,14) und zeichnet den Umschalter neu, sobald er bereit ist (seine
+Frame-Callbacks), bis der Ring ruht. Mit dem Umschalter und bei Kacheln, die sich verschieben
+(ein Fenster kommt dazu), steht er sofort auf seiner Kachel. Weiß ist die Schrift der Kachel, über
+der die Mitte des Rings liegt. Die Auswahl hält weiter der Compositor: Alt loslassen wählt sofort.
+
 **Bewegung reduzieren** kommt mit den Einstellungen. Dann blendet nur über, ohne Ortswechsel
 und ohne Schütteln (Apples „Reduce Motion“).
 
@@ -319,6 +325,9 @@ Vorbild:
     schloss nicht; ohne `grows` der Shell kein „appears“). Die Glas-Prüfungen am Kontrollzentrum
     messen erst, wenn es gewachsen ist („appeared“): Vorher nahmen sie ein Bild mitten im
     Wachsen (die Seitenlinie 166 statt 205).
+  - Der Ring von Alt+Tab federt zur nächsten Kachel und ruht dort („switcher: ring moves“,
+    „… ring rests“ der Shell); Alt loslassen, während er sich bewegt, wählt sofort (gebaut
+    18.11.; Gegenproben: Ring springt, kein „moves“; ohne Neuzeichnen im Takt ruht er nie).
   - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
     Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
     enden, wechselte der Compositor in ihren 3 s 239-mal).
@@ -339,8 +348,7 @@ b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder d
    (✓ 18.11.).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
    einer transienten Unit, Öffnen aus dem Symbol (✓ 18.11.).
-d) Einrasten, Maximieren mit Überblendung (✓ 18.11.); Menü (✓ 18.11.), Kontrollzentrum
-   (✓ 18.11.), Alt+Tab-Ring.
+d) Einrasten, Maximieren mit Überblendung; Menü, Kontrollzentrum, Alt+Tab-Ring (✓ 18.11.).
 e) Messbau mit allem; der Besitzer nimmt die Werte auf der Hardware ab.
 
 ## Konsequenzen

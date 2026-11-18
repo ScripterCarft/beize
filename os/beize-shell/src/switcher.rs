@@ -9,13 +9,24 @@
 //! The measures are estimated from Windows 11's and KWin's switchers; the
 //! selected tile is the menus' selected row: the accent, white on it (the
 //! owner's, on mock-ups, 31.10.).
+//!
+//! The selection's ring – that accent – springs from tile to tile as the
+//! selection moves (ADR 0032 §5: macOS' ⌘⇥, SwiftUI's `interactiveSpring`),
+//! drawn anew each time the switcher's surface is ready (its frame
+//! callbacks); it comes at once with the switcher and with tiles that move.
+//! The compositor keeps the selection: Alt let go chooses it, wherever the
+//! ring is drawn (ADR 0032 §2). `BEIZE_ANIMATIONS_SLOWER` makes it slower,
+//! as the compositor's springs, for the smoke test.
+
+use std::time::Instant;
 
 use beize_ui::menu::fitted;
 use beize_ui::theme::{self, ACCENT, ON_ACCENT, SMALL_TEXT_SIZE};
 use beize_ui::{
-    AppIcon, Appearance, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect, Scene,
-    Style, Text,
+    AppIcon, Appearance, DesktopWindow, DesktopWindowId, Family, Glass, Material, Motion, Rect,
+    Scene, Spring, Style, Text,
 };
+use tracing::info;
 
 use crate::apps::App;
 
@@ -29,6 +40,10 @@ const ICON: u32 = 20;
 /// The panel's corners follow the tiles': their radius plus the padding.
 const TILE_RADIUS: f32 = 14.0;
 const RADIUS: f32 = TILE_RADIUS + PADDING;
+/// The ring from tile to tile: 0.15 s, swinging 0.5 % past (ADR 0032 §5).
+const RING: Spring = Spring::new(0.15, 0.14);
+/// An edge moves less than a quarter of a pixel: the ring rests.
+const RING_UNSEEN: f64 = 0.25;
 
 /// The grid for `count` tiles in at most `(w, h)` px: its tile's width and
 /// its columns and rows.
@@ -63,15 +78,41 @@ pub struct Switcher {
     /// The room it may take, from the compositor.
     room: (u32, u32),
     pointer: Option<(f64, f64)>,
+    /// The ring's edges as drawn – left, top, right, bottom –, on springs
+    /// timed from `since`; whether it said it moves.
+    ring: Option<[Motion; 4]>,
+    since: Instant,
+    ring_moves: bool,
+    /// Every spring this many times longer (the smoke test's).
+    slower: f64,
+}
+
+/// The four edges of `r`.
+fn edges(r: Rect) -> [f64; 4] {
+    [
+        f64::from(r.x),
+        f64::from(r.y),
+        f64::from(r.x + r.w),
+        f64::from(r.y + r.h),
+    ]
 }
 
 impl Switcher {
     pub fn new(room: (u32, u32)) -> Switcher {
+        let slower = std::env::var("BEIZE_ANIMATIONS_SLOWER")
+            .ok()
+            .and_then(|factor| factor.trim().parse::<f64>().ok())
+            .filter(|factor| factor.is_finite() && *factor >= 1.0)
+            .unwrap_or(1.0);
         Switcher {
             entries: Vec::new(),
             selected: None,
             room,
             pointer: None,
+            ring: None,
+            since: Instant::now(),
+            ring_moves: false,
+            slower,
         }
     }
 
@@ -82,13 +123,53 @@ impl Switcher {
         selected: Option<DesktopWindowId>,
     ) -> bool {
         let changed = entries != self.entries || selected != self.selected;
-        // The tiles move: until it moves again, the pointer is on none.
-        if entries != self.entries {
+        // The tiles move: until it moves again, the pointer is on none, and
+        // the ring is on its tile at once.
+        let moved = entries != self.entries;
+        if moved {
             self.pointer = None;
         }
         self.entries = entries;
         self.selected = selected;
+        self.aim(moved);
         changed
+    }
+
+    /// The ring goes to the selected tile: there at once, `moved` tiles
+    /// too, else on its spring.
+    fn aim(&mut self, moved: bool) {
+        let to = self
+            .selected
+            .and_then(|id| self.entries.iter().position(|e| *e == id))
+            .map(|i| edges(self.tile(i)));
+        let Some(to) = to else {
+            self.ring = None;
+            return;
+        };
+        let now = self.since.elapsed();
+        let spring = Spring::new(RING.duration * self.slower, RING.bounce);
+        match &mut self.ring {
+            Some(ring) if !moved => {
+                if ring.iter().zip(to).any(|(edge, to)| edge.target() != to) {
+                    for (edge, to) in ring.iter_mut().zip(to) {
+                        edge.to(to, spring, now);
+                    }
+                    if !self.ring_moves {
+                        info!("switcher: ring moves");
+                    }
+                    self.ring_moves = true;
+                }
+            }
+            _ => self.ring = Some(to.map(|edge| Motion::new(edge, RING_UNSEEN))),
+        }
+    }
+
+    /// Whether the ring moves: it is drawn again once the switcher is
+    /// ready.
+    pub fn moving(&self) -> bool {
+        self.ring
+            .as_ref()
+            .is_some_and(|ring| ring.iter().any(Motion::moving))
     }
 
     /// Its size for the windows now.
@@ -163,7 +244,7 @@ impl Switcher {
     /// Its content: the selected tile's highlight, each tile's icon and
     /// title; the rest shows the glass, the pictures the compositor draws.
     pub fn draw(
-        &self,
+        &mut self,
         text: &mut Text,
         (w, h): (u32, u32),
         appearance: Appearance,
@@ -177,12 +258,30 @@ impl Switcher {
             w: w as f32,
             h: h as f32,
         });
+        let now = self.since.elapsed();
+        let ring = self.ring.as_mut().map(|ring| {
+            let [left, top, right, bottom] = [0, 1, 2, 3].map(|i| ring[i].at(now) as f32);
+            Rect {
+                x: left,
+                y: top,
+                w: right - left,
+                h: bottom - top,
+            }
+        });
+        if self.ring_moves && !self.moving() {
+            self.ring_moves = false;
+            info!("switcher: ring rests");
+        }
+        if let Some(ring) = ring {
+            scene.rounded(ring, TILE_RADIUS, ACCENT);
+        }
+        // White on the tile the ring's middle is over.
+        let centre = ring.map(|r| (r.x + r.w / 2.0, r.y + r.h / 2.0));
         for (i, id) in self.entries.iter().enumerate() {
             let tile = self.tile(i);
-            let selected = self.selected == Some(*id);
-            if selected {
-                scene.rounded(tile, TILE_RADIUS, ACCENT);
-            }
+            let selected = centre.is_some_and(|(x, y)| {
+                x >= tile.x && x < tile.x + tile.w && y >= tile.y && y < tile.y + tile.h
+            });
             let style = Style {
                 family: Family::Sans,
                 size: SMALL_TEXT_SIZE,
@@ -258,5 +357,34 @@ mod tests {
         );
         assert_eq!(switcher.pointer(Some((1.0, 1.0))), None);
         assert_eq!(switcher.pointer(None), None);
+    }
+
+    #[test]
+    fn the_ring_springs_to_the_selection_and_rests() {
+        let mut switcher = Switcher::new((1280, 700));
+        switcher.slower = 1.0;
+        let (a, b, c) = (DesktopWindowId(0), DesktopWindowId(1), DesktopWindowId(2));
+        // Shown: on its tile at once.
+        switcher.update(vec![a, b], Some(b));
+        assert!(!switcher.moving());
+        // Another selected: it moves, and rests on that tile.
+        switcher.update(vec![a, b], Some(a));
+        assert!(switcher.moving());
+        let to = edges(switcher.tile(0));
+        let ring = switcher.ring.as_mut().unwrap();
+        let rest = (1..2000u64)
+            .find(|&ms| {
+                let now = std::time::Duration::from_millis(ms);
+                ring.iter_mut().for_each(|e| {
+                    e.at(now);
+                });
+                !ring.iter().any(Motion::moving)
+            })
+            .unwrap_or(0);
+        assert!((100..400).contains(&rest), "{rest} ms");
+        assert!(ring.iter().zip(to).all(|(e, to)| e.target() == to));
+        // The tiles move (a window joins): at once on its tile.
+        switcher.update(vec![a, b, c], Some(a));
+        assert!(!switcher.moving());
     }
 }

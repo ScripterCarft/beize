@@ -53,6 +53,7 @@ pub(in crate::vm::smoke) fn animations(paths: &Paths, installed: &Installed) -> 
     click_while_snapping(&shell, &qmp, screen)?;
     key_while_menu_fades(&shell, &qmp, screen)?;
     key_while_control_center_grows(&shell, &qmp, screen)?;
+    ring_while_switching(&shell, &qmp)?;
     journal.passed = true;
     Ok(())
 }
@@ -384,5 +385,36 @@ fn key_while_control_center_grows(shell: &Shell, qmp: &Path, screen: (usize, usi
         "  ok: Escape while the control center grew out of its button closed it, and it went \
          back into it"
     );
+    Ok(())
+}
+
+/// Alt+Tab's ring springs from tile to tile in the shell, driven by its
+/// frame callbacks to its rest (ADR 0032 §4, §5); Alt let go while it
+/// moves chooses at once – the compositor keeps the selection, the ring is
+/// only drawn (§2).
+fn ring_while_switching(shell: &Shell, qmp: &Path) -> Result<()> {
+    opened_window(shell, "animations-ring-a")?;
+    opened_window(shell, "animations-ring-b")?;
+    let shown = said(shell, "switcher shown")?;
+    hold(qmp, "alt", true)?;
+    keys(qmp, &["tab"])?;
+    wait_for_count(shell, "switcher shown", shown + 1)?;
+    keys(qmp, &["tab"])?;
+    wait_for_shell_count(shell, "switcher: ring moves", 1)?;
+    wait_for_shell_count(shell, "switcher: ring rests", 1)?;
+    keys(qmp, &["tab"])?;
+    wait_for_shell_count(shell, "switcher: ring moves", 2)?;
+    let chose = said(shell, "switcher chose beize-testclient")?;
+    hold(qmp, "alt", false)?;
+    wait_for_count(shell, "switcher chose beize-testclient", chose + 1)?;
+    ensure!(
+        shell_count(shell, "switcher: ring rests")? == 1,
+        "the ring rested before Alt let go chose: the check did not run while it moved"
+    );
+    say!(
+        "  ok: Alt+Tab's ring sprang to the next tile and rested there; Alt let go while it \
+         moved chose at once"
+    );
+    shell.capture("systemctl --user stop animations-ring-a animations-ring-b")?;
     Ok(())
 }
