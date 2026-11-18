@@ -52,6 +52,7 @@ pub(in crate::vm::smoke) fn animations(paths: &Paths, installed: &Installed) -> 
     open_from_dock(&shell, &qmp, screen)?;
     click_while_snapping(&shell, &qmp, screen)?;
     key_while_menu_fades(&shell, &qmp, screen)?;
+    key_while_control_center_grows(&shell, &qmp, screen)?;
     journal.passed = true;
     Ok(())
 }
@@ -359,5 +360,29 @@ fn key_while_menu_fades(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
     wait_for_compositor_line(shell, "animation: menu closed")?;
     say!("  ok: a key pressed while the Beize menu faded out reached the window, then it ended");
     shell.capture("systemctl --user stop animations-menu")?;
+    Ok(())
+}
+
+/// Escape while the control center grows out of its button closes it: it
+/// has the keyboard from its first frame on (ADR 0032 §2); it goes back
+/// into its button from where it had grown, and that ends.
+fn key_while_control_center_grows(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let (_, centre) = super::menus::bar_buttons(shell)?;
+    click(qmp, screen, centre, 1)?;
+    wait_for_shell_count(shell, "ControlCenter open", 1)?;
+    wait_for_compositor_line(shell, "animation: control center appears")?;
+    keys(qmp, &["esc"])?;
+    wait_for_shell_count(shell, "ControlCenter closed", 1)?;
+    ensure!(
+        said(shell, "animation: control center appeared")? == 0,
+        "the control center had grown before Escape reached it: the check did not run while it \
+         grew"
+    );
+    wait_for_compositor_line(shell, "animation: control center closes")?;
+    wait_for_compositor_line(shell, "animation: control center closed")?;
+    say!(
+        "  ok: Escape while the control center grew out of its button closed it, and it went \
+         back into it"
+    );
     Ok(())
 }

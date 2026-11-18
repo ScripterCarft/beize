@@ -455,6 +455,9 @@ impl Dispatch<BeizeShellV1, ()> for State {
             beize_shell_v1::Request::Dialog { surface } => {
                 crate::animation::mark_dialog(&surface);
             }
+            beize_shell_v1::Request::Grows { surface } => {
+                crate::animation::mark_grows(&surface);
+            }
             beize_shell_v1::Request::Shake { surface } => {
                 if crate::animation::is_dialog(&surface) && state.shows() {
                     state.animations.shake(&surface);

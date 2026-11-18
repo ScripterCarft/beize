@@ -1856,6 +1856,15 @@ impl State {
     /// popup and grab are gone at once (ADR 0032 §5).
     pub fn close_menu_picture(&mut self, popup: &smithay::wayland::shell::xdg::PopupSurface) {
         let surface = popup.wl_surface();
+        // The control center goes back into its button, from how far it
+        // had grown.
+        let grown = crate::animation::grows(surface);
+        let from = if grown {
+            self.animations.stop_dialog(surface)
+        } else {
+            None
+        };
+        let back = if grown { self.grown_from(popup) } else { None };
         if !surface.is_alive() {
             return;
         }
@@ -1889,8 +1898,87 @@ impl State {
             |_, states, &()| kept.extend(syncobj::keep(states)),
             |_, _, &()| true,
         );
-        self.animations.close_menu(picture, ghost, place, kept);
+        match back {
+            Some((about, small)) => self
+                .animations
+                .close_grown(picture, ghost, from, place, kept, about, small),
+            None => self.animations.close_menu(picture, ghost, place, kept),
+        }
         self.changed();
+    }
+
+    /// After a commit: a popup of the shell's that grows out of its button
+    /// (the control center, `beize_shell_v1.grows`) does with its first
+    /// content (ADR 0032 §5).
+    fn grown_committed(&mut self, surface: &WlSurface) {
+        if !crate::animation::grows(surface)
+            || !self.shows()
+            || !with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false)
+        {
+            return;
+        }
+        let first = smithay::wayland::compositor::with_states(surface, |states| {
+            states.data_map.insert_if_missing_threadsafe(|| Grown)
+        });
+        if !first {
+            return;
+        }
+        let Some(smithay::desktop::PopupKind::Xdg(popup)) = self.popups.find_popup(surface) else {
+            return;
+        };
+        if let Some((about, small)) = self.grown_from(&popup) {
+            self.animations.grow(surface, about, small);
+            self.changed();
+        }
+    }
+
+    /// The control center's button's centre on the screen – the rectangle
+    /// its popup is anchored to – and how small it is there: as wide as its
+    /// button.
+    fn grown_from(
+        &self,
+        popup: &smithay::wayland::shell::xdg::PopupSurface,
+    ) -> Option<(Point<f64, Physical>, f64)> {
+        let place = self.popup_place(popup)?;
+        let (parent, anchor) = self.popup_parent(popup)?;
+        let button = Rectangle::new(parent + anchor.loc, anchor.size).to_physical(1);
+        let about = Point::from((
+            f64::from(button.loc.x) + f64::from(button.size.w) / 2.0,
+            f64::from(button.loc.y) + f64::from(button.size.h) / 2.0,
+        ));
+        let small = (f64::from(button.size.w) / f64::from(place.size.w.max(1))).clamp(0.05, 1.0);
+        Some((about, small))
+    }
+
+    /// Where the parent of `popup` lies on the screen – the surface its
+    /// positioner places it against – and its anchor rectangle there.
+    fn popup_parent(
+        &self,
+        popup: &smithay::wayland::shell::xdg::PopupSurface,
+    ) -> Option<(Point<i32, Logical>, Rectangle<i32, Logical>)> {
+        let kind = smithay::desktop::PopupKind::Xdg(popup.clone());
+        let anchor = smithay::wayland::compositor::with_states(popup.wl_surface(), |states| {
+            let data = states
+                .data_map
+                .get::<smithay::wayland::shell::xdg::XdgPopupSurfaceData>()?;
+            Some(data.lock().ok()?.current.positioner.anchor_rect)
+        })?;
+        Some((
+            self.popup_root(&kind)? + smithay::desktop::get_popup_toplevel_coords(&kind),
+            anchor,
+        ))
+    }
+
+    /// Where the window or panel `kind` belongs to lies on the screen.
+    fn popup_root(&self, kind: &smithay::desktop::PopupKind) -> Option<Point<i32, Logical>> {
+        let root = find_popup_root_surface(kind).ok()?;
+        if let Some(window) = self.window_for(&root) {
+            return Some(self.space.element_geometry(&window)?.loc);
+        }
+        let output = self.output.as_ref()?;
+        let map = layer_map_for_output(output);
+        let panel = map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL)?;
+        Some(map.layer_geometry(panel)?.loc)
     }
 
     /// Where `popup`'s surface lies on the screen and how far its tree
@@ -1901,7 +1989,6 @@ impl State {
         popup: &smithay::wayland::shell::xdg::PopupSurface,
     ) -> Option<Rectangle<i32, Logical>> {
         let kind = smithay::desktop::PopupKind::Xdg(popup.clone());
-        let root = find_popup_root_surface(&kind).ok()?;
         let own = smithay::wayland::compositor::with_states(popup.wl_surface(), |states| {
             let data = states
                 .data_map
@@ -1909,16 +1996,7 @@ impl State {
             Some(data.lock().ok()?.current.geometry.loc)
         })?;
         let offset = smithay::desktop::get_popup_toplevel_coords(&kind) + own;
-        let base = if let Some(window) = self.window_for(&root) {
-            self.space.element_geometry(&window)?.loc
-        } else {
-            let output = self.output.as_ref()?;
-            let map = layer_map_for_output(output);
-            let panel =
-                map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL)?;
-            map.layer_geometry(panel)?.loc
-        };
-        let at = base + offset - kind.geometry().loc;
+        let at = self.popup_root(&kind)? + offset - kind.geometry().loc;
         let reach = smithay::desktop::utils::bbox_from_surface_tree(popup.wl_surface(), at);
         (!reach.is_empty()).then(|| Rectangle::new(at, reach.size))
     }
@@ -2446,6 +2524,7 @@ impl CompositorHandler for State {
             }
         }
         self.popups.commit(surface);
+        self.grown_committed(surface);
         crate::shell::committed(self, surface);
         crate::layers::committed(self, surface);
         self.cursor.committed(surface);
@@ -2612,6 +2691,10 @@ fn is_shells(surface: Option<&WlSurface>) -> bool {
         .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
         .unwrap_or(false)
 }
+
+/// A popup that grows out of its button had its first content
+/// (`grown_committed`).
+struct Grown;
 
 /// A window drawn into a picture of its own as it shows (`window_picture`):
 /// its app, the picture, its shadow if apart, its buffers kept until the

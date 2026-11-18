@@ -75,6 +75,11 @@ const DIALOG_OPEN: Spring = Spring::new(0.3, 0.0);
 const DIALOG_CLOSE: Spring = Spring::new(0.2, 0.0);
 /// A menu appears at once and fades out as it goes (macOS).
 const MENU_CLOSE: Spring = Spring::new(0.2, 0.0);
+/// The control center grows out of its button and goes back there
+/// (macOS 26, `.snappy`): the only motion that swings back past its end,
+/// some 0.6 % (ADR 0032 §5, §6).
+const GROW: Spring = Spring::new(0.4, 0.15);
+const SHRINK_BACK: Spring = Spring::new(0.25, 0.0);
 /// The shake after a wrong password: its first swing to the left, 10 px
 /// (some 3 % of a dialog's width), then 0.37 of the one before each half
 /// swing (macOS' authorization dialog).
@@ -276,6 +281,13 @@ fn genie_unseen(place: Rectangle<i32, Physical>, icon: Rectangle<i32, Physical>)
 /// A dialog of the shell's appearing or shaking.
 struct Dialog {
     surface: WlSurface,
+    /// "dialog" or "control center", for the journal.
+    what: &'static str,
+    /// How it appears: from `small` of its size about `about` (a dialog:
+    /// about its centre), on `open`.
+    small: f64,
+    about: Option<Point<f64, Physical>>,
+    open: Spring,
     shown: Motion,
     started: bool,
     appearing: bool,
@@ -289,9 +301,13 @@ struct Dialog {
 /// A dialog or a menu closed: its content's picture and its glass, fading
 /// out where it lay (`place`); a dialog shrinks as it fades.
 struct DialogClosing {
-    /// "dialog" or "menu", for the journal.
+    /// "dialog", "menu" or "control center", for the journal.
     what: &'static str,
-    shrinks: bool,
+    /// It goes to `small` of its size about `about` (none: its centre), on
+    /// `spring`.
+    small: f64,
+    about: Option<Point<f64, Physical>>,
+    spring: Spring,
     shown: Motion,
     started: bool,
     picture: Picture,
@@ -350,6 +366,22 @@ pub fn centre(place: Rectangle<i32, Logical>) -> Point<f64, Physical> {
         f64::from(place.loc.x) + f64::from(place.size.w) / 2.0,
         f64::from(place.loc.y) + f64::from(place.size.h) / 2.0,
     ))
+}
+
+/// Marks a popup of the shell's as growing out of its button
+/// (`beize_shell_v1.grows`).
+struct GrowsMark;
+
+pub fn mark_grows(surface: &WlSurface) {
+    with_states(surface, |states| {
+        states.data_map.insert_if_missing_threadsafe(|| GrowsMark);
+    });
+}
+
+pub fn grows(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        states.data_map.get::<GrowsMark>().is_some()
+    })
 }
 
 /// Marks a surface of the shell's as a dialog (`beize_shell_v1.dialog`).
@@ -629,6 +661,33 @@ impl Animations {
         info!("animation: dialog appears");
         self.dialogs.push(Dialog {
             surface: surface.clone(),
+            what: "dialog",
+            small: SMALL,
+            about: None,
+            open: DIALOG_OPEN,
+            shown: Motion::new(0.0, UNSEEN),
+            started: false,
+            appearing: true,
+            shake: Motion::new(0.0, SHAKE_UNSEEN),
+            shaking: false,
+            kick: false,
+        });
+    }
+
+    /// A popup of the shell's that grows out of its button (the control
+    /// center) shows for the first time: from `small` of its size about
+    /// `about`, the button's centre, from its next frame.
+    pub fn grow(&mut self, surface: &WlSurface, about: Point<f64, Physical>, small: f64) {
+        if self.dialogs.iter().any(|d| d.surface == *surface) {
+            return;
+        }
+        info!("animation: control center appears");
+        self.dialogs.push(Dialog {
+            surface: surface.clone(),
+            what: "control center",
+            small,
+            about: Some(about),
+            open: GROW,
             shown: Motion::new(0.0, UNSEEN),
             started: false,
             appearing: true,
@@ -648,6 +707,10 @@ impl Animations {
         }
         self.dialogs.push(Dialog {
             surface: surface.clone(),
+            what: "dialog",
+            small: SMALL,
+            about: None,
+            open: DIALOG_OPEN,
             shown: Motion::new(1.0, UNSEEN),
             started: true,
             appearing: false,
@@ -668,12 +731,14 @@ impl Animations {
         let Some(dialog) = self.dialogs.iter_mut().find(|d| d.surface == *surface) else {
             return Pose::still();
         };
-        let shown = dialog.shown.at(at).clamp(0.0, 1.0);
+        // Its size may swing past whole (the control center); its
+        // opacity stops there.
+        let shown = dialog.shown.at(at).max(0.0);
         let shift = dialog.shake.at(at).round() as i32;
         Pose {
-            scale: SMALL + (1.0 - SMALL) * shown,
-            about: centre(place),
-            opacity: shown as f32,
+            scale: dialog.small + (1.0 - dialog.small) * shown,
+            about: dialog.about.unwrap_or_else(|| centre(place)),
+            opacity: shown.min(1.0) as f32,
             shift,
         }
     }
@@ -697,7 +762,9 @@ impl Animations {
         info!("animation: dialog closes");
         self.dialogs_closing.push(DialogClosing {
             what: "dialog",
-            shrinks: true,
+            small: SMALL,
+            about: None,
+            spring: DIALOG_CLOSE,
             shown: from.unwrap_or_else(|| Motion::new(1.0, UNSEEN)),
             started: false,
             picture,
@@ -722,8 +789,39 @@ impl Animations {
         info!("animation: menu closes");
         self.dialogs_closing.push(DialogClosing {
             what: "menu",
-            shrinks: false,
+            small: 1.0,
+            about: None,
+            spring: MENU_CLOSE,
             shown: Motion::new(1.0, UNSEEN),
+            started: false,
+            picture,
+            ghost,
+            place,
+            kept,
+        });
+    }
+
+    /// The control center closed at `place`, as a menu does: it goes back
+    /// into its button, to `small` of its size about `about`, from how far
+    /// it had grown (`from`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn close_grown(
+        &mut self,
+        picture: Picture,
+        ghost: Option<Ghost>,
+        from: Option<Motion>,
+        place: Rectangle<i32, Logical>,
+        kept: Vec<Held>,
+        about: Point<f64, Physical>,
+        small: f64,
+    ) {
+        info!("animation: control center closes");
+        self.dialogs_closing.push(DialogClosing {
+            what: "control center",
+            small,
+            about: Some(about),
+            spring: SHRINK_BACK,
+            shown: from.unwrap_or_else(|| Motion::new(1.0, UNSEEN)),
             started: false,
             picture,
             ghost,
@@ -744,23 +842,18 @@ impl Animations {
             if !closing.shown.moving() {
                 continue;
             }
-            let scale = if closing.shrinks {
-                SMALL + (1.0 - SMALL) * shown
-            } else {
-                1.0
-            };
+            let scale = closing.small + (1.0 - closing.small) * shown;
+            let about = closing.about.unwrap_or_else(|| centre(closing.place));
             let pose = Pose {
                 scale,
-                about: centre(closing.place),
+                about,
                 opacity: shown as f32,
                 shift: 0,
             };
-            let picture = if closing.shrinks {
-                closing.picture.element(shown)
-            } else {
-                let place = closing.picture.place();
-                closing.picture.element_at(place, shown as f32)
-            };
+            let place = closing.picture.place();
+            let picture = closing
+                .picture
+                .element_at(scaled(place, about, scale), shown as f32);
             let mut elements: Vec<scene::Element> =
                 picture.map(scene::Element::Picture).into_iter().collect();
             if let (Some(backdrop), Some(ghost)) = (backdrop.as_deref_mut(), &mut closing.ghost)
@@ -850,27 +943,22 @@ impl Animations {
                 closing.shown.to(0.0, close, from);
             }
         }
-        let (appear, go, shake) = (
-            self.spring(DIALOG_OPEN),
-            self.spring(DIALOG_CLOSE),
-            self.spring(SHAKE),
-        );
+        let slower = self.slower;
+        let longer = |spring: Spring| Spring::new(spring.duration * slower, spring.bounce);
+        let shake = self.spring(SHAKE);
         for dialog in &mut self.dialogs {
             if !dialog.started {
                 dialog.started = true;
-                dialog.shown.to(1.0, appear, from);
+                dialog.shown.to(1.0, longer(dialog.open), from);
             }
             if dialog.kick {
                 dialog.kick = false;
                 dialog.shake.kick(-shake.kick_for(SHAKE_REACH), shake, from);
             }
         }
-        let menu = self.spring(MENU_CLOSE);
         for closing in self.dialogs_closing.iter_mut().filter(|c| !c.started) {
             closing.started = true;
-            closing
-                .shown
-                .to(0.0, if closing.shrinks { go } else { menu }, from);
+            closing.shown.to(0.0, longer(closing.spring), from);
         }
         let genie = self.spring(GENIE);
         for g in &mut self.genies {
@@ -1094,7 +1182,7 @@ impl Animations {
             d.shake.at(at);
             if d.appearing && d.started && !d.shown.moving() {
                 d.appearing = false;
-                info!("animation: dialog appeared");
+                info!("animation: {} appeared", d.what);
             }
             if d.shaking && !d.kick && !d.shake.moving() {
                 d.shaking = false;
@@ -1139,7 +1227,7 @@ impl Animations {
         }
         for d in self.dialogs.drain(..) {
             if d.appearing {
-                info!("animation: dialog appeared");
+                info!("animation: {} appeared", d.what);
             }
             if d.shaking {
                 info!("animation: dialog shook");

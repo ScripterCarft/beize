@@ -787,6 +787,8 @@ fn run() -> Result<(), String> {
                         info!("{to:?} open");
                         if to == Open::ControlCenter {
                             app.set_input(id, Some(&control_center.input()));
+                            // Out of its button (ADR 0032 §5).
+                            app.mark_grows(id);
                         }
                         dock_menu = commands.map(|(entries, list)| (Menu::new(entries), list));
                         open = Some((to, id));

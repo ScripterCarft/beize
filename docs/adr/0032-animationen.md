@@ -126,6 +126,8 @@ enden und den Compositor weiter wecken. Heute betrifft das schon die Startblende
     je App, wie das Dock eine Kachel je App hat (`dock_icon`, doppelt gepuffert mit dem Commit
     des Docks, so bewegen sich Symbole und Rechtecke zusammen). Vorbild ist Plasmas
     `set_minimized_geometry` (früher `_KDE_NET_WM_ICON_GEOMETRY`);
+  - dass ein Popup aus seinem Knopf wächst (das Kontrollzentrum, `grows`, vor seinem ersten
+    Inhalt); der Knopf ist das Rechteck, an dem sein Positioner es verankert;
   - dass eine ihrer Flächen ein Dialog ist, der erscheint, und dass er schütteln soll. Den
     Dialog bewegt der WindowServer auch bei macOS (SecurityAgent ist ein Fenster). Sein Glas
     gehört dem Compositor und muss mitgehen.
@@ -243,6 +245,16 @@ jedes Bild auf die App warten lassen, und eine langsame App würde die Bewegung 
 Der neue Ort kommt weiter erst mit dem Commit der neuen Größe (ADR 0028 §2). Ab diesem Commit
 federt der Rahmen, nicht vorher.
 
+**Kontrollzentrum, gebaut (18.11.):** Die Shell markiert sein Popup (`beize_shell_v1.grows`).
+Mit dem ersten Inhalt wächst es um die Mitte seines Knopfs (des Ankers seines Positioners), von
+der Breite des Knopfs bis ganz, und blendet dabei ein. Inhalt, Glas, Schatten und Rauch gehen
+mit (`Pose`). Liquid-Glas hat dafür eine Deckkraft im Shader (`sigma` des Quads, das es sonst
+nicht nutzt). Geht es zu, auch mitten im Wachsen, schrumpft sein Bild mit dem Glas-Geist von dort
+zurück in den Knopf. Unterwegs gefunden: Glas meldete seine Deckkraft nicht als `alpha` seines
+Elements. Smithays Schadensverfolgung sah deshalb eine Änderung nur der Deckkraft nicht, und
+der Rauch blieb im letzten Schritt des Einblendens stehen (295 Pixel um 1 daneben). Jetzt meldet
+das Glas sie, wie der Schatten.
+
 **Bewegung reduzieren** kommt mit den Einstellungen. Dann blendet nur über, ohne Ortswechsel
 und ohne Schütteln (Apples „Reduce Motion“).
 
@@ -301,6 +313,12 @@ Vorbild:
     endet das Ausblenden („menu closes“, „menu closed“) (gebaut 18.11.; Gegenproben: Tasten
     zurückgehalten, solange ein Menü ausblendet, kam keine an; ohne Bild beim Zerstören kein
     „menu closes“).
+  - Escape, während das Kontrollzentrum aus seinem Knopf wächst, schließt es; es geht in den Knopf
+    zurück, und das endet („control center appears“, „… closes“, „… closed“, kein
+    „… appeared“) (gebaut 18.11.; Gegenproben: Tasten zurückgehalten, solange es wächst, es
+    schloss nicht; ohne `grows` der Shell kein „appears“). Die Glas-Prüfungen am Kontrollzentrum
+    messen erst, wenn es gewachsen ist („appeared“): Vorher nahmen sie ein Bild mitten im
+    Wachsen (die Seitenlinie 166 statt 205).
   - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
     Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
     enden, wechselte der Compositor in ihren 3 s 239-mal).
@@ -321,8 +339,8 @@ b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder d
    (✓ 18.11.).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
    einer transienten Unit, Öffnen aus dem Symbol (✓ 18.11.).
-d) Einrasten, Maximieren mit Überblendung (✓ 18.11.); Menü (✓ 18.11.), Kontrollzentrum,
-   Alt+Tab-Ring.
+d) Einrasten, Maximieren mit Überblendung (✓ 18.11.); Menü (✓ 18.11.), Kontrollzentrum
+   (✓ 18.11.), Alt+Tab-Ring.
 e) Messbau mit allem; der Besitzer nimmt die Werte auf der Hardware ab.
 
 ## Konsequenzen

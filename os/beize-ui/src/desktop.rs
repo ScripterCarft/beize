@@ -227,6 +227,12 @@ impl Desktop {
         self.shell.dialog(surface);
     }
 
+    /// The popup on `surface` grows out of its button and goes back
+    /// there (ADR 0032).
+    pub(crate) fn grows(&self, surface: &WlSurface) {
+        self.shell.grows(surface);
+    }
+
     /// The dialog on `surface` shakes: a wrong answer.
     pub(crate) fn shake(&self, surface: &WlSurface) {
         self.shell.shake(surface);

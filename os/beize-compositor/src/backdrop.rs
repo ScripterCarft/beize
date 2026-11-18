@@ -846,6 +846,12 @@ pub struct Ghost {
 }
 
 impl Glass {
+    /// Faded to `opacity` (a smoke while its control center grows).
+    pub fn faded(mut self, opacity: f32) -> Glass {
+        self.opacity = opacity;
+        self
+    }
+
     /// The frame blurs what lies behind it again.
     pub fn blurring(&self) -> bool {
         self.blur.is_some()
@@ -910,6 +916,12 @@ impl Element for Glass {
 
     fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
         self.region.unwrap_or(self.bounds)
+    }
+
+    /// Its opacity, so a change of it alone damages it: the last step of a
+    /// fade is drawn too (a smoke while its control center grows).
+    fn alpha(&self) -> f32 {
+        self.opacity
     }
 
     /// All of each piece but its corners: what lies below is not drawn – but

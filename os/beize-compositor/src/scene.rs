@@ -361,20 +361,27 @@ pub fn panels(
         // Its popups in front – the shell's menus, the control center –,
         // each with its glass and shadows, placed as Smithay's
         // `LayerSurface` places them.
+        // The control center grows out of its button (`animations`).
         for (popup, offset) in PopupManager::popups_for_surface(panel.wl_surface()) {
-            let at = place.loc + offset - popup.geometry().loc;
+            let popup_at = place.loc + offset - popup.geometry().loc;
+            let pose = animations.pose(
+                popup.wl_surface(),
+                Rectangle::new(popup_at, popup.geometry().size),
+                at,
+            );
             surface_with_glass(
                 renderer,
                 popup.wl_surface(),
-                at,
+                popup_at,
                 backdrop.as_deref_mut(),
-                Pose::still(),
+                pose,
                 &mut elements,
             );
             smokes.extend(
                 backdrop
                     .as_deref_mut()
-                    .and_then(|b| b.smoke(popup.wl_surface(), at)),
+                    .and_then(|b| b.smoke(popup.wl_surface(), popup_at))
+                    .map(|smoke| smoke.faded(pose.opacity)),
             );
         }
         if panel.layer() == Layer::Overlay && !numbered.is_empty() {

@@ -51,7 +51,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    weg. Noch nicht auf Hardware; dort ansehen, ob das Bild im Hals flimmert (keine Mipmaps,
    ADR 0032 §5). In d) ist Einrasten und Maximieren gebaut (18.11.): Rahmen federt ab dem Commit
    der neuen Größe, das alte Bild blendet über; Menüs blenden beim Schließen aus (Bild und
-   Glas-Geist). Weiter mit Kontrollzentrum, Alt+Tab-Ring.
+   Glas-Geist); das Kontrollzentrum wächst aus seinem Knopf (`beize_shell_v1.grows`, Liquid-Glas
+   blendet). Weiter mit dem Alt+Tab-Ring.
    Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen (Besitzer). Apple-Optik bei Bewegung
    erwünscht, wo sauber (Trichter), keine Spielerei.
 2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.

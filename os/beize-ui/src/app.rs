@@ -893,6 +893,18 @@ impl App {
         }
     }
 
+    /// The shell's popup `id` grows out of the rectangle it is anchored
+    /// to and goes back into it (the control center, ADR 0032). Before its
+    /// first content.
+    pub fn mark_grows(&mut self, id: WindowId) {
+        if let (Some(wl), Some(desktop)) = (
+            self.state.surface(id).map(|s| s.wl.clone()),
+            &self.state.desktop,
+        ) {
+            desktop.grows(&wl);
+        }
+    }
+
     /// The dialog `id` shakes: a wrong answer.
     pub fn shake(&mut self, id: WindowId) {
         if let (Some(wl), Some(desktop)) = (

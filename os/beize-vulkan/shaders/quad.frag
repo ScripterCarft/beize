@@ -433,7 +433,9 @@ void main() {
         return;
     }
     if ((flags & CLEAR) != 0u) {
-        result = clear_glass();
+        // `rounding.y` (its `sigma`): how far it has faded out (the control
+        // center coming and going, ADR 0032), 0 whole.
+        result = clear_glass() * (1.0 - rounding.y);
         return;
     }
     if ((flags & GLASS) != 0u) {

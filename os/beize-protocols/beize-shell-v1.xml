@@ -173,6 +173,15 @@
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
     </request>
+
+    <request name="grows">
+      <description summary="a popup of the shell's grows out of its button">
+        The control center (ADR 0032): it grows out of the rectangle its
+        positioner anchors it to, fading in, and goes back into it, fading
+        out. Sent before the popup's first content.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
   </interface>
 
   <interface name="beize_window_v1" version="1">

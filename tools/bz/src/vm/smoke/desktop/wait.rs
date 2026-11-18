@@ -213,6 +213,23 @@ pub(super) fn wait_for_dock(
     }
 }
 
+/// Waits until the control center that opened last has grown out of its
+/// button (ADR 0032 §5): what is measured on it is the control center at
+/// rest, not a frame of its growing.
+pub(super) fn wait_for_control_center_grown(shell: &Shell) -> Result<()> {
+    let (_, lines) = shell.capture(
+        "for i in $(seq 300); do l=$(journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -E '^animation: control center (appears|appeared|closes)$' | tail -n 1); \
+         [ \"$l\" = 'animation: control center appeared' ] && echo BEIZE-GROWN && break; \
+         sleep 0.2; done",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l == "BEIZE-GROWN"),
+        "the control center did not end growing out of its button"
+    );
+    Ok(())
+}
+
 pub(super) fn wait_for_compositor_line(shell: &Shell, line: &str) -> Result<String> {
     let (_, lines) = shell.capture(&format!(
         "for i in $(seq 300); do journalctl --user -b -u beize-compositor.service -o cat \
