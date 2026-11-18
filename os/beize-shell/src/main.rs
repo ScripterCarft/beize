@@ -1052,6 +1052,7 @@ fn show_dialog(
     };
     match app.overlay(&overlay) {
         Ok(id) => {
+            app.mark_dialog(id);
             *asking = Some((id, dialog, command));
             true
         }

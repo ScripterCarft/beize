@@ -1126,6 +1126,8 @@ impl State {
                 plate,
                 &thumbnailed,
                 &mut self.decorations,
+                &mut self.animations,
+                shown_at,
             );
         }
         let source = match &mut self.kept {
@@ -1736,6 +1738,52 @@ impl State {
             .cloned()
             .collect();
         self.animations.close(app, picture, from, behind, kept);
+        self.changed();
+    }
+
+    /// A dialog of the shell's goes (its panel destroyed, `layers`), at
+    /// `place`: its content drawn into a picture while its buffer is there,
+    /// its glass's shapes kept, both fading out (`animation`).
+    pub fn close_dialog_picture(&mut self, surface: &WlSurface, place: Rectangle<i32, Logical>) {
+        let from = self.animations.stop_dialog(surface);
+        if !surface.is_alive() || !crate::animation::is_dialog(surface) {
+            return;
+        }
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        if !gpu.shows()
+            || !with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false)
+        {
+            return;
+        }
+        let renderer = gpu.renderer();
+        let content = scene::surface(renderer, surface, place.loc);
+        let mut picture = Picture::new();
+        let anchor = crate::animation::Pose {
+            about: crate::animation::centre(place),
+            ..crate::animation::Pose::still()
+        }
+        .origin()
+        .to_f64();
+        if let Err(e) = picture.draw(renderer, content, anchor) {
+            warn!("animation: a dialog closes without its picture: {e}");
+            return;
+        }
+        let ghost = self
+            .backdrop
+            .as_ref()
+            .and_then(|b| b.ghost(surface, place.loc));
+        let mut kept = Vec::new();
+        with_surface_tree_downward(
+            surface,
+            (),
+            |_, _, &()| TraversalAction::DoChildren(()),
+            |_, states, &()| kept.extend(syncobj::keep(states)),
+            |_, _, &()| true,
+        );
+        self.animations
+            .close_dialog(picture, ghost, from, place, kept);
         self.changed();
     }
 

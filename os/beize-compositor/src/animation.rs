@@ -15,6 +15,14 @@
 //! kept until that drawing is done, so its app cannot draw into them
 //! before (`syncobj::keep`).
 //!
+//! The shell's dialogs (it marks them, `beize_shell_v1.dialog`) appear as
+//! windows open, live – their glass is blurred anew each frame from what
+//! lies behind it, it cannot be a picture: their content, glass and its
+//! shadows are drawn scaled and faded (`Pose`). Closed, their content is
+//! drawn into a picture and their glass's shapes kept (`backdrop::Ghost`),
+//! and both fade out. A wrong password shakes the dialog: a push to the
+//! side on a spring that swings back, its first swing 10 px.
+//!
 //! Each runs on a spring (`beize_draw::spring`), from the vblank before the
 //! first frame that shows it, and says in the journal when it begins and
 //! ends (§7). `BEIZE_ANIMATIONS_SLOWER` makes every spring that many times
@@ -29,9 +37,12 @@ use smithay::backend::renderer::element::{Element, Id, RenderElement, RenderElem
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::{Bind, Frame, RendererSuper, Texture};
 use smithay::desktop::Window;
-use smithay::utils::{Buffer, Physical, Point, Rectangle, Scale, Transform};
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transform};
+use smithay::wayland::compositor::with_states;
 use tracing::{info, warn};
 
+use crate::backdrop::{Backdrop, Ghost};
 use crate::corners::Effects;
 use crate::error::{Result, error};
 use crate::render::{Target, VkRenderer, VkTexture};
@@ -41,6 +52,16 @@ use crate::syncobj::Held;
 /// Opening in place and closing (macOS 26; gnome-shell takes 150 ms).
 const OPEN: Spring = Spring::new(0.3, 0.0);
 const CLOSE: Spring = Spring::new(0.25, 0.0);
+/// A dialog appears as a window opens and goes faster (ADR 0032 §5).
+const DIALOG_OPEN: Spring = Spring::new(0.3, 0.0);
+const DIALOG_CLOSE: Spring = Spring::new(0.2, 0.0);
+/// The shake after a wrong password: its first swing to the left, 10 px
+/// (some 3 % of a dialog's width), then 0.37 of the one before each half
+/// swing (macOS' authorization dialog).
+const SHAKE: Spring = Spring::new(0.15, 0.7);
+const SHAKE_REACH: f64 = 10.0;
+/// A place moves less than a quarter of a pixel: the shake has ended.
+const SHAKE_UNSEEN: f64 = 0.25;
 /// The size a window opens from and closes to, of its own.
 const SMALL: f64 = 0.94;
 /// Below half an 8-bit step of its opacity nothing more shows: there the
@@ -53,6 +74,99 @@ pub struct Animations {
     slower: f64,
     opening: Vec<Opening>,
     closing: Vec<Closing>,
+    dialogs: Vec<Dialog>,
+    dialogs_closing: Vec<DialogClosing>,
+}
+
+/// A dialog of the shell's appearing or shaking.
+struct Dialog {
+    surface: WlSurface,
+    shown: Motion,
+    started: bool,
+    appearing: bool,
+    /// Its place to the side.
+    shake: Motion,
+    shaking: bool,
+    /// A push asked for, given with the next frame.
+    kick: bool,
+}
+
+/// A dialog closed: its content's picture and its glass, fading out where
+/// it lay (`place`).
+struct DialogClosing {
+    shown: Motion,
+    started: bool,
+    picture: Picture,
+    ghost: Option<Ghost>,
+    place: Rectangle<i32, Logical>,
+    kept: Vec<Held>,
+}
+
+/// How a dialog shows while it moves: scaled by `scale` about `about`,
+/// faded to `opacity`, `shift` pixels to the side.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pose {
+    pub scale: f64,
+    pub about: Point<f64, Physical>,
+    pub opacity: f32,
+    pub shift: i32,
+}
+
+impl Pose {
+    /// As it is.
+    pub fn still() -> Pose {
+        Pose {
+            scale: 1.0,
+            about: Point::default(),
+            opacity: 1.0,
+            shift: 0,
+        }
+    }
+
+    pub fn is_still(&self) -> bool {
+        self.scale == 1.0 && self.opacity == 1.0 && self.shift == 0
+    }
+
+    /// Where `rect` shows: moved by the shift, scaled about the anchor moved
+    /// with it.
+    pub fn rect(&self, rect: Rectangle<i32, Physical>) -> Rectangle<i32, Physical> {
+        let mut moved = rect;
+        moved.loc.x += self.shift;
+        scaled(moved, self.origin().to_f64(), self.scale)
+    }
+
+    /// The anchor, moved by the shift, on a whole pixel: what a surface's
+    /// elements scale about (`RescaleRenderElement`).
+    pub fn origin(&self) -> Point<i32, Physical> {
+        Point::from((
+            (self.about.x + f64::from(self.shift)).round() as i32,
+            self.about.y.round() as i32,
+        ))
+    }
+}
+
+/// The centre of `place`, on the screen.
+pub fn centre(place: Rectangle<i32, Logical>) -> Point<f64, Physical> {
+    let place = place.to_physical(1);
+    Point::from((
+        f64::from(place.loc.x) + f64::from(place.size.w) / 2.0,
+        f64::from(place.loc.y) + f64::from(place.size.h) / 2.0,
+    ))
+}
+
+/// Marks a surface of the shell's as a dialog (`beize_shell_v1.dialog`).
+struct DialogMark;
+
+pub fn mark_dialog(surface: &WlSurface) {
+    with_states(surface, |states| {
+        states.data_map.insert_if_missing_threadsafe(|| DialogMark);
+    });
+}
+
+pub fn is_dialog(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        states.data_map.get::<DialogMark>().is_some()
+    })
 }
 
 struct Opening {
@@ -92,7 +206,132 @@ impl Animations {
             slower,
             opening: Vec::new(),
             closing: Vec::new(),
+            dialogs: Vec::new(),
+            dialogs_closing: Vec::new(),
         }
+    }
+
+    /// A dialog of the shell's shows for the first time: it appears from
+    /// its next frame.
+    pub fn appear(&mut self, surface: &WlSurface) {
+        if self.dialogs.iter().any(|d| d.surface == *surface) {
+            return;
+        }
+        info!("animation: dialog appears");
+        self.dialogs.push(Dialog {
+            surface: surface.clone(),
+            shown: Motion::new(0.0, UNSEEN),
+            started: false,
+            appearing: true,
+            shake: Motion::new(0.0, SHAKE_UNSEEN),
+            shaking: false,
+            kick: false,
+        });
+    }
+
+    /// The shell asks a dialog to shake: from its next frame.
+    pub fn shake(&mut self, surface: &WlSurface) {
+        info!("animation: dialog shakes");
+        if let Some(dialog) = self.dialogs.iter_mut().find(|d| d.surface == *surface) {
+            dialog.kick = true;
+            dialog.shaking = true;
+            return;
+        }
+        self.dialogs.push(Dialog {
+            surface: surface.clone(),
+            shown: Motion::new(1.0, UNSEEN),
+            started: true,
+            appearing: false,
+            shake: Motion::new(0.0, SHAKE_UNSEEN),
+            shaking: true,
+            kick: true,
+        });
+    }
+
+    /// How a frame shown `at` draws `surface`, a panel at `place`: as it
+    /// is, or as its dialog moves.
+    pub fn pose(
+        &mut self,
+        surface: &WlSurface,
+        place: Rectangle<i32, Logical>,
+        at: Duration,
+    ) -> Pose {
+        let Some(dialog) = self.dialogs.iter_mut().find(|d| d.surface == *surface) else {
+            return Pose::still();
+        };
+        let shown = dialog.shown.at(at).clamp(0.0, 1.0);
+        let shift = dialog.shake.at(at).round() as i32;
+        Pose {
+            scale: SMALL + (1.0 - SMALL) * shown,
+            about: centre(place),
+            opacity: shown as f32,
+            shift,
+        }
+    }
+
+    /// A dialog goes: how far it was shown, for its closing.
+    pub fn stop_dialog(&mut self, surface: &WlSurface) -> Option<Motion> {
+        let i = self.dialogs.iter().position(|d| d.surface == *surface)?;
+        Some(self.dialogs.remove(i).shown)
+    }
+
+    /// A dialog closed at `place`: its content drawn into `picture`, its
+    /// glass's `ghost`, its buffers `kept` until the picture is drawn.
+    pub fn close_dialog(
+        &mut self,
+        picture: Picture,
+        ghost: Option<Ghost>,
+        from: Option<Motion>,
+        place: Rectangle<i32, Logical>,
+        kept: Vec<Held>,
+    ) {
+        info!("animation: dialog closes");
+        self.dialogs_closing.push(DialogClosing {
+            shown: from.unwrap_or_else(|| Motion::new(1.0, UNSEEN)),
+            started: false,
+            picture,
+            ghost,
+            place,
+            kept,
+        });
+    }
+
+    /// The closed dialogs as a frame shown `at` draws them, front to back,
+    /// each with its place: content, then its glass's shadows and glass.
+    pub fn dialogs_closing(
+        &mut self,
+        renderer: &mut VkRenderer,
+        mut backdrop: Option<&mut Backdrop>,
+        at: Duration,
+    ) -> Vec<(Rectangle<i32, Logical>, Vec<scene::Element>)> {
+        let mut drawn = Vec::new();
+        for closing in self.dialogs_closing.iter_mut().rev() {
+            let shown = closing.shown.at(at).clamp(0.0, 1.0);
+            if !closing.shown.moving() {
+                continue;
+            }
+            let pose = Pose {
+                scale: SMALL + (1.0 - SMALL) * shown,
+                about: centre(closing.place),
+                opacity: shown as f32,
+                shift: 0,
+            };
+            let mut elements: Vec<scene::Element> = closing
+                .picture
+                .element(shown)
+                .map(scene::Element::Picture)
+                .into_iter()
+                .collect();
+            if let (Some(backdrop), Some(ghost)) = (backdrop.as_deref_mut(), &mut closing.ghost)
+                && let Some((glass, shadows)) =
+                    backdrop.ghost_glass(renderer, ghost, closing.place.loc, pose)
+            {
+                elements.extend(shadows.into_iter().map(scene::Element::Shadow));
+                elements.push(scene::Element::Glass(glass));
+            }
+            drawn.push((closing.place, elements));
+        }
+        drawn
     }
 
     fn spring(&self, spring: Spring) -> Spring {
@@ -161,6 +400,25 @@ impl Animations {
                 closing.shown.to(0.0, close, from);
             }
         }
+        let (appear, go, shake) = (
+            self.spring(DIALOG_OPEN),
+            self.spring(DIALOG_CLOSE),
+            self.spring(SHAKE),
+        );
+        for dialog in &mut self.dialogs {
+            if !dialog.started {
+                dialog.started = true;
+                dialog.shown.to(1.0, appear, from);
+            }
+            if dialog.kick {
+                dialog.kick = false;
+                dialog.shake.kick(-shake.kick_for(SHAKE_REACH), shake, from);
+            }
+        }
+        for closing in self.dialogs_closing.iter_mut().filter(|c| !c.started) {
+            closing.started = true;
+            closing.shown.to(0.0, go, from);
+        }
     }
 
     /// What a frame shown `at` draws of `window`: its `own` elements, or
@@ -223,10 +481,15 @@ impl Animations {
     /// Once a frame went to the GPU: the buffers of closed windows, whose
     /// pictures it drew, to be kept until it is done.
     pub fn drawn(&mut self) -> Vec<Held> {
-        self.closing
+        let windows = self
+            .closing
             .iter_mut()
-            .flat_map(|c| std::mem::take(&mut c.kept))
-            .collect()
+            .flat_map(|c| std::mem::take(&mut c.kept));
+        let dialogs = self
+            .dialogs_closing
+            .iter_mut()
+            .flat_map(|c| std::mem::take(&mut c.kept));
+        windows.chain(dialogs).collect()
     }
 
     /// Ends what is done by `at`.
@@ -247,6 +510,27 @@ impl Animations {
             }
             going
         });
+        self.dialogs.retain_mut(|d| {
+            d.shown.at(at);
+            d.shake.at(at);
+            if d.appearing && d.started && !d.shown.moving() {
+                d.appearing = false;
+                info!("animation: dialog appeared");
+            }
+            if d.shaking && !d.kick && !d.shake.moving() {
+                d.shaking = false;
+                info!("animation: dialog shook");
+            }
+            d.appearing || d.shaking
+        });
+        self.dialogs_closing.retain_mut(|c| {
+            c.shown.at(at);
+            let going = !c.started || c.shown.moving();
+            if !going {
+                info!("animation: dialog closed");
+            }
+            going
+        });
     }
 
     /// Without a screen nothing shows them: all end at once (ADR 0032 §3).
@@ -257,11 +541,25 @@ impl Animations {
         for c in self.closing.drain(..) {
             info!("animation: {} closed", c.app);
         }
+        for d in self.dialogs.drain(..) {
+            if d.appearing {
+                info!("animation: dialog appeared");
+            }
+            if d.shaking {
+                info!("animation: dialog shook");
+            }
+        }
+        for _ in self.dialogs_closing.drain(..) {
+            info!("animation: dialog closed");
+        }
     }
 
     /// Whether one is under way: it asks for the next frame.
     pub fn moving(&self) -> bool {
-        !self.opening.is_empty() || !self.closing.is_empty()
+        !self.opening.is_empty()
+            || !self.closing.is_empty()
+            || !self.dialogs.is_empty()
+            || !self.dialogs_closing.is_empty()
     }
 }
 
@@ -445,6 +743,27 @@ mod tests {
         assert!(centre_y > 250.0);
     }
 
+    #[test]
+    fn a_dialog_pose_moves_scales_and_stays() {
+        let place = rect(100, 100, 400, 200);
+        assert_eq!(Pose::still().rect(place), place);
+        assert!(Pose::still().is_still());
+        let shaken = Pose {
+            shift: -10,
+            about: Point::from((300.0, 200.0)),
+            ..Pose::still()
+        };
+        assert_eq!(shaken.rect(place), rect(90, 100, 400, 200));
+        assert!(!shaken.is_still());
+        // Small, about its centre: 94 % of 400 x 200.
+        let small = Pose {
+            scale: SMALL,
+            about: Point::from((300.0, 200.0)),
+            ..Pose::still()
+        };
+        assert_eq!(small.rect(place), rect(112, 106, 376, 188));
+    }
+
     fn closing(animations: &mut Animations) {
         animations.close("app".into(), Picture::new(), None, Vec::new(), Vec::new());
     }
@@ -467,6 +786,8 @@ mod tests {
             slower: 1.0,
             opening: Vec::new(),
             closing: Vec::new(),
+            dialogs: Vec::new(),
+            dialogs_closing: Vec::new(),
         };
         closing(&mut animations);
         assert!(animations.moving());
@@ -477,6 +798,8 @@ mod tests {
             slower: 10.0,
             opening: Vec::new(),
             closing: Vec::new(),
+            dialogs: Vec::new(),
+            dialogs_closing: Vec::new(),
         };
         closing(&mut slower);
         let slow = ends(&mut slower);
@@ -492,6 +815,8 @@ mod tests {
             slower: 1.0,
             opening: Vec::new(),
             closing: Vec::new(),
+            dialogs: Vec::new(),
+            dialogs_closing: Vec::new(),
         };
         closing(&mut animations);
         animations.start(ms(1), ms(1));
@@ -505,6 +830,8 @@ mod tests {
             slower: 1.0,
             opening: Vec::new(),
             closing: Vec::new(),
+            dialogs: Vec::new(),
+            dialogs_closing: Vec::new(),
         };
         closing(&mut animations);
         animations.start(ms(16), ms(16));

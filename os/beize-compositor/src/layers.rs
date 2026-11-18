@@ -79,6 +79,10 @@ impl WlrLayerShellHandler for State {
         if self.display.get_client(surface.wl_surface().id()).is_err() {
             self.keep_panels();
         }
+        // A dialog goes as its picture, while its buffer is there.
+        if let Some(place) = place_of(self, gone) {
+            self.close_dialog_picture(gone, place);
+        }
         {
             let mut map = layer_map_for_output(&output);
             let gone = map
@@ -159,6 +163,10 @@ fn overlay_opened(state: &mut State, output: &Output, surface: &WlSurface) {
         states.data_map.insert_if_missing_threadsafe(|| Opened)
     });
     if first {
+        // A dialog of the shell's appears (ADR 0032).
+        if crate::animation::is_dialog(surface) && state.shows() {
+            state.animations.appear(surface);
+        }
         if takes {
             state.give_overlay_keyboard(surface.clone());
         }

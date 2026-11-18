@@ -271,7 +271,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     /// `rim` of light (premultiplied; alpha 0: none; `flat_rim`: one line of it,
     /// the same all round); or, `liquid`, as
     /// liquid glass – its curved edge, tone and line of light. In `dst`, cut to its
-    /// `damage`; opaque but at the corners.
+    /// `damage`; opaque but at the corners, and but while it fades
+    /// (`opacity`; liquid glass does not).
     #[allow(clippy::too_many_arguments)]
     pub fn draw_glass(
         &mut self,
@@ -285,6 +286,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         rim: [f32; 4],
         flat_rim: bool,
         liquid: Option<Liquid>,
+        opacity: f32,
     ) {
         let size = glass.0.size;
         if covers.size.w <= 0 || covers.size.h <= 0 {
@@ -330,6 +332,10 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             quad.clip = clip;
             quad.radius = radius;
             quad.sigma = grain;
+            let fading = opacity < 1.0 && liquid.is_none();
+            if fading {
+                quad.bottom[0] = 1.0 - opacity.clamp(0.0, 1.0);
+            }
             if let Some(liquid) = liquid {
                 // A pixel of the screen in the glass's normalised
                 // coordinates: the refraction's and the tone's step.
@@ -342,7 +348,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
                 ];
             }
             // Opaque but where its corners let what is below show.
-            let blend = corners.iter().any(|c| overlaps(&quad, c));
+            let blend = fading || corners.iter().any(|c| overlaps(&quad, c));
             self.recorded.quads.push(quad);
             self.recorded.blend.push(blend);
         }

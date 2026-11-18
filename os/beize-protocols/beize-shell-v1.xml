@@ -125,6 +125,23 @@
       </description>
     </event>
 
+    <request name="dialog">
+      <description summary="a surface of the shell's is a dialog">
+        It appears and goes as one (ADR 0032): growing in from 94 % as it
+        fades in, shrinking as it fades out, its glass with it. Sent before
+        the surface's first content.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="shake">
+      <description summary="the dialog shakes">
+        A wrong answer (a password): the dialog shakes to the side and back,
+        as macOS' authorization dialog. Only a dialog shakes.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
     <request name="clear_thumbnails">
       <description summary="no windows' pictures on a surface">
         None of the pictures asked for before (beize_window_v1.show_thumbnail)

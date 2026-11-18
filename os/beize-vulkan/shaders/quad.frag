@@ -439,7 +439,10 @@ void main() {
     if ((flags & GLASS) != 0u) {
         vec4 sampled = textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
                                   uv * texel, 0.0);
-        result = glass(sampled) * inside(gl_FragCoord.xy, clip, rounding.x);
+        // `bottom.x`: how far it has faded out (a dialog coming and going,
+        // ADR 0032), 0 whole.
+        result = glass(sampled) * inside(gl_FragCoord.xy, clip, rounding.x)
+            * (1.0 - bottom.x);
         return;
     }
     if ((flags & (STROKE | TRIANGLE)) != 0u) {

@@ -830,6 +830,27 @@ impl App {
 
     /// The compositor draws these windows' live pictures on `id`, each in its
     /// rectangle; applies with its next draw.
+    /// The shell's window `id` is a dialog: the compositor shows it
+    /// appearing and going (ADR 0032). Before its first content.
+    pub fn mark_dialog(&mut self, id: WindowId) {
+        if let (Some(wl), Some(desktop)) = (
+            self.state.surface(id).map(|s| s.wl.clone()),
+            &self.state.desktop,
+        ) {
+            desktop.dialog(&wl);
+        }
+    }
+
+    /// The dialog `id` shakes: a wrong answer.
+    pub fn shake(&mut self, id: WindowId) {
+        if let (Some(wl), Some(desktop)) = (
+            self.state.surface(id).map(|s| s.wl.clone()),
+            &self.state.desktop,
+        ) {
+            desktop.shake(&wl);
+        }
+    }
+
     pub fn show_thumbnails(
         &mut self,
         id: WindowId,

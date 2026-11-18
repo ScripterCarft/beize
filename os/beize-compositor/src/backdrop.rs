@@ -38,6 +38,7 @@ use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, T
 use smithay::wayland::compositor::with_states;
 use std::sync::{Arc, Mutex};
 
+use crate::animation::Pose;
 use crate::corners::{Effects, Shadow};
 use crate::glass::{self, GlassState, Shape, Smoke};
 use beize_vulkan::pipeline::corner_extent;
@@ -343,6 +344,7 @@ impl Backdrop {
             region: None,
             blur: None,
             smoke: None,
+            opacity: 1.0,
         }
     }
 
@@ -374,6 +376,7 @@ impl Backdrop {
             region: None,
             blur: None,
             smoke: None,
+            opacity: 1.0,
         }
     }
 
@@ -422,10 +425,10 @@ impl Backdrop {
         renderer: &mut VkRenderer,
         surface: &WlSurface,
         at: Point<i32, Logical>,
+        pose: Pose,
     ) -> Option<(Glass, Vec<Shadow>)> {
-        let (state, drawn) = self.drawn(surface, at);
+        let (state, drawn) = self.drawn(surface, at, pose);
         let drawn = drawn?;
-        let (id, commit, shadow_ids) = (drawn.id, drawn.commit, drawn.shadows);
         // An app's glass stays on its surface.
         let own = state.confined.then(|| {
             Rectangle::from_size(
@@ -434,6 +437,53 @@ impl Backdrop {
                     .unwrap_or_default(),
             )
         });
+        let ids = (drawn.id, drawn.commit, drawn.shadows);
+        self.glass_of(renderer, surface, &state, own, ids, at, pose)
+    }
+
+    /// What is left of `surface`'s glass at `at` once its surface goes (a
+    /// dialog closing, `animation`): shown as it was, by its own ids.
+    pub fn ghost(&self, surface: &WlSurface, at: Point<i32, Logical>) -> Option<Ghost> {
+        let (state, _) = self.drawn(surface, at, Pose::still());
+        if state.shapes.is_empty() {
+            return None;
+        }
+        Some(Ghost {
+            surface: surface.clone(),
+            shadows: state.shapes.iter().map(|_| Id::new()).collect(),
+            state,
+            id: Id::new(),
+            commit: CommitCounter::default(),
+        })
+    }
+
+    /// A ghost's glass at `at`, as `pose` shows it.
+    pub fn ghost_glass(
+        &mut self,
+        renderer: &mut VkRenderer,
+        ghost: &mut Ghost,
+        at: Point<i32, Logical>,
+        pose: Pose,
+    ) -> Option<(Glass, Vec<Shadow>)> {
+        ghost.commit.increment();
+        let ids = (ghost.id.clone(), ghost.commit, ghost.shadows.clone());
+        let surface = ghost.surface.clone();
+        self.glass_of(renderer, &surface, &ghost.state, None, ids, at, pose)
+    }
+
+    /// The glass of `state` at `at`, cut to `own` (an app's), by `ids`
+    /// (its own, its commit, its shadows'), as `pose` shows it.
+    #[allow(clippy::too_many_arguments)]
+    fn glass_of(
+        &mut self,
+        renderer: &mut VkRenderer,
+        surface: &WlSurface,
+        state: &GlassState,
+        own: Option<Rectangle<i32, Logical>>,
+        (id, commit, shadow_ids): (Id, CommitCounter, Vec<Id>),
+        at: Point<i32, Logical>,
+        pose: Pose,
+    ) -> Option<(Glass, Vec<Shadow>)> {
         let pieces: Vec<Piece> = state
             .shapes
             .iter()
@@ -444,8 +494,8 @@ impl Backdrop {
             .map(|(shape, mut rect)| {
                 rect.loc += at;
                 Piece {
-                    rect: rect.to_physical(1),
-                    radius: shape.radius,
+                    rect: pose.rect(rect.to_physical(1)),
+                    radius: shape.radius * pose.scale as f32,
                     rim: if shape.rim {
                         self.appearance.rim(state.material)
                     } else {
@@ -471,7 +521,10 @@ impl Backdrop {
             pieces
                 .iter()
                 .zip(shadow_ids)
-                .map(|(p, id)| Shadow::below_glass(id, commit, p.rect, p.radius, state.material))
+                .map(|(p, id)| {
+                    Shadow::below_glass(id, commit, p.rect, p.radius, state.material)
+                        .faded(pose.opacity)
+                })
                 .collect()
         } else {
             Vec::new()
@@ -489,6 +542,7 @@ impl Backdrop {
             region: None,
             blur: None,
             smoke: None,
+            opacity: pose.opacity,
         };
         Some((glass, shadows))
     }
@@ -500,7 +554,7 @@ impl Backdrop {
     /// is blurred it shows nothing: never the sharp background over what
     /// lies behind it.
     pub fn smoke(&mut self, surface: &WlSurface, at: Point<i32, Logical>) -> Option<Glass> {
-        let (state, drawn) = self.drawn(surface, at);
+        let (state, drawn) = self.drawn(surface, at, Pose::still());
         let (drawn, smoke) = (drawn?, state.smoke?);
         let shapes: Vec<_> = state
             .shapes
@@ -535,12 +589,18 @@ impl Backdrop {
             region: None,
             blur: None,
             smoke: Some(Mask { shapes, smoke }),
+            opacity: 1.0,
         })
     }
 
     /// The glass state of `surface` at `at`, and its ids and commit, which
     /// counts each change of what it is drawn for.
-    fn drawn(&self, surface: &WlSurface, at: Point<i32, Logical>) -> (GlassState, Option<Ids>) {
+    fn drawn(
+        &self,
+        surface: &WlSurface,
+        at: Point<i32, Logical>,
+        pose: Pose,
+    ) -> (GlassState, Option<Ids>) {
         with_states(surface, |states| {
             let state = states.cached_state.get::<GlassState>().current().clone();
             states
@@ -551,7 +611,7 @@ impl Backdrop {
                 let key = (!state.shapes.is_empty()).then(|| {
                     let shapes = state.shapes.clone();
                     let look = (state.material, state.shadow, state.smoke);
-                    (shapes, look, at, self.generation)
+                    (shapes, look, at, self.generation, pose)
                 });
                 if drawn.last != key {
                     drawn.last = key;
@@ -637,6 +697,7 @@ type DrawnFor = (
     (glass::Material, bool, Option<Smoke>),
     Point<i32, Logical>,
     u64,
+    Pose,
 );
 
 /// What a surface's glass was last drawn for, in its data, and the ids of
@@ -770,6 +831,18 @@ pub struct Glass {
     blur: Option<Arc<Mutex<LiveBlur>>>,
     /// A smoke (`Backdrop::smoke`): what its mask is made of.
     smoke: Option<Mask>,
+    /// Fades in and out with its dialog (`animation`), 1 whole.
+    opacity: f32,
+}
+
+/// The glass of a surface gone (`Backdrop::ghost`), shown while its dialog
+/// fades out.
+pub struct Ghost {
+    surface: WlSurface,
+    state: GlassState,
+    id: Id,
+    commit: CommitCounter,
+    shadows: Vec<Id>,
 }
 
 impl Glass {
@@ -843,7 +916,7 @@ impl Element for Glass {
     /// when the frame blurs it again, which reads what lies below, or when
     /// it has nothing to show.
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        if self.blur.is_some() || self.texture.is_none() {
+        if self.blur.is_some() || self.texture.is_none() || self.opacity < 1.0 {
             return OpaqueRegions::default();
         }
         let origin = self.geometry(scale).loc;
@@ -924,6 +997,7 @@ impl<R: Effects> RenderElement<R> for Glass {
                 piece.rim,
                 flat,
                 liquid,
+                self.opacity,
             );
         }
         Ok(())

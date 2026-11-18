@@ -206,6 +206,16 @@ impl Desktop {
         }
     }
 
+    /// `surface` is a dialog: it appears and goes as one (ADR 0032).
+    pub(crate) fn dialog(&self, surface: &WlSurface) {
+        self.shell.dialog(surface);
+    }
+
+    /// The dialog on `surface` shakes: a wrong answer.
+    pub(crate) fn shake(&self, surface: &WlSurface) {
+        self.shell.shake(surface);
+    }
+
     /// The user chose command `command` of the window's menus.
     pub(crate) fn menu_activate(&self, id: DesktopWindowId, command: u32) {
         if let Some(entry) = self.entries.iter().find(|e| e.pending.id == id) {

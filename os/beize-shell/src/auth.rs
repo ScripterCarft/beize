@@ -273,6 +273,8 @@ impl Auth {
                 }
                 Said::Done(false) => {
                     info!("authentication: failed");
+                    // With PAM's verdict, after its wait, as macOS shakes.
+                    app.shake(asking.window);
                     if !asking.pam_error {
                         note(app, asking, Some((TRY_AGAIN.to_owned(), true)));
                     }
@@ -468,6 +470,7 @@ fn open(
         Ok(window) => window,
         Err(e) => return Err(format!("its window: {e}")),
     };
+    app.mark_dialog(window);
     Ok(Asking {
         request,
         user,

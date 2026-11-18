@@ -93,6 +93,9 @@ pub(super) fn authentication(
     // right one alone then has to pass.
     keys(qmp, &german_presses(WRONG)?)?;
     wait_for_shell_count(shell, "authentication: failed", 1)?;
+    // With the verdict it shook, and the shake ended (ADR 0032).
+    wait_for_compositor_line(shell, "animation: dialog shakes")?;
+    wait_for_compositor_line(shell, "animation: dialog shook")?;
     thread::sleep(Duration::from_millis(500));
     self::screen(machine, "auth-failed")?.write_png(&machine.logs.join("auth-failed.png"))?;
     ensure!(
@@ -108,9 +111,12 @@ pub(super) fn authentication(
         ran == ["run0 0"],
         "run0 did not run with the password from the dialog: {ran:?}"
     );
+    // It appeared and went as a dialog, as the shell marked it.
+    wait_for_compositor_line(shell, "animation: dialog appeared")?;
+    wait_for_compositor_line(shell, "animation: dialog closed")?;
     say!(
         "  ok: run0 in the terminal asked in the dialog (\"{}…{}\"); a wrong password kept \
-         it open, the right one alone let run0 run",
+         it open and shook it, the right one alone let run0 run; it appeared and went animated",
         ASKS.0,
         ASKS.1
     );

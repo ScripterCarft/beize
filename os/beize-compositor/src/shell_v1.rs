@@ -452,6 +452,15 @@ impl Dispatch<BeizeShellV1, ()> for State {
                     _ => Appearance::Light,
                 });
             }
+            beize_shell_v1::Request::Dialog { surface } => {
+                crate::animation::mark_dialog(&surface);
+            }
+            beize_shell_v1::Request::Shake { surface } => {
+                if crate::animation::is_dialog(&surface) && state.shows() {
+                    state.animations.shake(&surface);
+                    state.changed();
+                }
+            }
             beize_shell_v1::Request::ClearThumbnails { surface } => {
                 crate::switcher::set_pending(&surface, |t| t.0.clear());
             }

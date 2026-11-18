@@ -47,6 +47,21 @@ impl Spring {
         2.0 * self.zeta() * self.omega()
     }
 
+    /// The velocity of a push from rest whose first swing reaches `reach`
+    /// (the shake's 10 px, ADR 0032 §5): the peak of `v·e^(−ζωt)·sin(ω_d t)/ω_d`,
+    /// or with critical damping of `v·t·e^(−ωt)`.
+    pub fn kick_for(self, reach: f64) -> f64 {
+        let (w, z) = (self.omega(), self.zeta());
+        let peak = if z < 1.0 {
+            let wd = w * (1.0 - z * z).sqrt();
+            let t = (wd / (z * w)).atan() / wd;
+            (-z * w * t).exp() * (wd * t).sin() / wd
+        } else {
+            1.0 / (E * w)
+        };
+        reach / peak
+    }
+
     /// Offset `y` from the target and velocity `v`, `t` seconds on.
     fn solve(self, y: f64, v: f64, t: f64) -> (f64, f64) {
         let (w, z) = (self.omega(), self.zeta());
@@ -296,6 +311,18 @@ mod tests {
         }
         assert!(crossed && m.at(Duration::from_millis(n)) == 0.0);
         assert!(n < 1000, "{n} ms");
+    }
+
+    #[test]
+    fn a_kick_for_a_reach_swings_that_far_first() {
+        for spring in [Spring::new(0.15, 0.7), Spring::new(0.3, 0.0)] {
+            let mut m = Motion::new(0.0, 1e-9);
+            m.kick(spring.kick_for(10.0), spring, Duration::ZERO);
+            let first = (1..400)
+                .map(|n| m.at(Duration::from_micros(n * 250)))
+                .fold(0.0, f64::max);
+            assert!((first - 10.0).abs() < 0.01, "{spring:?}: {first}");
+        }
     }
 
     #[test]

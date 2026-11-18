@@ -23,7 +23,7 @@ use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 use smithay::wayland::shell::wlr_layer::Layer;
 use tracing::warn;
 
-use crate::animation::Animations;
+use crate::animation::{Animations, Pose};
 use crate::backdrop::{Appearance, Backdrop, LiveGlass};
 use crate::corners::{Rounded, Shadow};
 use crate::decorations::Decorations;
@@ -58,6 +58,7 @@ mod element {
         Veil=SolidColorRenderElement,
         Cursor=MemoryRenderBufferRenderElement<R>,
         Surface=WaylandSurfaceRenderElement<R>,
+        Moved=RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
         Picture=PictureElement,
@@ -119,6 +120,7 @@ pub fn windows(
                 backdrop
                     .as_deref_mut()
                     .filter(|_| popup_glass <= MAX_POPUP_GLASS),
+                Pose::still(),
                 elements,
             );
         }
@@ -321,7 +323,9 @@ fn thumbnail(
 
 /// The panels, front to back, each with the glass it asked for below it
 /// (with a `backdrop`; the menu bar's gives way to the `plate`), and on an
-/// overlay the windows' pictures it asked for (of `numbered`).
+/// overlay the windows' pictures it asked for (of `numbered`). Dialogs as
+/// they move at `at`, and in front of all those closed (`animations`).
+#[allow(clippy::too_many_arguments)]
 pub fn panels(
     renderer: &mut VkRenderer,
     output: &WlOutput,
@@ -329,9 +333,20 @@ pub fn panels(
     plate: Option<Rectangle<i32, Logical>>,
     numbered: &[(u64, Window)],
     decorations: &mut Decorations,
+    animations: &mut Animations,
+    at: Duration,
 ) -> Vec<PanelFrame> {
+    let mut drawn: Vec<PanelFrame> = animations
+        .dialogs_closing(renderer, backdrop.as_deref_mut(), at)
+        .into_iter()
+        .map(|(place, elements)| PanelFrame {
+            place,
+            upper: true,
+            overlay: true,
+            elements,
+        })
+        .collect();
     let map = layer_map_for_output(output);
-    let mut drawn = Vec::new();
     // The map lists them back to front.
     for panel in map.layers().rev() {
         let Some(place) = map.layer_geometry(panel) else {
@@ -351,6 +366,7 @@ pub fn panels(
                 popup.wl_surface(),
                 at,
                 backdrop.as_deref_mut(),
+                Pose::still(),
                 &mut elements,
             );
             smokes.extend(
@@ -372,11 +388,13 @@ pub fn panels(
         let mut own = backdrop
             .as_deref_mut()
             .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)));
+        let pose = animations.pose(panel.wl_surface(), place, at);
         surface_with_glass(
             renderer,
             panel.wl_surface(),
             place.loc,
             own.as_deref_mut(),
+            pose,
             &mut elements,
         );
         smokes.extend(own.and_then(|b| b.smoke(panel.wl_surface(), place.loc)));
@@ -391,15 +409,13 @@ pub fn panels(
     drawn
 }
 
-/// The surface tree of `surface` at `at`, then the glass's shadows and the
-/// glass it asked for below it (with a `backdrop`), added to `elements`.
-fn surface_with_glass(
+/// The surface tree of `surface` at `at`: a dialog's content for its
+/// picture as it closes (`animation`).
+pub fn surface(
     renderer: &mut VkRenderer,
     surface: &WlSurface,
     at: Point<i32, Logical>,
-    backdrop: Option<&mut Backdrop>,
-    elements: &mut Vec<Element>,
-) {
+) -> Vec<Element> {
     let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> = render_elements_from_surface_tree(
         renderer,
         surface,
@@ -408,8 +424,42 @@ fn surface_with_glass(
         1.0,
         Kind::Unspecified,
     );
-    elements.extend(surfaces.into_iter().map(Element::Surface));
-    if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(renderer, surface, at)) {
+    surfaces.into_iter().map(Element::Surface).collect()
+}
+
+/// The surface tree of `surface` at `at`, then the glass's shadows and the
+/// glass it asked for below it (with a `backdrop`), added to `elements`; all
+/// as `pose` shows them (a dialog moving).
+fn surface_with_glass(
+    renderer: &mut VkRenderer,
+    surface: &WlSurface,
+    at: Point<i32, Logical>,
+    backdrop: Option<&mut Backdrop>,
+    pose: Pose,
+    elements: &mut Vec<Element>,
+) {
+    let mut place = at.to_physical(1);
+    place.x += pose.shift;
+    let surfaces: Vec<WaylandSurfaceRenderElement<VkRenderer>> = render_elements_from_surface_tree(
+        renderer,
+        surface,
+        place,
+        Scale::from(1.0),
+        pose.opacity,
+        Kind::Unspecified,
+    );
+    if pose.is_still() {
+        elements.extend(surfaces.into_iter().map(Element::Surface));
+    } else {
+        elements.extend(surfaces.into_iter().map(|s| {
+            Element::Moved(RescaleRenderElement::from_element(
+                s,
+                pose.origin(),
+                pose.scale,
+            ))
+        }));
+    }
+    if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(renderer, surface, at, pose)) {
         // Its shadows in front of it, so they are not part of what it shows
         // (live glass blurs what was drawn behind it): they fall only outside
         // it (`draw_shadow`).

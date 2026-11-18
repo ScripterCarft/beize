@@ -110,6 +110,7 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         rim: [f32; 4],
         flat_rim: bool,
         liquid: Option<Liquid>,
+        opacity: f32,
     );
     /// Blurs what the frame drew so far in `region` (live glass,
     /// `VkFrame::blur_behind`); the glass, ready for what is drawn after.
@@ -165,9 +166,10 @@ impl Effects for VkRenderer {
         rim: [f32; 4],
         flat_rim: bool,
         liquid: Option<Liquid>,
+        opacity: f32,
     ) {
         frame.draw_glass(
-            dst, damage, shape, radius, glass, covers, grain, rim, flat_rim, liquid,
+            dst, damage, shape, radius, glass, covers, grain, rim, flat_rim, liquid, opacity,
         );
     }
 }
@@ -319,6 +321,8 @@ pub struct Shadow {
     caster: Rectangle<i32, Physical>,
     radius: i32,
     look: Look,
+    /// Fades with what casts it (a dialog coming and going).
+    opacity: f32,
 }
 
 /// What a window's shadow was last drawn for, in its user data.
@@ -355,6 +359,7 @@ impl Shadow {
             caster: frame.to_physical(1),
             radius: RADIUS,
             look: if active { ACTIVE } else { INACTIVE },
+            opacity: 1.0,
         }
     }
 
@@ -381,7 +386,14 @@ impl Shadow {
                 crate::glass::Material::Clear | crate::glass::Material::Liquid => LIQUID,
                 _ => TILE,
             },
+            opacity: 1.0,
         }
+    }
+
+    /// As faded as what casts it.
+    pub fn faded(mut self, opacity: f32) -> Shadow {
+        self.opacity = opacity.clamp(0.0, 1.0);
+        self
     }
 
     /// Where the shadow falls: the frame, moved down, three sigmas around.
@@ -446,7 +458,7 @@ impl<R: Effects> RenderElement<R> for Shadow {
         // which lies lower by the offset.
         let mut cover = self.caster;
         cover.loc += offset;
-        let a = self.look.alpha;
+        let a = self.look.alpha * self.opacity;
         R::draw_shadow(
             frame,
             dst,
