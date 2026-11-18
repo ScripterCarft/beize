@@ -39,11 +39,12 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 1. **Animationen nach ADR 0032** (angenommen 17.11., Entwürfe
    https://claude.ai/artifact/UUATm6qxfcen8KgjNbvDPB, danach von einem Agenten geprüft und
    eingearbeitet). Schritt a) ist gebaut: Feder in `beize-draw` (`spring`), Startblende darauf,
-   ausgewertet an `Gpu::aim`, Ende ohne Bildschirm. Von b) gebaut (17.11.): eigene Bilder des
+   ausgewertet an `Gpu::aim`, Ende ohne Bildschirm. Schritt b) ist gebaut (17.11.): eigene Bilder des
    Compositors im Bild-Submit (`animation.rs`, `render::frame::Canvas`), Fenster öffnen am Ort
    und schließen, Testfaktor `BEIZE_ANIMATIONS_SLOWER`, Journalzeilen, Smoke-Szenario
-   „Animationen“ mit Gegenproben. Offen in b): Dialog mit Erscheinen und Schütteln über
-   `beize_shell_v1` (sein Glas braucht Deckkraft und Maßstab im Shader); dann c) Trichter (Gitter im
+   „Animationen“ mit Gegenproben; 18.11. die Dialoge der Shell: erscheinen, schließen, und das
+   Schütteln bei falschem Passwort (`beize_shell_v1.dialog`/`shake`, Glas mit Deckkraft im
+   Shader). Weiter mit c) Trichter (Gitter im
    Renderer, Dock-Symbol-Rechtecke, Tokens der Shell + transiente Unit), d) Einrasten, Menü,
    Kontrollzentrum, Alt+Tab-Ring. Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen
    (Besitzer). Apple-Optik bei Bewegung erwünscht, wo sauber (Trichter), keine Spielerei.

@@ -192,6 +192,19 @@ ist 10 px (etwa 3 % der Dialogbreite) nach 32 ms. Danach fällt er je Halbschwin
 sichtbare Ausschläge, ruhig statt zappelig. Das Feld wird leer und behält die Tastatur, die
 rote Zeile erscheint. Die Bewegung unterstreicht nur, sie ist nicht das einzige Signal.
 
+**Dialoge, gebaut (18.11.):** Die Shell markiert jeden ihrer Dialoge (Neustart, Ausschalten,
+Abmelden, Anmelden) mit `beize_shell_v1.dialog` vor seinem ersten Inhalt und meldet ein falsches
+Passwort mit `shake`. Ihr Glas ist Live-Glas, das jedes Bild neu aus dem geblurrt wird, was
+dahinter liegt. Es kann deshalb nicht in ein eigenes Bild. Beim Erscheinen und Schütteln werden
+Inhalt, Glasstücke und ihre Schatten live gezeichnet, skaliert um die Mitte des Dialogs,
+verschoben und ausgeblendet (`animation::Pose`). Das Glas hat dafür eine Deckkraft im Shader
+(`bottom.x` des Quads). Liquid-Glas blendet noch nicht aus, das kommt mit dem Kontrollzentrum
+in d). Beim Schließen wird der Inhalt in ein eigenes Bild gezeichnet, solange sein Puffer da ist.
+Die Glasform bleibt als „Geist“ (`backdrop::Ghost`): Das Zerstören des Glas-Objekts gilt erst
+mit dem nächsten Commit, und der kommt nicht mehr. Beides blendet über 0,2 s aus. Der Stoß des
+Schüttelns ist so gerechnet, dass der erste Ausschlag 10 px nach links beträgt
+(`Spring::kick_for`).
+
 Größenwechsel animiert nicht den Inhalt Bild für Bild mit (wie macOS' „Zoom“). Das würde
 jedes Bild auf die App warten lassen, und eine langsame App würde die Bewegung hängen lassen.
 Der neue Ort kommt weiter erst mit dem Commit der neuen Größe (ADR 0028 §2). Ab diesem Commit
@@ -236,6 +249,9 @@ Vorbild:
     zurückgehalten, solange eine Animation läuft, kam keine an).
   - Ein Fenster, das schließt, während es aufgeht, blendet von dort aus und endet, und seine
     Bilder hören auf (gebaut).
+  - Ein falsches Passwort schüttelt den Anmelde-Dialog, das Schütteln endet, und der Dialog
+    erscheint und schließt animiert (gebaut; Gegenprobe: ohne `shake` der Shell scheiterte
+    die Prüfung).
   - Ein Klick während des Minimierens trifft das Fenster darunter (mit c).
   - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
     Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
@@ -254,7 +270,7 @@ a) Feder in `beize-draw`, Startblende darauf, Auswertung an `aim`, Ende ohne Bil
    (✓ 17.11.).
 b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder des
    Compositors; Öffnen am Ort, Schließen (✓ 17.11.); Dialog mit Erscheinen und Schütteln
-   (`beize_shell_v1`; sein Glas braucht dafür Deckkraft und Maßstab im Shader).
+   (✓ 18.11.).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
    einer transienten Unit, Öffnen aus dem Symbol.
 d) Einrasten, Maximieren mit Überblendung; Menü, Kontrollzentrum, Alt+Tab-Ring.
