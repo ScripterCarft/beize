@@ -505,7 +505,7 @@ impl App {
                 self.term.selection = Some(selection);
                 self.dirty = true;
             }
-            Command::NewWindow => beize_systemd::apps::start("beize-terminal"),
+            Command::NewWindow => beize_systemd::apps::start("beize-terminal", None),
             Command::CloseWindow => self.close = true,
         }
     }

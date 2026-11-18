@@ -21,7 +21,7 @@ use smithay::utils::{Buffer, Physical, Rectangle, Transform};
 use tracing::{debug, warn};
 
 use super::device::Ext;
-use super::geometry::{self, Mapping, Quad, Space};
+use super::geometry::{self, Mapping, Mesh, Quad, Space};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
@@ -30,7 +30,9 @@ use crate::error::{Context, Error, Result, error};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
-use beize_vulkan::pipeline::{Attachment, CLEAR, GLASS, Pipelines, SHADOW, corner_extent};
+use beize_vulkan::pipeline::{
+    Attachment, CLEAR, GLASS, Pipelines, SHADOW, STRIP, Strips, corner_extent,
+};
 
 /// Round corners for what a frame draws (`VkFrame::set_rounding`), in the
 /// framebuffer: the rectangle, the radius, the corners' squares.
@@ -54,6 +56,8 @@ pub(super) struct Recorded<'a> {
     pub quads: Vec<Quad>,
     /// Per quad: drawn with blending.
     pub blend: Vec<bool>,
+    /// The rows of meshes among the quads (`VkFrame::draw_mesh`).
+    pub strips: Vec<Strips>,
     pub textures: Vec<VkTexture>,
     /// The clients' dmabufs among `textures`.
     pub foreign: Vec<VkTexture>,
@@ -77,6 +81,7 @@ pub(super) struct Canvas {
     pub format: vk::Format,
     pub quads: Vec<Quad>,
     pub blend: Vec<bool>,
+    pub strips: Vec<Strips>,
     pub textures: Vec<VkTexture>,
     pub foreign: Vec<VkTexture>,
     pub waits: Vec<SyncPoint>,
@@ -93,6 +98,7 @@ impl Canvas {
             format: frame.target.format,
             quads: std::mem::take(&mut frame.quads),
             blend: std::mem::take(&mut frame.blend),
+            strips: std::mem::take(&mut frame.strips),
             textures: std::mem::take(&mut frame.textures),
             foreign: std::mem::take(&mut frame.foreign),
             waits: std::mem::take(&mut frame.waits),
@@ -158,6 +164,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
                 target,
                 quads: Vec::new(),
                 blend: Vec::new(),
+                strips: Vec::new(),
                 textures: Vec::new(),
                 foreign: Vec::new(),
                 waits: Vec::new(),
@@ -353,6 +360,49 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             self.recorded.blend.push(blend);
         }
         self.uses(glass);
+    }
+
+    /// A mesh of `texture` (ADR 0032, the genie), faded to `alpha`: each
+    /// two neighbouring lines a row, drawn as one strip of the mesh's
+    /// columns (`STRIP`). Drawn whole, not cut to damage – it is not made of
+    /// rectangles –: its element changes every frame, so all it covers is
+    /// damaged. Only in an untransformed framebuffer, as live glass.
+    pub fn draw_mesh(&mut self, texture: &VkTexture, mesh: &Mesh, alpha: f32) {
+        if self.space.transform != Transform::Normal || mesh.lines.len() < 2 {
+            return;
+        }
+        let size = texture.0.size;
+        let texel = [1.0 / size.w as f32, 1.0 / size.h as f32];
+        let first = self.recorded.quads.len();
+        for pair in mesh.lines.windows(2) {
+            let (top, low) = (&pair[0], &pair[1]);
+            self.recorded.quads.push(Quad {
+                pos: [top.left as f32, top.y as f32],
+                size: [(top.right - top.left) as f32, (low.y - top.y) as f32],
+                uv: [top.u[0] as f32, top.v as f32],
+                uv_x: [top.u[1] as f32, low.v as f32],
+                texel,
+                color: [1.0, 1.0, 1.0, alpha],
+                texture: texture.0.gpu.slot,
+                flags: STRIP,
+                clip: mesh.content,
+                radius: mesh.columns as f32,
+                bottom: [
+                    low.left as f32,
+                    (low.right - low.left) as f32,
+                    low.u[0] as f32,
+                    low.u[1] as f32,
+                ],
+                ..Quad::default()
+            });
+            self.recorded.blend.push(true);
+        }
+        self.recorded.strips.push(Strips {
+            first,
+            rows: mesh.lines.len() - 1,
+            columns: mesh.columns,
+        });
+        self.uses(texture);
     }
 
     /// Live glass (ADR 0028 §6): blurs what this frame has drawn so far in
@@ -629,7 +679,17 @@ pub(super) fn record_passes(
         // pipelines are its view's format's; the quads live in this frame's
         // buffer until the submission completes, and what they read was
         // drawn by an earlier pass or is filled.
-        unsafe { layouts.record(d, commands, pipelines, &attachment, address, &pass.blend) };
+        unsafe {
+            layouts.record(
+                d,
+                commands,
+                pipelines,
+                &attachment,
+                address,
+                &pass.blend,
+                &[],
+            )
+        };
         barriers(
             d,
             commands,
@@ -843,11 +903,21 @@ pub(super) fn record_frame(
                 // After the first piece, what the frame drew so far stays.
                 load: target.filled || start > 0 || n > 0,
             };
+            // The meshes' rows in this piece, counted from its start.
+            let strips: Vec<Strips> = frame
+                .strips
+                .iter()
+                .filter(|s| (start..end).contains(&s.first))
+                .map(|s| Strips {
+                    first: s.first - start,
+                    ..*s
+                })
+                .collect();
             // SAFETY: recording into this frame's command buffer, the target
             // in COLOR_ATTACHMENT_OPTIMAL (barrier above, and after each
             // copy); the pipelines are its format's, the quad buffer and
             // textures live until the submission completes; `start..end`
-            // lies within the frame's quads.
+            // lies within the frame's quads, and so do the strips.
             draws += unsafe {
                 layouts.record(
                     d,
@@ -856,6 +926,7 @@ pub(super) fn record_frame(
                     &attachment,
                     quads + (start * quad_size) as u64,
                     &frame.blend[start..end],
+                    &strips,
                 )
             };
         }
@@ -988,8 +1059,17 @@ fn record_canvas(
     // pipelines are its format's; the quads live in this frame's buffer and
     // what they read is the frame's (`Canvas::join`) until the submission
     // completes.
-    let draws =
-        unsafe { layouts.record(d, commands, pipelines, &attachment, quads, &canvas.blend) };
+    let draws = unsafe {
+        layouts.record(
+            d,
+            commands,
+            pipelines,
+            &attachment,
+            quads,
+            &canvas.blend,
+            &canvas.strips,
+        )
+    };
     barriers(
         d,
         commands,

@@ -464,6 +464,19 @@ void main() {
         result = ((flags & GRADIENT) != 0u ? gradient(gl_FragCoord.y) : color) * shown;
         return;
     }
+    if ((flags & STRIP) != 0u) {
+        // A mesh's edge, smoothed as the round corners are: the distance in
+        // pixels to where the texture's content (`clip`, in texels) ends,
+        // its texels' step per pixel taken from the derivatives – the mesh
+        // reaches a pixel past it, so the edge fades over one pixel at any
+        // slant or scale. `flags` is flat: the same for all of a quad's
+        // fragments, the derivatives are defined.
+        vec2 within = min(uv - clip.xy, clip.xy + clip.zw - uv);
+        vec2 step = vec2(length(vec2(dFdx(uv.x), dFdy(uv.x))),
+                         length(vec2(dFdx(uv.y), dFdy(uv.y))));
+        vec2 edge = clamp(within / max(step, vec2(1e-6)) + 0.5, 0.0, 1.0);
+        shown = edge.x * edge.y;
+    }
     // nonuniformEXT: neighbouring quads may show different textures.
     uint t = nonuniformEXT(texture);
     vec4 sampled;

@@ -435,14 +435,15 @@ Titelleiste und Anordnung: ADR 0028.
   `de(nodeadkeys)` zu `de` per localectl ohne Neustart des Fensters.
 - **Start** (22.10.): Strg+Alt+T öffnet jederzeit ein neues Terminal (wie Ubuntu; die Taste
   zählt wie auf einem geladenen lateinischen Layout, wie GNOME), der Desktop startet ohne
-  (ADR 0028 §6). Jedes Fenster ist eine Instanz
-  von `app-beize\x2dterminal@.service`, benannt nach systemds Desktop-Integration
+  (ADR 0028 §6). Jedes Fenster ist eine eigene transiente Unit aus
+  der Desktop-Datei der App (`Exec`, wie KDE; seit ADR 0032 §4 kommt das Token der Aktivierung in
+  ihre Umgebung), benannt nach systemds Desktop-Integration
   (`app-<App-ID>@<Zufall>.service`, Bindestriche maskiert), damit Werkzeuge die App eines
   Prozesses erkennen; nie ein Kind des Compositors (sonst erbte es seine Sandbox). Die Unit hängt
   an `graphical-session.target` (startet nach ihr, stoppt mit ihr). Bewusst ohne Sandbox: die
-  Shell des Nutzers mit seinen Rechten, wie macOS' Terminal (`security.toml` 9,2; die Ratsche
-  erfasst jetzt auch `app-*`-Units). Der Compositor ruft `StartUnit` in einem kurzen Thread mit
-  eigener Verbindung, so wartet die Bildschleife nie auf den Manager. Den sd-bus-Code teilen
+  Shell des Nutzers mit seinen Rechten, wie macOS' Terminal (eine transiente Unit steht nicht im
+  Image, die Ratsche in `security.toml` sieht sie nicht). Der Compositor ruft
+  `StartTransientUnit` in einem kurzen Thread mit eigener Verbindung, so wartet die Bildschleife nie auf den Manager. Den sd-bus-Code teilen
   Compositor und beize-session im Crate `os/beize-systemd`. Tasten, die der Compositor nimmt,
   behält er auch beim Loslassen (wie anvil und niri). Geprüft im Smoke-Szenario `Desktop`: kein
   Terminal nach dem Start, je eins nach zweimal Strg+Alt+T, keins nach dem Abmelden

@@ -1690,25 +1690,63 @@ impl State {
     /// buffers are still there (`animation`). Without a screen, nothing.
     pub fn close_picture(&mut self, window: &Window) {
         let from = self.animations.stop(window);
-        let Some(geometry) = self.space.element_geometry(window) else {
+        let Some(shot) = self.window_picture(window, false) else {
             return;
         };
-        // Fullscreen leaves at once, as it comes (ADR 0032 §5).
+        self.animations
+            .close(shot.app, shot.picture, from, shot.behind, shot.kept);
+        self.changed();
+    }
+
+    /// `window` is minimized, still placed: drawn into a picture without
+    /// its shadow, it goes into its app's symbol in the dock (`animation`,
+    /// `genie`). Whether it does: without a screen or a symbol it goes at
+    /// once.
+    pub fn minimize_picture(&mut self, window: &Window) -> bool {
+        let app = crate::windows::app_id(window);
+        let Some(icon) = self.dock_icon(&app) else {
+            return false;
+        };
+        let Some(shot) = self.window_picture(window, true) else {
+            return false;
+        };
+        if crate::genie::Genie::new(shot.picture.place(), icon).is_none() {
+            return false;
+        }
+        self.animations.minimize(
+            window,
+            shot.app,
+            icon,
+            shot.picture,
+            shot.shadow,
+            shot.behind,
+            shot.kept,
+        );
+        self.changed();
+        true
+    }
+
+    /// `window` as it shows now, drawn into a picture while its buffers are
+    /// there – its shadow in it, or `apart` –, its buffers kept until the
+    /// picture is drawn (`syncobj::keep`), and the windows that lie behind
+    /// it. None without a screen, for fullscreen, which comes and goes at
+    /// once (ADR 0032 §5), or once its client is gone – a disconnect
+    /// destroys the surface before its toplevel: nothing is left to draw,
+    /// as a crashed app's window goes on macOS.
+    fn window_picture(&mut self, window: &Window, apart: bool) -> Option<WindowShot> {
+        let geometry = self.space.element_geometry(window)?;
         if crate::windows::fullscreen(window) {
-            return;
+            return None;
         }
         let (Some(toplevel), Some(gpu)) = (window.toplevel(), self.gpu.as_mut()) else {
-            return;
+            return None;
         };
-        // Gone with its client – a disconnect destroys the surface before
-        // its toplevel –: nothing left to draw, as a crashed app's window
-        // goes on macOS.
         let surface = toplevel.wl_surface();
         if !gpu.shows()
             || !surface.is_alive()
             || !with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false)
         {
-            return;
+            return None;
         }
         let app = crate::windows::app_id(window);
         let renderer = gpu.renderer();
@@ -1717,11 +1755,14 @@ impl State {
             .elements(renderer, &[(window.clone(), geometry)])
             .pop()
             .map(|(_, bar)| bar);
-        let own = scene::own(renderer, window, geometry, bar);
+        let (mut own, mut shadow) = scene::own(renderer, window, geometry, bar);
+        if !apart {
+            own.extend(shadow.take().map(Element::Shadow));
+        }
         let mut picture = Picture::new();
         if let Err(e) = picture.draw(renderer, own, scene::anchor(window, geometry)) {
-            warn!("animation: {app} closes without its picture: {e}");
-            return;
+            warn!("animation: {app} without its picture: {e}");
+            return None;
         }
         let mut kept = Vec::new();
         with_surface_tree_downward(
@@ -1737,8 +1778,13 @@ impl State {
             .take_while(|w| *w != window)
             .cloned()
             .collect();
-        self.animations.close(app, picture, from, behind, kept);
-        self.changed();
+        Some(WindowShot {
+            app,
+            picture,
+            shadow,
+            kept,
+            behind,
+        })
     }
 
     /// A dialog of the shell's goes (its panel destroyed, `layers`), at
@@ -2475,4 +2521,15 @@ fn is_shells(surface: Option<&WlSurface>) -> bool {
         .and_then(|surface| surface.client())
         .and_then(|c| c.get_data::<ClientState>().map(|d| d.shell))
         .unwrap_or(false)
+}
+
+/// A window drawn into a picture of its own as it shows (`window_picture`):
+/// its app, the picture, its shadow if apart, its buffers kept until the
+/// picture is drawn, the windows behind it.
+struct WindowShot {
+    app: String,
+    picture: Picture,
+    shadow: Option<crate::corners::Shadow>,
+    kept: Vec<syncobj::Held>,
+    behind: Vec<Window>,
 }

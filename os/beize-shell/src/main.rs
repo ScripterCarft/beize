@@ -255,6 +255,10 @@ fn run() -> Result<(), String> {
         watches.extend(auth_fds.into_iter().map(Watch::Read));
         let mut dispatched = app.dispatch(None, &watches).map_err(|e| e.to_string())?;
         drop(watches);
+        // Apps the dock starts, once their activation tokens are made.
+        for (app_id, token) in app.take_activation_tokens() {
+            beize_systemd::apps::start(&app_id, Some(token));
+        }
         let bar_events = dispatched.take(bar);
         let dock_events = dispatched.take(dock_panel);
         let open_events = open.map(|(_, id)| dispatched.take(id));
@@ -570,7 +574,7 @@ fn run() -> Result<(), String> {
                     Some(dock::Command::App(window, command)) => {
                         app.activate_menu(window, command);
                     }
-                    Some(dock::Command::Start(app_id)) => beize_systemd::apps::start(&app_id),
+                    Some(dock::Command::Start(app_id)) => start(&mut app, dock_panel, &app_id),
                     Some(dock::Command::Quit(windows)) => {
                         for window in windows {
                             app.close_desktop_window(window);
@@ -835,7 +839,7 @@ fn run() -> Result<(), String> {
                 } => {
                     redraw_dock = true;
                     match dock.release() {
-                        Some(Action::Start(app_id)) => beize_systemd::apps::start(&app_id),
+                        Some(Action::Start(app_id)) => start(&mut app, dock_panel, &app_id),
                         Some(Action::Activate(windows)) => {
                             for window in windows {
                                 app.activate_desktop_window(window);
@@ -987,6 +991,7 @@ fn run() -> Result<(), String> {
             redraw_dock = false;
             let size = app.size(dock_panel);
             app.set_glass(dock_panel, Some(Dock::glass(size)));
+            app.show_dock_icons(dock_panel, &dock.icons());
             let scene = dock.draw(app.text(), size, appearance);
             app.draw(dock_panel, &scene).map_err(|e| e.to_string())?;
             dock_drawn = true;
@@ -1215,6 +1220,16 @@ fn may() -> String {
     })
     .collect::<Vec<_>>()
     .join(", ")
+}
+
+/// Starts the app `app_id` from the dock (`dock`): with an activation
+/// token for the click, which its first window shows with and grows out of
+/// the app's symbol (ADR 0032 §4); the app starts once the token is made,
+/// after the next dispatch. Where the compositor makes none, at once.
+fn start(app: &mut App, dock: WindowId, app_id: &str) {
+    if !app.ask_activation_token(dock, app_id) {
+        beize_systemd::apps::start(app_id, None);
+    }
 }
 
 /// Does what the Beize menu chose.

@@ -8,5 +8,5 @@ const TERMINAL: &str = "beize-terminal";
 
 /// Opens a new terminal window.
 pub fn open_terminal() {
-    beize_systemd::apps::start(TERMINAL);
+    beize_systemd::apps::start(TERMINAL, None);
 }

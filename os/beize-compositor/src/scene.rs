@@ -43,7 +43,7 @@ mod element {
     use smithay::backend::renderer::element::utils::RescaleRenderElement;
     use smithay::render_elements;
 
-    use crate::animation::PictureElement;
+    use crate::animation::{MeshElement, PictureElement};
     use crate::backdrop::Glass;
     use crate::corners::{Effects, Rounded, Shadow};
 
@@ -62,6 +62,7 @@ mod element {
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
         Picture=PictureElement,
+        Mesh=MeshElement,
         Thumbnail=Rounded<RescaleRenderElement<WaylandSurfaceRenderElement<R>>>,
         ThumbnailBar=Rounded<RescaleRenderElement<TextureRenderElement<<R as RendererSuper>::TextureId>>>,
         Shadow=Shadow,
@@ -78,9 +79,10 @@ const MAX_POPUP_GLASS: usize = 8;
 /// The windows on `area`, front to back, each with its popups in front, its
 /// content, its title bar, and its shadow, added to `elements`. `preview`
 /// lies behind the first of them, the one being dragged. A window opening
-/// shows as its picture, and the pictures of those closed lie where they
-/// were (`animations`), as at `at`; the states of what pictures drew join
-/// `offscreen`.
+/// shows as its picture, one coming out of its symbol as its picture bent,
+/// and the pictures of those closed or going into their symbols lie where
+/// they were (`animations`), as at `at`; the states of what pictures drew
+/// join `offscreen`.
 #[allow(clippy::too_many_arguments)]
 pub fn windows(
     renderer: &mut VkRenderer,
@@ -128,26 +130,27 @@ pub fn windows(
             .iter()
             .position(|(w, _)| w == window)
             .map(|i| bars.swap_remove(i).1);
-        let own = own(renderer, window, *geometry, bar);
+        let (own, shadow) = own(renderer, window, *geometry, bar);
         let anchor = anchor(window, *geometry);
-        elements.extend(animations.shown(renderer, window, own, anchor, at, offscreen));
+        elements.extend(animations.shown(renderer, window, own, shadow, anchor, at, offscreen));
         elements.extend(preview.take());
     }
     // Behind all windows left.
     elements.extend(animations.closing_before(None, at));
 }
 
-/// A window's own elements at `geometry`, front to back – its content, its
-/// title bar (`bar`) and its shadow, not its popups –: what its picture
-/// holds while it opens or closes (`animation`).
+/// A window's own elements at `geometry`, front to back – its content and
+/// its title bar (`bar`), not its popups –, and its shadow: what its
+/// picture holds while it opens or closes, the genie's without the shadow
+/// (`animation`).
 pub fn own(
     renderer: &mut VkRenderer,
     window: &Window,
     geometry: Rectangle<i32, Logical>,
     bar: Option<TextureRenderElement<VkTexture>>,
-) -> Vec<Element> {
+) -> (Vec<Element>, Option<Shadow>) {
     let Some(toplevel) = window.toplevel() else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let frame = crate::decorations::frame(window, geometry);
     let rounded = crate::corners::rounded(window, frame).then_some(frame);
@@ -165,8 +168,7 @@ pub fn own(
         .map(|s| Element::Window(Rounded::new(s, rounded)))
         .collect();
     own.extend(bar.map(|bar| Element::Bar(Rounded::new(bar, rounded))));
-    own.extend(rounded.map(|frame| Element::Shadow(Shadow::new(window, frame))));
-    own
+    (own, rounded.map(|frame| Shadow::new(window, frame)))
 }
 
 /// The centre of a window's frame at `geometry`: it grows from it and

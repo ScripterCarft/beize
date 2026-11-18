@@ -149,6 +149,30 @@
       </description>
       <arg name="surface" type="object" interface="wl_surface"/>
     </request>
+
+    <request name="clear_dock_icons">
+      <description summary="no apps' symbols on a surface">
+        None of the symbols told before (dock_icon) with the surface's next
+        commit.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="dock_icon">
+      <description summary="where an app's symbol lies in the dock">
+        The symbol of the app app_id lies in this rectangle of the surface:
+        its windows go into it when minimized and come back out of it, a
+        window it starts grows out of it (ADR 0032), as Plasma's
+        set_minimized_geometry. Double-buffered: applies with the surface's
+        next commit, so the symbols and the rectangles move together.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="app_id" type="string"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
   </interface>
 
   <interface name="beize_window_v1" version="1">

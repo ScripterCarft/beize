@@ -9,6 +9,7 @@
 //! its window geometry for its own shadow – keep theirs, as on GNOME; a
 //! maximized window has neither, its edges are the screen's.
 
+use crate::render::geometry::Mesh;
 use crate::render::{Blur, Liquid, VkFrame, VkRenderer, VkTexture};
 use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
@@ -121,9 +122,15 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture, Self::Error>;
+    /// `texture` bent along `mesh` (the genie, `VkFrame::draw_mesh`).
+    fn draw_mesh(frame: &mut Self::Frame<'_, '_>, texture: &VkTexture, mesh: &Mesh, alpha: f32);
 }
 
 impl Effects for VkRenderer {
+    fn draw_mesh(frame: &mut VkFrame<'_, '_>, texture: &VkTexture, mesh: &Mesh, alpha: f32) {
+        frame.draw_mesh(texture, mesh, alpha);
+    }
+
     fn blur_behind(
         frame: &mut VkFrame<'_, '_>,
         region: Rectangle<i32, Physical>,
@@ -315,6 +322,7 @@ impl<R: Effects, E: RenderElement<R>> RenderElement<R> for Rounded<E> {
 /// A window's shadow: below its frame, drawn again when it moves, changes
 /// size or becomes active or not. Or the shadow of glass that asked for one
 /// (`backdrop`): a menu's, a tile's of the control center.
+#[derive(Clone)]
 pub struct Shadow {
     id: Id,
     commit: CommitCounter,
@@ -437,6 +445,12 @@ impl Element for Shadow {
 
     fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
         self.area()
+    }
+
+    /// As faded: a shadow fading is damaged each frame it changes, though
+    /// its caster stays (the genie's, ADR 0032).
+    fn alpha(&self) -> f32 {
+        self.opacity
     }
 }
 

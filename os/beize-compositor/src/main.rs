@@ -31,6 +31,7 @@ mod cursor;
 mod decorations;
 mod error;
 mod forward;
+mod genie;
 mod glass;
 mod gpu;
 mod idle;

@@ -206,6 +206,22 @@ impl Desktop {
         }
     }
 
+    /// Where the apps' symbols lie on `surface` (the dock), with its next
+    /// commit: the compositor minimizes windows into them (ADR 0032).
+    pub(crate) fn show_dock_icons(&self, surface: &WlSurface, icons: &[(String, Rect)]) {
+        self.shell.clear_dock_icons(surface);
+        for (app_id, r) in icons {
+            self.shell.dock_icon(
+                surface,
+                app_id.clone(),
+                r.x.round() as i32,
+                r.y.round() as i32,
+                r.w.round() as i32,
+                r.h.round() as i32,
+            );
+        }
+    }
+
     /// `surface` is a dialog: it appears and goes as one (ADR 0032).
     pub(crate) fn dialog(&self, surface: &WlSurface) {
         self.shell.dialog(surface);

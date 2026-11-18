@@ -7,6 +7,7 @@
 //! polkit's authentication agent (`polkit`, ADR 0031).
 
 pub mod apps;
+pub mod desktop;
 pub mod login;
 pub mod polkit;
 
@@ -62,6 +63,12 @@ unsafe extern "C" {
         contents: *const c_char,
     ) -> c_int;
     fn sd_bus_message_exit_container(m: *mut c_void) -> c_int;
+    fn sd_bus_message_open_container(
+        m: *mut c_void,
+        kind: c_char,
+        contents: *const c_char,
+    ) -> c_int;
+    fn sd_bus_message_close_container(m: *mut c_void) -> c_int;
     fn sd_bus_message_skip(m: *mut c_void, types: *const c_char) -> c_int;
     fn sd_bus_message_unref(m: *mut c_void) -> *mut c_void;
     fn sd_bus_call(
@@ -218,6 +225,17 @@ fn failure(r: c_int, error: &mut BusError) -> String {
     text
 }
 
+/// A property of a transient unit, as StartTransientUnit takes it
+/// (org.freedesktop.systemd1(5)).
+pub enum Property<'a> {
+    /// A string: `Description`, `CollectMode`.
+    Text(&'a str, &'a str),
+    /// A list of strings: `Environment`, a dependency.
+    List(&'a str, &'a [String]),
+    /// `ExecStart`: the program, and its arguments from its own name on.
+    Exec(&'a str, &'a [String]),
+}
+
 /// What [`Manager::watch`] reports to.
 pub trait Watcher {
     /// The start job ended with `result`, `done` when the unit is up;
@@ -336,6 +354,113 @@ impl Manager {
         }
         let reply = Message(reply);
         read(reply.0)
+    }
+
+    /// Starts `unit`, a transient unit made of `properties`, and gives its
+    /// start job's object path (StartTransientUnit; KDE starts its apps so).
+    pub fn start_transient(
+        &self,
+        unit: &str,
+        properties: &[Property<'_>],
+    ) -> Result<CString, String> {
+        let mut m = ptr::null_mut();
+        // SAFETY: a started bus, NUL-terminated names, valid out pointer.
+        let r = unsafe {
+            sd_bus_message_new_method_call(
+                self.bus,
+                &mut m,
+                SYSTEMD.as_ptr(),
+                MANAGER_PATH.as_ptr(),
+                MANAGER.as_ptr(),
+                c"StartTransientUnit".as_ptr(),
+            )
+        };
+        if r < 0 {
+            return Err(errno(r));
+        }
+        let message = Message(m);
+        let ok = |r: c_int| if r < 0 { Err(errno(r)) } else { Ok(()) };
+        let text = |s: &CStr| {
+            // SAFETY: a message being built; for 's' the value is the string.
+            ok(unsafe { sd_bus_message_append_basic(m, b's' as c_char, s.as_ptr().cast()) })
+        };
+        let open = |kind: u8, contents: &CStr| {
+            // SAFETY: a message being built; the signature is NUL-terminated.
+            ok(unsafe { sd_bus_message_open_container(m, kind as c_char, contents.as_ptr()) })
+        };
+        // SAFETY: closes the container opened last, in a message being built.
+        let close = || ok(unsafe { sd_bus_message_close_container(m) });
+        let list = |items: &[CString]| {
+            let mut strv: Vec<*mut c_char> = items.iter().map(|s| s.as_ptr().cast_mut()).collect();
+            strv.push(ptr::null_mut());
+            // SAFETY: a NULL-terminated array of strings that outlive the
+            // call; sd-bus only reads them.
+            ok(unsafe { sd_bus_message_append_strv(m, strv.as_mut_ptr()) })
+        };
+        let strings = |items: &[String]| items.iter().map(|s| c(s)).collect::<Result<Vec<_>, _>>();
+        text(&c(unit)?)?;
+        // A unit of that name already there is an error, not replaced.
+        text(c"fail")?;
+        open(b'a', c"(sv)")?;
+        for property in properties {
+            open(b'r', c"sv")?;
+            match property {
+                Property::Text(name, value) => {
+                    text(&c(name)?)?;
+                    open(b'v', c"s")?;
+                    text(&c(value)?)?;
+                }
+                Property::List(name, values) => {
+                    text(&c(name)?)?;
+                    open(b'v', c"as")?;
+                    list(&strings(values)?)?;
+                }
+                Property::Exec(program, argv) => {
+                    text(c"ExecStart")?;
+                    open(b'v', c"a(sasb)")?;
+                    open(b'a', c"(sasb)")?;
+                    open(b'r', c"sasb")?;
+                    text(&c(program)?)?;
+                    list(&strings(argv)?)?;
+                    // A failing command fails the unit.
+                    let ignore: c_int = 0;
+                    // SAFETY: a message being built; for 'b' an int.
+                    ok(unsafe {
+                        sd_bus_message_append_basic(m, b'b' as c_char, (&raw const ignore).cast())
+                    })?;
+                    close()?;
+                    close()?;
+                }
+            }
+            close()?;
+            close()?;
+        }
+        close()?;
+        // No auxiliary units.
+        open(b'a', c"(sa(sv))")?;
+        close()?;
+        let mut error = BusError {
+            name: ptr::null(),
+            message: ptr::null(),
+            need_free: 0,
+        };
+        let mut reply = ptr::null_mut();
+        // SAFETY: a complete message; the reply is ours (`Message`).
+        let r = unsafe { sd_bus_call(self.bus, message.0, 0, &mut error, &mut reply) };
+        if r < 0 {
+            return Err(failure(r, &mut error));
+        }
+        let reply = Message(reply);
+        let mut job: *const c_char = ptr::null();
+        // SAFETY: the reply of StartTransientUnit, one object path; it lives
+        // as long as the reply, so it is copied right away.
+        unsafe {
+            let r = sd_bus_message_read_basic(reply.0, b'o' as c_char, (&raw mut job).cast());
+            if r <= 0 || job.is_null() {
+                return Err("StartTransientUnit gave no job".into());
+            }
+            Ok(CStr::from_ptr(job).to_owned())
+        }
     }
 
     /// Loads `unit` and gives its object path.

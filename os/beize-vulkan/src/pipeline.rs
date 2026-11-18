@@ -119,6 +119,25 @@ pub const CLEAR: u32 = 65536;
 pub const FLAT_RIM: u32 = 131072;
 /// With `SOLID`: only a line `bottom[0]` px wide along the shape's edge.
 pub const RING: u32 = 262144;
+/// A row of a mesh (ADR 0032, the genie): a strip of `radius` columns
+/// between two lines across it, drawn as one instance (`Strips`). Its top
+/// line runs from `pos[0]` over `size[0]` at `pos[1]`, its texels from
+/// `uv[0]` to `uv_x[0]` at `uv[1]`; its bottom line from `bottom[0]` over
+/// `bottom[1]` at `pos[1] + size[1]`, its texels from `bottom[2]` to
+/// `bottom[3]` at `uv_x[1]`. `clip` is the texture's content in texels:
+/// the shader smooths the mesh's edges where it ends, as it does the round
+/// corners.
+pub const STRIP: u32 = 524288;
+
+/// Rows of a mesh among a run of quads: `rows` quads from `first` on are
+/// `STRIP`s of `columns` columns each, drawn as one instanced draw of
+/// strips.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Strips {
+    pub first: usize,
+    pub rows: usize,
+    pub columns: u32,
+}
 
 /// Apple's continuous corner (`shaders/quad.frag`, `EXTENT`): a corner of
 /// `radius` reaches this many radii along each edge.
@@ -401,14 +420,17 @@ impl Pipelines {
     }
 
     /// Records quads into `target`: `blend` says for each whether it
-    /// blends, the quads lie at device address `quads`. Runs of one
-    /// pipeline each, usually one to three draws; returns how many.
+    /// blends, the quads lie at device address `quads`; the rows of meshes
+    /// among them are `strips`, in order. Runs of one pipeline each,
+    /// usually one to three draws, and one for each mesh; returns how
+    /// many.
     ///
     /// # Safety
     /// `commands` is recording on `d`, `target` is in
     /// `COLOR_ATTACHMENT_OPTIMAL`, `pipelines` come from `get` for its
     /// format; the quads' buffer and every texture they name live until the
     /// submission completes.
+    #[allow(clippy::too_many_arguments)]
     pub unsafe fn record(
         &self,
         d: &ash::Device,
@@ -417,6 +439,7 @@ impl Pipelines {
         target: &Attachment,
         quads: u64,
         blending: &[bool],
+        strips: &[Strips],
     ) -> usize {
         let (w, h) = target.size;
         let area = vk::Rect2D {
@@ -482,17 +505,30 @@ impl Pipelines {
                 ),
             );
             let mut start = 0;
+            let mut meshes = strips.iter().peekable();
             while start < blending.len() {
+                while meshes.next_if(|s| s.first < start).is_some() {}
                 let mode = blending[start];
-                let end = blending[start..]
-                    .iter()
-                    .position(|&b| b != mode)
-                    .map_or(blending.len(), |n| start + n);
                 d.cmd_bind_pipeline(
                     commands,
                     vk::PipelineBindPoint::GRAPHICS,
                     if mode { blend } else { opaque },
                 );
+                // A mesh: its rows as strips of two vertices per column
+                // edge – a quad is the strip of one column.
+                if let Some(mesh) = meshes.next_if(|s| s.first == start) {
+                    let end = (start + mesh.rows.max(1)).min(blending.len());
+                    let vertices = 2 * (mesh.columns.max(1) + 1);
+                    d.cmd_draw(commands, vertices, (end - start) as u32, 0, start as u32);
+                    draws += 1;
+                    start = end;
+                    continue;
+                }
+                let limit = meshes.peek().map_or(blending.len(), |s| s.first);
+                let end = blending[start..limit]
+                    .iter()
+                    .position(|&b| b != mode)
+                    .map_or(limit, |n| start + n);
                 d.cmd_draw(commands, 4, (end - start) as u32, 0, start as u32);
                 draws += 1;
                 start = end;
@@ -561,6 +597,8 @@ mod tests {
             ("BLUR_DOWN", BLUR_DOWN),
             ("BLUR_UP", BLUR_UP),
             ("MATERIAL", MATERIAL),
+            ("RING", RING),
+            ("STRIP", STRIP),
         ] {
             assert!(
                 shared.contains(&format!("const uint {name} = {value}u;")),

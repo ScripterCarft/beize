@@ -303,6 +303,7 @@ impl Renderer {
                     &attachment,
                     address,
                     scene.blend(),
+                    &[],
                 )
             };
             barriers(
@@ -350,7 +351,7 @@ impl Renderer {
         draws += unsafe {
             self.gpu
                 .pipelines
-                .record(d, commands, pipelines, &attachment, address, blend)
+                .record(d, commands, pipelines, &attachment, address, blend, &[])
         };
         debug!(
             "{} quads ({} glyphs and symbols, {} new) in {draws} draws",

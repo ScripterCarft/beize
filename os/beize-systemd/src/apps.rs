@@ -1,9 +1,15 @@
 //! Apps start in the user's service manager, each in its own unit, never as
 //! children of whoever asks – the compositor's sandbox or the shell's
-//! (ADR 0027 §9, ADR 0028 §4). The unit is an instance of the app's
-//! template, named as systemd's desktop integration asks
+//! (ADR 0027 §9, ADR 0028 §4). The unit is transient, made from the app's
+//! desktop file (`desktop`: its `Exec`, its name), as KDE starts its apps:
+//! any app with a desktop file starts so, and the activation token of
+//! whoever started it goes into its environment (`XDG_ACTIVATION_TOKEN`,
+//! xdg-activation; ADR 0032 §4), which a template's instance could not
+//! take. It is named as systemd's desktop integration asks
 //! (`app-<id>@<random>.service`, the id escaped as systemd-escape does), so
-//! tools see which app a process belongs to.
+//! tools see which app a process belongs to; an app of the graphical
+//! session (systemd.special(7)), it stops with it, and a window closed with
+//! a failing last command leaves nothing behind.
 //!
 //! Asked on a short thread of its own with its own connection: the caller's
 //! loop never waits for the manager, and what goes wrong lands in the log.
@@ -12,11 +18,12 @@ use std::thread;
 
 use tracing::{info, warn};
 
-use crate::Manager;
+use crate::{Manager, Property, desktop};
 
 /// Starts a new instance of the app `app_id` (its desktop file's name, as
-/// in `xdg_toplevel.app_id`).
-pub fn start(app_id: &str) {
+/// in `xdg_toplevel.app_id`), with the activation `token` its first window
+/// shows with, if one was made for it.
+pub fn start(app_id: &str, token: Option<String>) {
     let unit = match instance() {
         Ok(random) => format!("app-{}@{random}.service", escape(app_id)),
         Err(e) => {
@@ -24,17 +31,49 @@ pub fn start(app_id: &str) {
             return;
         }
     };
+    let app_id = app_id.to_owned();
     let spawned = thread::Builder::new()
         .name("app start".into())
-        .spawn(
-            move || match Manager::connect().and_then(|m| m.start(&unit)) {
-                Ok(_) => info!("started {unit}"),
-                Err(e) => warn!("starting {unit}: {e}"),
-            },
-        );
+        .spawn(move || match run(&app_id, &unit, token) {
+            Ok(()) => info!("started {unit}"),
+            Err(e) => warn!("starting {unit}: {e}"),
+        });
     if let Err(e) = spawned {
-        warn!("starting {app_id}: {e}");
+        warn!("starting an app: {e}");
     }
+}
+
+/// Starts `unit` running the app `app_id`, with `token`.
+fn run(app_id: &str, unit: &str, token: Option<String>) -> Result<(), String> {
+    let (path, entry) = desktop::find(app_id).ok_or("no desktop file")?;
+    let exec = entry
+        .exec
+        .as_deref()
+        .ok_or("its desktop file has no Exec")?;
+    let argv = desktop::command(exec, &entry, &path).ok_or("its Exec is malformed")?;
+    let program = argv
+        .first()
+        .and_then(|name| desktop::program(name))
+        .ok_or_else(|| format!("no program {:?}", argv.first()))?;
+    let program = program.to_string_lossy();
+    let session = ["graphical-session.target".to_owned()];
+    let environment: Vec<String> = token
+        .into_iter()
+        .map(|t| format!("XDG_ACTIVATION_TOKEN={t}"))
+        .collect();
+    let name = entry.name.as_deref().unwrap_or(app_id);
+    let mut properties = vec![
+        Property::Text("Description", name),
+        Property::Exec(&program, &argv),
+        Property::List("PartOf", &session),
+        Property::List("After", &session),
+        Property::Text("CollectMode", "inactive-or-failed"),
+    ];
+    if !environment.is_empty() {
+        properties.push(Property::List("Environment", &environment));
+    }
+    Manager::connect()?.start_transient(unit, &properties)?;
+    Ok(())
 }
 
 /// `name` as part of a unit name, as `systemd-escape` writes it: ASCII

@@ -2,8 +2,8 @@
 Type=Application
 Name=Terminal
 Comment=Use the command line
-# The dock and Ctrl+Alt+T start it as a unit of its own,
-# app-beize\x2dterminal@<random>.service (ADR 0027 §9); Exec is what the
-# specification asks for.
+# The dock and Ctrl+Alt+T start it as a transient unit of its own made
+# from this file, app-beize\x2dterminal@<random>.service (ADR 0027 §9,
+# beize-systemd's `apps`).
 Exec=/usr/lib/beize/beize-terminal
 Categories=System;TerminalEmulator;

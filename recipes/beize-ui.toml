@@ -34,10 +34,8 @@ install -D -m 644 "$REPO/os/beize-shell/beize-shell.service" \
   "$PKG/usr/lib/systemd/user/beize-shell.service"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-terminal" \
   "$PKG/usr/lib/beize/beize-terminal"
-# Its unit: an instance per window, which the compositor and the dock
-# start; its desktop file names it (freedesktop).
-install -D -m 644 "$REPO/os/beize-terminal/app.service" \
-  "$PKG/usr/lib/systemd/user/app-beize\x2dterminal@.service"
+# Its desktop file: the compositor, the dock and the terminal start a
+# transient unit from it per window (beize-systemd, `apps`).
 install -D -m 644 "$REPO/os/beize-terminal/beize-terminal.desktop" \
   "$PKG/usr/share/applications/beize-terminal.desktop"
 install -D -m 755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/beize-ui-test" \
@@ -57,7 +55,6 @@ image = [
   "usr/lib/beize/beize-shell",
   "usr/lib/systemd/user/beize-shell.service",
   "usr/lib/beize/beize-terminal",
-  'usr/lib/systemd/user/app-beize\x2dterminal@.service',
   "usr/share/applications/beize-terminal.desktop",
 ]
 build = [

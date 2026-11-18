@@ -63,8 +63,33 @@ vec2 liquid_tone(Quad q) {
     return vec2(gain, deeper);
 }
 
+// A row of a mesh (`STRIP`, the genie): a strip across it, two vertices per
+// column edge – top, bottom – between its top and its bottom line, the
+// texels along each line spread as evenly as the points.
+void band(Quad q) {
+    float t = float(gl_VertexIndex >> 1) / max(q.radius, 1.0);
+    float lower = float(gl_VertexIndex & 1);
+    vec2 top = vec2(q.pos.x + t * q.size.x, q.pos.y);
+    vec2 low = vec2(q.bottom.x + t * q.bottom.y, q.pos.y + q.size.y);
+    gl_Position = vec4(mix(top, low, lower) * push.scale - 1.0, 0.0, 1.0);
+    uv = mix(vec2(mix(q.uv.x, q.uv_x.x, t), q.uv.y),
+             vec2(mix(q.bottom.z, q.bottom.w, t), q.uv_x.y), lower);
+    color = q.color;
+    texel = q.texel;
+    texture = q.texture;
+    flags = q.flags;
+    clip = q.clip;
+    rounding = vec2(0.0);
+    bottom = vec4(0.0);
+    tone = vec2(1.0);
+}
+
 void main() {
     Quad q = push.quads.quads[gl_InstanceIndex];
+    if ((q.flags & STRIP) != 0u) {
+        band(q);
+        return;
+    }
     vec2 corner = vec2(gl_VertexIndex & 1, gl_VertexIndex >> 1);
     gl_Position = vec4((q.pos + corner * q.size) * push.scale - 1.0, 0.0, 1.0);
     uv = q.uv + corner.x * q.uv_x + corner.y * q.uv_y;

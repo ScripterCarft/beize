@@ -1,8 +1,6 @@
 //! What the shell knows of an app: its name and icon, from its desktop
-//! file (freedesktop's Desktop Entry Specification), found by its id – the
-//! window's `app_id` – in `applications/` of the XDG data directories, the
-//! user's first (XDG Base Directory Specification). Without a desktop file
-//! the id stands in for the name.
+//! file (`beize_systemd::desktop`, which starts it by it too). Without a
+//! desktop file the id stands in for the name.
 //!
 //! The icon (`Icon=`) is a file, or a name looked up in the hicolor theme as
 //! the Icon Theme Specification does – Beize has no other theme – and then
@@ -10,6 +8,8 @@
 //! (`AppIcon`, ADR 0028 §8).
 
 use std::path::{Path, PathBuf};
+
+use beize_systemd::desktop;
 
 /// What the shell knows of an app.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -22,15 +22,9 @@ pub struct App {
 /// The app `app_id`, as its desktop file has it; its icon chosen for `size`
 /// pixels.
 pub fn app(app_id: &str, size: u32) -> App {
-    let dirs = data_dirs();
-    let entry = (!app_id.is_empty() && !app_id.contains('/'))
-        .then(|| {
-            dirs.iter()
-                .map(|dir| dir.join("applications").join(format!("{app_id}.desktop")))
-                .find_map(|path| std::fs::read_to_string(path).ok())
-                .and_then(|entry| desktop_entry(&entry))
-        })
-        .flatten()
+    let dirs = desktop::data_dirs();
+    let entry = desktop::find(app_id)
+        .map(|(_, entry)| entry)
         .unwrap_or_default();
     App {
         name: entry.name.unwrap_or_else(|| app_id.to_owned()),
@@ -108,99 +102,9 @@ fn pixels(name: &str) -> Option<Option<u32>> {
     Some(Some(w.checked_mul(scale)?))
 }
 
-/// `$XDG_DATA_HOME` (`~/.local/share`), then `$XDG_DATA_DIRS`
-/// (`/usr/local/share:/usr/share`).
-fn data_dirs() -> Vec<PathBuf> {
-    let var = |name| std::env::var_os(name).filter(|v| !v.is_empty());
-    let home = var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| var("HOME").map(|home| PathBuf::from(home).join(".local/share")));
-    let system = var("XDG_DATA_DIRS")
-        .map(|dirs| std::env::split_paths(&dirs).collect())
-        .unwrap_or_else(|| vec!["/usr/local/share".into(), "/usr/share".into()]);
-    home.into_iter().chain(system).collect()
-}
-
-/// What the shell reads of a desktop file.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Entry {
-    name: Option<String>,
-    icon: Option<String>,
-}
-
-/// `Name` and `Icon` of the `[Desktop Entry]` group, unescaped; none for an
-/// entry that is `Hidden` (deleted, by the spec).
-fn desktop_entry(entry: &str) -> Option<Entry> {
-    let mut in_entry = false;
-    let mut name = None;
-    let mut icon = None;
-    for line in entry.lines().map(str::trim) {
-        if line.starts_with('[') {
-            in_entry = line == "[Desktop Entry]";
-            continue;
-        }
-        if !in_entry || line.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        match key.trim_end() {
-            "Name" => name = Some(unescape(value.trim_start())),
-            "Icon" => icon = Some(unescape(value.trim_start())),
-            "Hidden" if value.trim() == "true" => return None,
-            _ => {}
-        }
-    }
-    Some(Entry {
-        name: name.filter(|n| !n.is_empty()),
-        icon: icon.filter(|i| !i.is_empty()),
-    })
-}
-
-/// The spec's escapes in string values: `\s` `\n` `\t` `\r` `\\`.
-fn unescape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut chars = value.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('s') => out.push(' '),
-            Some('n') => out.push('\n'),
-            Some('t') => out.push('\t'),
-            Some('r') => out.push('\r'),
-            Some(other) => out.push(other),
-            None => out.push('\\'),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn reads_name_and_icon_of_the_desktop_entry() {
-        let entry = "# a comment\n[Desktop Entry]\nType=Application\nName[de]=Konsole\n\
-                     Name = Terminal\\sApp\nIcon=utilities-terminal\nExec=x\n\
-                     [Desktop Action new]\nName=New Window\nIcon=other\n";
-        assert_eq!(
-            desktop_entry(entry),
-            Some(Entry {
-                name: Some("Terminal App".into()),
-                icon: Some("utilities-terminal".into()),
-            })
-        );
-        assert_eq!(
-            desktop_entry("[Desktop Entry]\nName=X\nHidden=true\n"),
-            None
-        );
-        assert_eq!(desktop_entry("[Other]\nName=X\n"), Some(Entry::default()));
-    }
 
     #[test]
     fn without_a_desktop_file_the_id_is_the_name() {

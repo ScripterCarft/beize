@@ -41,6 +41,9 @@ impl Pty {
         let mut name = OsString::from("-");
         name.push(Path::new(&shell).file_name().unwrap_or(shell.as_os_str()));
         command.arg0(name).current_dir(home);
+        // The token the terminal was started with is its own window's
+        // (`beize_ui`), not for what runs in it.
+        command.env_remove("XDG_ACTIVATION_TOKEN");
         Pty::start(command, size)
     }
 

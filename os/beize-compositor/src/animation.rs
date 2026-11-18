@@ -23,6 +23,15 @@
 //! and both fade out. A wrong password shakes the dialog: a push to the
 //! side on a spring that swings back, its first swing 10 px.
 //!
+//! A window minimized goes into its app's symbol in the dock as a genie
+//! (`genie`), and comes back out of it; a window an app starts from the
+//! dock grows out of it. Going, it is drawn into its picture once, before it
+//! leaves the screen – the model: it is gone at once, a click hits what lay
+//! below – and its picture bends into the symbol in front of the windows
+//! that lay behind it. Coming back, it is on the screen again and its
+//! picture is drawn each frame, as when it opens. Its shadow fades as it
+//! starts to bend: it belongs to a rectangle.
+//!
 //! Each runs on a spring (`beize_draw::spring`), from the vblank before the
 //! first frame that shows it, and says in the journal when it begins and
 //! ends (§7). `BEIZE_ANIMATIONS_SLOWER` makes every spring that many times
@@ -43,8 +52,10 @@ use smithay::wayland::compositor::with_states;
 use tracing::{info, warn};
 
 use crate::backdrop::{Backdrop, Ghost};
-use crate::corners::Effects;
+use crate::corners::{Effects, Shadow};
 use crate::error::{Result, error};
+use crate::genie::{self, END};
+use crate::render::geometry::Mesh;
 use crate::render::{Target, VkRenderer, VkTexture};
 use crate::scene;
 use crate::syncobj::Held;
@@ -62,6 +73,11 @@ const SHAKE: Spring = Spring::new(0.15, 0.7);
 const SHAKE_REACH: f64 = 10.0;
 /// A place moves less than a quarter of a pixel: the shake has ended.
 const SHAKE_UNSEEN: f64 = 0.25;
+/// Into the dock and back, and opening out of it: the farthest way
+/// (ADR 0032 §5; gnome-shell minimizes in 400 ms).
+const GENIE: Spring = Spring::new(0.55, 0.0);
+/// A place moves less than a quarter of a pixel: the genie has ended.
+const GENIE_UNSEEN: f64 = 0.25;
 /// The size a window opens from and closes to, of its own.
 const SMALL: f64 = 0.94;
 /// Below half an 8-bit step of its opacity nothing more shows: there the
@@ -76,6 +92,85 @@ pub struct Animations {
     closing: Vec<Closing>,
     dialogs: Vec<Dialog>,
     dialogs_closing: Vec<DialogClosing>,
+    genies: Vec<Genie>,
+}
+
+/// A window going into its app's symbol, or coming out of it.
+struct Genie {
+    window: Window,
+    app: String,
+    /// 0 the window where it is, 1 in its symbol.
+    p: Motion,
+    /// Where it goes: 1 into the symbol, 0 out of it.
+    toward: f64,
+    /// Its spring is set with the next frame.
+    started: bool,
+    /// The symbol, on the screen.
+    icon: Rectangle<i32, Physical>,
+    picture: Picture,
+    /// Coming out: on the screen, its picture drawn anew each frame.
+    live: bool,
+    /// Going: its shadow as it was, the windows that lay behind it, its
+    /// buffers until its picture is drawn, and whether it is in this frame
+    /// already.
+    shadow: Option<Shadow>,
+    behind: Vec<Window>,
+    kept: Vec<Held>,
+    placed: bool,
+    /// A new window growing out of the symbol: the journal says "opened".
+    opening: bool,
+    id: Id,
+    commit: CommitCounter,
+}
+
+impl Genie {
+    /// Its picture bent as at `p`.
+    fn element(&mut self, p: f64) -> Option<MeshElement> {
+        let texture = self.picture.target.as_ref()?.picture()?.clone();
+        let mesh = genie::Genie::new(self.picture.place, self.icon)?.mesh(p);
+        self.commit.increment();
+        Some(MeshElement {
+            id: self.id.clone(),
+            commit: self.commit,
+            bounds: genie::bounds(&mesh),
+            texture,
+            mesh,
+        })
+    }
+
+    /// What it shows at `p`: its picture bent, its shadow fading.
+    fn elements(&mut self, p: f64, shadow: Option<Shadow>) -> Vec<scene::Element> {
+        let mut elements: Vec<scene::Element> = self
+            .element(p)
+            .map(scene::Element::Mesh)
+            .into_iter()
+            .collect();
+        let faded = genie::Genie::shadow(p);
+        if faded > 0.0 {
+            elements.extend(shadow.map(|s| scene::Element::Shadow(s.faded(faded))));
+        }
+        elements
+    }
+
+    /// Whether it has ended by its last value: going, in its symbol;
+    /// coming out, at rest.
+    fn done(&self, p: f64) -> bool {
+        self.started && (!self.p.moving() || (self.toward >= 1.0 && p >= END))
+    }
+
+    fn ended(&self) {
+        let app = &self.app;
+        match (self.toward >= 1.0, self.opening) {
+            (true, _) => info!("animation: {app} minimized"),
+            (false, true) => info!("animation: {app} opened"),
+            (false, false) => info!("animation: {app} came back"),
+        }
+    }
+}
+
+/// How far a quarter pixel is of the genie from `place` into `icon`.
+fn genie_unseen(place: Rectangle<i32, Physical>, icon: Rectangle<i32, Physical>) -> f64 {
+    genie::Genie::new(place, icon).map_or(GENIE_UNSEEN, |g| GENIE_UNSEEN / g.longest_way())
 }
 
 /// A dialog of the shell's appearing or shaking.
@@ -208,6 +303,119 @@ impl Animations {
             closing: Vec::new(),
             dialogs: Vec::new(),
             dialogs_closing: Vec::new(),
+            genies: Vec::new(),
+        }
+    }
+
+    /// `window` of `app` was minimized: drawn into `picture` (without its
+    /// shadow, which is `shadow`), it goes into its symbol at `icon` in
+    /// front of the windows that lay `behind` it, its buffers `kept` until
+    /// the picture is drawn. From where it was coming back, if it was.
+    #[allow(clippy::too_many_arguments)]
+    pub fn minimize(
+        &mut self,
+        window: &Window,
+        app: String,
+        icon: Rectangle<i32, Physical>,
+        picture: Picture,
+        shadow: Option<Shadow>,
+        behind: Vec<Window>,
+        kept: Vec<Held>,
+    ) {
+        self.stop_opening(window);
+        let unseen = genie_unseen(picture.place, icon);
+        let p = match self.genies.iter().position(|g| g.window == *window) {
+            Some(i) => self.genies.remove(i).p,
+            None => Motion::new(0.0, unseen),
+        };
+        info!("animation: {app} minimizes");
+        self.genies.push(Genie {
+            window: window.clone(),
+            app,
+            p,
+            toward: 1.0,
+            started: false,
+            icon,
+            picture,
+            live: false,
+            shadow,
+            behind,
+            kept,
+            placed: false,
+            opening: false,
+            id: Id::new(),
+            commit: CommitCounter::default(),
+        });
+    }
+
+    /// `window` of `app`, at `place` on the screen, comes back out of its
+    /// symbol at `icon` – or, `opening`, a new window grows out of it –,
+    /// drawn anew each frame. From where it was going, if it was.
+    pub fn come_back(
+        &mut self,
+        window: &Window,
+        app: String,
+        place: Rectangle<i32, Physical>,
+        icon: Rectangle<i32, Physical>,
+        opening: bool,
+    ) {
+        self.stop_opening(window);
+        if opening {
+            info!("animation: {app} opens from its symbol");
+        } else {
+            info!("animation: {app} comes back");
+        }
+        if let Some(genie) = self.genies.iter_mut().find(|g| g.window == *window) {
+            genie.toward = 0.0;
+            genie.started = false;
+            genie.icon = icon;
+            genie.live = true;
+            genie.shadow = None;
+            genie.behind.clear();
+            genie.opening |= opening;
+            return;
+        }
+        self.genies.push(Genie {
+            window: window.clone(),
+            app,
+            p: Motion::new(END, genie_unseen(place, icon)),
+            toward: 0.0,
+            started: false,
+            icon,
+            picture: Picture::new(),
+            live: true,
+            shadow: None,
+            behind: Vec::new(),
+            kept: Vec::new(),
+            placed: false,
+            opening,
+            id: Id::new(),
+            commit: CommitCounter::default(),
+        });
+    }
+
+    /// Whether `window` grows in from its next frame, not yet under way.
+    pub fn opens_next(&self, window: &Window) -> bool {
+        self.opening
+            .iter()
+            .any(|o| o.window == *window && !o.started)
+    }
+
+    /// `window` shows as it is at once: no genie of it, going or coming.
+    pub fn stop_genie(&mut self, window: &Window) {
+        self.genies.retain(|g| {
+            let stops = g.window == *window;
+            if stops {
+                info!("animation: {} stopped its genie", g.app);
+            }
+            !stops
+        });
+    }
+
+    fn stop_opening(&mut self, window: &Window) {
+        if let Some(i) = self.opening.iter().position(|o| o.window == *window) {
+            let opening = self.opening.remove(i);
+            info!("animation: {} stopped opening", opening.app);
         }
     }
 
@@ -353,9 +561,17 @@ impl Animations {
         });
     }
 
-    /// `window` stops opening (closed, minimized, unmapped): how far it
-    /// was shown, for what follows.
+    /// `window` stops opening or coming out of its symbol (closed,
+    /// unmapped): how far it was shown, for what follows. Going into its
+    /// symbol it goes on: its picture is its own.
     pub fn stop(&mut self, window: &Window) -> Option<Motion> {
+        self.genies.retain(|g| {
+            let stops = g.live && g.window == *window;
+            if stops {
+                info!("animation: {} stopped coming back", g.app);
+            }
+            !stops
+        });
         let i = self.opening.iter().position(|o| o.window == *window)?;
         let opening = self.opening.remove(i);
         info!("animation: {} stopped opening", opening.app);
@@ -419,19 +635,60 @@ impl Animations {
             closing.started = true;
             closing.shown.to(0.0, go, from);
         }
+        let genie = self.spring(GENIE);
+        for g in &mut self.genies {
+            g.placed = false;
+            if !g.started {
+                g.started = true;
+                g.p.to(g.toward, genie, from);
+            }
+        }
     }
 
-    /// What a frame shown `at` draws of `window`: its `own` elements, or
-    /// while it opens its picture of them – their states joining `states`.
+    /// What a frame shown `at` draws of `window`: its `own` elements and
+    /// its `shadow`, or while it opens its picture of them, or while it
+    /// comes out of its symbol its picture of them bent – their states
+    /// joining `states`.
+    #[allow(clippy::too_many_arguments)]
     pub fn shown(
         &mut self,
         renderer: &mut VkRenderer,
         window: &Window,
         own: Vec<scene::Element>,
+        shadow: Option<Shadow>,
         anchor: Point<f64, Physical>,
         at: Duration,
         states: &mut RenderElementStates,
     ) -> Vec<scene::Element> {
+        if let Some(i) = self
+            .genies
+            .iter()
+            .position(|g| g.live && g.window == *window)
+        {
+            let genie = &mut self.genies[i];
+            let p = genie.p.at(at);
+            return match genie.picture.draw(renderer, own, anchor) {
+                Ok(drawn) => {
+                    for (id, state) in drawn.states {
+                        states.states.entry(id).or_insert(state);
+                    }
+                    genie.elements(p, shadow)
+                }
+                // Shown as it is from the next frame on.
+                Err(e) => {
+                    warn!(
+                        "animation: {} comes back without its picture: {e}",
+                        genie.app
+                    );
+                    self.genies.remove(i);
+                    Vec::new()
+                }
+            };
+        }
+        let own: Vec<scene::Element> = own
+            .into_iter()
+            .chain(shadow.map(scene::Element::Shadow))
+            .collect();
         let Some(i) = self.opening.iter().position(|o| o.window == *window) else {
             return own;
         };
@@ -461,10 +718,22 @@ impl Animations {
         }
     }
 
-    /// The pictures of closed windows a frame shown `at` draws in front of
-    /// `window` – or, with None, of all windows left –, each once.
+    /// The pictures of closed windows, and of those going into their
+    /// symbols, a frame shown `at` draws in front of `window` – or, with
+    /// None, of all windows left –, each once.
     pub fn closing_before(&mut self, window: Option<&Window>, at: Duration) -> Vec<scene::Element> {
         let mut elements = Vec::new();
+        for genie in &mut self.genies {
+            if genie.live || genie.placed || window.is_some_and(|w| !genie.behind.contains(w)) {
+                continue;
+            }
+            genie.placed = true;
+            let p = genie.p.at(at);
+            if !genie.done(p) {
+                let shadow = genie.shadow.clone();
+                elements.extend(genie.elements(p, shadow));
+            }
+        }
         for closing in &mut self.closing {
             if closing.placed || window.is_some_and(|w| !closing.behind.contains(w)) {
                 continue;
@@ -489,7 +758,11 @@ impl Animations {
             .dialogs_closing
             .iter_mut()
             .flat_map(|c| std::mem::take(&mut c.kept));
-        windows.chain(dialogs).collect()
+        let genies = self
+            .genies
+            .iter_mut()
+            .flat_map(|g| std::mem::take(&mut g.kept));
+        windows.chain(dialogs).chain(genies).collect()
     }
 
     /// Ends what is done by `at`.
@@ -531,6 +804,14 @@ impl Animations {
             }
             going
         });
+        self.genies.retain_mut(|g| {
+            let p = g.p.at(at);
+            let done = g.done(p);
+            if done {
+                g.ended();
+            }
+            !done
+        });
     }
 
     /// Without a screen nothing shows them: all end at once (ADR 0032 §3).
@@ -552,6 +833,9 @@ impl Animations {
         for _ in self.dialogs_closing.drain(..) {
             info!("animation: dialog closed");
         }
+        for g in self.genies.drain(..) {
+            g.ended();
+        }
     }
 
     /// Whether one is under way: it asks for the next frame.
@@ -560,6 +844,7 @@ impl Animations {
             || !self.closing.is_empty()
             || !self.dialogs.is_empty()
             || !self.dialogs_closing.is_empty()
+            || !self.genies.is_empty()
     }
 }
 
@@ -625,6 +910,11 @@ impl Picture {
         self.anchor = anchor;
         self.commit.increment();
         Ok(drawn.states)
+    }
+
+    /// Where what it holds lay on the screen when it was drawn.
+    pub fn place(&self) -> Rectangle<i32, Physical> {
+        self.place
     }
 
     /// As shown `shown` (0 to 1): from 94 % to whole, faded in as much.
@@ -707,6 +997,65 @@ impl<R: Effects> RenderElement<R> for PictureElement {
     }
 }
 
+/// A picture bent along a mesh (the genie): drawn whole each frame it
+/// changes, over all it covers.
+pub struct MeshElement {
+    id: Id,
+    commit: CommitCounter,
+    texture: VkTexture,
+    mesh: Mesh,
+    bounds: Rectangle<i32, Physical>,
+}
+
+impl Element for MeshElement {
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.commit
+    }
+
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        let size = self.texture.size();
+        Rectangle::from_size((f64::from(size.w), f64::from(size.h)).into())
+    }
+
+    fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        self.bounds
+    }
+}
+
+impl<R: Effects> RenderElement<R> for MeshElement {
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        _src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, Physical>,
+        _damage: &[Rectangle<i32, Physical>],
+        _opaque_regions: &[Rectangle<i32, Physical>],
+    ) -> std::result::Result<(), <R as RendererSuper>::Error> {
+        // Where `dst` puts it: the same, but for a move between geometry
+        // and drawing.
+        let (dx, dy) = (
+            f64::from(dst.loc.x - self.bounds.loc.x),
+            f64::from(dst.loc.y - self.bounds.loc.y),
+        );
+        if dx == 0.0 && dy == 0.0 {
+            R::draw_mesh(frame, &self.texture, &self.mesh, 1.0);
+        } else {
+            let mut moved = self.mesh.clone();
+            for line in &mut moved.lines {
+                line.left += dx;
+                line.right += dx;
+                line.y += dy;
+            }
+            R::draw_mesh(frame, &self.texture, &moved, 1.0);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -741,6 +1090,27 @@ mod tests {
         // The picture's own centre lies lower: the shadow falls down.
         assert!((centre_x - 500.0).abs() < 0.5, "{centre_x}");
         assert!(centre_y > 250.0);
+    }
+
+    #[test]
+    fn a_window_minimized_ends_in_its_symbol_after_a_third_of_a_second() {
+        // ADR 0032 §5: at p = 0.9 it lies in its symbol, 0.62 of the
+        // spring's 0.55 s; coming back, the spring runs till a quarter
+        // pixel of the longest way is left.
+        let (place, icon) = (rect(500, 200, 1200, 800), rect(1200, 1357, 56, 56));
+        let mut going = Motion::new(0.0, genie_unseen(place, icon));
+        going.to(1.0, GENIE, ms(0));
+        let end = (1..2000).find(|&n| going.at(ms(n)) >= END).unwrap_or(0);
+        assert!((320..360).contains(&end), "{end} ms");
+        let mut back = Motion::new(END, genie_unseen(place, icon));
+        back.to(0.0, GENIE, ms(0));
+        let rest = (1..3000)
+            .find(|&n| {
+                back.at(ms(n));
+                !back.moving()
+            })
+            .unwrap_or(0);
+        assert!((800..1100).contains(&rest), "{rest} ms");
     }
 
     #[test]
@@ -788,6 +1158,7 @@ mod tests {
             closing: Vec::new(),
             dialogs: Vec::new(),
             dialogs_closing: Vec::new(),
+            genies: Vec::new(),
         };
         closing(&mut animations);
         assert!(animations.moving());
@@ -800,6 +1171,7 @@ mod tests {
             closing: Vec::new(),
             dialogs: Vec::new(),
             dialogs_closing: Vec::new(),
+            genies: Vec::new(),
         };
         closing(&mut slower);
         let slow = ends(&mut slower);
@@ -817,6 +1189,7 @@ mod tests {
             closing: Vec::new(),
             dialogs: Vec::new(),
             dialogs_closing: Vec::new(),
+            genies: Vec::new(),
         };
         closing(&mut animations);
         animations.start(ms(1), ms(1));
@@ -832,6 +1205,7 @@ mod tests {
             closing: Vec::new(),
             dialogs: Vec::new(),
             dialogs_closing: Vec::new(),
+            genies: Vec::new(),
         };
         closing(&mut animations);
         animations.start(ms(16), ms(16));

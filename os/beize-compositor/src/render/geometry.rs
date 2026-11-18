@@ -12,6 +12,28 @@ use smithay::utils::{Buffer, Physical, Point, Rectangle, Size, Transform};
 
 pub use beize_vulkan::pipeline::{EXACT, Quad, SOLID};
 
+/// A line across a mesh (`Mesh`), in the output's space: at `y`, from
+/// `left` to `right`, its texels from `u[0]` to `u[1]` at `v`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Line {
+    pub y: f64,
+    pub left: f64,
+    pub right: f64,
+    pub u: [f64; 2],
+    pub v: f64,
+}
+
+/// A texture bent along lines across it, top to bottom (ADR 0032, the
+/// genie): between two lines a row, split into `columns` along it;
+/// `content` is the texture's content in texels (x, y, w, h), whose edge
+/// the shader smooths.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Mesh {
+    pub lines: Vec<Line>,
+    pub columns: u32,
+    pub content: [f32; 4],
+}
+
 /// The framebuffer as the frame sees it: its size and the output's
 /// transform.
 #[derive(Clone, Copy, Debug)]

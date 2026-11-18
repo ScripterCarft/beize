@@ -235,6 +235,27 @@ impl Dock {
         }
     }
 
+    /// Where the icon of the `i`th app lies, on its tile.
+    fn icon(i: usize) -> Rect {
+        let tile = Dock::tile(i);
+        Rect {
+            x: tile.x + (tile.w - ICON) / 2.0,
+            y: tile.y + (tile.h - ICON) / 2.0,
+            w: ICON,
+            h: ICON,
+        }
+    }
+
+    /// Each app's icon, by its id: its windows go into it when minimized
+    /// and come back out of it (ADR 0032).
+    pub fn icons(&self) -> Vec<(String, Rect)> {
+        self.items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (item.app_id.clone(), Dock::icon(i)))
+            .collect()
+    }
+
     fn item_at(&self, (x, y): (f64, f64)) -> Option<usize> {
         (0..self.items.len()).find(|&i| {
             let t = Dock::tile(i);
@@ -367,12 +388,7 @@ impl Dock {
         };
         for (i, item) in self.items.iter().enumerate() {
             let tile = Dock::tile(i);
-            let icon = Rect {
-                x: tile.x + (tile.w - ICON) / 2.0,
-                y: tile.y + (tile.h - ICON) / 2.0,
-                w: ICON,
-                h: ICON,
-            };
+            let icon = Dock::icon(i);
             if let Some(symbol) = AppIcon::of(&item.app_id) {
                 symbol.draw(&mut scene, icon);
             } else if let Some(file) = &item.icon {

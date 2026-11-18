@@ -463,8 +463,11 @@ impl State {
                 at.y
             );
             self.space.map_element(window.clone(), at, false);
-            // It grows in, but for fullscreen (ADR 0032 §5).
-            if !fullscreen(&window) && self.shows() {
+            // It grows in, out of its app's symbol if the dock started it,
+            // but for fullscreen (ADR 0032 §5).
+            let grows_out =
+                crate::activation::take_from_dock(&window) && self.come_out(&window, true);
+            if !grows_out && !fullscreen(&window) && self.shows() {
                 self.animations.open(&window, app_id(&window));
             }
             self.list_window(&window);
@@ -589,7 +592,11 @@ impl State {
         };
         with_place(window, |place| place.minimized_at = Some(at));
         info!("minimized {}", app_id(window));
-        self.animations.stop(window);
+        // Into its app's symbol (ADR 0032 §5), or gone at once.
+        if !self.minimize_picture(window) {
+            self.animations.stop(window);
+            self.animations.stop_genie(window);
+        }
         let active = self.active_window().as_ref() == Some(window);
         self.space.unmap_elem(window);
         self.minimized.push(window.clone());
@@ -599,6 +606,33 @@ impl State {
         }
         // The pointer may have been over it.
         crate::input::refresh_pointer(self);
+    }
+
+    /// `window`, placed, comes out of its app's symbol in the dock – back
+    /// from the dock, or `opening` from it (ADR 0032 §5); at once without a
+    /// screen or a symbol, and fullscreen. Whether it does.
+    pub fn come_out(&mut self, window: &Window, opening: bool) -> bool {
+        let app = app_id(window);
+        let place = self
+            .space
+            .element_geometry(window)
+            .map(|g| frame(window, g).to_physical(1));
+        let icon = self.dock_icon(&app);
+        match (place, icon) {
+            (Some(place), Some(icon))
+                if self.shows()
+                    && !fullscreen(window)
+                    && crate::genie::Genie::new(place, icon).is_some() =>
+            {
+                self.animations.come_back(window, app, place, icon, opening);
+                self.changed();
+                true
+            }
+            _ => {
+                self.animations.stop_genie(window);
+                false
+            }
+        }
     }
 
     /// Raises `window` and makes it the active one; back on the screen, in
@@ -619,6 +653,7 @@ impl State {
             };
             self.space.map_element(window.clone(), at, false);
             info!("brought back {}", app_id(&window));
+            self.come_out(&window, false);
         }
         self.focus(Some(window));
         crate::input::refresh_pointer(self);

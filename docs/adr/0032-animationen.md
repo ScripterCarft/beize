@@ -122,18 +122,23 @@ enden und den Compositor weiter wecken. Heute betrifft das schon die Startblende
   Bewegte Flächen werden als Elemente um die Oberfläche gezeichnet, mit deren ID (wie die
   Vorschaubilder von Alt+Tab), so gelten sie als gezeigt.
 - **Die Shell** sagt, was nur sie weiß, über `beize_shell_v1`:
-  - das Rechteck jedes App-Symbols im Dock (Ziel beim Minimieren, Ursprung beim Öffnen).
-    Vorbild ist Plasmas `set_minimized_geometry` (früher `_KDE_NET_WM_ICON_GEOMETRY`);
+  - das Rechteck jedes App-Symbols im Dock (Ziel beim Minimieren, Ursprung beim Öffnen),
+    je App, wie das Dock eine Kachel je App hat (`dock_icon`, doppelt gepuffert mit dem Commit
+    des Docks, so bewegen sich Symbole und Rechtecke zusammen). Vorbild ist Plasmas
+    `set_minimized_geometry` (früher `_KDE_NET_WM_ICON_GEOMETRY`);
   - dass eine ihrer Flächen ein Dialog ist, der erscheint, und dass er schütteln soll. Den
     Dialog bewegt der WindowServer auch bei macOS (SecurityAgent ist ein Fenster). Sein Glas
     gehört dem Compositor und muss mitgehen.
-- **Ursprung beim Start aus dem Dock:** Das Dock holt sich ein Aktivierungs-Token
+- **Ursprung beim Start aus dem Dock:** Das Dock holt sich zum Klick ein Aktivierungs-Token
   (xdg-activation), und der Compositor nimmt Tokens der Shell an, wie GNOME seine
-  Startsequenzen selbst erzeugt. Heute verwirft `activation.rs` jedes Token, das nicht von der
-  App mit der Tastatur kommt. Die App startet in einer transienten Unit mit
-  `XDG_ACTIVATION_TOKEN` in der Umgebung (GNOME, KDE). Heute ist es `StartUnit` einer
-  Template-Unit, das keine Umgebung mitgeben kann. Erscheint das erste Fenster mit diesem
-  Token, wächst es aus dem Symbol. Sonst öffnet es am Ort.
+  Startsequenzen selbst erzeugt; sie gelten, bis sie benutzt sind, die neuesten acht. Die App
+  startet in einer transienten Unit mit `XDG_ACTIVATION_TOKEN` in der Umgebung (KDE startet
+  so; GNOME gibt es dem Kind mit). Die Unit entsteht aus der Desktop-Datei der App (`Exec`,
+  Name): Damit startet jede App mit Desktop-Datei, nicht nur eine mit eigener Template-Unit,
+  und die Template-Unit des Terminals entfällt. Beize UI löst das Token mit dem ersten Fenster
+  ein, wie GTK, und das Terminal gibt es seiner Shell nicht weiter. Kommt die Aktivierung vor
+  dem ersten Bild oder bevor das Öffnen am Ort begonnen hat, wächst das Fenster aus dem Symbol.
+  Sonst öffnet es am Ort.
 - **Beize UI** animiert, was in einer Fläche passiert (Auswahlring bei Alt+Tab, Schalter,
   Felder), mit derselben Feder im Takt seiner frame callbacks.
 
@@ -166,8 +171,8 @@ sein eigenes Bild aus, in dem der gewählte Punkt noch hervorgehoben ist.
 treibt zwei überlappende Abschnitte, wie die bekannten Nachbauten und Magic Lamp:
 - **Biegen** bis p = 0,5: Die Seiten folgen von der Oberkante des Fensters bis zur Oberkante
   des Symbols der glatten Kurve 3n² − 2n³ (stetig in Ort und Steigung, keine Knicke).
-  Darunter ist der Trichter so breit wie das Symbol, und seine Unterseite rückt mit dem
-  Biegen unter das Symbol.
+  Darunter ist der Trichter so breit wie das Symbol. Der Trichter ist eine feste Form im
+  Raum; beim Biegen steht der Inhalt noch, nur seine Seiten folgen ihr.
 - **Gleiten** von p = 0,4 bis 0,9: Der Inhalt gleitet durch den Trichter hinein. Die
   Unterkante erreicht das Symbol nach 1/1,6 des Gleitens (bei p ≈ 0,71), so staucht sich der
   Inhalt im Hals, statt über das Symbol zu ragen.
@@ -177,12 +182,25 @@ treibt zwei überlappende Abschnitte, wie die bekannten Nachbauten und Magic Lam
   (Prüfung 17.11.). Das Zurückholen läuft denselben Weg rückwärts, seine Feder endet nach §1.
   An jeder Stelle unterbrechbar.
 
-Gezeichnet wird das eigene Bild (§2) als Gitter, und der Vertex-Shader verbiegt die Punkte,
-wie bei Qts und KWins Genie. Es gibt eine Zeile etwa alle 4 physische Pixel der Höhe und nur
-so viele Spalten, wie die Kurve braucht. Das Gitter ist zusammenhängend, deshalb gibt es keine
-Spalten zwischen den Zeilen. Die Kanten glättet derselbe Rand wie bei den runden Ecken. Der
-Schatten blendet in den ersten 15 % aus, denn er gehört zu einem Rechteck. Liegt das Symbol
-seitlich (ein Dock an der Seite kommt später), läuft der Trichter zu dieser Kante.
+Gezeichnet wird das eigene Bild (§2) ohne Schatten als Gitter, wie bei Qts und KWins Genie
+(`genie.rs`, gebaut 18.11.). Etwa alle 4 Pixel der Höhe des Bilds liegt eine Linie quer
+darüber; ihre Enden liegen auf den Seiten des Trichters, ihre Texel gleichmäßig dazwischen.
+Die Linien rechnet der Compositor (getestet), der Vertex-Shader teilt jede Zeile zwischen zwei
+Linien in Spalten (`STRIP`, ein instanzierter Draw je Gitter). Es sind so viele Spalten, wie
+die Zeile braucht, um auf ¼ Pixel ihrer wahren Form zu bleiben: Die zwei Dreiecke eines
+Trapezes verbiegen es um ein Viertel seiner Breitenänderung. Das Gitter ist zusammenhängend,
+deshalb gibt es keine Spalten zwischen den Zeilen. Es reicht einen Pixel über das Bild hinaus.
+Dort glättet der Fragment-Shader die Kante über einen Pixel, mit dem Abstand zum Rand des
+Bilds in Pixeln aus den Ableitungen, bei jeder Neigung und Größe (wie die runden Ecken). Der
+Schatten blendet in den ersten 15 % aus, denn er gehört zu einem Rechteck. Das Bild liegt
+dabei an seinem Platz im Stapel der Fenster, wie bei KWin, also unter dem Dock: Es geht
+hinter dessen Glas in das Symbol. Liegt das Symbol seitlich (ein Dock an der Seite kommt
+später), läuft der Trichter zu dieser Kante; heute gibt es dann keinen Trichter. Ohne Symbol
+(keine Shell) und ohne Bildschirm geht das Fenster sofort, Vollbild ebenso.
+
+Offen für die Hardware: Im Hals wird das Bild stark verkleinert (ein 1200 px breites Fenster
+auf 56 px). Ohne Mipmaps kann das kurz flimmern. Ob das sichtbar ist, zeigt der Messbau. Wenn
+ja, bekommt das Bild des Trichters eine Mipmap-Kette.
 
 **Das Schütteln** kommt mit dem Urteil von PAM, also nach der Wartezeit von `pam_faildelay`
 (ADR 0031), wie bei macOS erst nach der Pause. Es ist ein Stoß in einer Feder, keine
@@ -252,7 +270,14 @@ Vorbild:
   - Ein falsches Passwort schüttelt den Anmelde-Dialog, das Schütteln endet, und der Dialog
     erscheint und schließt animiert (gebaut; Gegenprobe: ohne `shake` der Shell scheiterte
     die Prüfung).
-  - Ein Klick während des Minimierens trifft das Fenster darunter (mit c).
+  - Ein Klick während des Minimierens trifft das Fenster darunter, nicht das minimierte; der
+    Trichter endet im Symbol („… minimizes“, „… minimized“), und das Dock holt das Fenster
+    wieder heraus („… comes back“, „… came back“) (gebaut 18.11.; Gegenproben: Klicks
+    zurückgehalten, solange eine Animation läuft, kam keiner an; ohne `dock_icon` der Shell
+    kein Trichter).
+  - Das Dock startet das Terminal in einer eigenen Unit, und sein Fenster wächst aus dem
+    Symbol („… opens from its symbol“), nicht am Ort (gebaut 18.11.; Gegenprobe: Tokens der
+    Shell verweigert, es öffnete am Ort).
   - Nach dem Ende weckt keine Animation den Compositor mehr: Das prüft die Ruheprüfung des
     Desktops, nachdem dort viele Fenster auf- und zugingen (Gegenprobe: mit Animationen, die nie
     enden, wechselte der Compositor in ihren 3 s 239-mal).
@@ -272,7 +297,7 @@ b) Testfaktor und Journalzeilen mit den ersten Smoke-Prüfungen; eigene Bilder d
    Compositors; Öffnen am Ort, Schließen (✓ 17.11.); Dialog mit Erscheinen und Schütteln
    (✓ 18.11.).
 c) Trichter: Gitter im Renderer, Symbol-Rechtecke vom Dock; Tokens der Shell und Start in
-   einer transienten Unit, Öffnen aus dem Symbol.
+   einer transienten Unit, Öffnen aus dem Symbol (✓ 18.11.).
 d) Einrasten, Maximieren mit Überblendung; Menü, Kontrollzentrum, Alt+Tab-Ring.
 e) Messbau mit allem; der Besitzer nimmt die Werte auf der Hardware ab.
 
@@ -280,10 +305,11 @@ e) Messbau mit allem; der Besitzer nimmt die Werte auf der Hardware ab.
 
 - `beize_shell_v1` bekommt die Rechtecke der Dock-Symbole, das Erscheinen eines Dialogs und
   das Schütteln.
-- `activation.rs` nimmt Tokens der Shell an; Apps starten in einer transienten Unit mit dem
-  Token (`beize-systemd`).
+- `activation.rs` nimmt Tokens der Shell an; Apps starten in einer transienten Unit aus ihrer
+  Desktop-Datei mit dem Token (`beize-systemd`, `apps` und `desktop`). Die Template-Unit des
+  Terminals entfällt und mit ihr ihr Eintrag in `security.toml`.
 - Der Compositor zeichnet eigene Bilder von Fenstern und Popups (mit Glas) und hält sie, bis
-  ihre Animation endet. Der Trichter braucht ein Gitter-Element im Renderer.
+  ihre Animation endet. Der Trichter hat ein Gitter-Element im Renderer (`STRIP`).
 - Kommt einmal Direct Scanout, sind animierte Fenster davon ausgenommen.
 - Apples Optik ist bei Animationen erlaubt, wo sie zu Beize passt und sich sauber umsetzen
   lässt (Besitzer, 17.11., der Trichter). Das ändert die Regel „Konzepte, nicht Optik“ der

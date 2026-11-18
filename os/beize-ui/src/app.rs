@@ -31,6 +31,10 @@ use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::
     Shape as CursorShape, WpCursorShapeDeviceV1,
 };
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
+use wayland_protocols::xdg::activation::v1::client::{
+    xdg_activation_token_v1::{self, XdgActivationTokenV1},
+    xdg_activation_v1::XdgActivationV1,
+};
 use wayland_protocols::xdg::shell::client::{
     xdg_popup::{self, XdgPopup},
     xdg_positioner::{self, XdgPositioner},
@@ -278,6 +282,11 @@ pub(crate) struct State {
     /// image named since.
     entered: u32,
     cursor_shown: Option<CursorShape>,
+    /// xdg-activation; none where the compositor lacks it.
+    activation: Option<XdgActivationV1>,
+    /// Tokens made for apps to start (`App::ask_activation_token`), by app
+    /// id, not yet taken.
+    tokens: Vec<(String, String)>,
 }
 
 impl State {
@@ -346,6 +355,10 @@ pub struct App {
     seat: Option<WlSeat>,
     connection: Connection,
     next_id: u32,
+    /// The activation token the app was started with
+    /// (`XDG_ACTIVATION_TOKEN`): its first window shows with it, as GTK's
+    /// does – from the dock, it grows out of the app's symbol (ADR 0032).
+    startup_token: Option<String>,
 }
 
 impl App {
@@ -393,18 +406,23 @@ impl App {
                 cursor: None,
                 entered: 0,
                 cursor_shown: None,
+                activation: globals.bind(&qh, 1..=1, ()).ok(),
+                tokens: Vec::new(),
             },
             globals,
             seat,
             connection,
             next_id: 0,
+            startup_token: std::env::var("XDG_ACTIVATION_TOKEN")
+                .ok()
+                .filter(|t| !t.is_empty()),
         })
     }
 
     /// Opens a window with Beize UI's title bar; it shows once its first
     /// `configured` is drawn.
     pub fn open(&mut self, title: &str, app_id: &str) -> Result<WindowId> {
-        self.add(
+        let id = self.add(
             Some(TitleBar::new(title)),
             false,
             |globals, qh, surface, id| {
@@ -421,7 +439,41 @@ impl App {
                     toplevel,
                 })
             },
-        )
+        )?;
+        // The first window takes the token the app was started with.
+        if let (Some(token), Some(activation), Some(surface)) = (
+            self.startup_token.take(),
+            &self.state.activation,
+            self.state.surface(id),
+        ) {
+            activation.activate(token, &surface.wl);
+        }
+        Ok(id)
+    }
+
+    /// Asks the compositor for an activation token to start the app
+    /// `app_id` with, for the last input on the window `id` (a click in the
+    /// dock); it comes with a later dispatch (`take_activation_tokens`).
+    /// False where the compositor makes none: start it without.
+    pub fn ask_activation_token(&mut self, id: WindowId, app_id: &str) -> bool {
+        let qh = self.queue.handle();
+        let (Some(activation), Some(surface)) = (&self.state.activation, self.state.surface(id))
+        else {
+            return false;
+        };
+        let token = activation.get_activation_token(&qh, app_id.to_owned());
+        if let Some(seat) = &self.seat {
+            token.set_serial(self.state.serial, seat);
+        }
+        token.set_surface(&surface.wl);
+        token.set_app_id(app_id.to_owned());
+        token.commit();
+        true
+    }
+
+    /// The tokens made since, each with the app it is for.
+    pub fn take_activation_tokens(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.state.tokens)
     }
 
     /// Opens a panel of Beize's shell. Only the shell may: the compositor
@@ -851,6 +903,17 @@ impl App {
         }
     }
 
+    /// Where the apps' symbols lie in the window `id` (the dock), by app
+    /// id; applies with its next draw.
+    pub fn show_dock_icons(&mut self, id: WindowId, icons: &[(String, beize_draw::Rect)]) {
+        let Some(wl) = self.state.surface(id).map(|s| s.wl.clone()) else {
+            return;
+        };
+        if let Some(desktop) = &self.state.desktop {
+            desktop.show_dock_icons(&wl, icons);
+        }
+    }
+
     pub fn show_thumbnails(
         &mut self,
         id: WindowId,
@@ -1082,7 +1145,8 @@ impl App {
         // Mesa's WSI reads the same socket and may have queued events
         // already: then only a look, no waiting.
         let pending = self.state.surfaces.iter().any(|s| s.events.any())
-            || self.state.desktop.as_ref().is_some_and(|d| d.changed);
+            || self.state.desktop.as_ref().is_some_and(|d| d.changed)
+            || !self.state.tokens.is_empty();
         let mut timeout = if pending {
             Some(Duration::ZERO)
         } else {
@@ -1497,3 +1561,21 @@ delegate_noop!(State: ignore ZwlrLayerShellV1);
 delegate_noop!(State: ignore XdgPositioner);
 delegate_noop!(State: WpCursorShapeManagerV1);
 delegate_noop!(State: WpCursorShapeDeviceV1);
+delegate_noop!(State: XdgActivationV1);
+
+impl Dispatch<XdgActivationTokenV1, String> for State {
+    /// The token for the app `app_id`, once made.
+    fn event(
+        state: &mut State,
+        token: &XdgActivationTokenV1,
+        event: xdg_activation_token_v1::Event,
+        app_id: &String,
+        _: &Connection,
+        _: &QueueHandle<State>,
+    ) {
+        if let xdg_activation_token_v1::Event::Done { token: made } = event {
+            state.tokens.push((app_id.clone(), made));
+            token.destroy();
+        }
+    }
+}

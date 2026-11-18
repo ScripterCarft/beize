@@ -464,6 +464,20 @@ impl Dispatch<BeizeShellV1, ()> for State {
             beize_shell_v1::Request::ClearThumbnails { surface } => {
                 crate::switcher::set_pending(&surface, |t| t.0.clear());
             }
+            beize_shell_v1::Request::ClearDockIcons { surface } => {
+                crate::genie::set_pending(&surface, |icons| icons.0.clear());
+            }
+            beize_shell_v1::Request::DockIcon {
+                surface,
+                app_id,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let rect = Rectangle::new((x, y).into(), (width, height).into());
+                crate::genie::set_pending(&surface, |icons| icons.0.push((app_id, rect)));
+            }
             beize_shell_v1::Request::Ready => {
                 if let Some(data) = client.get_data::<ClientState>() {
                     data.ready.store(true, std::sync::atomic::Ordering::Relaxed);

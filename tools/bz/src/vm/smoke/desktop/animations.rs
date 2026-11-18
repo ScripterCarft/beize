@@ -47,7 +47,41 @@ pub(in crate::vm::smoke) fn animations(paths: &Paths, installed: &Installed) -> 
     wait_for_compositor_line(&shell, &format!("animations {SLOWER} times slower"))?;
     key_while_opening(&shell, &qmp)?;
     closing(&shell)?;
+    let screen = screen_size(&machine)?;
+    click_while_minimizing(&shell, &qmp, screen)?;
+    open_from_dock(&shell, &qmp, screen)?;
     journal.passed = true;
+    Ok(())
+}
+
+/// The dock starts the terminal, which does not run: with the shell's
+/// activation token in its transient unit, its window grows out of its
+/// symbol (ADR 0032 §4) and has the keyboard.
+fn open_from_dock(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let apps = last_dock(shell)?;
+    let tile = apps
+        .iter()
+        .position(|a| a == "beize-terminal")
+        .with_context(|| format!("the terminal is not in the dock, or runs: {apps:?}"))?;
+    click(qmp, screen, dock_tile(screen, apps.len(), tile)?, 1)?;
+    park(qmp, screen)?;
+    wait_for_compositor_line(shell, "activated beize-terminal")?;
+    wait_for_compositor_line(shell, "animation: beize-terminal opens from its symbol")?;
+    wait_for_compositor_line(shell, "animation: beize-terminal opened")?;
+    ensure!(
+        said(shell, "animation: beize-terminal opens")? == 0,
+        "the terminal grew in where it is as well"
+    );
+    let (_, lines) = shell.capture(
+        "systemctl --user list-units 'app-beize\\x2dterminal@*' --state=active --plain \
+         --no-legend | wc -l",
+    )?;
+    ensure!(
+        lines.iter().any(|l| l.trim() == "1"),
+        "the terminal does not run in a unit of its own: {lines:?}"
+    );
+    say!("  ok: the dock started the terminal in a unit of its own, it grew out of its symbol");
+    shell.capture("systemctl --user stop 'app-beize\\x2dterminal@*'")?;
     Ok(())
 }
 
@@ -144,5 +178,109 @@ fn closing(shell: &Shell) -> Result<()> {
         "  ok: a window closed while it opened, its picture faded from there and ended, and \
          the frames stopped: {pacing}"
     );
+    Ok(())
+}
+
+/// Waits until the compositor said `line` `count` times this boot.
+fn wait_for_count(shell: &Shell, line: &str, count: usize) -> Result<()> {
+    for _ in 0..300 {
+        if said(shell, line)? >= count {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    bail!("the compositor did not say \"{line}\" {count} times")
+}
+
+/// Starts the test client in the unit `unit`, in the compositor's frame,
+/// and waits until its window opened: where its content lies.
+fn opened_window(shell: &Shell, unit: &str) -> Result<Window> {
+    let before = said(shell, "animation: beize-testclient opened")?;
+    let (status, lines) = shell.capture(&format!(
+        "systemd-run --user --unit={unit} /run/t/beize-testclient --server-side --seconds 300"
+    ))?;
+    ensure!(
+        status == 0,
+        "could not start the test client (exit status {status}): {lines:?}"
+    );
+    wait_for_count(shell, "animation: beize-testclient opened", before + 1)?;
+    last_placed(shell, "beize-testclient")
+}
+
+/// A click while a window goes into its symbol in the dock reaches the
+/// window below: minimized, the window is gone from the screen at once,
+/// only its picture moves (ADR 0032 §2). Then it goes into its symbol, and
+/// the dock brings it back out of it.
+fn click_while_minimizing(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<()> {
+    let below = opened_window(shell, "animations-below")?;
+    // It opens a cascade's step down and right of the first: over it.
+    let front = opened_window(shell, "animations-front")?;
+    let ((bx, by), (bw, bh)) = below;
+    let ((fx, fy), (fw, fh)) = front;
+    let (left, top) = (bx.max(fx), by.max(fy));
+    let (right, bottom) = ((bx + bw).min(fx + fw), (by + bh).min(fy + fh));
+    ensure!(
+        left + 40 < right && top + 40 < bottom,
+        "the two windows do not overlap: {below:?}, {front:?}"
+    );
+    let over_both = (
+        i32::try_from((left + right) / 2)?,
+        i32::try_from((top + bottom) / 2)?,
+    );
+    // The test client's content lies below the compositor's title bar.
+    let minimize = (
+        i32::try_from(fx + CLOSE_X + CIRCLE_STEP)?,
+        i32::try_from(fy.saturating_sub(TITLE_BAR / 2))?,
+    );
+    click(qmp, screen, minimize, 1)?;
+    wait_for_compositor_line(shell, "animation: beize-testclient minimizes")?;
+    click(qmp, screen, over_both, 1)?;
+    let (_, lines) = shell.capture(
+        "for i in $(seq 300); do journalctl --user -u animations-below -o cat \
+         | grep -q '^button 0x110 pressed' && break; sleep 0.2; done; \
+         journalctl --user -u animations-below -o cat | grep '^button '",
+    )?;
+    let minimized = said(shell, "animation: beize-testclient minimized")?;
+    ensure!(
+        lines.iter().any(|l| l == "button 0x110 pressed"),
+        "a click while the window went into the dock did not reach the window below: {lines:?}"
+    );
+    ensure!(
+        minimized == 0,
+        "the window was in the dock before the click reached the one below: the check did not \
+         run while it went"
+    );
+    let (_, lines) =
+        shell.capture("journalctl --user -u animations-front -o cat | grep '^button '")?;
+    ensure!(
+        !lines.iter().any(|l| l == "button 0x110 pressed"),
+        "the click while the window went into the dock reached it: {lines:?}"
+    );
+    wait_for_compositor_line(shell, "animation: beize-testclient minimized")?;
+    say!(
+        "  ok: a click while a window went into the dock reached the window below, then it was \
+         in its symbol"
+    );
+    // With the other window gone, the dock brings the minimized one back.
+    // Stopped, its client is gone at once: its window goes without an
+    // animation (ADR 0032 §2); `stop` returns once its process ended.
+    let (status, lines) = shell.capture(
+        "systemctl --user stop animations-below; systemctl --user is-active animations-below",
+    )?;
+    ensure!(
+        status != 0 && !lines.iter().any(|l| l == "active"),
+        "the window below did not end: {lines:?}"
+    );
+    let apps = last_dock(shell)?;
+    let tile = apps
+        .iter()
+        .position(|a| a == "beize-testclient running")
+        .with_context(|| format!("the test client is not in the dock: {apps:?}"))?;
+    click(qmp, screen, dock_tile(screen, apps.len(), tile)?, 1)?;
+    park(qmp, screen)?;
+    wait_for_compositor_line(shell, "animation: beize-testclient comes back")?;
+    wait_for_compositor_line(shell, "animation: beize-testclient came back")?;
+    say!("  ok: the dock brought the window back out of its symbol");
+    shell.capture("systemctl --user stop animations-front")?;
     Ok(())
 }

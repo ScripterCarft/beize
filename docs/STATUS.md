@@ -44,10 +44,14 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    und schließen, Testfaktor `BEIZE_ANIMATIONS_SLOWER`, Journalzeilen, Smoke-Szenario
    „Animationen“ mit Gegenproben; 18.11. die Dialoge der Shell: erscheinen, schließen, und das
    Schütteln bei falschem Passwort (`beize_shell_v1.dialog`/`shake`, Glas mit Deckkraft im
-   Shader). Weiter mit c) Trichter (Gitter im
-   Renderer, Dock-Symbol-Rechtecke, Tokens der Shell + transiente Unit), d) Einrasten, Menü,
-   Kontrollzentrum, Alt+Tab-Ring. Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen
-   (Besitzer). Apple-Optik bei Bewegung erwünscht, wo sauber (Trichter), keine Spielerei.
+   Shader). Schritt c) ist gebaut (18.11.): Minimieren als Trichter ins Dock-Symbol und zurück
+   (`genie.rs`, Gitter `STRIP` im Renderer, `beize_shell_v1.dock_icon`), Start aus dem Dock
+   mit Token der Shell in einer transienten Unit aus der Desktop-Datei (`beize-systemd`
+   `apps`/`desktop`), das Fenster wächst aus dem Symbol; die Template-Unit des Terminals ist
+   weg. Noch nicht auf Hardware; dort ansehen, ob das Bild im Hals flimmert (keine Mipmaps,
+   ADR 0032 §5). Weiter mit d) Einrasten, Maximieren, Menü, Kontrollzentrum, Alt+Tab-Ring.
+   Werte: SwiftUI-Federn + Regeln in §6, kein Mac-Messen (Besitzer). Apple-Optik bei Bewegung
+   erwünscht, wo sauber (Trichter), keine Spielerei.
 2. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.
    **Nebenbefund:** Einmal beobachtet (17.11., `bz smoke --only …` direkt nach einem Bau): Der erste Start der
    Installation wartete vergeblich auf `/dev/gpt-auto-root-luks`, obwohl „Repartition Root
