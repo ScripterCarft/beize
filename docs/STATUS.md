@@ -63,9 +63,12 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    `build/work/install-hang-02-smoke.log`. Ursache noch nicht gefunden.
    **Nebenbefund 18.11. (Gate, einmal):** Im Szenario „Desktop“ zeigte das Terminal beim
    Bildvergleich nur „/r“ vom getippten Befehl (24059 Pixel daneben), direkt nach einem Bild mit
-   2,8 s auf der GPU (VM). Im selben Journal steht „animation: beize-terminal opened“ zweimal bei
-   einem „opens“ – beides ungeklärt. Der nächste Lauf war grün. Logs in `build/work/flake-1118/`.
-   Zuerst die doppelte Zeile im Code klären (`Animations::end`/`finish`).
+   2,8 s auf der GPU (VM). Der nächste Lauf war grün. Logs in `build/work/flake-1118/`. Geklärt
+   (26.11.): Die zwei „opened“ gehören zu den zwei Terminals, die `session.rs` absichtlich öffnet
+   (zwei „opens“, das zweite im Kaskadenschritt) – kein Fehler. Offen: wohin die Tasten nach „/r“
+   gingen. Getippt wird erst nach `placed` und dem Prompt des zweiten Terminals; kurz davor stand
+   ein Bild 10,8 s (VM). Nächster Schritt: im Journal der beiden Terminal-Units nachsehen, ob das
+   erste die übrigen Tasten bekam (Fokuswechsel) oder keines (verloren).
 3. Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen, Animationen.
    `pam_faildelay` bleibt 2 s (Besitzer 17.11.).
 4. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,
