@@ -27,6 +27,7 @@ hickory-resolver = { version = "0.26.3", why = "RUSTSEC-2026-0513 to -0516 (in t
 tokio = { version = "1.54.1", why = "RUSTSEC-2026-0386" }
 anyhow = { version = "1.0.104", why = "RUSTSEC-2026-0190" }
 chacha20 = { version = "0.10.2", why = "0.10.0 yanked" }
+url = { version = "2.5.9", why = "RUSTSEC-2026-0592 (in the lock only: hickory's, built without hickory)" }
 
 [build]
 script = '''
