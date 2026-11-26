@@ -26,6 +26,18 @@ pub(super) fn wait_for_shell_count(shell: &Shell, line: &str, count: usize) -> R
     }
 }
 
+/// The bytes the guest took from its PS/2 keyboard so far: the interrupts
+/// of IRQ 1 (i8042), one per byte, summed over the CPUs.
+pub(super) fn keyboard_bytes(shell: &Shell) -> Result<usize> {
+    let (_, lines) = shell.capture(
+        r#"awk '$1 == "1:" { s = 0; for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) s += $i; print "BEIZE-KEYBOARD-BYTES " s }' /proc/interrupts"#,
+    )?;
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-KEYBOARD-BYTES ")?.trim().parse().ok())
+        .with_context(|| format!("no keyboard interrupts in /proc/interrupts: {lines:?}"))
+}
+
 /// The terminals in the owner's service manager, units of the template
 /// `app-beize\x2dterminal@.service`, with the number of processes in each
 /// (the terminal, and its shell once it has a window).

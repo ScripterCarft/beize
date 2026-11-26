@@ -66,9 +66,12 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
    2,8 s auf der GPU (VM). Der nächste Lauf war grün. Logs in `build/work/flake-1118/`. Geklärt
    (26.11.): Die zwei „opened“ gehören zu den zwei Terminals, die `session.rs` absichtlich öffnet
    (zwei „opens“, das zweite im Kaskadenschritt) – kein Fehler. Offen: wohin die Tasten nach „/r“
-   gingen. Getippt wird erst nach `placed` und dem Prompt des zweiten Terminals; kurz davor stand
-   ein Bild 10,8 s (VM). Nächster Schritt: im Journal der beiden Terminal-Units nachsehen, ob das
-   erste die übrigen Tasten bekam (Fokuswechsel) oder keines (verloren).
+   gingen. 26.11.: Fokuswechsel ausgeschlossen (kein Klick, kein „activated“, kein Unmap im
+   Journal; Animationen ändern den Fokus nicht). Nicht mehr zu entscheiden (Maschine überschrieben,
+   nur 40 Journalzeilen; libinputs „too slow“ ist auf 5/h gedrosselt): verloren in QEMUs
+   PS/2-Puffer (16 Bytes, verwirft bei VM-Stau die neuen) oder erst im Gast. Der Smoke zählt jetzt
+   die IRQ-1-Bytes vor/nach dem Tippen (grün: 64 von 64); ein roter Lauf nennt sie. Beim nächsten
+   Auftreten zuerst `build/work/logs/boot` ganz sichern.
 3. Messbau mit allem: Dialog (Prüfzustand, Caps-LED), Caps-Lock-Messzeilen, Animationen.
    `pam_faildelay` bleibt 2 s (Besitzer 17.11.).
 4. **Grafik-Updates mit Hardwaretest:** Kernel 7.3 (nouveau-Patches prüfen), Mesa 26.3, LLVM,

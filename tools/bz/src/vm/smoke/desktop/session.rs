@@ -227,11 +227,29 @@ pub(super) fn screenshot_and_terminals(
         .context("no second terminal")?;
     let terminal = placed(shell, "beize-terminal", 2)?;
     wait_for_prompt(shell, second)?;
-    keys(qmp, &german_presses(TERMINAL_SAMPLE_COMMAND)?)?;
-    wait_for_screen(paths, machine, terminal, TERMINAL_SAMPLE, "terminal")?;
+    // Where typed keys would go missing: each press and each release is one
+    // byte of the VM's PS/2 keyboard (scan code set 1; none of these keys
+    // is an extended one), one interrupt in the guest. QEMU queues 16 bytes
+    // and drops the newest beyond them while the guest does not read
+    // (`ps2_queue`). 18.11. the terminal showed only "/r", not telling
+    // whether the guest's kernel had the rest.
+    let presses = german_presses(TERMINAL_SAMPLE_COMMAND)?;
+    let typed: usize = presses.iter().map(|p| 2 * p.split('+').count()).sum();
+    let before = keyboard_bytes(shell)?;
+    keys(qmp, &presses)?;
+    wait_for_screen(paths, machine, terminal, TERMINAL_SAMPLE, "terminal").map_err(|e| {
+        match keyboard_bytes(shell) {
+            Ok(after) => e.context(format!(
+                "the guest's keyboard took {} of the {typed} bytes typed",
+                after.saturating_sub(before)
+            )),
+            Err(_) => e,
+        }
+    })?;
+    let took = keyboard_bytes(shell)?.saturating_sub(before);
     say!(
         "  ok: the typed command ran in the terminal, its window shows the sample as the \
-         reference has it"
+         reference has it (the guest's keyboard took {took} of the {typed} bytes typed)"
     );
     // Over its text, the text cursor the terminal names.
     let ((x, y), (w, h)) = terminal;
