@@ -35,7 +35,8 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
   `release`, `install`). Push hängt, wenn 1Password gesperrt ist: den Besitzer bitten.
 - CI nach jedem Push selbst prüfen (`gh run list/view`), ohne Polling; den Nachtlauf zu Beginn.
 - Der Besitzer leert den Chat zwischen größeren Schritten: vorher `docs/STATUS.md` aktuell.
-- Hilfs-Agenten: für breite Prüfungen erlaubt (`.claude/agents/beize-reviewer.md`); ein Agent
+- Hilfs-Agenten: für breite Prüfungen erlaubt (`.claude/agents/beize-reviewer.md` für Code,
+  `beize-design-auditor.md` für Aussehen und Bedienung, beide nur mit Beleg); ein Agent
   prüft am Ende jedes größeren Schritts unabhängig gegen.
 
 ## 3. Umgebung
