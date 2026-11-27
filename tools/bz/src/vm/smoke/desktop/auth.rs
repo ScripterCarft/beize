@@ -29,12 +29,14 @@ fn asked(shell: &Shell) -> Result<usize> {
 }
 /// The script the terminal runs: run0, its exit status appended to a file.
 const SCRIPT: &str = "auth-test";
-/// run0's bus calls time out after this (sd-bus' default, 25 s, shortened):
-/// the dialog stays open longer – a wrong password and PAM's 2 s wait – and
-/// run0 still runs, as it waits for the user without a timeout
-/// (recipes/patches/systemd). 0.5.130 on hardware: after 25 s run0 gave up
-/// and polkitd cancelled the dialog under the owner.
-const BUS_TIMEOUT: Duration = Duration::from_secs(2);
+/// sd-bus' default method call timeout, which both run0's call and PID 1's
+/// question to polkitd had: the dialog stays open beyond it before the
+/// wrong password, as a user may, and run0 still runs – while polkit asks
+/// the user, neither call times out (recipes/patches/systemd, as libpolkit's
+/// own calls). 0.5.130 on hardware: after 25 s polkitd cancelled the dialog
+/// under the owner and run0 failed. Only the real wait tests both: PID 1
+/// does not read run0's `SYSTEMD_BUS_TIMEOUT`.
+const BUS_TIMEOUT: Duration = Duration::from_secs(25);
 const WRONG: &str = "wrong-password";
 /// The compositor's line for a window that opened behind (ADR 0030).
 const BEHIND: &str = "opens behind: Beize holds the keyboard";
@@ -63,9 +65,8 @@ pub(super) fn authentication(
     );
 
     let (status, lines) = shell.capture(&format!(
-        "printf 'SYSTEMD_BUS_TIMEOUT={}s run0 true; echo run0 $? >> %s/{SCRIPT}.out\\n' \
-         \"$HOME\" > ~/{SCRIPT} && rm -f ~/{SCRIPT}.out",
-        BUS_TIMEOUT.as_secs()
+        "printf 'run0 true; echo run0 $? >> %s/{SCRIPT}.out\\n' \"$HOME\" > ~/{SCRIPT} \
+         && rm -f ~/{SCRIPT}.out"
     ))?;
     ensure!(status == 0, "could not write the script: {lines:?}");
     let outcomes = || -> Result<Vec<String>> {
@@ -97,6 +98,8 @@ pub(super) fn authentication(
     wait_for_shell_count(shell, "authentication badge: terminal-bold", 1)?;
     thread::sleep(Duration::from_millis(500));
     self::screen(machine, "auth")?.write_png(&machine.logs.join("auth.png"))?;
+    // Beyond the bus timeout before anything is typed.
+    thread::sleep((BUS_TIMEOUT + Duration::from_secs(1)).saturating_sub(asking.elapsed()));
     // A wrong password: the dialog stays and says so, the field empty – the
     // right one alone then has to pass.
     keys(qmp, &german_presses(WRONG)?)?;
@@ -110,10 +113,9 @@ pub(super) fn authentication(
         shell_count(shell, "authentication: allowed")? == 0 && outcomes()?.is_empty(),
         "a wrong password let run0 run"
     );
-    // The dialog stayed open beyond run0's bus timeout.
     ensure!(
-        asking.elapsed() > BUS_TIMEOUT * 2,
-        "the dialog asked only {:?}, not beyond run0's bus timeout {BUS_TIMEOUT:?}",
+        asking.elapsed() > BUS_TIMEOUT,
+        "the dialog asked only {:?}, not beyond the bus timeout {BUS_TIMEOUT:?}",
         asking.elapsed()
     );
     keys(qmp, &german_presses(SMOKE_PASSWORD)?)?;
@@ -132,7 +134,7 @@ pub(super) fn authentication(
     say!(
         "  ok: run0 in the terminal asked in the dialog (\"{}…{}\"); a wrong password kept \
          it open and shook it, the right one alone let run0 run, {:.1} s after it asked, \
-         beyond its bus timeout of {} s; it appeared and went animated",
+         beyond the bus timeout of {} s; it appeared and went animated",
         ASKS.0,
         ASKS.1,
         open.as_secs_f64(),

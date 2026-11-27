@@ -1,0 +1,104 @@
+From b1b7ce967ebea9d95a1c1be76bdc9201d5faebaf Mon Sep 17 00:00:00 2001
+From: Joe <joe@sudmix.de>
+Date: Fri, 27 Nov 2026 18:25:57 +0100
+Subject: [PATCH] run, bus-polkit: no timeout while polkit asks the user
+
+run0 times out after 25 s while the user authenticates (#44507): a user
+who mistypes their password once and waits out pam_faildelay barely has
+time for a second try, and once the time is up polkitd cancels the
+agent's dialog under them. There are two 25 s limits in series, both
+sd-bus' default method call timeout (BUS_DEFAULT_TIMEOUT):
+
+- PID 1's (and any service's) CheckAuthorization call to polkitd in
+  bus_verify_polkit_async_full() and varlink_verify_polkit_async_full();
+- run0's own StartTransientUnit call, which PID 1 holds meanwhile.
+
+polkit's own client library calls CheckAuthorization with no timeout
+(G_MAXINT, "no timeout", polkitauthority.c), as pkexec does: the user
+ends the wait in the agent's dialog. Do the same where interactive
+authorization is allowed: PID 1 asks polkitd without a timeout, and
+run0/systemd-run --ask-password call StartTransientUnit without one.
+Without interactive authorization nothing changes.
+
+Fixes: #44507
+---
+ src/run/run.c           | 10 ++++++++--
+ src/shared/bus-polkit.c | 13 +++++++++++--
+ 2 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/src/run/run.c b/src/run/run.c
+index b4b5df1..21983ee 100644
+--- a/src/run/run.c
++++ b/src/run/run.c
+@@ -2005,6 +2005,12 @@ static int make_transient_service_unit(
+         return 0;
+ }
+ 
++/* Starting the unit may wait for the user to authenticate (polkit, run0): they may take as long as
++ * they need, as polkit itself does not limit it. Otherwise the bus's default method call timeout. */
++static usec_t start_unit_timeout(void) {
++        return arg_ask_password ? USEC_INFINITY : 0;
++}
++
+ static int bus_call_with_hint(
+                 sd_bus *bus,
+                 sd_bus_message *message,
+@@ -2014,7 +2020,7 @@ static int bus_call_with_hint(
+         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+         int r;
+ 
+-        r = sd_bus_call(bus, message, 0, &error, reply);
++        r = sd_bus_call(bus, message, start_unit_timeout(), &error, reply);
+         if (r < 0) {
+                 log_error_errno(r, "Failed to start transient %s unit: %s", name, bus_error_message(&error, r));
+ 
+@@ -2579,7 +2585,7 @@ static int start_transient_scope(sd_bus *bus) {
+                 if (r < 0)
+                         return bus_log_create_error(r);
+ 
+-                r = sd_bus_call(bus, m, /* usec = */ 0, &error, &reply);
++                r = sd_bus_call(bus, m, start_unit_timeout(), &error, &reply);
+                 if (r < 0) {
+                         if (sd_bus_error_has_names(&error, SD_BUS_ERROR_UNKNOWN_PROPERTY, SD_BUS_ERROR_PROPERTY_READ_ONLY) && allow_pidfd) {
+                                 log_debug("Retrying with classic PIDs.");
+diff --git a/src/shared/bus-polkit.c b/src/shared/bus-polkit.c
+index 73fae11..48fa617 100644
+--- a/src/shared/bus-polkit.c
++++ b/src/shared/bus-polkit.c
+@@ -515,6 +515,15 @@ static int async_polkit_query_check_action(
+ }
+ #endif
+ 
++#if ENABLE_POLKIT
++/* With interactive authorization polkit asks the user, who may take as long as they need (or cancel in the
++ * agent's dialog): no timeout then, as libpolkit's own CheckAuthorization calls (G_MAXINT, "no timeout").
++ * Otherwise the bus's default method call timeout. */
++static uint64_t polkit_call_timeout(PolkitFlags flags) {
++        return FLAGS_SET(flags, POLKIT_ALLOW_INTERACTIVE) ? USEC_INFINITY : 0;
++}
++#endif
++
+ /* bus_verify_polkit_async() handles verification of D-Bus calls with polkit. Because the polkit API
+  * is asynchronous, the whole thing is a bit complex and requires some support in the code that uses
+  * it. It relies on sd-bus's support for interrupting the processing of a message.
+@@ -695,7 +704,7 @@ int bus_verify_polkit_async_full(
+                 q->registry = *registry;
+         }
+ 
+-        r = sd_bus_call_async(call->bus, &q->slot, pk, async_polkit_callback, q, 0);
++        r = sd_bus_call_async(call->bus, &q->slot, pk, async_polkit_callback, q, polkit_call_timeout(flags));
+         if (r < 0)
+                 return r;
+ 
+@@ -961,7 +970,7 @@ int varlink_verify_polkit_async_full(
+                 q->registry = *registry;
+         }
+ 
+-        r = sd_bus_call_async(bus, &q->slot, pk, async_polkit_callback, q, 0);
++        r = sd_bus_call_async(bus, &q->slot, pk, async_polkit_callback, q, polkit_call_timeout(flags));
+         if (r < 0)
+                 return r;
+ 
+-- 
+2.53.0
+
