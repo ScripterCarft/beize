@@ -13,7 +13,9 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   (Besitzer: „viel besser“) sind auf `main` (Tabelle in ADR 0032); Dialoge ruckelten beim
   Erscheinen (Inhalt und Glas verschieden gerundet, Glas jedes Bild neu angelegt) – behoben,
   noch nicht auf Hardware; Einrasten reicht 48 px vom Rand (mutter), der Alt+Tab-Ring schwingt
-  nicht mehr nach.
+  nicht mehr nach. **Schließen war auf Hardware nie animiert** (kein „closes“ in den Journalen
+  von 0.5.130/131): Beize-UI-Apps rissen beim Beenden die Verbindung ab; `App::drop` baut jetzt
+  die Fenster ab wie `close` (a716d2d), der Smoke zählt es beim Terminal.
 - **Anmeldedialog (ADR 0031):** auf Hardware gut, auch 48 s offen (0.5.131). run0 gab nach 25 s
   auf: eigener systemd-Patch 0002 (kein Timeout, solange polkit fragt; PID 1 und run0), für das
   offene Issue systemd#44507. Caps Lock geklärt: Taste bis Bild unter 1 ms; aus geht es beim
@@ -22,23 +24,24 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   Beize die Tastatur (Dialog, Alt+Tab, Shell-Menü), öffnet ein neues hinten.
 - **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren, und Electrons
   Bibliotheken (GTK3, NSS u. a.) fehlen.
-- **Updates zuletzt 15.11.** (expat, zlib, tpm2-tss, systemd 262.2, openssl 4.1.0); ntpd-rs: `url`
-  2.5.9 per `[cargo.update]` (RUSTSEC-2026-0592, 26.11.).
+- **Updates 27.11.:** Linux 7.3.6, Mesa 26.3.1, LLVM 23.1.6, Vulkan 1.4.369, linux-firmware
+  20261124, neun Basis-Pakete (Sicherheitsfixes), Rust-Locks; neue Signaturschlüssel für
+  tpm2-tss, glib, Mesa (je eigener Commit). xkeyboard-config bleibt 2.48 (2.49 ohne signiertes
+  Archiv, #20). Grafik und Kernel noch nicht auf Hardware.
+- **Upstream:** Stand aller Patches und Berichte in `docs/upstream.md` (27.11. geprüft): nouveau
+  GSP-IRQDEST ist in Mainline (7.4, Cc stable); systemd #44842 braucht Nacharbeit (Bot-Review).
 - **CI:** schneller Lauf je Push, nachts voll. Push braucht entsperrtes 1Password.
 
 ## Als Nächstes (der nächste Chat, in dieser Reihenfolge)
 
-1. **Upstream prüfen:** Ist ein eigener Patch inzwischen drin? Je Patch die neueste Version
-   ansehen (`bz` meldet es beim Bau eines neuen Release selbst; vorher von Hand):
-   Kernel `kernel/patches/` 0001 nouveau EDID (gesendet 21.10.), 0002 GSP-IRQDEST (23.10.);
-   systemd `recipes/patches/systemd/` 0001 logind (#44842), 0002 polkit-Timeout (#44507, noch
-   nicht gesendet); Smithay PR #2244 (`[patch]` fällt mit dem Release nach 0.7.0); ntpd-rs #2539
-   (dann fallen die `[cargo.update]`-Einträge); `~/upstream/` (mei, USB, sbsigntools, ptyfwd).
-   Was drin ist: Patch im selben Commit wie das Update entfernen (`recipes/patches/README.md`).
-2. **Alles aktualisieren:** `./bz outdated`, dann `./bz cve`. Grafik mit Hardwaretest: Kernel 7.3
-   (nouveau-Patches, #11 PCIe-Retraining), Mesa 26.3, LLVM, Vulkan, linux-firmware; Rust-Crates
-   (`cargo update` je Workspace), Smithay. Neue Signaturschlüssel in eigene Commits. Dann Messbau
-   für den Besitzer (`ci/measure.sh`), dabei die Dialoge ansehen (Ruckeln weg?).
+1. **Messbau 0.5.132** auf dem PC des Besitzers: neuer Grafik-Stack und Kernel 7.3 (späte
+   Bilder gegen 0.5.131, Startzeiten aus dem binären Journal für #11), Schließen jetzt animiert,
+   Dialoge ohne Ruckeln?, Probewert Alt+Tab-Ring 0,1 s (Besitzer: „schnell, aber nicht aus dem
+   Nichts“; `TRIAL 0.5.132` in `switcher.rs`). Ergebnis auswerten, Werte nur nach seinem Ja.
+2. **systemd-Entwürfe für main** (in WSL `~/scratch/sd-main`, Zweige `run0-timeout` und
+   `logind-display`): kompilieren, logind v2 mit Test (TEST-35, zwei Sitzungen), nach
+   `~/upstream/` als Patches; dann trägt Beize genau die gesendete Fassung. Stand und was vor dem
+   Senden zu tun ist: `docs/upstream.md`.
 3. **Design-Audit:** Screenshots selbst machen (`./bz debug … '@screendump build/x.png'`, alle
    Zustände: Desktop hell/dunkel, Menüs, Kontrollzentrum, Dock-Menü, Dialoge, Alt+Tab, Vorschau,
    Terminal; dazu die des Besitzers aus `~/hw-logs/results-*/*.png`), dann den Agenten
@@ -52,8 +55,11 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Offen, mit Ort
 
-- **Fragen an den Besitzer:** Schließen (roter Knopf) bleibt eine kurze Blende (0,2 s, macOS
-  und GNOME ähnlich) oder 0,15 s wie GNOME? Alt+Tab-Ring: gleiten (0,15 s) oder springen?
+- **Fragen an den Besitzer:** Schließen 0,2 s oder 0,15 s – erst beurteilbar mit 0.5.132, wo
+  es zum ersten Mal auf Hardware animiert. Alt+Tab-Ring: Probewert 0,1 s in 0.5.132.
+- **logind:** `session_stop()` wählt das Display neu und speichert nur die gehende Sitzung, nicht
+  die neue (`logind-session.c` ~1033, systemd main) – derselbe Fall wie Punkt 1 des Bot-Reviews
+  von #44842; prüfen, ob es nach einem logind-Neustart falsch wird, dann upstream.
 - **Dienste:** A7 TPM aus + SMBIOS-Kommandozeile → Recovery-Abfrage in verändertem Start
   (`beize-tpm/src/main.rs:83`; signierte Kommandozeile vergleichen); Keyring-Fehler zählt als
   „TPM entsperrt“ (`main.rs:149`); Recovery-Keys in beize-tpm als `String`; ein abgestürzter
