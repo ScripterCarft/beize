@@ -1,6 +1,6 @@
 # Vulkan's C headers and registry, for building the loader (ADR 0027).
 name = "vulkan-headers"
-version = "1.4.365"
+version = "1.4.369"
 stage = "target"
 # CMake checks the project's compilers even for headers.
 deps = ["gcc", "glibc"]
@@ -9,7 +9,7 @@ deps = ["gcc", "glibc"]
 latest = { release-monitoring = 88835 }
 git = "https://github.com/KhronosGroup/Vulkan-Headers.git"
 tag = "v{version}"
-commit = "c46850864f4661461b0f6cb9922c058ffea4915e"
+commit = "d277a0a3cda9c682708c93279f0c72cd6b0ae3f3"
 unsigned = "Khronos signs neither tags nor commits and publishes no signed archives (checked 2026-10-17); pinned to the commit of the release tag, the same one Arch Linux builds"
 
 [build]

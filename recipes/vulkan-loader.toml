@@ -3,7 +3,7 @@
 # Wayland surface, the only window system Beize has; no X11. It installs
 # nothing in /etc and only looks there (as Fedora's), besides /usr/share.
 name = "vulkan-loader"
-version = "1.4.365"
+version = "1.4.369"
 stage = "target"
 deps = ["gcc", "glibc", "vulkan-headers", "wayland"]
 
@@ -11,7 +11,7 @@ deps = ["gcc", "glibc", "vulkan-headers", "wayland"]
 latest = { release-monitoring = 230557 }
 git = "https://github.com/KhronosGroup/Vulkan-Loader.git"
 tag = "v{version}"
-commit = "f866657ff687a36d767cd7783bab800e31ebafaa"
+commit = "bdeb6dc40fe4330a7dda0aa630a5b80c65c5f8f3"
 unsigned = "Khronos signs neither tags nor commits and publishes no signed archives (checked 2026-10-17); pinned to the commit of the release tag, the same one Arch Linux builds"
 
 [build]

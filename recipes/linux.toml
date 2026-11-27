@@ -2,12 +2,12 @@
 # Bump version and sha256 together; the hash comes from
 # https://cdn.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc
 name = "linux"
-version = "7.2.10"
+version = "7.3.6"
 
 [source]
 latest = { kernel-org = "stable" }
 url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-{version}.tar.xz"
-sha256 = "2feaa70453e91f541be6a5c9078d8168e081af45a3d9718054850538cff2ebf3"
+sha256 = "8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb875e11d45723"
 signature = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-{version}.tar.sign"
 signed = "uncompressed"
 keyring = "linux"

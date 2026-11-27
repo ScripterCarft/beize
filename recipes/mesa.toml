@@ -6,7 +6,7 @@
 # (OpenGL will come through zink, as Mesa does for NVK). The Wayland
 # surface for applications; drirc for per-application driver settings.
 name = "mesa"
-version = "26.2.5"
+version = "26.3.1"
 stage = "target"
 # mesa-clc: NVK's OpenCL C kernels, compiled while building. expat:
 # drirc (xmlconfig). zstd: the shader cache, compressed as Fedora's.
@@ -18,7 +18,7 @@ deps = ["gcc", "glibc", "gcc-runtime", "libdrm", "wayland", "wayland-protocols",
 [source]
 latest = { release-monitoring = 1970 }
 url = "https://archive.mesa3d.org/mesa-{version}.tar.xz"
-sha256 = "794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5"
+sha256 = "4e4e438eac7b840a9383988cbb7c08dad8041da544b9319fc26d319fa7348961"
 signature = "https://archive.mesa3d.org/mesa-{version}.tar.xz.sig"
 keyring = "mesa"
 
