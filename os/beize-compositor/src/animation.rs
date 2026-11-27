@@ -92,6 +92,12 @@ const SHAKE_UNSEEN: f64 = 0.25;
 const GENIE: Spring = Spring::new(0.55, 0.0);
 /// A place moves less than a quarter of a pixel: the genie has ended.
 const GENIE_UNSEEN: f64 = 0.25;
+/// Where a window coming back aims: past its place by as much as one going
+/// aims past its symbol (1 for `END`). It ends on reaching its place, still
+/// moving, as going ends in the symbol: both take the same third of a second
+/// (0.5.130 on hardware: aimed at its place, it crept the last pixels for
+/// 0.6 s more, its shadow already there around the bent picture).
+const BACK: f64 = END - 1.0;
 /// Snapping and maximizing: the frame from the old rectangle to the new,
 /// and the old picture fading into the new (gnome-shell 250 ms with a
 /// clone, Windows 11).
@@ -221,7 +227,7 @@ struct Genie {
     app: String,
     /// 0 the window where it is, 1 in its symbol.
     p: Motion,
-    /// Where it goes: 1 into the symbol, 0 out of it.
+    /// Where it goes: 1 into the symbol, `BACK` out of it.
     toward: f64,
     /// Its spring is set with the next frame.
     started: bool,
@@ -258,24 +264,33 @@ impl Genie {
         })
     }
 
-    /// What it shows at `p`: its picture bent, its shadow fading.
+    /// What it shows at `p`: its picture bent; going, its shadow fading.
+    /// Coming back it has none: the shadow belongs to the rectangle it
+    /// lands as, and comes with it (macOS shows none around the bent
+    /// picture).
     fn elements(&mut self, p: f64, shadow: Option<Shadow>) -> Vec<scene::Element> {
+        let p = p.max(0.0);
         let mut elements: Vec<scene::Element> = self
             .element(p)
             .map(scene::Element::Mesh)
             .into_iter()
             .collect();
         let faded = genie::Genie::shadow(p);
-        if faded > 0.0 {
+        if self.toward >= 1.0 && faded > 0.0 {
             elements.extend(shadow.map(|s| scene::Element::Shadow(s.faded(faded))));
         }
         elements
     }
 
     /// Whether it has ended by its last value: going, in its symbol;
-    /// coming out, at rest.
+    /// coming out, at its place.
     fn done(&self, p: f64) -> bool {
-        self.started && (!self.p.moving() || (self.toward >= 1.0 && p >= END))
+        let arrived = if self.toward >= 1.0 {
+            p >= END
+        } else {
+            p <= 0.0
+        };
+        self.started && (!self.p.moving() || arrived)
     }
 
     fn ended(&self) {
@@ -621,7 +636,7 @@ impl Animations {
             info!("animation: {app} comes back");
         }
         if let Some(genie) = self.genies.iter_mut().find(|g| g.window == *window) {
-            genie.toward = 0.0;
+            genie.toward = BACK;
             genie.started = false;
             genie.icon = icon;
             genie.live = true;
@@ -634,7 +649,7 @@ impl Animations {
             window: window.clone(),
             app,
             p: Motion::new(END, genie_unseen(place, icon)),
-            toward: 0.0,
+            toward: BACK,
             started: false,
             icon,
             picture: Picture::new(),
@@ -1288,6 +1303,11 @@ impl Animations {
 /// screen (`place`), shown scaled about `anchor`.
 pub struct Picture {
     target: Option<Target>,
+    /// What the target holds, so a picture drawn each frame (a window
+    /// coming back, reshaping) draws only what changed – new each frame,
+    /// it drew everything (audit of 0.5.130: 2.7-3.2 ms on the GPU a frame
+    /// while a window snapped).
+    damage: Option<OutputDamageTracker>,
     id: Id,
     commit: CommitCounter,
     place: Rectangle<i32, Physical>,
@@ -1298,6 +1318,7 @@ impl Picture {
     pub fn new() -> Picture {
         Picture {
             target: None,
+            damage: None,
             id: Id::new(),
             commit: CommitCounter::default(),
             place: Rectangle::default(),
@@ -1323,6 +1344,7 @@ impl Picture {
         let size = (place.size.w, place.size.h).into();
         if self.target.as_ref().is_none_or(|t| t.size() != size) {
             self.target = Some(renderer.picture_target(size)?);
+            self.damage = None;
         }
         let target = self.target.as_mut().ok_or_else(|| error("no picture"))?;
         let elements: Vec<_> = elements
@@ -1335,11 +1357,14 @@ impl Picture {
                 )
             })
             .collect();
-        let mut damage =
-            OutputDamageTracker::new((place.size.w, place.size.h), 1.0, Transform::Normal);
+        // The target keeps what was drawn into it last: age 1 once drawn.
+        let age = usize::from(self.damage.is_some());
+        let damage = self.damage.get_or_insert_with(|| {
+            OutputDamageTracker::new((place.size.w, place.size.h), 1.0, Transform::Normal)
+        });
         let mut framebuffer = renderer.bind(target)?;
         let drawn = damage
-            .render_output(renderer, &mut framebuffer, 0, &elements, [0.0; 4])
+            .render_output(renderer, &mut framebuffer, age, &elements, [0.0; 4])
             .map_err(|e| error(format!("drawing a picture: {e:?}")))?;
         self.place = place;
         self.anchor = anchor;
@@ -1542,22 +1567,16 @@ mod tests {
     #[test]
     fn a_window_minimized_ends_in_its_symbol_after_a_third_of_a_second() {
         // ADR 0032 §5: at p = 0.9 it lies in its symbol, 0.62 of the
-        // spring's 0.55 s; coming back, the spring runs till a quarter
-        // pixel of the longest way is left.
+        // spring's 0.55 s; coming back mirrors it, at its place as soon.
         let (place, icon) = (rect(500, 200, 1200, 800), rect(1200, 1357, 56, 56));
         let mut going = Motion::new(0.0, genie_unseen(place, icon));
         going.to(1.0, GENIE, ms(0));
         let end = (1..2000).find(|&n| going.at(ms(n)) >= END).unwrap_or(0);
         assert!((320..360).contains(&end), "{end} ms");
         let mut back = Motion::new(END, genie_unseen(place, icon));
-        back.to(0.0, GENIE, ms(0));
-        let rest = (1..3000)
-            .find(|&n| {
-                back.at(ms(n));
-                !back.moving()
-            })
-            .unwrap_or(0);
-        assert!((800..1100).contains(&rest), "{rest} ms");
+        back.to(BACK, GENIE, ms(0));
+        let landed = (1..3000).find(|&n| back.at(ms(n)) <= 0.0).unwrap_or(0);
+        assert!((320..360).contains(&landed), "{landed} ms");
     }
 
     #[test]
