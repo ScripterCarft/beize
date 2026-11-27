@@ -58,7 +58,7 @@ mod element {
         Veil=SolidColorRenderElement,
         Cursor=MemoryRenderBufferRenderElement<R>,
         Surface=WaylandSurfaceRenderElement<R>,
-        Moved=RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
+        Moved=crate::animation::Posed<WaylandSurfaceRenderElement<R>>,
         Window=Rounded<WaylandSurfaceRenderElement<R>>,
         Bar=Rounded<TextureRenderElement<<R as RendererSuper>::TextureId>>,
         Picture=PictureElement,
@@ -460,13 +460,11 @@ fn surface_with_glass(
     if pose.is_still() {
         elements.extend(surfaces.into_iter().map(Element::Surface));
     } else {
-        elements.extend(surfaces.into_iter().map(|s| {
-            Element::Moved(RescaleRenderElement::from_element(
-                s,
-                pose.origin(),
-                pose.scale,
-            ))
-        }));
+        elements.extend(
+            surfaces
+                .into_iter()
+                .map(|s| Element::Moved(crate::animation::Posed::new(s, &pose))),
+        );
     }
     if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(renderer, surface, at, pose)) {
         // Its shadows in front of it, so they are not part of what it shows

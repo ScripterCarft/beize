@@ -48,9 +48,10 @@ use std::time::Duration;
 
 use beize_draw::{Motion, Spring};
 use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, Id, RenderElement, RenderElementStates};
-use smithay::backend::renderer::utils::CommitCounter;
+use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
 use smithay::backend::renderer::{Bind, Frame, RendererSuper, Texture};
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -67,19 +68,23 @@ use crate::render::{Target, VkRenderer, VkTexture};
 use crate::scene;
 use crate::syncobj::Held;
 
-/// Opening in place and closing (macOS 26; gnome-shell takes 150 ms).
-const OPEN: Spring = Spring::new(0.3, 0.0);
-const CLOSE: Spring = Spring::new(0.25, 0.0);
-/// A dialog appears as a window opens and goes faster (ADR 0032 §5).
-const DIALOG_OPEN: Spring = Spring::new(0.3, 0.0);
-const DIALOG_CLOSE: Spring = Spring::new(0.2, 0.0);
-/// A menu appears at once and fades out as it goes (macOS).
-const MENU_CLOSE: Spring = Spring::new(0.2, 0.0);
-/// The control center grows out of its button and goes back there
-/// (macOS 26, `.snappy`): the only motion that swings back past its end,
-/// some 0.6 % (ADR 0032 §5, §6).
-const GROW: Spring = Spring::new(0.4, 0.15);
-const SHRINK_BACK: Spring = Spring::new(0.25, 0.0);
+/// Opening in place and closing, closing faster (macOS 26; gnome-shell
+/// takes 150 ms). 0.3 / 0.25 until 0.5.130: too slow on hardware (the owner).
+const OPEN: Spring = Spring::new(0.25, 0.0);
+const CLOSE: Spring = Spring::new(0.2, 0.0);
+/// A dialog appears with a light pop and goes in a quick fade (ADR 0032
+/// §5). 0.3 / 0.2 until 0.5.130: heavy on hardware (the owner).
+const DIALOG_OPEN: Spring = Spring::new(0.2, 0.0);
+const DIALOG_CLOSE: Spring = Spring::new(0.15, 0.0);
+/// A menu appears at once and fades out as it goes (macOS); 0.2 until
+/// 0.5.130.
+const MENU_CLOSE: Spring = Spring::new(0.15, 0.0);
+/// The control center appears under its button as a menu does, with a
+/// small pop (from 97 %, `State::grown_from`), and fades back. Until
+/// 0.5.130 it grew out of the button, 0.4 / 0.15 swinging past: "like a
+/// window out of the corner" (the owner on hardware; macOS' does not).
+const GROW: Spring = Spring::new(0.2, 0.0);
+const SHRINK_BACK: Spring = Spring::new(0.15, 0.0);
 /// The shake after a wrong password: its first swing to the left, 10 px
 /// (some 3 % of a dialog's width), then 0.37 of the one before each half
 /// swing (macOS' authorization dialog).
@@ -100,13 +105,17 @@ const GENIE_UNSEEN: f64 = 0.25;
 const BACK: f64 = END - 1.0;
 /// Snapping and maximizing: the frame from the old rectangle to the new,
 /// and the old picture fading into the new (gnome-shell 250 ms with a
-/// clone, Windows 11).
-const RESHAPE: Spring = Spring::new(0.4, 0.0);
-const CROSSFADE: Spring = Spring::new(0.25, 0.0);
+/// clone, Windows 11): its picture is stretched meanwhile, so short.
+/// 0.4 / 0.25 until 0.5.130.
+const RESHAPE: Spring = Spring::new(0.3, 0.0);
+const CROSSFADE: Spring = Spring::new(0.2, 0.0);
 /// An edge moves less than a quarter of a pixel: the frame has ended.
 const EDGE_UNSEEN: f64 = 0.25;
 /// The size a window opens from and closes to, of its own.
 const SMALL: f64 = 0.94;
+/// The switcher and the snap preview fade in, without a scale: shown at
+/// once until 0.5.130, they felt hard (the owner on hardware).
+const FADE_IN: Spring = Spring::new(0.1, 0.0);
 /// Below half an 8-bit step of its opacity nothing more shows: there the
 /// motion ends. Its size moves less: 6 % of a window's half.
 const UNSEEN: f64 = 0.5 / 255.0;
@@ -123,6 +132,8 @@ pub struct Animations {
     reshapes: Vec<Reshape>,
     /// Buffers of reshapes stopped, until the next frame went to the GPU.
     released: Vec<Held>,
+    /// The snap preview fading in.
+    preview: Motion,
 }
 
 /// A window snapped or maximized, or back: asked for its new size, then,
@@ -380,7 +391,7 @@ impl Pose {
     }
 
     /// The anchor, moved by the shift, on a whole pixel: what a surface's
-    /// elements scale about (`RescaleRenderElement`).
+    /// elements scale about (`Posed`).
     pub fn origin(&self) -> Point<i32, Physical> {
         Point::from((
             (self.about.x + f64::from(self.shift)).round() as i32,
@@ -476,6 +487,7 @@ impl Animations {
             genies: Vec::new(),
             reshapes: Vec::new(),
             released: Vec::new(),
+            preview: Motion::new(1.0, UNSEEN),
         }
     }
 
@@ -1295,6 +1307,39 @@ impl Animations {
             || !self.dialogs_closing.is_empty()
             || !self.genies.is_empty()
             || self.reshapes.iter().any(Reshape::moving)
+            || self.preview.moving()
+    }
+
+    /// The snap preview shows anew at `now`: it fades in.
+    pub fn preview_appears(&mut self, now: Duration) {
+        self.preview.jump(0.0);
+        self.preview.to(1.0, self.spring(FADE_IN), now);
+    }
+
+    /// How far the snap preview shows at `at`.
+    pub fn preview_shown(&mut self, at: Duration) -> f32 {
+        self.preview.at(at).clamp(0.0, 1.0) as f32
+    }
+
+    /// The switcher shows for the first time: it fades in.
+    pub fn fade_in(&mut self, surface: &WlSurface) {
+        if self.dialogs.iter().any(|d| d.surface == *surface) {
+            return;
+        }
+        info!("animation: switcher appears");
+        self.dialogs.push(Dialog {
+            surface: surface.clone(),
+            what: "switcher",
+            small: 1.0,
+            about: None,
+            open: FADE_IN,
+            shown: Motion::new(0.0, UNSEEN),
+            started: false,
+            appearing: true,
+            shake: Motion::new(0.0, SHAKE_UNSEEN),
+            shaking: false,
+            kick: false,
+        });
     }
 }
 
@@ -1414,6 +1459,88 @@ fn scaled(
     let (left, top) = (x(place.loc.x), y(place.loc.y));
     let (right, bottom) = (x(place.loc.x + place.size.w), y(place.loc.y + place.size.h));
     Rectangle::new((left, top).into(), (right - left, bottom - top).into())
+}
+
+/// An element of a dialog as `Pose` shows it: scaled about its origin with
+/// the edges rounded (`scaled`), as its glass is (`Pose::rect`). Smithay's
+/// `RescaleRenderElement` rounds place and size apart: the content then lay
+/// up to a pixel off its glass, a different one each frame, and its edges
+/// went back and forth while it grew (0.5.131 on hardware: the confirmation
+/// dialogs jerked as they appeared).
+pub struct Posed<E> {
+    element: E,
+    origin: Point<f64, Physical>,
+    scale: f64,
+}
+
+impl<E: Element> Posed<E> {
+    pub fn new(element: E, pose: &Pose) -> Posed<E> {
+        Posed {
+            element,
+            origin: pose.origin().to_f64(),
+            scale: pose.scale,
+        }
+    }
+}
+
+impl<E: Element> Element for Posed<E> {
+    fn id(&self) -> &Id {
+        self.element.id()
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.element.current_commit()
+    }
+
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        self.element.src()
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        scaled(self.element.geometry(scale), self.origin, self.scale)
+    }
+
+    fn transform(&self) -> Transform {
+        self.element.transform()
+    }
+
+    fn damage_since(
+        &self,
+        scale: Scale<f64>,
+        commit: Option<CommitCounter>,
+    ) -> DamageSet<i32, Physical> {
+        self.element
+            .damage_since(scale, commit)
+            .into_iter()
+            .map(|rect| rect.to_f64().upscale(self.scale).to_i32_up())
+            .collect()
+    }
+
+    /// None while it moves: it covers nothing for sure at its rounded edges.
+    fn opaque_regions(&self, _scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        OpaqueRegions::default()
+    }
+
+    fn alpha(&self) -> f32 {
+        self.element.alpha()
+    }
+
+    fn kind(&self) -> Kind {
+        self.element.kind()
+    }
+}
+
+impl<R: smithay::backend::renderer::Renderer, E: RenderElement<R>> RenderElement<R> for Posed<E> {
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
+    ) -> std::result::Result<(), R::Error> {
+        self.element.draw(frame, src, dst, damage, opaque_regions)
+    }
 }
 
 /// A picture on the screen.

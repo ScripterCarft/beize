@@ -145,14 +145,15 @@ struct Opened;
 /// An overlay's first showing: one that takes the keyboard has it, and the
 /// pointer is over it now, so a click goes to it and not to what it hides.
 fn overlay_opened(state: &mut State, output: &Output, surface: &WlSurface) {
-    let (overlay, takes) = {
+    let (overlay, takes, switcher) = {
         let map = layer_map_for_output(output);
         match map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
             Some(layer) => (
                 layer.layer() == Layer::Overlay,
                 layer.can_receive_keyboard_focus(),
+                layer.namespace() == "switcher",
             ),
-            None => (false, false),
+            None => (false, false, false),
         }
     };
     let shows = with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false);
@@ -166,6 +167,10 @@ fn overlay_opened(state: &mut State, output: &Output, surface: &WlSurface) {
         // A dialog of the shell's appears (ADR 0032).
         if crate::animation::is_dialog(surface) && state.shows() {
             state.animations.appear(surface);
+        }
+        // Since 0.5.131 (the owner): the switcher fades in.
+        if switcher && state.shows() {
+            state.animations.fade_in(surface);
         }
         if takes {
             state.give_overlay_keyboard(surface.clone());

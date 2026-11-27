@@ -148,21 +148,23 @@ enden und den Compositor weiter wecken. Heute betrifft das schon die Startblende
 
 | Was | Wie | Feder (d s / b) | Vorbild |
 | --- | --- | --- | --- |
-| Öffnen am Ort | von 94 % mit Einblenden | 0,3 / 0 | macOS 26; gnome-shell 150 ms |
-| Öffnen aus dem Dock | aus dem Symbol, der Trichter rückwärts | 0,55 / 0 | VISION; macOS „Genie“ |
-| Schließen | auf 94 % mit Ausblenden, eigenes Bild | 0,25 / 0 | macOS 26; gnome-shell 150 ms |
-| Minimieren, zurück | Trichter ins Symbol und zurück | 0,55 / 0 | macOS „Genie“, KWin „Magic Lamp“ |
-| Einrasten, Maximieren | Rahmen federt vom alten zum neuen Rechteck; das alte Bild blendet ins neue über, gestreckt auf den Rahmen | 0,4 / 0, Überblendung 0,25 / 0 | gnome-shell 250 ms mit Klon, Windows 11 |
-| Menü | erscheint sofort; schließt mit Ausblenden seines Bilds | aus: 0,2 / 0 | macOS |
-| Kontrollzentrum | wächst aus seinem Knopf, zurück dorthin | 0,4 / 0,15 auf, 0,25 / 0 zu | macOS 26, `.snappy` |
-| Dialog | von 94 % mit Einblenden; zu schneller | 0,3 / 0 auf, 0,2 / 0 zu | `.smooth` |
+| Öffnen am Ort | von 94 % mit Einblenden | 0,25 / 0 | macOS 26; gnome-shell 150 ms |
+| Öffnen aus dem Dock | aus dem Symbol, der Trichter rückwärts; Ziel über den Platz hinaus, Ende dort (so schnell wie hinein, 0,34 s); Schatten erst nach der Landung | 0,55 / 0 | VISION; macOS „Genie“ |
+| Schließen | auf 94 % mit Ausblenden, eigenes Bild | 0,2 / 0 | macOS 26; gnome-shell 150 ms |
+| Minimieren, zurück | Trichter ins Symbol und zurück, beide Richtungen 0,34 s; zurück ohne Schatten bis zur Landung | 0,55 / 0 | macOS „Genie“, KWin „Magic Lamp“ |
+| Einrasten, Maximieren | Rahmen federt vom alten zum neuen Rechteck; das alte Bild blendet ins neue über, gestreckt auf den Rahmen | 0,3 / 0, Überblendung 0,2 / 0 | gnome-shell 250 ms mit Klon, Windows 11 |
+| Menü | erscheint sofort; schließt mit Ausblenden seines Bilds | aus: 0,15 / 0 | macOS |
+| Kontrollzentrum | erscheint unter seinem Knopf wie ein Menü, von 97 % mit Einblenden | 0,2 / 0 auf, 0,15 / 0 zu | macOS (Panel unter dem Symbol, kein Wachsen aus der Ecke) |
+| Dialog | von 94 % mit Einblenden; zu schneller; Inhalt und Glas mit denselben Kanten gerundet, das Glas liest aus der ganzen Form | 0,2 / 0 auf, 0,15 / 0 zu | macOS-Alert (kurzer Pop) |
 | Falsches Passwort | Stoß zur Seite, erster Ausschlag 10 px | 0,15 / 0,7 | macOS-Autorisierungsdialog |
-| Alt+Tab | erscheint nach 150 ms ohne Animation (`SHOW_AFTER`), der Auswahlring federt | 0,15 / 0,14 | macOS ⌘⇥, `interactiveSpring` |
+| Alt+Tab | erscheint nach 150 ms (`SHOW_AFTER`) und blendet ein; der Auswahlring gleitet ohne Nachschwingen | ein: 0,1 / 0; Ring 0,15 / 0 | macOS ⌘⇥ (praktisch sofort) |
 | Desktop einblenden | gebaut | 0,5 / 0 | `.smooth` |
 | Vollbild | springt, wie heute | – | eigene Entscheidung mit Spaces |
+| Einrast-Vorschau | blendet ein, helle Linie wie ein Menü-Glas; die Zone reicht 48 px vom Rand | 0,1 / 0 | mutter (`DRAG_THRESHOLD_TO_SHAKE_THRESHOLD_FACTOR`: 8 × 6 px) |
 
-Nachschwingen gibt es nur beim Kontrollzentrum (0,6 %, etwa 2 px) und beim Ring (0,5 %),
-gerechnet. Das ist spürbar weich, aber nicht als Federn zu sehen.
+Nachschwingen gibt es nur beim Schütteln. Kontrollzentrum (0,6 %) und Ring (0,5 %) schwangen
+bis 0.5.130 nach; auf Hardware sah der Besitzer das als Federn, deshalb ohne (27.11.).
+Messbau 0.5.131 hat die kürzeren Werte gezeigt, der Besitzer: „viel besser“.
 
 **Menü:** macOS lässt den gewählten Punkt einmal blinken, bevor das Menü verschwindet. Das
 setzt Beize nicht um: Solange das Menü blinkt, hält sein Popup den Grab, und Tasten gingen

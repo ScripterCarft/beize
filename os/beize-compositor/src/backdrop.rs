@@ -181,11 +181,10 @@ impl Appearance {
     }
 }
 
-/// The white over the snap preview (`preview_material`) and its line: one
-/// colour all round, no light, barely darker than the glass (the owner, 31.10.,
-/// on a mock-up: black 10 % as encoded, 22 % in linear light).
+/// The white over the snap preview (`preview_material`). Its line is a
+/// menu's light one since 0.5.131: the dark one of 31.10. (black 22 %
+/// linear) set it apart from its glass (the owner on hardware).
 const PREVIEW_WHITE: f32 = 0.13;
-const PREVIEW_LINE: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
 
 /// Liquid glass's blur, in px: clear, what lies behind still shows in
 /// shapes (the owner, 29.10.: "klar, ganz leicht milchig"; 0.5.119 had 14
@@ -342,6 +341,7 @@ impl Backdrop {
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Plate),
             region: None,
+            reads: None,
             blur: None,
             smoke: None,
             opacity: 1.0,
@@ -365,7 +365,8 @@ impl Backdrop {
             pieces: vec![Piece {
                 rect,
                 radius: crate::corners::RADIUS as f32,
-                rim: PREVIEW_LINE,
+                // A menu's light line (`PREVIEW_WHITE`).
+                rim: self.appearance.rim(glass::Material::Menu),
             }],
             bounds: rect,
             shows: glass::Material::Preview,
@@ -374,6 +375,7 @@ impl Backdrop {
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::SnapPreview),
             region: None,
+            reads: None,
             blur: None,
             smoke: None,
             opacity: 1.0,
@@ -505,6 +507,23 @@ impl Backdrop {
             })
             .collect();
         let bounds = pieces.iter().map(|p| p.rect).reduce(|a, b| a.merge(b))?;
+        let reads = if pose.is_still() {
+            None
+        } else {
+            state
+                .shapes
+                .iter()
+                .filter_map(|shape| match own {
+                    Some(own) => shape.rect.intersection(own),
+                    None => Some(shape.rect),
+                })
+                .map(|mut rect| {
+                    rect.loc += at;
+                    rect.to_physical(1)
+                })
+                .reduce(|a, b| a.merge(b))
+                .map(|whole| whole.merge(bounds))
+        };
         let live = state.material != glass::Material::Base;
         // Live and menu glass read the background until `LiveGlass` gives
         // them what lies behind them, in the same frame. Liquid glass reads
@@ -540,6 +559,7 @@ impl Backdrop {
             covers: Rectangle::from_size(self.size),
             live: live.then(|| Behind::Panel(surface.clone())),
             region: None,
+            reads,
             blur: None,
             smoke: None,
             opacity: pose.opacity,
@@ -587,6 +607,7 @@ impl Backdrop {
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Smoke(surface.clone())),
             region: None,
+            reads: None,
             blur: None,
             smoke: Some(Mask { shapes, smoke }),
             opacity: 1.0,
@@ -826,6 +847,11 @@ pub struct Glass {
     /// its place in the frame – what lies there is drawn again when it is
     /// blurred.
     region: Option<Rectangle<i32, Physical>>,
+    /// While its dialog grows or shrinks: where it reads, the whole shape
+    /// and the shown one, so the pictures it blurs through keep their size
+    /// – read where it showed, they were made anew each frame (audit of
+    /// 0.5.130), and blurred again.
+    reads: Option<Rectangle<i32, Physical>>,
     /// Live glass blurred again in this frame: by the frame itself, of what
     /// it drew behind it (`Effects::blur_behind`).
     blur: Option<Arc<Mutex<LiveBlur>>>,
@@ -1150,7 +1176,7 @@ impl LiveGlass {
         screen: Size<i32, Physical>,
         appearance: Appearance,
     ) -> Result<()> {
-        let s = glass.bounds;
+        let s = glass.reads.unwrap_or(glass.bounds);
         // A smoke blurs nothing where it ends: it reads no further.
         let margin = match glass.shows {
             _ if glass.smoke.is_some() => 0,

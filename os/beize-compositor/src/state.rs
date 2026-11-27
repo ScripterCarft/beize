@@ -1149,10 +1149,12 @@ impl State {
             elements.extend(glass.map(Element::Glass));
         }
         // Each window with its bar above it, front to back.
+        let preview_shown = self.animations.preview_shown(began);
         let preview = self.snap_preview.and_then(|place| {
             let backdrop = self.backdrop.as_ref()?;
-            let glass =
-                backdrop.snap_preview(&self.snap_preview_id, self.snap_preview_commit, place);
+            let glass = backdrop
+                .snap_preview(&self.snap_preview_id, self.snap_preview_commit, place)
+                .faded(preview_shown);
             Some(Element::Glass(glass))
         });
         scene::windows(
@@ -1933,9 +1935,10 @@ impl State {
         }
     }
 
-    /// The control center's button's centre on the screen – the rectangle
-    /// its popup is anchored to – and how small it is there: as wide as its
-    /// button.
+    /// Where the control center appears from and how small: under its
+    /// button – the rectangle its popup is anchored to –, at the popup's top
+    /// edge, from 97 %, as a menu with a small pop. Until 0.5.130 it grew
+    /// out of the button's centre from the button's width (`GROW`).
     fn grown_from(
         &self,
         popup: &smithay::wayland::shell::xdg::PopupSurface,
@@ -1943,12 +1946,15 @@ impl State {
         let place = self.popup_place(popup)?;
         let (parent, anchor) = self.popup_parent(popup)?;
         let button = Rectangle::new(parent + anchor.loc, anchor.size).to_physical(1);
-        let about = Point::from((
+        let about = Point::<f64, Physical>::from((
             f64::from(button.loc.x) + f64::from(button.size.w) / 2.0,
             f64::from(button.loc.y) + f64::from(button.size.h) / 2.0,
         ));
-        let small = (f64::from(button.size.w) / f64::from(place.size.w.max(1))).clamp(0.05, 1.0);
-        Some((about, small))
+        let place = place.to_physical(1);
+        let left = f64::from(place.loc.x);
+        let right = left + f64::from(place.size.w);
+        let about = Point::from((about.x.clamp(left, right), f64::from(place.loc.y)));
+        Some((about, 0.97))
     }
 
     /// Where the parent of `popup` lies on the screen – the surface its
@@ -2356,6 +2362,10 @@ impl State {
     /// Where a dragged window would snap to (`windows`), shown behind it.
     pub fn set_snap_preview(&mut self, place: Option<Rectangle<i32, Logical>>) {
         if self.snap_preview != place {
+            if self.snap_preview.is_none() && place.is_some() {
+                let now = self.now();
+                self.animations.preview_appears(now);
+            }
             self.snap_preview = place;
             self.snap_preview_commit.increment();
             self.changed();
