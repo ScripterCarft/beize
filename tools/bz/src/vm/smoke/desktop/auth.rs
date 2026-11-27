@@ -29,6 +29,12 @@ fn asked(shell: &Shell) -> Result<usize> {
 }
 /// The script the terminal runs: run0, its exit status appended to a file.
 const SCRIPT: &str = "auth-test";
+/// run0's bus calls time out after this (sd-bus' default, 25 s, shortened):
+/// the dialog stays open longer – a wrong password and PAM's 2 s wait – and
+/// run0 still runs, as it waits for the user without a timeout
+/// (recipes/patches/systemd). 0.5.130 on hardware: after 25 s run0 gave up
+/// and polkitd cancelled the dialog under the owner.
+const BUS_TIMEOUT: Duration = Duration::from_secs(2);
 const WRONG: &str = "wrong-password";
 /// The compositor's line for a window that opened behind (ADR 0030).
 const BEHIND: &str = "opens behind: Beize holds the keyboard";
@@ -57,8 +63,9 @@ pub(super) fn authentication(
     );
 
     let (status, lines) = shell.capture(&format!(
-        "printf 'run0 true; echo run0 $? >> %s/{SCRIPT}.out\\n' \"$HOME\" > ~/{SCRIPT} \
-         && rm -f ~/{SCRIPT}.out"
+        "printf 'SYSTEMD_BUS_TIMEOUT={}s run0 true; echo run0 $? >> %s/{SCRIPT}.out\\n' \
+         \"$HOME\" > ~/{SCRIPT} && rm -f ~/{SCRIPT}.out",
+        BUS_TIMEOUT.as_secs()
     ))?;
     ensure!(status == 0, "could not write the script: {lines:?}");
     let outcomes = || -> Result<Vec<String>> {
@@ -85,6 +92,7 @@ pub(super) fn authentication(
     };
 
     run(1)?;
+    let asking = Instant::now();
     // The lock carries the terminal's own icon, as the dock draws it.
     wait_for_shell_count(shell, "authentication badge: terminal-bold", 1)?;
     thread::sleep(Duration::from_millis(500));
@@ -102,8 +110,15 @@ pub(super) fn authentication(
         shell_count(shell, "authentication: allowed")? == 0 && outcomes()?.is_empty(),
         "a wrong password let run0 run"
     );
+    // The dialog stayed open beyond run0's bus timeout.
+    ensure!(
+        asking.elapsed() > BUS_TIMEOUT * 2,
+        "the dialog asked only {:?}, not beyond run0's bus timeout {BUS_TIMEOUT:?}",
+        asking.elapsed()
+    );
     keys(qmp, &german_presses(SMOKE_PASSWORD)?)?;
     wait_for_shell_count(shell, "authentication: allowed", 1)?;
+    let open = asking.elapsed();
     let ran = wait_for(|| Ok(outcomes()?.len() == 1))
         .and_then(|()| outcomes())
         .context("run0 did not end after the dialog allowed it")?;
@@ -116,9 +131,12 @@ pub(super) fn authentication(
     wait_for_compositor_line(shell, "animation: dialog closed")?;
     say!(
         "  ok: run0 in the terminal asked in the dialog (\"{}…{}\"); a wrong password kept \
-         it open and shook it, the right one alone let run0 run; it appeared and went animated",
+         it open and shook it, the right one alone let run0 run, {:.1} s after it asked, \
+         beyond its bus timeout of {} s; it appeared and went animated",
         ASKS.0,
-        ASKS.1
+        ASKS.1,
+        open.as_secs_f64(),
+        BUS_TIMEOUT.as_secs()
     );
 
     // Asking again; a window opening meanwhile opens behind, without the

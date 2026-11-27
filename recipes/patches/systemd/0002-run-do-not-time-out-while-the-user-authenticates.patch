@@ -1,0 +1,61 @@
+From c8bbe3444025fd70e2a78d0a7ad80a2423765b32 Mon Sep 17 00:00:00 2001
+From: Joe <joe@sudmix.de>
+Date: Fri, 27 Nov 2026 18:25:57 +0100
+Subject: [PATCH] run: do not time out while the user authenticates
+
+run0 and systemd-run --ask-password start their unit with a method
+call that polkit may hold while it asks the user for their password.
+The call used sd-bus' default timeout of 25 s, so a user who took
+longer - reading the dialog, checking Caps Lock, mistyping once and
+waiting out pam_faildelay - got
+
+  Failed to start transient service unit: Connection timed out
+
+and polkitd cancelled the authentication dialog under them. polkit
+itself puts no limit on how long an authentication agent may take.
+
+When interactive authorization is allowed, call StartTransientUnit
+without a timeout, as machinectl and portablectl do for calls that may
+take long. Without it, the default timeout stays.
+---
+ src/run/run.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/run/run.c b/src/run/run.c
+index b4b5df1..21983ee 100644
+--- a/src/run/run.c
++++ b/src/run/run.c
+@@ -2005,6 +2005,12 @@ static int make_transient_service_unit(
+         return 0;
+ }
+ 
++/* Starting the unit may wait for the user to authenticate (polkit, run0): they may take as long as
++ * they need, as polkit itself does not limit it. Otherwise the bus's default method call timeout. */
++static usec_t start_unit_timeout(void) {
++        return arg_ask_password ? USEC_INFINITY : 0;
++}
++
+ static int bus_call_with_hint(
+                 sd_bus *bus,
+                 sd_bus_message *message,
+@@ -2014,7 +2020,7 @@ static int bus_call_with_hint(
+         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+         int r;
+ 
+-        r = sd_bus_call(bus, message, 0, &error, reply);
++        r = sd_bus_call(bus, message, start_unit_timeout(), &error, reply);
+         if (r < 0) {
+                 log_error_errno(r, "Failed to start transient %s unit: %s", name, bus_error_message(&error, r));
+ 
+@@ -2579,7 +2585,7 @@ static int start_transient_scope(sd_bus *bus) {
+                 if (r < 0)
+                         return bus_log_create_error(r);
+ 
+-                r = sd_bus_call(bus, m, /* usec = */ 0, &error, &reply);
++                r = sd_bus_call(bus, m, start_unit_timeout(), &error, &reply);
+                 if (r < 0) {
+                         if (sd_bus_error_has_names(&error, SD_BUS_ERROR_UNKNOWN_PROPERTY, SD_BUS_ERROR_PROPERTY_READ_ONLY) && allow_pidfd) {
+                                 log_debug("Retrying with classic PIDs.");
+-- 
+2.53.0
+
