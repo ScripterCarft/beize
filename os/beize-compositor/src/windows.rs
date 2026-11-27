@@ -303,18 +303,24 @@ fn half_place(
     Point::from((x, frame.loc.y + bar))
 }
 
-/// Where a drag lets go of a window with the pointer `at`. On the screen's
-/// outermost pixels, where a mouse stops and an absolute device lands (as
-/// `State::reveal`), or in the strip the menu bar keeps.
+/// How near a side of the screen the pointer snaps a dragged window to its
+/// half: mutter's, its drag threshold (8) six times
+/// (`DRAG_THRESHOLD_TO_SHAKE_THRESHOLD_FACTOR`, meta-window-drag.c). On the
+/// outermost pixel only (until 0.5.131), a hand that drifted one pixel back
+/// lost the snap (the owner on hardware).
+const SNAP_REACH: f64 = 48.0;
+
+/// Where a drag lets go of a window with the pointer `at`. Within
+/// `SNAP_REACH` of a side, or in the strip the menu bar keeps.
 fn zone(
     screen: Rectangle<i32, Logical>,
     area: Rectangle<i32, Logical>,
     at: Point<f64, Logical>,
 ) -> Option<Zone> {
     let screen = screen.to_f64();
-    if at.x < screen.loc.x + 1.0 {
+    if at.x < screen.loc.x + SNAP_REACH {
         Some(Zone::Half(Half::Left))
-    } else if at.x >= screen.loc.x + screen.size.w - 1.0 {
+    } else if at.x >= screen.loc.x + screen.size.w - SNAP_REACH {
         Some(Zone::Half(Half::Right))
     } else if at.y < f64::from(area.loc.y).max(screen.loc.y + 1.0) {
         Some(Zone::Maximized)
@@ -1644,7 +1650,17 @@ mod tests {
             zone(screen, area, (640.0, 31.0).into()),
             Some(Zone::Maximized)
         );
-        assert_eq!(zone(screen, area, (1.0, 400.0).into()), None);
+        // A hand that drifted back a little still snaps; beyond the reach not.
+        assert_eq!(
+            zone(screen, area, (47.0, 400.0).into()),
+            Some(Zone::Half(Half::Left))
+        );
+        assert_eq!(
+            zone(screen, area, (1232.0, 400.0).into()),
+            Some(Zone::Half(Half::Right))
+        );
+        assert_eq!(zone(screen, area, (48.0, 400.0).into()), None);
+        assert_eq!(zone(screen, area, (1231.0, 400.0).into()), None);
         assert_eq!(zone(screen, area, (640.0, 32.0).into()), None);
         // Without a bar, the top row.
         assert_eq!(
