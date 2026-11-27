@@ -487,10 +487,18 @@ pub(super) fn context_menus(
     click(qmp, screen, new_window, 1)?;
     wait_for_shell_count(shell, "DockMenu closed", 2)?;
     wait_for_terminals(shell, count + 1)?;
+    // Closed as the red button closes it (`xdg_toplevel.close`), the app
+    // ends: it still takes its window down first, which animates (ADR 0032
+    // §2; an app whose connection just drops goes without).
+    let closed = compositor_count(shell, "animation: beize-terminal closed")?;
     keys(qmp, &["alt+f4"])?;
     wait_for_terminals(shell, count)?;
+    wait_for_compositor_count(shell, "animation: beize-terminal closed", closed + 1)?;
     park(qmp, screen)?;
-    say!("  ok: the dock's tile opened its menu, New Window a window, and Alt+F4 closed it");
+    say!(
+        "  ok: the dock's tile opened its menu, New Window a window, and Alt+F4 closed it, \
+         animated"
+    );
     Ok(())
 }
 

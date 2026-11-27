@@ -73,7 +73,7 @@ fn open_from_dock(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<(
     wait_for_compositor_line(shell, "animation: beize-terminal opens from its symbol")?;
     wait_for_compositor_line(shell, "animation: beize-terminal opened")?;
     ensure!(
-        said(shell, "animation: beize-terminal opens")? == 0,
+        compositor_count(shell, "animation: beize-terminal opens")? == 0,
         "the terminal grew in where it is as well"
     );
     let (_, lines) = shell.capture(
@@ -87,18 +87,6 @@ fn open_from_dock(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Result<(
     say!("  ok: the dock started the terminal in a unit of its own, it grew out of its symbol");
     shell.capture("systemctl --user stop 'app-beize\\x2dterminal@*'")?;
     Ok(())
-}
-
-/// How often the compositor said `line` (a pattern, as grep's) this boot.
-fn said(shell: &Shell, line: &str) -> Result<usize> {
-    let (_, lines) = shell.capture(&format!(
-        "echo BEIZE-COUNT-$(journalctl --user -b -u beize-compositor.service -o cat \
-         | grep -cx '{line}')"
-    ))?;
-    lines
-        .iter()
-        .find_map(|l| l.strip_prefix("BEIZE-COUNT-")?.trim().parse().ok())
-        .with_context(|| format!("could not count \"{line}\": {lines:?}"))
 }
 
 /// A key pressed while a window opens reaches it: the window has the
@@ -116,7 +104,7 @@ fn key_while_opening(shell: &Shell, qmp: &Path) -> Result<()> {
         "the window opening got no keyboard: {lines:?}"
     );
     ensure!(
-        said(shell, "animation: beize-testclient opens")? == 1,
+        compositor_count(shell, "animation: beize-testclient opens")? == 1,
         "the compositor did not say the window opens"
     );
     keys(qmp, &["a"])?;
@@ -125,7 +113,7 @@ fn key_while_opening(shell: &Shell, qmp: &Path) -> Result<()> {
          | grep -q '^key 30 pressed' && break; sleep 0.2; done; \
          journalctl --user -u animations-open -o cat | grep '^key '",
     )?;
-    let opened = said(shell, "animation: beize-testclient opened")?;
+    let opened = compositor_count(shell, "animation: beize-testclient opened")?;
     ensure!(
         lines.iter().any(|l| l == "key 30 pressed"),
         "a key pressed while the window opened did not reach it: {lines:?}"
@@ -185,21 +173,10 @@ fn closing(shell: &Shell) -> Result<()> {
     Ok(())
 }
 
-/// Waits until the compositor said `line` `count` times this boot.
-fn wait_for_count(shell: &Shell, line: &str, count: usize) -> Result<()> {
-    for _ in 0..300 {
-        if said(shell, line)? >= count {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
-    bail!("the compositor did not say \"{line}\" {count} times")
-}
-
 /// Starts the test client in the unit `unit`, in the compositor's frame,
 /// and waits until its window opened: where its content lies.
 fn opened_window(shell: &Shell, unit: &str) -> Result<Window> {
-    let before = said(shell, "animation: beize-testclient opened")?;
+    let before = compositor_count(shell, "animation: beize-testclient opened")?;
     let (status, lines) = shell.capture(&format!(
         "systemd-run --user --unit={unit} /run/t/beize-testclient --server-side --seconds 300"
     ))?;
@@ -207,7 +184,7 @@ fn opened_window(shell: &Shell, unit: &str) -> Result<Window> {
         status == 0,
         "could not start the test client (exit status {status}): {lines:?}"
     );
-    wait_for_count(shell, "animation: beize-testclient opened", before + 1)?;
+    wait_for_compositor_count(shell, "animation: beize-testclient opened", before + 1)?;
     last_placed(shell, "beize-testclient")
 }
 
@@ -244,7 +221,7 @@ fn click_while_minimizing(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> 
          | grep -q '^button 0x110 pressed' && break; sleep 0.2; done; \
          journalctl --user -u animations-below -o cat | grep '^button '",
     )?;
-    let minimized = said(shell, "animation: beize-testclient minimized")?;
+    let minimized = compositor_count(shell, "animation: beize-testclient minimized")?;
     ensure!(
         lines.iter().any(|l| l == "button 0x110 pressed"),
         "a click while the window went into the dock did not reach the window below: {lines:?}"
@@ -316,7 +293,7 @@ fn click_while_snapping(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
          | grep -q '^button 0x110 pressed' && break; sleep 0.2; done; \
          journalctl --user -u animations-snap -o cat | grep '^button '",
     )?;
-    let moved = said(shell, "animation: beize-testclient moved")?;
+    let moved = compositor_count(shell, "animation: beize-testclient moved")?;
     ensure!(
         lines.iter().any(|l| l == "button 0x110 pressed"),
         "a click on its new place while the window snapped did not reach it: {lines:?}"
@@ -348,7 +325,7 @@ fn key_while_menu_fades(shell: &Shell, qmp: &Path, screen: (usize, usize)) -> Re
          | grep -q '^key 30 pressed' && break; sleep 0.2; done; \
          journalctl --user -u animations-menu -o cat | grep '^key '",
     )?;
-    let closed = said(shell, "animation: menu closed")?;
+    let closed = compositor_count(shell, "animation: menu closed")?;
     ensure!(
         lines.iter().any(|l| l == "key 30 pressed"),
         "a key pressed while the menu faded did not reach the window: {lines:?}"
@@ -375,7 +352,7 @@ fn key_while_control_center_grows(shell: &Shell, qmp: &Path, screen: (usize, usi
     keys(qmp, &["esc"])?;
     wait_for_shell_count(shell, "ControlCenter closed", 1)?;
     ensure!(
-        said(shell, "animation: control center appeared")? == 0,
+        compositor_count(shell, "animation: control center appeared")? == 0,
         "the control center had grown before Escape reached it: the check did not run while it \
          grew"
     );
@@ -395,18 +372,18 @@ fn key_while_control_center_grows(shell: &Shell, qmp: &Path, screen: (usize, usi
 fn ring_while_switching(shell: &Shell, qmp: &Path) -> Result<()> {
     opened_window(shell, "animations-ring-a")?;
     opened_window(shell, "animations-ring-b")?;
-    let shown = said(shell, "switcher shown")?;
+    let shown = compositor_count(shell, "switcher shown")?;
     hold(qmp, "alt", true)?;
     keys(qmp, &["tab"])?;
-    wait_for_count(shell, "switcher shown", shown + 1)?;
+    wait_for_compositor_count(shell, "switcher shown", shown + 1)?;
     keys(qmp, &["tab"])?;
     wait_for_shell_count(shell, "switcher: ring moves", 1)?;
     wait_for_shell_count(shell, "switcher: ring rests", 1)?;
     keys(qmp, &["tab"])?;
     wait_for_shell_count(shell, "switcher: ring moves", 2)?;
-    let chose = said(shell, "switcher chose beize-testclient")?;
+    let chose = compositor_count(shell, "switcher chose beize-testclient")?;
     hold(qmp, "alt", false)?;
-    wait_for_count(shell, "switcher chose beize-testclient", chose + 1)?;
+    wait_for_compositor_count(shell, "switcher chose beize-testclient", chose + 1)?;
     ensure!(
         shell_count(shell, "switcher: ring rests")? == 1,
         "the ring rested before Alt let go chose: the check did not run while it moved"

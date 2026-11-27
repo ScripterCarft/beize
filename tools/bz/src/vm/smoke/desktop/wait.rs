@@ -26,6 +26,29 @@ pub(super) fn wait_for_shell_count(shell: &Shell, line: &str, count: usize) -> R
     }
 }
 
+/// How often the compositor said `line` (a pattern, as grep's) this boot.
+pub(super) fn compositor_count(shell: &Shell, line: &str) -> Result<usize> {
+    let (_, lines) = shell.capture(&format!(
+        "echo BEIZE-COUNT-$(journalctl --user -b -u beize-compositor.service -o cat \
+         | grep -cx '{line}')"
+    ))?;
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix("BEIZE-COUNT-")?.trim().parse().ok())
+        .with_context(|| format!("could not count \"{line}\": {lines:?}"))
+}
+
+/// Waits until the compositor said `line` `count` times this boot.
+pub(super) fn wait_for_compositor_count(shell: &Shell, line: &str, count: usize) -> Result<()> {
+    for _ in 0..300 {
+        if compositor_count(shell, line)? >= count {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    bail!("the compositor did not say \"{line}\" {count} times")
+}
+
 /// The bytes the guest took from its PS/2 keyboard so far: the interrupts
 /// of IRQ 1 (i8042), one per byte, summed over the CPUs.
 pub(super) fn keyboard_bytes(shell: &Shell) -> Result<usize> {

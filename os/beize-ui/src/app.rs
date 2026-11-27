@@ -1275,16 +1275,20 @@ impl App {
     }
 }
 
+/// An app that ends takes its windows down as `close` does, each toplevel
+/// before its buffers and its surface, and sends that before the connection
+/// goes: the compositor draws a closing window's picture while its buffer is
+/// there (ADR 0032 §2). A connection that just drops destroys the surfaces
+/// first, and the window goes without its animation, as a crashed app's.
+/// smithay-client-toolkit's windows go down in that order too.
 impl Drop for App {
     fn drop(&mut self) {
-        let gpu = &self.renderer.gpu;
-        // SAFETY: nothing records any more; after the wait the GPU uses
-        // nothing of the windows.
-        if let Err(e) = unsafe { gpu.shared.device.device_wait_idle() } {
-            warn!("waiting for the GPU: {e}");
+        let ids: Vec<WindowId> = self.windows.iter().map(|w| w.id).collect();
+        for id in ids {
+            self.close(id);
         }
-        for window in self.windows.drain(..) {
-            window.destroy(gpu);
+        if let Err(e) = self.flush() {
+            warn!("sending the closed windows: {e}");
         }
     }
 }
