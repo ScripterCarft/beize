@@ -56,7 +56,7 @@ Prüfen aller Quellen: `./bz verify`
 | `linux-pam` | Dmitry V. Levin | `7BEC FE3A F7B2 80BB 52FF 77F1 04BA 4521 C996 DDE1` | keyserver.ubuntu.com; signiert mit Unterschlüssel `FB3D CD19 FF87 4735 E4F6 1CE6 4E9F E852 2F16 0EC2` |
 | `llvm` | Die gültigen Release-Manager aus `releases.llvm.org/release-keys.asc`; 23.1.3 signiert Tobias Hieta | `D574 BD5D 1D0E 9889 5E3B F900 44F2 485E 45D5 9042` (Hieta); dazu Hans Wennborg, Omair Javaid, Cullen Rhodes, Douglas Yung | releases.llvm.org über HTTPS; Hieta deckungsgleich mit keyserver.ubuntu.com |
 | `lvm2` | Marian Csontos | `D501 A478 440A E2FD 130A 1BE8 B911 2431 E509 039F` | keys.openpgp.org |
-| `mesa` | Eric Engestrom (Release-Manager) | `5755 1DE1 5B96 8F63 41C2 48F6 8D8E 31AF C324 28A6` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org; die Rust-Crates für NVK pinnt Mesas signiertes Archiv mit SHA-256 (`subprojects/*.wrap`) |
+| `mesa` | Eric Engestrom (Release-Manager); seit 26.3 Dylan Baker (Release-Manager laut `docs/release-calendar.csv` des Projekts) | `5755 1DE1 5B96 8F63 41C2 48F6 8D8E 31AF C324 28A6`, `71C4 B756 20BC 7570 8B4B DB25 4C95 FAAB 3EB0 73EC` | keyserver.ubuntu.com; deckungsgleich mit keys.openpgp.org; Dylan Bakers Ankündigung von 26.3.1 (mesa-announce) nennt dieselbe SHA-256; die Rust-Crates für NVK pinnt Mesas signiertes Archiv mit SHA-256 (`subprojects/*.wrap`) |
 | `mpc` | Andreas Enge | `AD17 A21E F8AE D8F1 CC02 DBD9 F7D5 C9BF 765C 61E3` | GNU-Keyring |
 | `mpfr` | Vincent Lefèvre | `A534 BE3F 83E2 41D9 1828 0AEB 5831 D11A 0D4D B02A` | GNU-Keyring |
 | `mtdev` | mtdev signiert weder Archive noch Tags (geprüft 2026-10-21) | Archiv per SHA-256 gepinnt; dasselbe, aus dem Arch Linux baut |
