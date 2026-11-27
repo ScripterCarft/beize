@@ -85,12 +85,7 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Beim Besitzer
 
-- **Upstream senden** (Entwürfe in WSL `~/upstream/`, Text schreibt der Besitzer):
-  systemd polkit-Timeout (`systemd-run0-timeout/`, für #44507), systemd run0-Ausgabe
-  (`systemd-ptyfwd-drain/`), sbsigntools Monat (`sbsigntools-month-patch/`), Smithay-Berichte
-  (`smithay/ISSUES.md`). Gesendet, warten: nouveau EDID (21.10.) und GSP-IRQDEST (23.10.) – beide
-  in `kernel/patches/`; systemd logind (#44842, 16.11.); Smithay PR #2244 gemergt, `[patch]` fällt
-  mit dem Release nach 0.7.0; ntpd-rs #2539.
+- **Upstream senden:** die Liste mit Stand je Patch und Bericht ist `docs/upstream.md`.
 - **Windows:** `nvlddmkm` 153 nach Messbauten zählen (`docs/hardware.md`); 0 seit 30.10. 22:23.
 - **Entscheidungen, die nur hier stehen:** Menüleiste über Vollbild darf dunkel satter/hell
   blasser wirken; fremde App-Symbole behalten ihre Form; Apples Icons und „macOS-Look“-Sets

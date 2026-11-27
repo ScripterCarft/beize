@@ -20,8 +20,8 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
   messen. Symptom-Pflaster entfernen, wenn die Ursache gefunden ist, und das berichten.
 - **Nichts Eigenes ohne Vorbild:** Weston, Mutter, KWin, niri, GTK, macOS, Windows nennen. Wenig
   eigener Code: Upstream + Standardkonfiguration. Keine fremden Patches; eigene Upstream-Fixes
-  mit Bericht, gesendet vom Besitzer (`kernel/patches/README.md`, `recipes/patches/README.md`,
-  `~/upstream/`).
+  mit Bericht, gesendet vom Besitzer; Stand aller Patches und Berichte in `docs/upstream.md`
+  (Entwürfe in WSL `~/upstream/`), bei jeder Prüfung dort ersetzen.
 - **Keine getunten festen Zeiten** („damit es geht“): Ereignisse statt Timer, Konzept statt Zahl.
 - Neue Architektur: ADR vorab abstimmen. **Werte und Aussehen**, die der Besitzer abgenommen hat,
   ändern sich nur nach seinem Ja (Mock-ups vorher). Bei Problemen einen Schritt zurück,
@@ -208,4 +208,4 @@ Absturzberichte · 0024 Bootloader-Konfiguration · 0025 Varianten · 0026 TPM-S
 
 `docs/STATUS.md` (Stand, nächste Schritte, offene Funde mit Ort) und GitHub Issues
 (`gh issue list`; Labels `m3-plan`, `upstream`, `hardware`). Ein Commit, der ein Issue erledigt,
-nennt `Fixes #N`. Upstream-Entwürfe in WSL `~/upstream/` (sendet der Besitzer).
+nennt `Fixes #N`. Upstream: `docs/upstream.md`.

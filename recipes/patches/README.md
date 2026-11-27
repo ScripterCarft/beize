@@ -12,7 +12,9 @@ third parties. The kernel's lie in `kernel/patches`, under the same rules.
   release stops the build: upstream took it, and it is removed here in the same
   commit as the update.
 
-| Package | Patch | What | Sent |
-| --- | --- | --- | --- |
-| systemd | 0001 | logind elects the user's display again when a session changes its type: beize-session's `SetType("wayland")` makes tty1 the display, where polkit finds the shell and its agent (ADR 0031), also after an earlier login on another console | 16.11. by the owner, [systemd#44842](https://github.com/systemd/systemd/pull/44842) |
-| systemd | 0002 | no timeout while polkit asks the user, as libpolkit's own calls: PID 1's question to polkitd and run0's call each had sd-bus' 25 s, after which polkitd cancelled the dialog and run0 failed (0.5.130 on hardware) | not yet, for the open [systemd#44507](https://github.com/systemd/systemd/issues/44507) (`~/upstream/systemd-run0-timeout/`) |
+Where each one stands upstream: `docs/upstream.md`.
+
+| Package | Patch | What |
+| --- | --- | --- |
+| systemd | 0001 | logind elects the user's display again when a session changes its type: beize-session's `SetType("wayland")` makes tty1 the display, where polkit finds the shell and its agent (ADR 0031), also after an earlier login on another console ([systemd#44842](https://github.com/systemd/systemd/pull/44842)) |
+| systemd | 0002 | no timeout while polkit asks the user, as libpolkit's own calls: PID 1's question to polkitd and run0's call each had sd-bus' 25 s, after which polkitd cancelled the dialog and run0 failed (0.5.130 on hardware; for [systemd#44507](https://github.com/systemd/systemd/issues/44507)) |

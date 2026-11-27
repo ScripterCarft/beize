@@ -9,7 +9,9 @@ Beize's own fixes for the kernel, sent upstream (the owner sends them,
   it, and it is removed here in the same commit as the kernel update.
 - `kernel/measure/` holds what only a measurement branch carries (logging).
 
-| Patch | What | Sent |
-| --- | --- | --- |
-| 0001 | nouveau/gsp: EDID blocks 2 and 3 were read as 0 and 1 on GSP-RM; without it no 2560x1440@240Hz on the owner's monitor | 21.10. by the owner (b4 `sent/20261021-nouveau-edid-segment-…`) |
-| 0002 | nouveau/gsp: only interrupts routed to the host are the host's (IRQDEST) | 23.10. by the owner |
+Where each one stands upstream: `docs/upstream.md`.
+
+| Patch | What |
+| --- | --- |
+| 0001 | nouveau/gsp: EDID blocks 2 and 3 were read as 0 and 1 on GSP-RM; without it no 2560x1440@240Hz on the owner's monitor |
+| 0002 | nouveau/gsp: only interrupts routed to the host are the host's (IRQDEST); in mainline for 7.4, goes with the first stable kernel that has it |
