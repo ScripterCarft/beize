@@ -29,7 +29,7 @@ Prüfen aller Quellen: `./bz verify`
 | `findutils` | James Youngman | `0CF4 E8D8 7159 3224 8428 32B8 88DD 9E08 C5DD ACB9` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `gawk` | Arnold Robbins | `D196 7C63 7887 1317 7D86 1ED7 DF59 7815 937E C0D2` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
 | `gcc` | Richard Biener | `7F74 F97C 1034 68EE 5D75 0B58 3AB0 0996 FC26 A641` | GNU-Keyring |
-| `glib` | Philip Withnall (GNOME) | `923B 7025 EE03 C1C5 9F42 684C F094 2E89 4B2E AFA0` | keyserver.ubuntu.com; signierter Git-Tag (mit Git-EVTag), Unterschlüssel `6DFB 50D0 F26A E9F5 09B0 12CD C5C4 2CFB 2686 37CA`; das Submodul gvdb ist über den signierten Baum gepinnt |
+| `glib` | Philip Withnall (GNOME) | `923B 7025 EE03 C1C5 9F42 684C F094 2E89 4B2E AFA0` | keyserver.ubuntu.com; signierter Git-Tag (mit Git-EVTag), Unterschlüssel `6DFB 50D0 F26A E9F5 09B0 12CD C5C4 2CFB 2686 37CA`, seit 2.90.2 `0E48 FD29 BACF 7A81 45D2 C51A 5864 7FAF 55AC 01EF` (vom 2026-10-21, vom Hauptschlüssel gebunden); das Submodul gvdb ist über den signierten Baum gepinnt |
 | `glibc` | Andreas K. Hüttel | `35B1 7DF5 7525 77CA 0C54 1CEB 94BF DF44 84AD 142F` | keys.openpgp.org (GNU-Keyring enthält eine abgelaufene Fassung) |
 | `gmp` | Niels Möller | `343C 2FF0 FBEE 5EC2 EDBE F399 F359 9FF8 28C6 7298` | GNU-Keyring |
 | `grep` | Jim Meyering | `155D 3FC5 00C8 3448 6D1E EA67 7FD9 FCCB 000B EEEE` | keyserver.ubuntu.com; deckungsgleich mit dem GNU-Keyring |
