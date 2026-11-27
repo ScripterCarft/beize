@@ -1,13 +1,13 @@
 # Foreign function interface, required by glib (GObject closures).
 name = "libffi"
-version = "3.8.1"
+version = "3.8.2"
 stage = "target"
 deps = ["gcc", "glibc"]
 
 [source]
 latest = { release-monitoring = 1611 }
 url = "https://github.com/libffi/libffi/releases/download/v{version}/libffi-{version}.tar.gz"
-sha256 = "81e879c094cc5ec3186c48510c6385ac6b3e866192e8bc71a35245703757ee40"
+sha256 = "a699fda2b090c4b46cb79cf60c4dacfce480eb05742c0de66acf3af174a47f92"
 unsigned = "libffi signs neither release archives nor tags (checked 2026-10-11); archive pinned by SHA-256, the one Arch Linux builds"
 
 [build]

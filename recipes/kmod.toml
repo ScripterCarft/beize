@@ -2,14 +2,14 @@
 # depmod on the image. Modules are zstd-compressed and live in /usr/lib/modules;
 # the kernel checks their signatures itself, so kmod needs no OpenSSL.
 name = "kmod"
-version = "34.3"
+version = "34.4"
 stage = "target"
 deps = ["gcc", "glibc", "zstd"]
 
 [source]
 latest = { release-monitoring = 1517 }
 url = "https://cdn.kernel.org/pub/linux/utils/kernel/kmod/kmod-{version}.tar.xz"
-sha256 = "985554de49c21a58abd68c6cda2251384e1e5bb08b3b14c7f02b51f4c90c2958"
+sha256 = "4c7942dda4793d08f975270322db582c9701438afd4d76ed9e6e7cf4094cb967"
 signature = "https://cdn.kernel.org/pub/linux/utils/kernel/kmod/kmod-{version}.tar.sign"
 signed = "uncompressed"
 keyring = "kmod"

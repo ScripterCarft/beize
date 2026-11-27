@@ -1,7 +1,7 @@
 # GLib, GObject and GIO: the base library polkit is written against (and,
 # later, GTK applications). No introspection, translations or documentation.
 name = "glib"
-version = "2.90.1"
+version = "2.90.2"
 stage = "target"
 deps = ["gcc", "glibc", "zlib", "libffi", "pcre2", "util-linux"]
 
@@ -11,7 +11,7 @@ deps = ["gcc", "glibc", "zlib", "libffi", "pcre2", "util-linux"]
 latest = { release-monitoring = 10024 }
 git = "https://gitlab.gnome.org/GNOME/glib.git"
 tag = "{version}"
-commit = "e05063ccc6c8f222465a1080927f4c14349f3de6"
+commit = "ba72ed0b188741619bfc2ae0a022230981ab2cff"
 submodules = true
 keyring = "glib"
 
