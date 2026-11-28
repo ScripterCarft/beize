@@ -50,8 +50,11 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
 - CI nach jedem Push selbst prüfen (`gh run list/view`), ohne Polling; den Nachtlauf zu Beginn.
 - Der Besitzer leert den Chat zwischen größeren Schritten: vorher `docs/STATUS.md` aktuell.
 - Hilfs-Agenten: für breite Prüfungen erlaubt (`.claude/agents/beize-reviewer.md` für Code,
-  `beize-design-auditor.md` für Aussehen und Bedienung, beide nur mit Beleg); ein Agent
-  prüft am Ende jedes größeren Schritts unabhängig gegen.
+  `beize-design-auditor.md` für Aussehen und Bedienung, beide nur mit Beleg). **Sparsam**
+  (Besitzer, 28.11.: sie kosten viele Tokens): ein Agent prüft unabhängig gegen, wenn ein Teil
+  fertig ist und die Arbeit sich etwas Neuem zuwendet (Phase A → B, Performance → UI-Design),
+  nicht nach jeder Stufe. Claude Code läuft unter Windows und sieht die Agenten des Repos nicht:
+  ein allgemeiner Agent, der zuerst die Rollendatei liest.
 
 ## 3. Umgebung
 
