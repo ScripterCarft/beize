@@ -39,10 +39,25 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes: der Gesamtplan (28.11.)
 
-**Nächster Schritt: das Urteil des Besitzers über den zweiten Anlauf**, dann **ein** Messbau:
-Material ansehen und dabei die späten Bilder nach A1 messen (Journal „freed N GPU objects“). Die
-Galerie (28 Bilder, mit drei Apps im Dock) liegt in `build/gallery/` und auf
-https://claude.ai/artifact/WjCCN4wXQXKg8ZdvYFGbkw (privat). Danach B3.2.
+**Nächster Schritt: Messbau 0.5.133 auswerten** (`~/hw-logs/results-20261128-193402`, mit
+binärem Journal; Zweig/Tag `measure/desktop-0.5.133`). Erster Blick (noch nicht ausgewertet):
+späte Bilder während Animationen 49, in der Sitzung 117; „dialog closes“ 1 bei 4 (0.5.132: 57),
+„comes back“ 2 (44) – A1 wirkt dort; **„menu closes“ 20 bei 24 Mal** und „moves“ 15 bei 10
+bleiben; `MEASURE 0.5.133 frees >= 1 ms: 326, longest 18.65 ms` – Freigaben kosten weiter
+Millisekunden, jetzt nach dem Commit. Zu klären im Code und im Journal: liegen die späten Bilder
+von „menu closes“ auf den langen Freigaben (Zeitstempel vergleichen), und läuft die Freigabe im
+selben Thread vor dem nächsten Bild (dann: Pool aus A1 oder Freigabe in einen eigenen Thread wie
+wgpu/gpu-allocator es erlauben)? Danach B3.2.
+
+**Vom Besitzer auf Hardware (28.11.):** das Urteil zum Aussehen (Kontrollzentrum, Dock-Glas,
+Haarlinie, dunkle Menüs 94 %, Dock-Menü an der Kante) fragt der nächste Chat nach. Gesehen hat er:
+**beim Einrasten wird das Fenster während der Animation gestreckt** – die Titelleiste („Terminal“)
+wird groß und blendet dann über; kein Fehler, aber unsauber. Ursache im Code belegen
+(`os/beize-compositor/src/animation/`, Einrasten: das alte Bild wird auf die neue Größe skaliert
+und überblendet; derselbe Ort wie „Schatten mitgestreckt“ unten), Vorbild prüfen (niri und
+Mutter überblenden das alte Bild skaliert, KWin „Maximize“ ebenso; macOS-Kacheln animieren den
+Rahmen) und eine sauberere Lösung vorschlagen, etwa Titelleiste und Ecken unskaliert
+(Neun-Teilung) oder nur den Rahmen animieren und den Inhalt erst in der neuen Größe zeigen.
 
 Der erste Anlauf von B3.1 (Kontrollzentrum als eine Fläche, Dock 84/R28, ein breiter Schatten)
 gefiel dem Besitzer nicht („hingerotzt“); zwei Wertesätze (B2) erübrigten sich. Gebaut ist jetzt:
