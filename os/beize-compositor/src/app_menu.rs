@@ -68,12 +68,11 @@ impl Menus {
 }
 
 fn with_menus<T>(window: &Window, f: impl FnOnce(&mut Menus) -> T) -> T {
-    let data = window.user_data();
-    data.insert_if_missing(|| RefCell::new(Menus::default()));
-    match data.get::<RefCell<Menus>>() {
-        Some(menus) => f(&mut menus.borrow_mut()),
-        None => f(&mut Menus::default()),
-    }
+    // As `windows::with_place`: borrowed only here.
+    let menus = window
+        .user_data()
+        .get_or_insert(|| RefCell::new(Menus::default()));
+    f(&mut menus.borrow_mut())
 }
 
 /// The menus that apply to `window`.

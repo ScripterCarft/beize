@@ -5,14 +5,11 @@
 use super::*;
 
 pub(super) fn with_place<T>(window: &Window, f: impl FnOnce(&mut Place) -> T) -> T {
-    let data = window.user_data();
-    data.insert_if_missing(|| RefCell::new(Place::default()));
-    // Inserted just above, so always there; the map is only touched from
-    // the event loop, so never borrowed twice.
-    match data.get::<RefCell<Place>>() {
-        Some(place) => f(&mut place.borrow_mut()),
-        None => f(&mut Place::default()),
-    }
+    // The map is only touched from the event loop, so never borrowed twice.
+    let place = window
+        .user_data()
+        .get_or_insert(|| RefCell::new(Place::default()));
+    f(&mut place.borrow_mut())
 }
 
 /// Where a new window of `size` opens in `area`: centred, then moved by

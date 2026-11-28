@@ -79,12 +79,8 @@ impl State {
         // An overlay that has the keyboard has it back: opened while the
         // menu's grab held it, or before that menu.
         let active = self.overlay_keyboard.clone().or_else(|| {
-            self.space
-                .elements()
-                .rev()
-                .filter_map(Window::toplevel)
-                .find(|t| t.with_pending_state(|s| s.states.contains(XdgState::Activated)))
-                .map(|t| t.wl_surface().clone())
+            self.active_window()
+                .and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()))
         });
         let keyboard = self.keyboard.clone();
         keyboard.set_focus(self, active, SERIAL_COUNTER.next_serial());

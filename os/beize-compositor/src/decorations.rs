@@ -66,13 +66,11 @@ struct Bar {
 }
 
 fn with_bar<T>(window: &Window, f: impl FnOnce(&mut Bar) -> T) -> T {
-    let data = window.user_data();
-    data.insert_if_missing(|| RefCell::new(Bar::default()));
-    // As `windows::with_place`: inserted just above, borrowed only here.
-    match data.get::<RefCell<Bar>>() {
-        Some(bar) => f(&mut bar.borrow_mut()),
-        None => f(&mut Bar::default()),
-    }
+    // As `windows::with_place`: borrowed only here.
+    let bar = window
+        .user_data()
+        .get_or_insert(|| RefCell::new(Bar::default()));
+    f(&mut bar.borrow_mut())
 }
 
 /// The window shows the compositor's frame: it asked for it, and its last

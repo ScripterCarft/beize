@@ -155,15 +155,12 @@ impl State {
             }
             Ok(Change::New(info)) => {
                 self.offer_output(&info);
-                let area = self.screen_area().to_f64();
-                self.pointer = Point::from((
-                    self.pointer
-                        .x
-                        .clamp(area.loc.x, area.loc.x + area.size.w - 1.0),
-                    self.pointer
-                        .y
-                        .clamp(area.loc.y, area.loc.y + area.size.h - 1.0),
-                ));
+                // Without a screen left the pointer stays where it was.
+                if let Some(pointer) =
+                    crate::input::on_screen(self.screen_area().to_f64(), self.pointer)
+                {
+                    self.pointer = pointer;
+                }
                 self.arrange_windows();
                 self.changed();
             }

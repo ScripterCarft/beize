@@ -49,7 +49,6 @@ use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge;
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State as XdgState;
 use smithay::reexports::wayland_server::backend::{
     ClientData, ClientId, DisconnectReason, GlobalId,
 };

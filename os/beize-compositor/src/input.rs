@@ -245,7 +245,7 @@ pub fn refresh_pointer(state: &mut State) {
 /// `to` kept on the screen: the last pixel is the limit, the cursor never
 /// leaves it. Without a screen (`area` empty) the pointer is nowhere, which a
 /// clamp to an empty range would make a panic.
-fn on_screen(
+pub(crate) fn on_screen(
     area: Rectangle<f64, Logical>,
     to: Point<f64, Logical>,
 ) -> Option<Point<f64, Logical>> {
