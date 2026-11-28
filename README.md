@@ -49,16 +49,18 @@ Meilenstein **M2 – Echte Hardware** ist erreicht (2026-10-16, Beize 0.4).
       keine Datei mit setuid oder Capabilities, `/` und `/usr` mit `nosuid` eingehängt;
       `ping` und `tracepath` ohne Sonderrechte; Dienste mit Systemaufruf-Filtern (seccomp)
 - [x] Wiederherstellung im Startmenü: Root-Shell nur mit dem Wiederherstellungsschlüssel
-- [x] Startzeit auf echter Hardware gemessen: 13,6 s vom Bootloader bis zur Anmeldung, davon
-      5 s PCIe-Retraining, das Kernel 7.3 behebt ([`docs/hardware.md`](docs/hardware.md))
+- [x] Startzeit auf echter Hardware gemessen: 8,5 s vom Bootloader bis zur Anmeldung
+      (Kernel 7.3, 0.5.132; [`docs/hardware.md`](docs/hardware.md))
 - [x] A/B-Updates: signiert (ML-DSA), aktiv beim nächsten Start; ein Update, das nicht
       startet, fällt nach drei Versuchen von selbst auf die vorige Version zurück
       (auf der Hardware bestätigt: 0.1 → 0.2 → 0.3 → 0.4 vom USB-Stick)
 - [x] Über Stunden im Leerlauf stabil: nichts wächst, ~750 MB belegt, davon 26 MB anonymer
       Speicher aller Prozesse
 
-Meilenstein **M3 – Compositor** ist der nächste. Dazu gehört auch, NVIDIA, WLAN, Bluetooth,
-Ton und den Start von der zweiten SSD zu planen.
+Meilenstein **M3 – Compositor** läuft: eigener Compositor (Smithay, Vulkan) mit Shell,
+Menüleiste, Dock, Kontrollzentrum, Alt+Tab, Anmeldedialog und Animationen, auf dem Rechner des
+Besitzers (NVIDIA mit NVK, 240 Hz). Was gerade gilt und was offen ist:
+[`docs/STATUS.md`](docs/STATUS.md).
 
 ## Voraussetzungen
 

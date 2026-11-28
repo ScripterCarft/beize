@@ -35,14 +35,19 @@ Smithay master 46643d2.
    `loginctl show-user -P Display` und die Statusdateien.
 4. Nit Z. 1288: `session_save(s)` vor `user_save()` und dem Display-Signal.
 Die roten Fedora-rawhide-rpm-Builds sind nicht mehr zu klären (Copr-Logs abgelaufen); andere
-PRs vom selben Tag waren grün – der nächste Push zeigt es. v2 bereitet Claude in
-`~/upstream/systemd-logind-display/` vor.
+PRs vom selben Tag waren grün – der nächste Push zeigt es. **v2 liegt bereit** in
+`~/upstream/systemd-logind-display/v2/` (Basis: systemd main 39c2bf5): Neuwahl nur in den
+D-Bus-Methoden `SetType`/`SetClass` (nicht in `session_drop_controller()`, also nicht beim
+Abbau – Punkt 2), speichert alte und neue Display-Sitzung vor `user_save()` (Punkte 1 und 4).
+Offen vor dem Push: kompilieren, Test (Punkt 3: TEST-35, zwei Sitzungen, `loginctl show-user -P
+Display` und die Statusdateien), Beizes `recipes/patches/systemd/0001` auf die gesendete
+Fassung bringen.
 
 ## Fertig, noch nicht gesendet
 
 | Was | Entwurf | Vor dem Senden |
 | --- | --- | --- |
-| systemd: kein Timeout, solange polkit fragt (PID 1 und run0), für Issue [#44507](https://github.com/systemd/systemd/issues/44507) | `systemd-run0-timeout/` (wir tragen ihn: `recipes/patches/systemd/0002`) | Passt nicht mehr auf main (nur Kommentare `/* usec= */`); **main startet run0 über ptybrokerd**: dort wartet der Client per Varlink 45 s (`VARLINK_DEFAULT_TIMEOUT_USEC`) – der Patch braucht dafür einen Teil mehr. Claude setzt ihn neu auf |
+| systemd: kein Timeout, solange polkit fragt (PID 1 und run0), für Issue [#44507](https://github.com/systemd/systemd/issues/44507) | `systemd-run0-timeout/` (wir tragen ihn: `recipes/patches/systemd/0002`) | Fassung für main liegt bereit: `systemd-run0-timeout/main/` (main startet run0 über ptybrokerd, dessen Varlink-Aufruf 45 s wartete; jetzt auch ohne Timeout, wie resolvectl/journalctl es halten). Offen: kompilieren, im Beize-Smoke prüfen, sobald Beize systemd mit ptybroker hat |
 | systemd veritysetup-generator: `usrhash=`-Gerät wartet 90 s nach Fehlschlag | `systemd-veritysetup-cmdline-device/` (Patch + Issue) | Passt auf main; #44880 (18.11.) hat den Generator geändert, Verhalten neu belegen |
 | systemd gpt-auto: verschlüsseltes Root scheitert nach 90 s an der Passwortabfrage | `systemd-gpt-auto-timeout/ISSUE.md` | gegen main neu belegen |
 | systemd 99-systemd.rules: verity-Gerät mit kaputten Daten wird nie „ready“ | `systemd-verity-not-ready/ISSUE.md` | gegen main neu belegen |

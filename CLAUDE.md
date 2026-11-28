@@ -23,6 +23,11 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
   mit Bericht, gesendet vom Besitzer; Stand aller Patches und Berichte in `docs/upstream.md`
   (Entwürfe in WSL `~/upstream/`), bei jeder Prüfung dort ersetzen.
 - **Keine getunten festen Zeiten** („damit es geht“): Ereignisse statt Timer, Konzept statt Zahl.
+- **Erst planen, dann bauen** (Besitzer, 28.11.): Probleme nicht einzeln jagen. Bei jedem fragen,
+  ob ein professionelleres System ohnehin bald nötig ist (dann umsteigen statt flicken), und die
+  Reihenfolge so legen, dass nichts doppelt gebaut oder später umgebaut wird. Ursachen im Code
+  belegen statt mit vielen Messbauten; schwer lesbaren Code umstrukturieren. Dem Besitzer sagen,
+  was er parallel tun kann.
 - Neue Architektur: ADR vorab abstimmen. **Werte und Aussehen**, die der Besitzer abgenommen hat,
   ändern sich nur nach seinem Ja (Mock-ups vorher). Bei Problemen einen Schritt zurück,
   Alternativen mit Empfehlung vorlegen.

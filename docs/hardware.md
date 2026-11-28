@@ -237,8 +237,8 @@ Phase 7 hielt die Zeiten trotz neuer Toolchain, dbus-broker und MiniDebugInfo. D
 (10 MiB) lädt der Loader in 0,5 s; ihre Phase steckt fast ganz in den drei Punkten unten,
 nicht in der Größe.
 
-Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s, Fix in
-7.3), 1,9 s `mem auto-init` (`INIT_ON_FREE`, bewusst behalten, ADR 0015). initrd:
+Kernel: 5,0 s PCIe-Retraining der leeren Root-Ports `00:1a/1b/1c/1d` (je 1 s) – mit 7.3
+weg (0.5.132, 28.11.: Kernel 2,2 s, ab Loader 8,5 s; #11), 1,9 s `mem auto-init` (`INIT_ON_FREE`, bewusst behalten, ADR 0015). initrd:
 - 1,7 s wartet das Stoppen von udevd vor switch-root auf einen Worker, der `product`
   eines USB-Hubs liest. Der Kernel nimmt dafür die Gerätesperre, die der Hub hält,
   solange er alle Ports durchzählt. Upstream-Patch: WSL

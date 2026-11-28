@@ -3,60 +3,81 @@
 Was gerade gilt. Verlauf steht in den Commits (`git log`), Entscheidungen in den ADRs,
 Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht angehängt.
 
-## Stand (27.11.2026)
+## Stand (28.11.2026)
 
 - **M3 Compositor:** Desktop mit Shell (ADR 0028 (a)–(f)) läuft auf dem PC des Besitzers
-  (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.131.
-- **Animationen (ADR 0032) fertig und auf Hardware:** Schritte a)–e) gebaut, 0.5.130 und
-  0.5.131 auf dem PC des Besitzers. Danach behoben: Trichter zurück aus dem Dock so schnell wie
-  hinein (0,34 s statt 0,93 s), Schatten erst nach der Landung; die Probewerte von 0.5.131
-  (Besitzer: „viel besser“) sind auf `main` (Tabelle in ADR 0032); Dialoge ruckelten beim
-  Erscheinen (Inhalt und Glas verschieden gerundet, Glas jedes Bild neu angelegt) – behoben,
-  noch nicht auf Hardware; Einrasten reicht 48 px vom Rand (mutter), der Alt+Tab-Ring schwingt
-  nicht mehr nach. **Schließen war auf Hardware nie animiert** (kein „closes“ in den Journalen
-  von 0.5.130/131): Beize-UI-Apps rissen beim Beenden die Verbindung ab; `App::drop` baut jetzt
-  die Fenster ab wie `close` (a716d2d), der Smoke zählt es beim Terminal.
-- **Anmeldedialog (ADR 0031):** auf Hardware gut, auch 48 s offen (0.5.131). run0 gab nach 25 s
-  auf: eigener systemd-Patch 0002 (kein Timeout, solange polkit fragt; PID 1 und run0), für das
-  offene Issue systemd#44507. Caps Lock geklärt: Taste bis Bild unter 1 ms; aus geht es beim
-  Loslassen (xkb, wie GTK) – kein Fehler von Beize.
-- **Fokus (ADR 0030):** neue Fenster kommen mit der Tastatur nach vorne wie bei Mutter; hält
-  Beize die Tastatur (Dialog, Alt+Tab, Shell-Menü), öffnet ein neues hinten.
-- **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren, und Electrons
-  Bibliotheken (GTK3, NSS u. a.) fehlen.
-- **Updates 27.11.:** Linux 7.3.6, Mesa 26.3.1, LLVM 23.1.6, Vulkan 1.4.369, linux-firmware
-  20261124, neun Basis-Pakete (Sicherheitsfixes), Rust-Locks; neue Signaturschlüssel für
-  tpm2-tss, glib, Mesa (je eigener Commit). xkeyboard-config bleibt 2.48 (2.49 ohne signiertes
-  Archiv, #20). Grafik und Kernel noch nicht auf Hardware.
-- **Upstream:** Stand aller Patches und Berichte in `docs/upstream.md` (27.11. geprüft): nouveau
-  GSP-IRQDEST ist in Mainline (7.4, Cc stable); systemd #44842 braucht Nacharbeit (Bot-Review).
-- **CI:** schneller Lauf je Push, nachts voll. Push braucht entsperrtes 1Password.
+  (RTX 3070 Ti, NVK, 2560×1440 @ 240 Hz). `main` ist 0.6, der letzte Messbau 0.5.132
+  (`~/hw-logs/results-20261128-110133`, mit binärem Journal).
+- **Animationen (ADR 0032) fertig, auf Hardware abgenommen** (0.5.131: „viel besser“, 0.5.132:
+  „sah schon gut aus“). Schließen animiert seit 0.5.132 auf Hardware (Beize-UI-Apps rissen beim
+  Beenden die Verbindung ab, a716d2d). Alt+Tab-Ring 0,1 s (Besitzer, 28.11.).
+- **Anmeldedialog (ADR 0031), Fokus (ADR 0030):** auf Hardware gut. run0 ohne 25-s-Grenze über
+  den eigenen systemd-Patch 0002.
+- **Updates 27.11.:** Linux 7.3.6 (Start ab Loader 8,5 s statt 13,6 s, #11 erledigt), Mesa
+  26.3.1, LLVM 23.1.6, Vulkan 1.4.369, linux-firmware 20261124, neun Basis-Pakete, Rust-Locks.
+  xkeyboard-config bleibt 2.48 (#20). Dependabot #45 (parley 0.13, skrifa 0.49, resvg 0.50,
+  xkbcommon 0.9) rot: parleys API (`Layout::align`) – gehört zur Schrift im UI-Overhaul.
+- **Späte Bilder seit 0.5.132 deutlich mehr** (Hardware, gleiche Handgriffe): 223 statt 81
+  während Animationen, 317 statt 102 je Sitzung. GPU-spät vor allem bei „dialog closes“ 57 (0.5.131:
+  10), „comes back“ 44 (5), „menu closes“ 52 (13), „dialog appears“ 38 (31); neu 92 „late (drawing)“
+  (vorher 2), fast alle in der Phase `begin` von `render/mod.rs` `submit()` (bis 21 ms; dort
+  laufen `dmabufs.retain`, `shared.collect()` = Freigaben, Uploads, `write_quads`) – beim
+  Einrasten/Maximieren ~25 ms nach „moves“ und beim Live-Resize. Ursache nicht belegt; neuer
+  Grafik-Stack und Kernel sind der einzige Unterschied zu 0.5.131.
+- **Upstream:** `docs/upstream.md` (27.11. geprüft): nouveau GSP-IRQDEST in Mainline (7.4, Cc
+  stable); systemd #44842 „needs-rework“, v2 und die run0-Fassung für main liegen in `~/upstream`.
+- **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren.
+- **CI:** schneller Lauf je Push, nachts voll; zuletzt alles grün. Push braucht entsperrtes 1Password.
 
-## Als Nächstes (der nächste Chat, in dieser Reihenfolge)
+## Als Nächstes: erst der Gesamtplan, dann bauen
 
-1. **Messbau 0.5.132** auf dem PC des Besitzers: neuer Grafik-Stack und Kernel 7.3 (späte
-   Bilder gegen 0.5.131, Startzeiten aus dem binären Journal für #11), Schließen jetzt animiert,
-   Dialoge ohne Ruckeln?, Probewert Alt+Tab-Ring 0,1 s (Besitzer: „schnell, aber nicht aus dem
-   Nichts“; `TRIAL 0.5.132` in `switcher.rs`). Ergebnis auswerten, Werte nur nach seinem Ja.
-2. **systemd-Entwürfe für main** (in WSL `~/scratch/sd-main`, Zweige `run0-timeout` und
-   `logind-display`): kompilieren, logind v2 mit Test (TEST-35, zwei Sitzungen), nach
-   `~/upstream/` als Patches; dann trägt Beize genau die gesendete Fassung. Stand und was vor dem
-   Senden zu tun ist: `docs/upstream.md`.
-3. **Design-Audit:** Screenshots selbst machen (`./bz debug … '@screendump build/x.png'`, alle
-   Zustände: Desktop hell/dunkel, Menüs, Kontrollzentrum, Dock-Menü, Dialoge, Alt+Tab, Vorschau,
-   Terminal; dazu die des Besitzers aus `~/hw-logs/results-*/*.png`), dann den Agenten
-   `beize-design-auditor` (`.claude/agents/`) darauf ansetzen: belegte Funde zu Radien,
-   Abständen, Schrift, Farben, Einheitlichkeit, Bewegung (gegen die Tabelle in ADR 0032).
-   Ergebnis dem Besitzer mit Empfehlung vorlegen; Werte ändern sich nur nach seinem Ja.
-4. Danach **Töne**, dann **Mitteilungen** – je ein ADR vorab.
-5. Optimierung (Besitzer: erst die Shell fertig). Bekannt aus 0.5.130/131: erstes Bild jeder
-   Animation spät (neues `Picture`/`LiveGlass` je Öffnen, `animation.rs`, `scene.rs:207`) – Pool
-   nach Größe; Menü schließt: Bild im selben Frame gezeichnet (`state.rs` ~1884).
+Der Besitzer (28.11.) will keinen Problemen einzeln hinterherlaufen, sondern einen Stand, auf dem
+Beize ohne Sorgen aufbaut. **Erster Auftrag des nächsten Chats: einen Plan vorlegen**, der die
+Stränge unten verbindet – Reihenfolge so, dass nichts doppelt gebaut oder später wieder umgebaut
+wird, mit Blick auf künftige Systeme. Leitfragen des Besitzers:
+- Brauchen wir für ein Problem ohnehin bald ein professionelleres System? Dann jetzt umsteigen
+  statt flicken.
+- Ursachen im Code suchen und belegen, **nicht mit vielen Messbauten**; wo man lange lesen muss,
+  umstrukturieren (Trennung der Zuständigkeiten, guter Stil).
+- Was kann der Besitzer parallel tun, während die KI arbeitet (Entscheidungen, Mock-ups wählen,
+  Upstream senden, Hardware-Tests bündeln)?
+- Wie werden Bauen, Smoke und Tests schneller?
+
+Die Stränge, mit dem, was schon bekannt ist:
+1. **Späte Bilder** (Zahlen oben): Render-Pfad durchgehen – was in `submit()` vor dem Aufzeichnen
+  passiert, gehört es in den Bildpfad (Freigaben/Importe aus dem Takt nehmen, wie Mutter/KWin es
+  halten)?; bekannt: neues `Picture`/`LiveGlass` je Öffnen (`animation.rs`, `scene.rs:207`), Menü
+  schließt mit Bild im selben Frame (`state.rs` ~1884), „flip event repeated the vblank before“
+  häuft sich. Größte Dateien: `state.rs` 2719 Zeilen, `animation.rs` 1816, `render/mod.rs` 1719,
+  `windows.rs` 1688, `beize-ui/app.rs` 1597, `beize-shell/main.rs` 1507.
+2. **UI-Overhaul mit eigener Formensprache (neues ADR, vorab abgestimmt).** Besitzer: Beize soll
+  Eigenes haben, alles aus einem Guss; das Liquid Glass (Dock, Kacheln des Kontrollzentrums) ist
+  „nichts Ganzes“, schwer, überladen; das **Menü-Glas** (80 % #F2F2F2/#2D2D2D über Unschärfe,
+  `backdrop.rs` `menu_material`) ist „mega“. Ablauf: Bestandsaufnahme (eigene Screenshots aller
+  Zustände über `bz debug … '@screendump'`, seine aus `~/hw-logs`), Agent
+  `beize-design-auditor` plus eine UX-Prüfung der Abläufe → ADR mit Grundwerten (Abstände,
+  Radien, Schrift, Farben, Bewegung) und **einem** Materialsystem → zwei, drei Richtungen als
+  Mock-up mit dem echten Renderer, der Besitzer wählt → schrittweise umbauen, jede Stufe vom
+  Gutachter geprüft und vom Besitzer auf Hardware abgenommen. Abgenommene Werte (Liste unten,
+  ADR 0028/0032) ändern sich nur nach seinem Ja.
+3. **UX-Lücken:** Ein Dock-Klick holt ein minimiertes Fenster nur zurück, wenn alle Fenster der
+  App minimiert sind (`dock.rs` `release`); sonst nur per Rechtsklick – macOS zeigt Minimiertes als
+  eigene Kacheln, Windows 11 Vorschauen; Lösung mit Vorbild vorschlagen. Die Raute für
+  minimierte Fenster im Dock-Menü (`Mark::Diamond`) wirkt fremd.
+4. **Code und Tests:** Aufräumen (Liste „Compositor“ unten); Desktop-Szenario in eigenständige
+  Teile mit parallelen VMs (heute 232 s + 124 s Animationen); ein Journal-Leser statt ~170
+  Abfragen; Menü-Ereignisse statt fester Pausen.
+5. **Künftige Systeme, die heute Entscheidungen beeinflussen:** Apps installieren (Paketformat,
+  Sandbox, Portale – Voraussetzung für 1Password und jede Drittanbieter-App), Updates über das
+  Internet (#15), Töne und Mitteilungen (je ADR; Mitteilungen brauchen die neue Formensprache).
+  Klären, was davon Compositor, Shell oder Beize UI jetzt schon anders zuschneiden würde.
+6. **systemd-Entwürfe** (`docs/upstream.md`): kompilieren, logind v2 mit Test, dann trägt Beize
+  die gesendete Fassung.
+7. Offene Frage an den Besitzer: Schließen 0,2 s oder 0,15 s – er hat es in 0.5.132 zum ersten
+  Mal gesehen, noch keine Antwort.
 
 ## Offen, mit Ort
 
-- **Fragen an den Besitzer:** Schließen 0,2 s oder 0,15 s – erst beurteilbar mit 0.5.132, wo
-  es zum ersten Mal auf Hardware animiert. Alt+Tab-Ring: Probewert 0,1 s in 0.5.132.
 - **logind:** `session_stop()` wählt das Display neu und speichert nur die gehende Sitzung, nicht
   die neue (`logind-session.c` ~1033, systemd main) – derselbe Fall wie Punkt 1 des Bot-Reviews
   von #44842; prüfen, ob es nach einem logind-Neustart falsch wird, dann upstream.
@@ -96,4 +117,4 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 - **Entscheidungen, die nur hier stehen:** Menüleiste über Vollbild darf dunkel satter/hell
   blasser wirken; fremde App-Symbole behalten ihre Form; Apples Icons und „macOS-Look“-Sets
   tabu (VISION); Kontrollzentrum-Pille grau 34 %, Menüleiste weiß 12 %, Menü-Glas 80 %;
-  Animationswerte von 0.5.131 (27.11., „viel besser“).
+  Animationswerte von 0.5.131 (27.11., „viel besser“), Alt+Tab-Ring 0,1 s (28.11.).
