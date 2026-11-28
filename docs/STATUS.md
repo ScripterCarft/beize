@@ -66,11 +66,12 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
     hell und dunkel, in `build/gallery/`; der Beleg des Gutachters für jede Design-Stufe. Mit
     neuen Zuständen (Mitteilungen, Snap-Vorschau, Beize UI) wächst sie mit.
   - Bauen: `cargo --timings` messen, dann gemeinsames Target je gleiche Features, lld.
-- **A4 Ein Token-Modul** `beize-draw::tokens`: Radien, Abstände, Schrift, Farben, Bewegung an
-  einer Stelle, erst mit den heutigen Werten (pixelgleich, Galerie vergleicht). Heute sind sie
-  verstreut, zum Beispiel drei Schwarz-Tinten und die Akzentfarbe doppelt. Materialien bleiben
-  beim Compositor und werden per Name bestellt (wie `NSVisualEffectView.Material`). Danach
-  ändert der Umbau nur Werte.
+- **A4 entfällt als eigener Schritt** (28.11.): Das Token-Modul `beize-draw::tokens` entsteht mit
+  ADR 0033 gleich mit den neuen Werten; jede B3-Stufe zieht ihren Bereich darauf um. Pixelgleich
+  vorab hieße, 17 Abstände und drei Schwarz-Tinten einzeln zu benennen und in B umzubenennen.
+
+**Phase A abgeschlossen** bis auf Arbeit für nebenher: Journal-Leser und Ereignis-Marken (A3),
+`cargo --timings`.
 
 ### Phase B: Formensprache
 
