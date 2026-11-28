@@ -24,7 +24,7 @@ use beize_ui::menu::fitted;
 use beize_ui::theme::{self, ACCENT, ON_ACCENT, SMALL_TEXT_SIZE};
 use beize_ui::{
     AppIcon, Appearance, Density, DesktopWindow, DesktopWindowId, Family, Glass, Motion, Rect,
-    Scene, Spring, Style, Text,
+    Scene, Shadow, Spring, Style, Text,
 };
 use tracing::info;
 
@@ -238,7 +238,7 @@ impl Switcher {
             h: h as f32,
         };
         Glass {
-            shadow: true,
+            shadow: Shadow::Floating,
             ..Glass::one(all, RADIUS, true, Density::Dense)
         }
     }

@@ -145,7 +145,26 @@ pub(in crate::vm::smoke) fn gallery(paths: &Paths, installed: &Installed) -> Res
         wait_for_compositor_count(&shell, "brought back beize-terminal", back + 1)?;
         park(&qmp, screen)?;
     }
-    set_dark(&shell, &qmp, screen, false)?;
+    // Three apps in the dock, their windows over the terminals: the test
+    // client and Beize UI's sample, for a minute.
+    let (_, said) = shell.capture(
+        "systemd-run --user --unit=gallery-client /run/t/beize-testclient --seconds 60 && \
+         systemd-run --user --unit=gallery-ui /run/t/beize-ui-test --seconds 60 && echo STARTED",
+    )?;
+    ensure!(
+        said.iter().any(|l| l == "STARTED"),
+        "the apps for the dock did not start: {said:?}"
+    );
+    wait_for_dock(&shell, |apps| apps.len() >= 3)?;
+    for look in ["dark", "light"] {
+        set_dark(&shell, &qmp, screen, look == "dark")?;
+        park(&qmp, screen)?;
+        shot(&format!("13-three-apps-{look}"))?;
+        let (_, centre) = bar_buttons(&shell)?;
+        open(&shell, &qmp, screen, centre, "ControlCenter open")?;
+        shot(&format!("14-control-center-over-windows-{look}"))?;
+        close(&shell, &qmp, "ControlCenter closed")?;
+    }
     shell.stop()?;
     remove_screens(&machine.logs)?;
     machine.remove()?;

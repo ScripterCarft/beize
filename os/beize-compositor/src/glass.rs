@@ -47,6 +47,15 @@ pub enum Material {
     Preview,
 }
 
+/// The shadow below a glass's shapes (`beize_glass_v1.shadow`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Height {
+    #[default]
+    None,
+    Floating,
+    Resting,
+}
+
 /// The most shapes a glass has: more than the control center's tiles, so a
 /// client cannot make a frame's glass as long as it likes.
 const MAX_SHAPES: usize = 32;
@@ -142,12 +151,12 @@ impl Dispatch<BeizeGlassManagerV1, ()> for State {
 }
 
 /// A surface's glass, double-buffered: its shapes (none: no glass), what
-/// it shows and whether each shape casts a shadow.
+/// it shows and the shadow each shape casts.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GlassState {
     pub shapes: Vec<Shape>,
     pub material: Material,
-    pub shadow: bool,
+    pub shadow: Height,
     /// An app's: its shapes are cut to its surface when drawn.
     pub confined: bool,
 }
@@ -226,7 +235,12 @@ impl Dispatch<BeizeGlassV1, WlSurface> for State {
                 set_pending(surface, |state| state.material = material);
             }
             beize_glass_v1::Request::SetShadow { shadow } => {
-                set_pending(surface, |state| state.shadow = shadow != 0);
+                let shadow = match shadow {
+                    WEnum::Value(beize_glass_v1::Shadow::Floating) => Height::Floating,
+                    WEnum::Value(beize_glass_v1::Shadow::Resting) => Height::Resting,
+                    _ => Height::None,
+                };
+                set_pending(surface, |state| state.shadow = shadow);
             }
             _ => {}
         }

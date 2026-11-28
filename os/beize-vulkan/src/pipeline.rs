@@ -49,7 +49,8 @@ pub struct Quad {
     pub sigma: f32,
     /// A `GRADIENT`'s premultiplied colour at the bottom of `clip`; a
     /// `SHADOW`'s shape that hides it (x, y, width, height, with `radius`);
-    /// for `GLASS`, `[0]` how far it has faded out (0 whole).
+    /// for `GLASS`, `[0]` how far it has faded out (0 whole), `[1]` the dark
+    /// hairline on its outermost pixel (black's alpha).
     pub bottom: [f32; 4],
 }
 

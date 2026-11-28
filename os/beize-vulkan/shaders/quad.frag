@@ -249,7 +249,9 @@ float rim(vec2 p) {
     return ring * (0.08 + 0.92 * light);
 }
 
-// `color` is the rim's (premultiplied), `rounding.y` the grain's strength.
+// `color` is the rim's (premultiplied), `rounding.y` the grain's strength,
+// `bottom.y` the hairline's: black on the outermost pixel, outside the rim,
+// so the glass stands off ground as light (or as dark) as itself.
 vec4 glass(vec4 sampled) {
     uvec2 p = uvec2(gl_FragCoord.xy);
     // Triangular noise: steadier than uniform at the same strength.
@@ -261,7 +263,12 @@ vec4 glass(vec4 sampled) {
             ? clamp(edge_distance(gl_FragCoord.xy, clip, rounding.x) + 1.5, 0.0, 1.0)
             : rim(gl_FragCoord.xy);
     }
-    return base * (1.0 - color.a * r) + color * r;
+    vec4 lit = base * (1.0 - color.a * r) + color * r;
+    if (bottom.y > 0.0) {
+        float outermost = clamp(edge_distance(gl_FragCoord.xy, clip, rounding.x) + 1.0, 0.0, 1.0);
+        lit.rgb *= 1.0 - bottom.y * outermost;
+    }
+    return lit;
 }
 
 void main() {

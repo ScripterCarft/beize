@@ -50,14 +50,15 @@ auf den nächsten Wert ein (Menüzeile 30 → 28, Apples 22 pt × 1,25 = 27,5).
 
 | Stufe | Radius | Rolle |
 | --- | --- | --- |
-| Fläche | 28 | große schwebende Flächen: Dialog, Alt+Tab, Kontrollzentrum, Mitteilungen, Dock |
+| Fläche | 28 | große schwebende Flächen: Dialog, Alt+Tab, Mitteilungen; eine Kachel 2 × 2 |
 | Element | 16 | Fenster, Menüs, Kapseln und Kacheln in einer Fläche (Fläche 28 − Abstand 12) |
 | Detail | 12 | Hervorhebung einer Menüzeile, Eingabefeld, Vorschaubilder (Element 16 − Abstand 4) |
 
 Knöpfe sind Kapseln mit **32 px** Höhe (Radius 16 = Element). In einer Fläche liegen sie 12 vom
 Rand, damit sind sie konzentrisch. Freier Text beginnt bei **20**: Das ist der Rand der Kapsel
-(12) plus ihr Innenabstand (8), so stehen Text und Knopfbeschriftung auf einer Linie. Das Dock:
-Symbole 56, ringsum 14, also 84 hoch (heute 90) und Radius 28 = 14 + Symbolradius 14. Die
+(12) plus ihr Innenabstand (8), so stehen Text und Knopfbeschriftung auf einer Linie. Das Dock
+behält seine auf Hardware abgenommenen Maße (Besitzer, 25.10.): Symbole 56, ringsum 17, 90 hoch,
+Radius 24 (`DOCK_INSET`, `DOCK_RADIUS`); das Raster von 84/28 sah er am 28.11. als Rückschritt. Die
 stetigen Ecken (ADR 0028 §4) bleiben für alles außer Kapseln und Kreisen.
 
 ### 4. Schrift
@@ -102,18 +103,24 @@ Hintergrund), weil sie auf dem Bild liegt, nicht auf Glas.
 
 Ein Rezept, das des Menü-Glases von heute: Dual Kawase über das, was dahinter liegt, Sättigung
 × 1,8, eine **neutrale Tönung**, die der Fläche ihre konstante Eigenhelligkeit gibt
-(#F2F2F2 bzw. #2D2D2D), eine gleichmäßige schwache Kante (0,3 / 0,12), feines Korn. Es gibt
-**drei Dichten**, sonst nichts:
+(#F2F2F2 bzw. #2D2D2D), eine gleichmäßige schwache Lichtkante innen (0,3 / 0,12), außen auf dem
+äußersten Pixel eine dunkle Haarlinie (Schwarz 16 % / 30 %; Apples Dock und Menüs haben sie, sie
+hebt helles Glas von hellem Grund ab), feines Korn. Es gibt **drei Dichten**, sonst nichts:
 
 | Dichte | Tönung | Wo |
 | --- | --- | --- |
-| dicht | hell 80 %, dunkel 94 % (der Test unten legt es fest) | Menüs, Kontextmenüs, Dialoge, Alt+Tab, Kontrollzentrum, Mitteilungen |
-| mittel | 60 % (auf Hardware zwischen 50/60/70 % gewählt) | Dock |
-| dünn | 30 % | Menüleiste mit Hintergrund und über Vollbild |
+| dicht | hell 80 %, dunkel 94 % (der Test unten legt es fest) | alles, was Text trägt: Menüs, Kontextmenüs, Dialoge, Alt+Tab, die Kacheln des Kontrollzentrums, Mitteilungen, die Menüleiste über Vollbild |
+| mittel | hell 55 %, dunkel 70 % | Dock (ohne Text; dichter wirkte es milchig, dünner nahm es die Farbe des Hintergrunds zu stark an, Gutachten 28.11.) |
+| dünn | 30 % | Menüleiste mit Hintergrund |
 
-Das **Kontrollzentrum** wird *eine* dichte Glasfläche (Radius 28, Abstand 12) mit Kacheln aus
-„Fläche“ darauf, statt einzeln schwebender Kacheln aus klarem Glas mit Rauch dazwischen. Seine
-Pille in der Leiste und die des Beize-Menüs sind gleich: „Fläche gewählt“.
+Das **Kontrollzentrum** behält sein Layout (ADR 0028 §5): einzeln schwebende Kacheln, eine Kapsel
+und ein Kreis, ohne Fläche darum, jetzt aus dichtem Glas. Eine Fläche mit Kacheln darauf war am
+28.11. gebaut und gefiel dem Besitzer nicht (aufdringlich, zu groß). Seine Pille in der Leiste
+und die des Beize-Menüs werden mit Stufe 2 gleich: „Fläche gewählt“.
+
+Die **Menüleiste über einem Vollbild** liegt auf dichtem Glas, die Schrift nach dem
+Erscheinungsbild: so hält sie über jedem Vollbild den Kontrast des Tests (auf dünnem Glas über
+einem weißen Vollbild hielt helle Schrift ~1,3 : 1). macOS zeigt die Leiste dort deckend.
 
 **Entfallen:** das flüssige Glas (`clear`, `liquid`: Wölbung, Lichtbrechung, Lichtlinien, Schein,
 Seitenabdunklung, Milch, Tonkurve, Farbvertiefung), der Rauch, der Schatten `LIQUID`. Das System
@@ -123,14 +130,17 @@ Vorbilder: NSVisualEffectView (ein Mechanismus, Materialien als Dichten: `.menu`
 `.hudWindow`), Windows 11 (Acrylic, Mica, Mica Alt: eine Familie), KDE (ein Blur, eine
 Deckkraft).
 
-### 7. Zwei Höhen
+### 7. Drei Höhen
 
-| Höhe | Schatten | Wo |
+| Höhe | Schatten (Versatz / Sigma / Deckkraft) | Wo |
 | --- | --- | --- |
-| Fenster | aktiv 10 / 14 / 0,35, inaktiv 4 / 8 / 0,20 (wie heute) | Fenster |
-| schwebend | 8 / 24 / 0,18 | alle Flächen aus Beize-Glas: Menüs, Dialoge, Dock, Kontrollzentrum, Alt+Tab, Mitteilungen |
+| Fenster | aktiv 10 / 14 / 0,35, inaktiv 4 / 8 / 0,20 | Fenster |
+| schwebend | 6 / 12 / 0,25 (Apples Menüs) | was über Fenstern liegt und bei einem Klick daneben geht: Menüs, Dialoge, Alt+Tab, Mitteilungen |
+| aufliegend | 3 / 1,5 / 0,12, seitlich 2 eingerückt (Besitzer 30.10. auf Hardware) | was Teil des Schreibtischs ist: Dock, Kacheln des Kontrollzentrums |
 
-`MENU`, `TILE` und `LIQUID` gehen in „schwebend“ auf.
+Die App bestellt die Höhe mit ihrem Glas (`beize_glass_v1.set_shadow`: `floating`, `resting`).
+Ein Schatten 8 / 24 / 0,18 für alles war am 28.11. gebaut: unter dem Dock ein breiter Hof, der
+64 px auf Fenster fiel.
 
 ### 8. Bewegung
 
@@ -175,10 +185,10 @@ der Besitzer nimmt sie auf Hardware ab:
 
 ## Konsequenzen
 
-- Sichtbar ändern sich: das Dock (Körper aus Glas, 84 hoch, Radius 28), das Kontrollzentrum (eine
-  Fläche, dunkle Schrift im Hellen), Radien und Abstände von Dialog, Alt+Tab und Feld, der
-  Akzent, das Fehlerrot, Gewichte. Früher abgenommene Werte, die dabei fallen (Dock 90,
-  Kontrollzentrum-Pille Grau 34 %, flüssiges Glas): Ausgangspunkt, keine Sperre (CLAUDE.md §2).
+- Sichtbar ändern sich: das Material von Dock und Kontrollzentrum (Beize-Glas statt flüssigem,
+  dunkle Schrift im Hellen), die Menüleiste über Vollbild, Radien und Abstände von Dialog, Alt+Tab
+  und Feld, der Akzent, das Fehlerrot, Gewichte. Layout und Maße von Dock und Kontrollzentrum
+  bleiben, wie abgenommen.
 - Weniger Code: `clear_glass`, `liquid_tone`, die Rauchmaske und ihre Smoke-Prüfungen gehen;
   neue Prüfungen kommen für die Dichten und die Kontraste.
 - Neue Flächen (Mitteilungen, Suche, Sperrbildschirm, Einstellungen) haben ihre Werte schon,

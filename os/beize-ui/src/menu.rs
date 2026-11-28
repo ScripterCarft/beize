@@ -24,7 +24,7 @@ use beize_draw::measures::SCALE;
 use beize_draw::{Color, Family, Rect, Scene, Style, Text};
 
 use crate::Appearance;
-use crate::desktop::{Density, Glass, GlassShape};
+use crate::desktop::{Density, Glass, GlassShape, Shadow};
 use crate::input::{Button, Input, Key, KeyState, Keysym, Pointer};
 use crate::theme::{self, ACCENT, ON_ACCENT, TEXT_SIZE};
 
@@ -338,7 +338,7 @@ impl Menu {
                 rim: true,
             }],
             density: Density::Dense,
-            shadow: true,
+            shadow: Shadow::Floating,
         }
     }
 

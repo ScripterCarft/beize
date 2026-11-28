@@ -2,16 +2,16 @@
 //! their ink, accent and text from here, so they look like one system (the
 //! owner, 31.10.).
 
-use beize_draw::Color;
+use beize_draw::{Color, tokens};
 
 use crate::Appearance;
 
-/// The text in Apple's menus (#292929, measured) and on dark ones.
-pub const INK_LIGHT: Color = Color::rgb(0x292929);
-pub const INK_DARK: Color = Color::rgb(0xe8e8e8);
-/// macOS' accent blue: a selected row, a default button, Alt+Tab's selected
-/// tile, each with `ON_ACCENT` on it.
-pub const ACCENT: Color = Color::rgb(0x007aff);
+/// The ink of either appearance (`tokens`).
+pub const INK_LIGHT: Color = tokens::LIGHT.ink;
+pub const INK_DARK: Color = tokens::DARK.ink;
+/// Beize's accent (`tokens`): a selected row, a default button, Alt+Tab's
+/// selected tile, each with `ON_ACCENT` on it.
+pub const ACCENT: Color = tokens::LIGHT.accent;
 pub const ON_ACCENT: Color = Color::rgb(0xffffff);
 /// The text of menus and dialogs: the menu bar's size (the owner, 25.10.).
 pub const TEXT_SIZE: f32 = 15.0;

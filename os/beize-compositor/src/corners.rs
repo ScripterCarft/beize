@@ -35,9 +35,10 @@ fn corner() -> i32 {
 /// floating (ADR 0033 §7): how far it falls down, its blur and darkness.
 const ACTIVE: Elevation = tokens::WINDOW_ACTIVE;
 const INACTIVE: Elevation = tokens::WINDOW_INACTIVE;
-/// Below Beize glass that asks for one – menus, dialogs, the dock, the
-/// control center, Alt+Tab: one height for everything that floats.
+/// Below Beize glass, by its height: menus, dialogs and Alt+Tab float,
+/// the dock and the control center's tiles rest.
 const FLOATING: Elevation = tokens::FLOATING;
+const RESTING: Elevation = tokens::RESTING;
 /// The renderer's part: round corners, shadows and glass (`backdrop`) in
 /// a frame. A trait, as the frame's elements are generic over the renderer
 /// (`state::scene`).
@@ -68,6 +69,7 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        edge: f32,
         flat_rim: bool,
         opacity: f32,
     );
@@ -129,11 +131,12 @@ impl Effects for VkRenderer {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        edge: f32,
         flat_rim: bool,
         opacity: f32,
     ) {
         frame.draw_glass(
-            dst, damage, shape, radius, glass, covers, grain, rim, flat_rim, opacity,
+            dst, damage, shape, radius, glass, covers, grain, rim, edge, flat_rim, opacity,
         );
     }
 }
@@ -328,21 +331,25 @@ impl Shadow {
         }
     }
 
-    /// The shadow below a glass's piece `rect` with corners of `radius`:
-    /// everything floating casts the same (`FLOATING`). The glass's `id` and
-    /// `commit` tell when it changes.
+    /// The shadow below a glass's piece `rect` with corners of `radius`, by
+    /// the glass's `height`. The glass's `id` and `commit` tell when it
+    /// changes.
     pub fn below_glass(
         id: Id,
         commit: CommitCounter,
         rect: Rectangle<i32, Physical>,
         radius: f32,
+        height: crate::glass::Height,
     ) -> Shadow {
         Shadow {
             id,
             commit,
             caster: rect,
             radius: radius.round() as i32,
-            look: FLOATING,
+            look: match height {
+                crate::glass::Height::Resting => RESTING,
+                _ => FLOATING,
+            },
             opacity: 1.0,
         }
     }
@@ -363,11 +370,17 @@ impl Shadow {
         )
     }
 
-    /// The rectangle that casts it: the frame, moved down by the offset.
+    /// The rectangle that casts it: the frame, moved down by the offset
+    /// and narrowed by the inset.
     fn cast(&self) -> Rectangle<i32, Physical> {
+        let inset = self.look.inset;
         Rectangle::new(
-            (self.caster.loc.x, self.caster.loc.y + self.look.offset).into(),
-            self.caster.size,
+            (
+                self.caster.loc.x + inset,
+                self.caster.loc.y + self.look.offset,
+            )
+                .into(),
+            (self.caster.size.w - 2 * inset, self.caster.size.h).into(),
         )
     }
 }

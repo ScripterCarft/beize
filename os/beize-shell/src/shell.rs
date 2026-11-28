@@ -817,8 +817,14 @@ impl Shell {
                         continue;
                     };
                     let menu = Menu::new(tile.entries);
+                    // Above the dock, on its top edge – as the bar's menus
+                    // hang from the bar –, centred on the tile.
                     let popup = Popup {
-                        anchor: tile.tile,
+                        anchor: Rect {
+                            y: 0.0,
+                            h: 1.0,
+                            ..tile.tile
+                        },
                         size: menu.size(self.app.text()),
                         align: Align::Centre,
                         above: true,

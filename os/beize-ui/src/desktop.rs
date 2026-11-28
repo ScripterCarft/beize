@@ -24,13 +24,22 @@ use crate::app::{State, WindowId};
 use crate::menu::{AppMenu, Entry as MenuEntry};
 
 /// Beize glass below parts of a window (`App::set_glass`; ADR 0033 §6):
-/// where it lies, how dense it is, and whether each of its shapes casts a
-/// shadow.
+/// where it lies, how dense it is, and the shadow each of its shapes casts.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Glass {
     pub shapes: Vec<GlassShape>,
     pub density: Density,
-    pub shadow: bool,
+    pub shadow: Shadow,
+}
+
+/// The shadow below a glass, by its height (`beize_draw::tokens`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shadow {
+    None,
+    /// Above windows: menus, dialogs, Alt+Tab.
+    Floating,
+    /// Part of the desktop: the dock, the control center's tiles.
+    Resting,
 }
 
 /// One place of a glass: a rectangle in the window's coordinates with round
@@ -61,7 +70,7 @@ impl Glass {
         Glass {
             shapes: vec![GlassShape { rect, radius, rim }],
             density,
-            shadow: false,
+            shadow: Shadow::None,
         }
     }
 }
@@ -327,7 +336,11 @@ impl Glasses {
             Density::Medium => beize_glass_v1::Density::Medium,
             Density::Dense => beize_glass_v1::Density::Dense,
         });
-        proxy.set_shadow(u32::from(glass.shadow));
+        proxy.set_shadow(match glass.shadow {
+            Shadow::None => beize_glass_v1::Shadow::None,
+            Shadow::Floating => beize_glass_v1::Shadow::Floating,
+            Shadow::Resting => beize_glass_v1::Shadow::Resting,
+        });
     }
 }
 

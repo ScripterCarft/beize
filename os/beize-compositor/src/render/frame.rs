@@ -274,7 +274,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     /// space) with corners of `radius`: `glass` – a blurred copy of what
     /// lies in `covers`, smaller – read where it lies, with `grain` and a
     /// `rim` of light (premultiplied; alpha 0: none; `flat_rim`: one line of
-    /// it, the same all round). In `dst`, cut to its
+    /// it, the same all round) and a dark `edge` outside it (black's alpha).
+    /// In `dst`, cut to its
     /// `damage`; opaque but at the corners, and but while it fades
     /// (`opacity`).
     #[allow(clippy::too_many_arguments)]
@@ -288,6 +289,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         covers: Rectangle<i32, Physical>,
         grain: f32,
         rim: [f32; 4],
+        edge: f32,
         flat_rim: bool,
         opacity: f32,
     ) {
@@ -339,6 +341,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             if fading {
                 quad.bottom[0] = 1.0 - opacity.clamp(0.0, 1.0);
             }
+            quad.bottom[1] = edge;
             // Opaque but where its corners let what is below show.
             let blend = fading || corners.iter().any(|c| overlaps(&quad, c));
             self.recorded.quads.push(quad);

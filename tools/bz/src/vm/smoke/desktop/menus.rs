@@ -481,9 +481,12 @@ pub(super) fn context_menus(
     wait_for_shell_count(shell, "DockMenu open", 2)?;
     thread::sleep(Duration::from_millis(300));
     self::screen(machine, "dock-menu")?.write_png(&machine.logs.join("dock-menu.png"))?;
-    // Above the tile: its window, a line, New Window, Quit.
-    // From the tile's top, the panel's padding above it: Quit, then New Window.
-    let new_window = (tile.0 + 40, tile.1 - 28 - 6 - 30 - 15);
+    // Above the dock, on its top edge (the tile's padding above it): its
+    // window, a line, New Window, Quit. Upwards: Quit, then New Window.
+    let new_window = (
+        tile.0 + 40,
+        tile.1 - i32::try_from(DOCK_PADDING)? - 28 - 6 - 30 - 15,
+    );
     click(qmp, screen, new_window, 1)?;
     wait_for_shell_count(shell, "DockMenu closed", 2)?;
     wait_for_terminals(shell, count + 1)?;

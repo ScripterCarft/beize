@@ -28,7 +28,7 @@ use beize_ui::measures::{SCALE, scaled};
 use beize_ui::menu::{Entry, Mark};
 use beize_ui::{
     AppIcon, Appearance, Color, Density, DesktopWindow, DesktopWindowId, Family, Glass, Rect,
-    Scene, Style, Text, icon, tokens,
+    Scene, Shadow, Style, Text, icon, tokens,
 };
 
 /// Pinned when the desktop starts (ADR 0028 §4); more apps come as Beize
@@ -41,8 +41,8 @@ const PINNED: [&str; 1] = ["beize-terminal"];
 /// found the icons small and the spaces large (25.10.): the icons larger
 /// and the tiles side by side – the icon grid's margin alone parts them,
 /// about 14 px. One padding all round, so the icons keep the same space to
-/// the rim above, below and at the sides: the design's dock inset (ADR 0033
-/// §3: 14, so the dock's radius is that and the icons' own; 84 high).
+/// the rim above, below and at the sides: 17 px (the owner: a little more
+/// than 15; the dock 90 high; `tokens`).
 pub const TILE: u32 = 70;
 pub const GAP: u32 = 0;
 pub const PADDING: u32 = tokens::DOCK_INSET as u32 - (TILE - ICON_PIXELS) / 2;
@@ -53,8 +53,9 @@ pub const HEIGHT: u32 = TILE + 2 * PADDING;
 /// 5.1 pt.
 pub const MARGIN: u32 = scaled(5.0);
 
-/// Its corners: a large floating surface's (ADR 0033 §3).
-const RADIUS: f32 = tokens::RADIUS_SURFACE;
+/// Its corners: measured 20.4 pt on a dock 76.3 pt high in a screenshot
+/// of macOS 27, in proportion as the dock grows with its tiles (`tokens`).
+const RADIUS: f32 = tokens::DOCK_RADIUS;
 /// The icon on its tile, as Apple's icon grid: 824 of 1024, on whole
 /// pixels (as AppKit aligns to the backing store): its soft edge lies
 /// within the quad, none of it cut off. Beize's app symbols with their
@@ -344,7 +345,7 @@ impl Dock {
     }
 
     /// Its glass in `(w, h)`: all of it, medium, with round corners, its rim
-    /// and the floating shadow (over a white window it is what shows the
+    /// and the resting shadow (over a white window it is what shows the
     /// glass, as Apple's).
     pub fn glass((w, h): (u32, u32)) -> Glass {
         let all = Rect {
@@ -354,7 +355,7 @@ impl Dock {
             h: h as f32,
         };
         Glass {
-            shadow: true,
+            shadow: Shadow::Resting,
             ..Glass::one(all, RADIUS, true, Density::Medium)
         }
     }

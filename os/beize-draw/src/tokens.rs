@@ -1,23 +1,15 @@
 //! Beize's design values (ADR 0033 §9): the grid, the radii, the type, the
-//! colours by role, the glass's tint and densities, the two heights. No
-//! other file names a number for one of these roles; what the building
-//! blocks keep are derivations ("a capsule is an element", "text starts at
-//! the capsule's edge plus its padding").
+//! colours by role, the glass's tint and densities, the heights. No other
+//! file names a number for one of these roles; what the building blocks
+//! keep are derivations ("a capsule is an element", "text starts at the
+//! capsule's edge plus its padding").
 //!
-//! Two sets of values while the owner chooses between them (STATUS, plan
-//! B2): `without_references` is ADR 0033 as written, `with_references` is
-//! the same system tuned by what his reference pictures share – warmer,
-//! lighter glass, rounder, more air. One `pub use` picks the set; the one
-//! not chosen goes when he has chosen.
-//!
-//! The contrast test below holds every set to WCAG over the hardest case of
-//! each appearance – light glass over black (a terminal behind it), dark
+//! The contrast test below holds the values to WCAG over the hardest case
+//! of each appearance – light glass over black (a terminal behind it), dark
 //! glass over white (a light window behind it) –, mixed in linear light as
 //! the compositor mixes.
 
 use crate::Color;
-
-pub use without_references::*;
 
 /// One appearance's colours by role (ADR 0033 §5).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,7 +24,7 @@ pub struct Palette {
     pub ink_disabled: Color,
     /// A neutral tile, button or field on glass.
     pub fill: Color,
-    /// The same, chosen: an open button of the bar, a chosen tile.
+    /// The same, chosen: an open button of the bar, a switch that is off.
     pub fill_chosen: Color,
     /// Choice and the main action; white on it.
     pub accent: Color,
@@ -48,23 +40,31 @@ pub struct Palette {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tint {
     pub color: Color,
-    /// Menus, dialogs, Alt+Tab, the control center, notifications.
+    /// Everything that carries text: menus, dialogs, Alt+Tab, the control
+    /// center's tiles, the menu bar over a fullscreen window.
     pub dense: f32,
     /// The dock.
     pub medium: f32,
-    /// The menu bar with a background, the snap preview's companions.
+    /// The menu bar with a background.
     pub thin: f32,
-    /// The rim's alpha (premultiplied white).
+    /// The rim's alpha (premultiplied white): a line of light just inside
+    /// the edge.
     pub rim: f32,
+    /// Black's alpha on the outermost pixel, outside the rim: the hairline
+    /// that sets light glass off light ground and dark glass off dark, as
+    /// Apple's dock and menus have one.
+    pub edge: f32,
 }
 
-/// A shadow: how far down, how soft (a Gaussian's sigma) and how dark
-/// (black's alpha) (ADR 0033 §7).
+/// A shadow: how far down, how soft (a Gaussian's sigma), how dark
+/// (black's alpha), and how far its caster is narrowed at either side, so
+/// none falls beside it (ADR 0033 §7).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Elevation {
     pub offset: i32,
     pub sigma: f32,
     pub alpha: f32,
+    pub inset: i32,
 }
 
 const fn rgba(hex: u32, a: u8) -> Color {
@@ -76,150 +76,128 @@ const fn rgba(hex: u32, a: u8) -> Color {
     }
 }
 
-/// The ADR's values. Sizes in px at Beize's scale 1.
-pub mod without_references {
-    use super::{Elevation, Palette, Tint, rgba};
+/// Every space and size is a multiple of this (§2).
+pub const GRID: f32 = 4.0;
+/// Large floating surfaces: dialog, Alt+Tab, notifications; a two by two
+/// tile (§3).
+pub const RADIUS_SURFACE: f32 = 28.0;
+/// Windows, menus, capsules and tiles in a surface: the surface's less the
+/// space between them.
+pub const RADIUS_ELEMENT: f32 = 16.0;
+/// A menu row's highlight, a field, thumbnails: the element's less 4.
+pub const RADIUS_DETAIL: f32 = 12.0;
+/// Between a surface's edge and what lies in it, and between tiles: outer
+/// = inner + space.
+pub const INSET: f32 = RADIUS_SURFACE - RADIUS_ELEMENT;
+/// Buttons are capsules this high (radius = element).
+pub const CAPSULE: f32 = 32.0;
+/// A capsule's padding: free text starts at `INSET + CAPSULE_PADDING`, in
+/// line with a button's label.
+pub const CAPSULE_PADDING: f32 = 8.0;
+/// The dock as approved on hardware (the owner, 25.10.): from its icons to
+/// its rim 17 px all round, its corners 24 (macOS 27's proportion).
+pub const DOCK_INSET: f32 = 17.0;
+pub const DOCK_RADIUS: f32 = 24.0;
 
-    /// Every space and size is a multiple of this (§2).
-    pub const GRID: f32 = 4.0;
-    /// Large floating surfaces: dialog, Alt+Tab, control center,
-    /// notifications, dock (§3).
-    pub const RADIUS_SURFACE: f32 = 28.0;
-    /// Windows, menus, capsules and tiles in a surface: the surface's less
-    /// the space between them.
-    pub const RADIUS_ELEMENT: f32 = 16.0;
-    /// A menu row's highlight, a field, thumbnails: the element's less 4.
-    pub const RADIUS_DETAIL: f32 = 12.0;
-    /// Between a surface's edge and what lies in it: outer = inner + space.
-    pub const INSET: f32 = RADIUS_SURFACE - RADIUS_ELEMENT;
-    /// Buttons are capsules this high (radius = element).
-    pub const CAPSULE: f32 = 32.0;
-    /// A capsule's padding: free text starts at `INSET + CAPSULE_PADDING`,
-    /// in line with a button's label.
-    pub const CAPSULE_PADDING: f32 = 8.0;
-    /// From the dock's icons to its rim, all round: its radius less the
-    /// icons' own (about 14 px at 56).
-    pub const DOCK_INSET: f32 = 14.0;
+/// Two sizes, three weights (§4).
+pub const TEXT: f32 = 15.0;
+pub const TEXT_SMALL: f32 = 13.0;
+pub const REGULAR: f32 = 400.0;
+pub const MEDIUM: f32 = 500.0;
+pub const SEMIBOLD: f32 = 600.0;
 
-    /// Two sizes, three weights (§4).
-    pub const TEXT: f32 = 15.0;
-    pub const TEXT_SMALL: f32 = 13.0;
-    pub const REGULAR: f32 = 400.0;
-    pub const MEDIUM: f32 = 500.0;
-    pub const SEMIBOLD: f32 = 600.0;
+pub const LIGHT: Palette = Palette {
+    ink: rgba(0x1d1d1d, 255),
+    ink_secondary: rgba(0x5e5e5e, 255),
+    ink_disabled: rgba(0x1d1d1d, 77),
+    fill: rgba(0x000000, 18),
+    fill_chosen: rgba(0x000000, 31),
+    accent: rgba(0x0064d2, 255),
+    danger: rgba(0xc4001a, 255),
+    line: rgba(0x000000, 20),
+};
+pub const DARK: Palette = Palette {
+    ink: rgba(0xf2f2f2, 255),
+    ink_secondary: rgba(0xa3a3a3, 255),
+    ink_disabled: rgba(0xf2f2f2, 89),
+    fill: rgba(0xffffff, 20),
+    fill_chosen: rgba(0xffffff, 41),
+    accent: rgba(0x0064d2, 255),
+    danger: rgba(0xffb3ae, 255),
+    line: rgba(0xffffff, 26),
+};
 
-    pub const LIGHT: Palette = Palette {
-        ink: rgba(0x1d1d1d, 255),
-        ink_secondary: rgba(0x5e5e5e, 255),
-        ink_disabled: rgba(0x1d1d1d, 77),
-        fill: rgba(0x000000, 18),
-        fill_chosen: rgba(0x000000, 31),
-        accent: rgba(0x0064d2, 255),
-        danger: rgba(0xc4001a, 255),
-        line: rgba(0x000000, 20),
-    };
-    pub const DARK: Palette = Palette {
-        ink: rgba(0xf2f2f2, 255),
-        ink_secondary: rgba(0xa3a3a3, 255),
-        ink_disabled: rgba(0xf2f2f2, 89),
-        fill: rgba(0xffffff, 20),
-        fill_chosen: rgba(0xffffff, 41),
-        accent: rgba(0x0064d2, 255),
-        danger: rgba(0xffb3ae, 255),
-        line: rgba(0xffffff, 26),
-    };
+/// The menu glass the owner loves (#F2F2F2 / #2D2D2D), dense: light 80 %
+/// as approved, dark as dense as the test asks.
+pub const TINT_LIGHT: Tint = Tint {
+    color: rgba(0xf2f2f2, 255),
+    dense: 0.80,
+    medium: 0.55,
+    thin: 0.30,
+    rim: 0.30,
+    edge: 0.16,
+};
+pub const TINT_DARK: Tint = Tint {
+    color: rgba(0x2d2d2d, 255),
+    dense: 0.94,
+    medium: 0.70,
+    thin: 0.30,
+    rim: 0.12,
+    edge: 0.30,
+};
 
-    /// The menu glass the owner loves (#F2F2F2 / #2D2D2D), dense: light
-    /// 80 % as approved, dark as dense as the test asks.
-    pub const TINT_LIGHT: Tint = Tint {
-        color: rgba(0xf2f2f2, 255),
-        dense: 0.80,
-        medium: 0.60,
-        thin: 0.30,
-        rim: 0.30,
-    };
-    pub const TINT_DARK: Tint = Tint {
-        color: rgba(0x2d2d2d, 255),
-        dense: 0.94,
-        medium: 0.60,
-        thin: 0.30,
-        rim: 0.12,
-    };
+pub const WINDOW_ACTIVE: Elevation = Elevation {
+    offset: 10,
+    sigma: 14.0,
+    alpha: 0.35,
+    inset: 0,
+};
+pub const WINDOW_INACTIVE: Elevation = Elevation {
+    offset: 4,
+    sigma: 8.0,
+    alpha: 0.20,
+    inset: 0,
+};
+/// What floats above windows and goes when clicked beside: menus, dialogs,
+/// Alt+Tab. Apple's menus' (black about 15 % at the edge in the HIG's
+/// images, fading over some 8 pt).
+pub const FLOATING: Elevation = Elevation {
+    offset: 6,
+    sigma: 12.0,
+    alpha: 0.25,
+    inset: 0,
+};
+/// What rests on the desktop as part of it: the dock, the control center's
+/// tiles. Tight and only below it, as macOS 26's dock on a Mac's screen:
+/// nothing above its top edge nor beside it (the caster narrowed), some
+/// 10 % darker within 2 pt below it over light (the owner, 30.10., on
+/// hardware: subtler than Apple's).
+pub const RESTING: Elevation = Elevation {
+    offset: 3,
+    sigma: 1.5,
+    alpha: 0.12,
+    inset: 2,
+};
 
-    pub const WINDOW_ACTIVE: Elevation = Elevation {
-        offset: 10,
-        sigma: 14.0,
-        alpha: 0.35,
-    };
-    pub const WINDOW_INACTIVE: Elevation = Elevation {
-        offset: 4,
-        sigma: 8.0,
-        alpha: 0.20,
-    };
-    /// Everything of Beize glass.
-    pub const FLOATING: Elevation = Elevation {
-        offset: 8,
-        sigma: 24.0,
-        alpha: 0.18,
-    };
-}
-
-/// The same system, tuned by what the owner's reference pictures share
-/// (visionOS, smart, Li Auto, tvOS's control center): a warm neutral glass
-/// that lets the background's colour through more in the light, one step
-/// rounder, more air around the dock, and the choice shown as a surface.
-/// Dark stays as dense as the test asks: over a white window anything
-/// thinner loses the ink.
-pub mod with_references {
-    use super::{Palette, Tint, rgba};
-
-    pub use super::without_references::{
-        CAPSULE, CAPSULE_PADDING, FLOATING, GRID, MEDIUM, REGULAR, SEMIBOLD, TEXT, TEXT_SMALL,
-        WINDOW_ACTIVE, WINDOW_INACTIVE,
-    };
-
-    pub const RADIUS_SURFACE: f32 = 32.0;
-    pub const RADIUS_ELEMENT: f32 = 20.0;
-    pub const RADIUS_DETAIL: f32 = 12.0;
-    pub const INSET: f32 = RADIUS_SURFACE - RADIUS_ELEMENT;
-    pub const DOCK_INSET: f32 = 18.0;
-
-    pub const LIGHT: Palette = Palette {
-        ink: rgba(0x1d1d1b, 255),
-        ink_secondary: rgba(0x5e5d5b, 255),
-        ink_disabled: rgba(0x1d1d1b, 77),
-        fill: rgba(0x000000, 15),
-        fill_chosen: rgba(0x000000, 26),
-        accent: rgba(0x0064d2, 255),
-        danger: rgba(0xb00018, 255),
-        line: rgba(0x000000, 18),
-    };
-    pub const DARK: Palette = Palette {
-        ink: rgba(0xf2f1ef, 255),
-        ink_secondary: rgba(0xa3a29f, 255),
-        ink_disabled: rgba(0xf2f1ef, 89),
-        fill: rgba(0xffffff, 18),
-        fill_chosen: rgba(0xffffff, 36),
-        accent: rgba(0x0064d2, 255),
-        danger: rgba(0xffb3ae, 255),
-        line: rgba(0xffffff, 23),
-    };
-
-    pub const TINT_LIGHT: Tint = Tint {
-        color: rgba(0xf2f1ef, 255),
-        dense: 0.72,
-        medium: 0.50,
-        thin: 0.25,
-        rim: 0.30,
-    };
-    pub const TINT_DARK: Tint = Tint {
-        color: rgba(0x2e2d2b, 255),
-        dense: 0.94,
-        medium: 0.55,
-        thin: 0.30,
-        rim: 0.12,
-    };
-}
+// The radii follow "outer = inner + space", on the grid; a capsule is an
+// element: checked when it builds.
+const _: () = {
+    assert!(RADIUS_SURFACE > RADIUS_ELEMENT && RADIUS_ELEMENT > RADIUS_DETAIL);
+    let on_grid = [
+        RADIUS_SURFACE,
+        RADIUS_ELEMENT,
+        RADIUS_DETAIL,
+        INSET,
+        RADIUS_ELEMENT - RADIUS_DETAIL,
+        DOCK_RADIUS,
+    ];
+    let mut i = 0;
+    while i < on_grid.len() {
+        assert!(on_grid[i] % GRID == 0.0, "a radius is off the grid");
+        i += 1;
+    }
+    assert!(CAPSULE == 2.0 * RADIUS_ELEMENT);
+};
 
 #[cfg(test)]
 mod tests {
@@ -265,7 +243,6 @@ mod tests {
     const WALLPAPER_LIGHT: Color = rgba(0x5d8fe6, 255);
     const WALLPAPER_DARK: Color = rgba(0x8a3f95, 255);
 
-    #[allow(clippy::too_many_arguments)]
     fn check(name: &str, p: &Palette, tint: &Tint, behind: [f64; 3], wallpaper: Color) {
         let glass = dense(tint, behind);
         let fill = over(p.fill, glass);
@@ -312,58 +289,8 @@ mod tests {
     }
 
     #[test]
-    fn every_set_holds_its_contrast_over_the_hardest_case() {
-        use super::with_references as w;
-        use super::without_references as wo;
-        check(
-            "ADR light",
-            &wo::LIGHT,
-            &wo::TINT_LIGHT,
-            [0.0; 3],
-            WALLPAPER_LIGHT,
-        );
-        check(
-            "ADR dark",
-            &wo::DARK,
-            &wo::TINT_DARK,
-            [1.0; 3],
-            WALLPAPER_DARK,
-        );
-        check(
-            "references light",
-            &w::LIGHT,
-            &w::TINT_LIGHT,
-            [0.0; 3],
-            WALLPAPER_LIGHT,
-        );
-        check(
-            "references dark",
-            &w::DARK,
-            &w::TINT_DARK,
-            [1.0; 3],
-            WALLPAPER_DARK,
-        );
-    }
-
-    #[test]
-    fn radii_follow_outer_is_inner_plus_space() {
-        use super::with_references as w;
-        use super::without_references as wo;
-        for (surface, element, detail) in [
-            (wo::RADIUS_SURFACE, wo::RADIUS_ELEMENT, wo::RADIUS_DETAIL),
-            (w::RADIUS_SURFACE, w::RADIUS_ELEMENT, w::RADIUS_DETAIL),
-        ] {
-            assert!(surface > element && element > detail);
-            for v in [
-                surface,
-                element,
-                detail,
-                surface - element,
-                element - detail,
-            ] {
-                assert_eq!(v % wo::GRID, 0.0, "{v} is off the grid");
-            }
-        }
-        assert_eq!(wo::CAPSULE, 2.0 * wo::RADIUS_ELEMENT);
+    fn the_values_hold_their_contrast_over_the_hardest_case() {
+        check("light", &LIGHT, &TINT_LIGHT, [0.0; 3], WALLPAPER_LIGHT);
+        check("dark", &DARK, &TINT_DARK, [1.0; 3], WALLPAPER_DARK);
     }
 }

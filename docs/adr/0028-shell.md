@@ -289,12 +289,12 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 - **Ecken wie Apples:** stetig gekrümmt (die Kurve der Maske aus Apples App-Icon-Vorlage) für
   Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
   die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen, für
-  Beize größer (Besitzer, 25.10.), seit ADR 0033 aus den Tokens (`beize-draw` `tokens`):
-  Symbole 56 px dicht nebeneinander, ringsum 14 px zum Rand, also 84 hoch, Radius 28 (die
-  große Fläche), der Punkt in der Tinte mittig darunter.
+  Beize größer (Besitzer, 25.10.; Werte in `beize-draw` `tokens`): 90 hoch, Symbole 56 px dicht
+  nebeneinander, ringsum 17 px zum Rand, Radius 24, der Punkt in der Tinte mittig darunter.
 - Beizes Apps zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol
   eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf Beize-Glas mittlerer Dichte mit
-  dem schwebenden Schatten (siehe 6).
+  dem aufliegenden Schatten (siehe 6, ADR 0033 §7). Sein Rechtsklick-Menü hängt an seiner
+  Oberkante, wie die Menüs der Leiste an ihr.
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 - **Rechtsklick auf eine Kachel** (macOS' Dock-Menü), mittig darüber: ihre Fenster mit Titel (das Terminal nennt
   sich nach dem Ordner, `PS1`), ein Strich, Neues Fenster, Beenden; läuft sie nicht: Öffnen. Beim Überfahren
@@ -302,21 +302,21 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 ### 5. Kontrollzentrum
 
-**Eine Fläche** aus dichtem Beize-Glas (§6) unter dem rechten Ende der Menüleiste, die Kacheln
-darauf aus „Fläche“ (ADR 0033 §5), nicht aus eigenem Glas – wie das Kontrollzentrum von tvOS
-und die Bediensysteme von smart und Li Auto: eine ruhige Ebene, die Kacheln darin. Bis 0.6
-schwebten Kacheln aus flüssigem Glas einzeln mit Rauch dazwischen; der Besitzer (28.11.):
-„nichts Ganzes“, weiße Schrift auf hellem Glas hielt nur 3,3 : 1 (ADR 0033, Kontext). Ein Popup
-der Leiste; ein Klick daneben schließt es (Eingabe-Region: die Fläche).
+Kacheln aus dichtem Beize-Glas (§6, ADR 0033) unter dem rechten Ende der Menüleiste, **ohne
+Panel**: jede liegt für sich auf dem Schreibtisch, wie das Kontrollzentrum von macOS 26
+(Besitzer 28.10.), mit dem aufliegenden Schatten. Ein Popup der Leiste; ein Klick daneben
+schließt es, und daneben fällt er durch (Eingabe-Region nur auf den Kacheln). Bis 0.6 aus
+flüssigem Glas mit Rauch um die Kacheln; am 28.11. kurz eine Fläche mit Kacheln darauf, die der
+Besitzer verwarf.
 
-- **Werte aus den Tokens** (ADR 0033 §3): Radius der Fläche 28, Kacheln 16 (Element:
-  konzentrisch, Fläche − Abstand), Abstand 12 ringsum und zwischen den Kacheln, 12 unter der
-  Leiste; Zelle 76 (Apples 64 pt × 1,25 × 0,935 = 75 des Besitzers vom 28.10., aufs Raster);
-  rechts bündig mit dem Ende der Uhr (20 px Rand der Leiste). Eine Zelle ist ein Schalter, 2 × 1
-  ein Knopf mit Titel und Zeile darunter, 2 × 2 und eine Reihe aus vier (Regler) kommen mit
-  ihren Diensten. Der runde Knopf in einer breiten Kachel 44, ringsum gleich weit vom Rand;
-  „an“ ist der Akzent mit weißem Symbol (5,6 : 1), „aus“ „Fläche gewählt“ mit Tinte. Titel 15
-  halbfett, Zeile darunter 13 in Tinte 2.
+- **Raster** gemessen an Apples Pressebild (3840 px, ~3,94 px je pt über die Versalhöhe der
+  Leiste): vier Spalten zu 64 pt mit 12 pt Abstand, in Beize × 1,25 und 6,5 % kleiner (Besitzer
+  28.10.: 75), aufs Raster der Tokens: Zelle 76, Abstand 12, 12 unter der Leiste; rechts bündig
+  mit dem Ende der Uhr (20 px Rand der Leiste). Eine Zelle ist ein Kreis, 2 × 1 eine Kapsel,
+  2 × 2 hat die Ecken einer Fläche (28), eine Reihe aus vier (Regler) ist eine Kapsel. Der runde
+  Knopf in der Kapsel 44, ringsum gleich weit vom Rand (konzentrisch); „an“ ist der Akzent mit
+  weißem Symbol, „aus“ „Fläche gewählt“ mit Tinte; der Kreis von Hell/Dunkel wird „an“ ganz
+  Akzent, wie macOS' Schalter. Titel 15 halbfett, Zeile darunter 13 in Tinte 2.
 - **Anordnung** (Besitzer, 28.10.): Netz oben links (2 × 1), daneben der Mediaplayer (2 × 2),
   darunter Bluetooth (2 × 1), darunter Hell/Dunkel (1 × 1), dann Helligkeit und Lautstärke je
   über die ganze Breite. Gebaut 28.10.: **Netz** (networkd über Varlink

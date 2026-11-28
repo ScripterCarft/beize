@@ -44,12 +44,12 @@ pub(super) fn dock_glass(
         .write_png(&machine.logs.join("dock-over-window.png"))?;
     // For comparing glass before and after a change to its rendering: the
     // window's hard edge beside the dock, within and past the blur's reach
-    // (ADR 0033 §6). The dock of two apps ends 77 px from the middle.
+    // (ADR 0033 §6). The dock of two apps ends 80 px from the middle.
     let mut there = by(grip, behind);
     for (name, past) in [("dock-edge-20", 20), ("dock-edge-36", 36)] {
         // Its left edge lay half its width left of the middle.
         let next = (
-            by(grip, behind).0 + i32::try_from(77 + past + grown.0 / 2)?,
+            by(grip, behind).0 + i32::try_from(80 + past + grown.0 / 2)?,
             there.1,
         );
         drag(qmp, screen, there, next, true)?;
@@ -101,22 +101,19 @@ pub(super) fn control_center_glass(
         MENU_DRAG_BY,
     );
     let (left, top) = control_center_at(screen);
-    let surface = (
+    // The network capsule, the first row.
+    let capsule = (
         left..left + CONTROL_CENTER_WIDTH,
-        top..top + CONTROL_CENTER_HEIGHT,
+        top..top + CONTROL_CENTER_TILE,
     );
-    // Glass alone: right of the light/dark tile, in from the edges.
-    let row = top + CONTROL_CENTER_INSET + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
-    let column = left + CONTROL_CENTER_INSET + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
-    let glass = (
-        column + 8..column + CONTROL_CENTER_TILE - 8,
-        row + 8..row + CONTROL_CENTER_TILE - 8,
-    );
-    // The network tile's title and state, right of its round button.
-    let tile_top = top + CONTROL_CENTER_INSET;
+    // Glass alone: in the capsule's round right end, right of its text, as
+    // high as two of the terminal's rows (every other one is short there).
+    let right = left + CONTROL_CENTER_WIDTH;
+    let glass = (right - 20..right - 12, top + 16..top + 60);
+    // Its title and state, right of its round button.
     let title = (
-        left + CONTROL_CENTER_INSET + 72..left + CONTROL_CENTER_WIDTH - CONTROL_CENTER_INSET - 4,
-        tile_top + 16..tile_top + CONTROL_CENTER_TILE - 16,
+        left + 70..right - 22,
+        top + 16..top + CONTROL_CENTER_TILE - 16,
     );
     let dark = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3 < WINDOW_DARK;
     click(qmp, screen, grip, 2)?;
@@ -154,7 +151,7 @@ pub(super) fn control_center_glass(
         "the terminal shows no text behind the control center ({sharp:.1}): the check would \
          prove nothing"
     );
-    let behind = mean_luminance(&closed, surface.0.clone(), surface.1.clone());
+    let behind = mean_luminance(&closed, capsule.0.clone(), capsule.1.clone());
     let opened = shell_count(shell, "ControlCenter open")?;
     click(qmp, screen, centre, 1)?;
     wait_for_shell_count(shell, "ControlCenter open", opened + 1)?;
@@ -252,24 +249,19 @@ pub(super) const GLASS_TINT_DARK: f64 = 0.0262;
 pub(super) const GLASS_DENSE_DARK: f64 = 0.94;
 
 /// The control center's measures in the VM, as the shell's (`tokens`): its
-/// surface below the bar and a gap, the inset all round and between its
-/// cells; as wide as its columns used, two while network and light/dark are
-/// its only tiles; its right edge where the menu bar's margin ends.
-pub(super) const CONTROL_CENTER_TOP: usize = 12;
-pub(super) const CONTROL_CENTER_INSET: usize = 12;
+/// tiles below the bar and a gap, cells of 76 with the inset between them;
+/// as wide as its columns used, two while network and light/dark are its
+/// only tiles; its right edge where the menu bar's margin ends.
 pub(super) const CONTROL_CENTER_GAP: usize = 12;
 pub(super) const CONTROL_CENTER_TILE: usize = 76;
 pub(super) const BAR_MARGIN: usize = 20;
-pub(super) const CONTROL_CENTER_WIDTH: usize =
-    2 * CONTROL_CENTER_INSET + 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
-pub(super) const CONTROL_CENTER_HEIGHT: usize =
-    2 * CONTROL_CENTER_INSET + 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+pub(super) const CONTROL_CENTER_WIDTH: usize = 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
 
-/// The control center's surface's top left corner.
+/// The control center's first tile's top left corner.
 pub(super) fn control_center_at(screen: (usize, usize)) -> (usize, usize) {
     (
         screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH,
-        MENU_BAR + CONTROL_CENTER_TOP,
+        MENU_BAR + CONTROL_CENTER_GAP,
     )
 }
 
@@ -278,13 +270,8 @@ pub(super) fn control_center_at(screen: (usize, usize)) -> (usize, usize) {
 pub(super) fn appearance_tile(screen: (usize, usize)) -> Result<(i32, i32)> {
     let (left, top) = control_center_at(screen);
     Ok((
-        i32::try_from(left + CONTROL_CENTER_INSET + CONTROL_CENTER_TILE / 2)?,
-        i32::try_from(
-            top + CONTROL_CENTER_INSET
-                + CONTROL_CENTER_TILE
-                + CONTROL_CENTER_GAP
-                + CONTROL_CENTER_TILE / 2,
-        )?,
+        i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
+        i32::try_from(top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP + CONTROL_CENTER_TILE / 2)?,
     ))
 }
 

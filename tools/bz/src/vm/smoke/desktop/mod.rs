@@ -131,15 +131,15 @@ const _: () = assert!(APP_NAME_WIDTH >= POINTER_SIZE);
 /// The dock (os/beize-shell, `dock`): this high, this far above the bottom
 /// of the screen, its tiles this wide with this gap and padding; windows
 /// stay above it, so the window area ends `DOCK_ZONE` above the bottom.
-const DOCK_HEIGHT: usize = 84;
+const DOCK_HEIGHT: usize = 90;
 const DOCK_MARGIN: usize = 6;
 const DOCK_TILE: usize = 70;
 const DOCK_GAP: usize = 0;
-const DOCK_PADDING: usize = 7;
+const DOCK_PADDING: usize = 10;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
-/// How far the dock's shadow reaches above it: three sigmas less its offset
-/// (ADR 0033 §7, floating: 8 / 24).
-const DOCK_SHADOW_ABOVE: usize = 3 * 24 - 8;
+/// How far the dock's shadow reaches above it: three sigmas less its offset,
+/// rounded up (ADR 0033 §7, resting: 3 / 1.5).
+const DOCK_SHADOW_ABOVE: usize = 2;
 /// The menu bar has no background (ADR 0028 §3), the dock lies on glass
 /// (§6): what shows there is the background, the scrim over it, blurred
 /// glass – no colour to compare with, but soft: no pixel further than this

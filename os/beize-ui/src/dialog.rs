@@ -28,7 +28,7 @@ use beize_draw::{AppIcon, Color, Family, Rect, Scene, Style, Text};
 use zeroize::Zeroizing;
 
 use crate::Appearance;
-use crate::desktop::{Density, Glass, GlassShape};
+use crate::desktop::{Density, Glass, GlassShape, Shadow};
 use crate::field::{self, Edit, Field};
 use crate::input::{Button, Input, Key, KeyState, Keysym, Pointer};
 use crate::theme::{self, ACCENT, ON_ACCENT, SMALL_TEXT_SIZE, TEXT_SIZE};
@@ -346,7 +346,7 @@ impl Dialog {
                 rim: true,
             }],
             density: Density::Dense,
-            shadow: true,
+            shadow: Shadow::Floating,
         }
     }
 

@@ -103,13 +103,19 @@
       <arg name="rim" type="uint"/>
     </request>
 
+    <enum name="shadow">
+      <entry name="none" value="0"/>
+      <entry name="floating" value="1" summary="above windows, as a menu's: soft and wide"/>
+      <entry name="resting" value="2" summary="part of the desktop, as the dock's: tight and only below"/>
+    </enum>
+
     <request name="set_shadow">
       <description summary="a shadow below the glass">
-        Whether the compositor draws a soft shadow around each of its shapes
-        (1) or not (0), as macOS' WindowServer gives menus one. None until
-        set. Double-buffered as the shape.
+        The shadow the compositor draws below each of its shapes, by the
+        glass's height (ADR 0033 §7), as macOS' WindowServer gives menus
+        one. None until set. Double-buffered as the shape.
       </description>
-      <arg name="shadow" type="uint"/>
+      <arg name="shadow" type="uint" enum="shadow"/>
     </request>
   </interface>
 

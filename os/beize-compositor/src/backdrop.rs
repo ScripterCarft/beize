@@ -150,6 +150,11 @@ impl Appearance {
         let a = self.tint().rim;
         [a, a, a, a]
     }
+
+    /// The hairline outside the rim (black's alpha).
+    fn edge(self) -> f32 {
+        self.tint().edge
+    }
 }
 
 /// The white over the snap preview (`preview_material`). Its line is a
@@ -252,7 +257,7 @@ impl Backdrop {
         })
     }
 
-    /// Thin glass over `rect`, square and without a rim: below the menu bar
+    /// Dense glass over `rect`, square and without a rim: below the menu bar
     /// where a fullscreen window lies behind it. It reads the background
     /// until `LiveGlass` gives it what lies behind it, in the same frame.
     pub fn plate(&mut self, rect: Rectangle<i32, Logical>) -> Glass {
@@ -269,9 +274,10 @@ impl Backdrop {
                 rect,
                 radius: 0.0,
                 rim: [0.0; 4],
+                edge: 0.0,
             }],
             bounds: rect,
-            shows: glass::Material::Thin,
+            shows: glass::Material::Dense,
             texture: Some(self.picture.clone()),
             covers: Rectangle::from_size(self.size),
             live: Some(Behind::Plate),
@@ -301,6 +307,7 @@ impl Backdrop {
                 radius: crate::corners::RADIUS as f32,
                 // The glass's light line (`PREVIEW_WHITE`).
                 rim: self.appearance.rim(),
+                edge: 0.0,
             }],
             bounds: rect,
             shows: glass::Material::Preview,
@@ -430,6 +437,11 @@ impl Backdrop {
                     } else {
                         [0.0; 4]
                     },
+                    edge: if shape.rim {
+                        self.appearance.edge()
+                    } else {
+                        0.0
+                    },
                 }
             })
             .collect();
@@ -451,16 +463,17 @@ impl Backdrop {
                 .reduce(|a, b| a.merge(b))
                 .map(|whole| whole.merge(bounds))
         };
-        let shadows = if state.shadow {
+        let shadows = if state.shadow == glass::Height::None {
+            Vec::new()
+        } else {
             pieces
                 .iter()
                 .zip(shadow_ids)
                 .map(|(p, id)| {
-                    Shadow::below_glass(id, commit, p.rect, p.radius).faded(pose.opacity)
+                    Shadow::below_glass(id, commit, p.rect, p.radius, state.shadow)
+                        .faded(pose.opacity)
                 })
                 .collect()
-        } else {
-            Vec::new()
         };
         let glass = Glass {
             id,
@@ -577,7 +590,7 @@ fn scrim(renderer: &mut VkRenderer) -> Result<TextureBuffer<VkTexture>> {
 /// shadows, the surface's place and the backdrop's generation.
 type DrawnFor = (
     Vec<Shape>,
-    (glass::Material, bool),
+    (glass::Material, glass::Height),
     Point<i32, Logical>,
     u64,
     Pose,
@@ -617,6 +630,8 @@ struct Piece {
     rect: Rectangle<i32, Physical>,
     radius: f32,
     rim: [f32; 4],
+    /// The hairline outside it (black's alpha; 0 for none).
+    edge: f32,
 }
 
 /// The glass below a panel or a popup of one, in one place or more: drawn
@@ -794,6 +809,7 @@ impl<R: Effects> RenderElement<R> for Glass {
                 covers,
                 grain,
                 piece.rim,
+                piece.edge,
                 flat,
                 self.opacity,
             );

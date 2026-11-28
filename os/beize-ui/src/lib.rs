@@ -24,7 +24,7 @@ pub use beize_draw::{
     icon, measures, text, tokens,
 };
 pub use desktop::{
-    Density, DesktopPlace, DesktopWindow, DesktopWindowId, Glass, GlassShape, SwitcherNews,
+    Density, DesktopPlace, DesktopWindow, DesktopWindowId, Glass, GlassShape, Shadow, SwitcherNews,
 };
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;
