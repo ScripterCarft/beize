@@ -435,7 +435,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             *copy = Some(self.renderer.copy_texture_for(target, size)?);
         }
         let copy = copy.clone().context("live glass's copy")?;
-        let passes = super::glass_passes(&copy, blur, chain)?;
+        let passes = super::glass::glass_passes(&copy, blur, chain)?;
         let glass = passes
             .last()
             .map(|p| p.texture.clone())
