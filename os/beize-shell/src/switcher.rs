@@ -40,9 +40,10 @@ const ICON: u32 = 20;
 /// The panel's corners follow the tiles': their radius plus the padding.
 const TILE_RADIUS: f32 = 14.0;
 const RADIUS: f32 = TILE_RADIUS + PADDING;
-/// The ring from tile to tile: 0.15 s, not past it (ADR 0032 §5; it swung
-/// 0.5 % past until 0.5.131, the owner saw it bounce on hardware).
-const RING: Spring = Spring::new(0.15, 0.0);
+/// The ring from tile to tile: 0.1 s, not past it, as the switcher fades in
+/// (ADR 0032 §5; the owner on 0.5.132: quick, but not out of nowhere; it
+/// swung 0.5 % past until 0.5.131).
+const RING: Spring = Spring::new(0.1, 0.0);
 /// An edge moves less than a quarter of a pixel: the ring rests.
 const RING_UNSEEN: f64 = 0.25;
 

@@ -157,7 +157,7 @@ enden und den Compositor weiter wecken. Heute betrifft das schon die Startblende
 | Kontrollzentrum | erscheint unter seinem Knopf wie ein Menü, von 97 % mit Einblenden | 0,2 / 0 auf, 0,15 / 0 zu | macOS (Panel unter dem Symbol, kein Wachsen aus der Ecke) |
 | Dialog | von 94 % mit Einblenden; zu schneller; Inhalt und Glas mit denselben Kanten gerundet, das Glas liest aus der ganzen Form | 0,2 / 0 auf, 0,15 / 0 zu | macOS-Alert (kurzer Pop) |
 | Falsches Passwort | Stoß zur Seite, erster Ausschlag 10 px | 0,15 / 0,7 | macOS-Autorisierungsdialog |
-| Alt+Tab | erscheint nach 150 ms (`SHOW_AFTER`) und blendet ein; der Auswahlring gleitet ohne Nachschwingen | ein: 0,1 / 0; Ring 0,15 / 0 | macOS ⌘⇥ (praktisch sofort) |
+| Alt+Tab | erscheint nach 150 ms (`SHOW_AFTER`) und blendet ein; der Auswahlring gleitet ohne Nachschwingen | ein: 0,1 / 0; Ring 0,1 / 0 | macOS ⌘⇥ (praktisch sofort) |
 | Desktop einblenden | gebaut | 0,5 / 0 | `.smooth` |
 | Vollbild | springt, wie heute | – | eigene Entscheidung mit Spaces |
 | Einrast-Vorschau | blendet ein, helle Linie wie ein Menü-Glas; die Zone reicht 48 px vom Rand | 0,1 / 0 | mutter (`DRAG_THRESHOLD_TO_SHAKE_THRESHOLD_FACTOR`: 8 × 6 px) |
@@ -262,7 +262,7 @@ der Rauch blieb im letzten Schritt des Einblendens stehen (295 Pixel um 1 danebe
 das Glas sie, wie der Schatten.
 
 **Alt+Tab-Ring, gebaut (18.11.):** Die Shell führt die vier Kanten der Hervorhebung auf Federn
-(`switcher.rs`, 0,15 s / 0,14) und zeichnet den Umschalter neu, sobald er bereit ist (seine
+(`switcher.rs`, 0,1 s / 0; 0.5.132 auf Hardware, der Besitzer: 0,1 s) und zeichnet den Umschalter neu, sobald er bereit ist (seine
 Frame-Callbacks), bis der Ring ruht. Mit dem Umschalter und bei Kacheln, die sich verschieben
 (ein Fenster kommt dazu), steht er sofort auf seiner Kachel. Weiß ist die Schrift der Kachel, über
 der die Mitte des Rings liegt. Die Auswahl hält weiter der Compositor: Alt loslassen wählt sofort.
