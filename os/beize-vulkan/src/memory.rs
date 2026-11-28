@@ -58,10 +58,12 @@ pub struct Blocks {
 }
 
 impl Blocks {
-    /// The compositor: screen-sized pictures and blur chains (2560×1440
-    /// RGBA is 14 MiB) fit a block.
+    /// The compositor: screen-sized pictures and blur chains fit a block,
+    /// on a 4K screen too (3840×2160 RGBA is 33 MiB; larger would get a
+    /// block of its own, a kernel call each time). gpu-allocator keeps a
+    /// type's last block; VMA prefers 256 MiB.
     pub const COMPOSITOR: Blocks = Blocks {
-        device: (32, 128),
+        device: (64, 256),
         host: (8, 32),
     };
     /// An app: a few windows' images and its glyph atlas.

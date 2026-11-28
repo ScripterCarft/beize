@@ -31,10 +31,14 @@ impl VkRenderer {
         let needed = staged + bytes;
         let size = self.in_flight[i].staging.as_ref().map_or(0, |b| b.size);
         if needed > size {
+            // In cached system memory, as staging belongs (VMA's
+            // HOST_ACCESS_SEQUENTIAL_WRITE without DEVICE_LOCAL): growing
+            // copies what is staged from the old buffer, which read from
+            // write-combined VRAM would crawl.
             let new = self.host_buffer_full(
                 needed.next_power_of_two().max(1 << 20),
                 vk::BufferUsageFlags::TRANSFER_SRC,
-                false,
+                true,
             )?;
             if let Some(old) = self.in_flight[i].staging.take() {
                 // What is staged for this frame moves along.

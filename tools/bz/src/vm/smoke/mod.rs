@@ -82,9 +82,6 @@ use Scenario::*;
 /// release the broken update waits for. Those that start from a copy of
 /// the installation only if it passed, and only those that
 /// [`Scenario::applies`] to the variant.
-/// What runs only when named (`--only`): not a test, a tool.
-const ON_REQUEST: [Scenario; 1] = [Gallery];
-
 const AFTER_INSTALL: [Scenario; 19] = [
     Update,
     InterruptedUpdate,
@@ -106,6 +103,9 @@ const AFTER_INSTALL: [Scenario; 19] = [
     ChangedBoot,
     EmergencyGate,
 ];
+
+/// What runs only when named (`--only`): not a test, a tool.
+const ON_REQUEST: [Scenario; 1] = [Gallery];
 
 impl Scenario {
     fn title(self) -> &'static str {
