@@ -44,8 +44,8 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 `Liquid`/`Preview` (Protokoll, `beize-ui/src/desktop.rs`, `beize-compositor/src/glass.rs`,
 `backdrop.rs`); Dock und Kontrollzentrum (`os/beize-shell/src/dock.rs`, `control_center.rs`)
 darauf; `clear_glass`/`liquid_tone` in `quad.frag`/`quad.vert`, Rauchmaske und ihre
-Smoke-Prüfungen (`glass.rs` im Smoke) entfernen; ADR 0028 §5/§6 auf 0033 bringen; Galerie vorher
-und nachher, Gutachter, dann **ein** Messbau für den Besitzer: Material ansehen und dabei die
+Smoke-Prüfungen (`glass.rs` im Smoke) entfernen; ADR 0028 §5/§6 auf 0033 bringen; dann die zwei
+Mock-up-Sätze (B2) in den Downloads-Ordner, der Besitzer wählt, Gutachter, dann **ein** Messbau für den Besitzer: Material ansehen und dabei die
 späten Bilder nach A1 messen (Journal „freed N GPU objects“).
 
 Grundlage: Bestandsaufnahme vom 28.11. mit 28 Bildschirmfotos aller Zustände (hell und dunkel)
@@ -88,8 +88,13 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
   „außen = innen + Abstand“, Kapseln 32, Text ab 20; 15/13 px, Gewichte 400/500/600; Farben als
   Tokens (Akzent #0064d2); Beize-Glas in drei Dichten; zwei Höhen; Kontrast-Unit-Test in
   linearem Licht über dem schwersten Hintergrund.
-- **B2 entfällt als eigener Schritt:** Mock-ups mit dem echten Renderer sind die Galerie eines
-  Zweigs; die eine offene Wahl (Dichte des Docks 50/60/70 %) fällt auf Hardware.
+- **B2 Mock-ups (Besitzer, 28.11.): zwei Wertesätze, nach B3.1:** Die Mechanik (Tokens, Glas in
+  drei Dichten) wird einmal gebaut, dann zwei Token-Sätze: **ohne** den Einfluss des Besitzers
+  (nur ADR 0033) und **mit** seinen Referenzbildern (`D:\beize-ref\`, vorher ansehen: Akzent,
+  Dichten, Radien, Abstände daran ausrichten). Je Satz die Galerie in
+  `C:\Users\Joe\Downloads\beize-mockups\ohne-ref\` bzw. `mit-ref\` (aus WSL:
+  `/mnt/c/Users/Joe/Downloads/...`). Der Besitzer wählt (oder „Mischung“), der gewählte Satz geht
+  auf Hardware; die Dichte des Docks (50/60/70 %) fällt dort.
 - **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
   der Messung der späten Bilder.
   1. Material: Dock und Kontrollzentrum auf Beize-Glas, eine Glasfläche mit Kacheln, dunkle
