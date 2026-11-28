@@ -39,14 +39,17 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes: der Gesamtplan (28.11.)
 
-**Nächster Schritt: B3.1 Material** – `beize-draw::tokens` mit dem Kontrast-Test anlegen;
-`beize_glass_v1` mit den Dichten `dense`/`medium`/`thin` statt `Base`/`Live`/`Menu`/`Clear`/
-`Liquid`/`Preview` (Protokoll, `beize-ui/src/desktop.rs`, `beize-compositor/src/glass.rs`,
-`backdrop.rs`); Dock und Kontrollzentrum (`os/beize-shell/src/dock.rs`, `control_center.rs`)
-darauf; `clear_glass`/`liquid_tone` in `quad.frag`/`quad.vert`, Rauchmaske und ihre
-Smoke-Prüfungen (`glass.rs` im Smoke) entfernen; ADR 0028 §5/§6 auf 0033 bringen; dann die zwei
-Mock-up-Sätze (B2) als Galerien, der Besitzer wählt, Gutachter, dann **ein** Messbau für den Besitzer: Material ansehen und dabei die
-späten Bilder nach A1 messen (Journal „freed N GPU objects“).
+**Nächster Schritt: die Wahl des Besitzers (B2).** B3.1 ist gebaut (unten). Die zwei
+Wertesätze liegen als Galerien in `build/gallery/ohne-ref/` und `build/gallery/mit-ref/`, zum
+Vergleichen auf https://claude.ai/artifact/WjCCN4wXQXKg8ZdvYFGbkw (privat). Wählt er:
+1. in `os/beize-draw/src/tokens.rs` den gewählten Satz behalten (bei „Mischung“ die Werte
+   zusammenführen), den anderen Satz, das `pub use` und den Absatz über zwei Sätze löschen;
+   ADR 0033 §3/§5/§6 auf die Werte bringen;
+2. mit-ref gewählt: in `tools/bz/src/vm/smoke/desktop/mod.rs` `DOCK_HEIGHT` 92,
+   `DOCK_PADDING` 11, in `glass.rs` `GLASS_TINT_LIGHT`/`GLASS_DENSE_LIGHT` auf #F2F1EF zu 72 %
+   (relative Luminanz rechnen), die Galerie lief damit grün;
+3. Gutachter (`beize-design-auditor`) über die Galerie, dann **ein** Messbau für den Besitzer:
+   Material ansehen und dabei die späten Bilder nach A1 messen (Journal „freed N GPU objects“).
 
 Grundlage: Bestandsaufnahme vom 28.11. mit 28 Bildschirmfotos aller Zustände (hell und dunkel)
 sowie den Gutachten von `beize-design-auditor` (Werte, Material, Abläufe) und `beize-reviewer`
@@ -107,13 +110,21 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
     selbst ansehen und eigen urteilen.
 - **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
   der Messung der späten Bilder.
-  1. Material: Dock und Kontrollzentrum auf Beize-Glas, eine Glasfläche mit Kacheln, dunkle
-     Schrift im hellen Modus. Das behebt 3,3:1 und 2,4:1 sowie das unsichtbare Dock.
-  2. Menüs, Dialog, Feld, Alt+Tab und Pillen auf Tokens:
+  1. **Material: gebaut 28.11. (dda690c)**, auf Hardware noch nicht gesehen. `beize-draw::tokens`
+     mit Kontrast-Test (er setzte dunkles dichtes Glas 94 %, Tinte 2 als eigene Farbe, dunkle
+     Fläche 8 %, dunkles Fehlerrot #ffb3ae); `beize_glass_v1` mit `thin`/`medium`/`dense`;
+     flüssiges Glas, Grundglas, Rauch und die Gauß-Pässe entfernt (−1200 Zeilen); Kontrollzentrum
+     eine dichte Fläche mit Kacheln, Dock mittleres Glas 84 hoch; ein schwebender Schatten
+     8/24/0,18 (er reicht 64 px über das Dock, die Mustervergleiche im Smoke lassen ihn aus).
+     Smoke `control_center_glass` ersetzt die Prüfungen von flüssigem Glas und Rauch.
+  2. Menüs, Dialog, Feld, Alt+Tab und Pillen auf Tokens (Radien aus `tokens`, bei mit-ref die
+     Menü-Hervorhebung als „Fläche gewählt“):
      - konzentrisch;
      - Fehlerrot mit 4,5:1;
      - Alt+Tab-Auswahl leiser als Vollblau.
-  3. Fenster, Titelleiste und Menüleiste.
+  3. Fenster (Radius = Element aus `tokens`, heute fest 16 in `corners.rs`), Titelleiste und
+     Menüleiste; dabei die Menüleiste über Vollbild: helle Schrift auf dunklem dünnem Glas über
+     einem weißen Vollbild hält nur ~1,3 : 1 (vor ADR 0033 ebenso).
   4. Schrift: parley 0.13 (Dependabot #45) zusammen mit der Schriftskala.
 - **B4 Abläufe:**
   - „Ausblenden“ als eigener Zustand (heute minimiert es; „Alle einblenden“ holt auch absichtlich
