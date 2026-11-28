@@ -99,8 +99,11 @@ impl Shared {
         }
     }
 
-    /// Destroys what the GPU no longer uses.
-    pub fn collect(&self) {
+    /// Destroys what the GPU no longer uses; returns how many objects.
+    /// Each memory freed is a call into the kernel (NVK unmaps it from the
+    /// GPU's address space synchronously, `nvkmd_nouveau_va_free`), so a
+    /// renderer calls this outside its frame's path.
+    pub fn collect(&self) -> usize {
         let done = self.completed();
         let ready: Vec<Garbage> = match self.garbage.lock() {
             Ok(mut list) => {
@@ -110,11 +113,13 @@ impl Shared {
                 *list = waiting;
                 ready.into_iter().map(|(_, g)| g).collect()
             }
-            Err(_) => return,
+            Err(_) => return 0,
         };
+        let count = ready.len();
         for garbage in ready {
             self.destroy(garbage);
         }
+        count
     }
 
     fn destroy(&self, garbage: Garbage) {

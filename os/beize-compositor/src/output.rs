@@ -870,6 +870,7 @@ where
         };
         if !damaged && cursor.is_none() {
             // Nothing changed: no frame, no commit; the slot goes back.
+            renderer.free_finished();
             return Ok(Frame::Unchanged(shown));
         }
 
@@ -936,6 +937,8 @@ where
         let committed: Duration = self.clock.now().into();
         self.flip_committed = committed;
         parts.commit = committed.saturating_sub(committing);
+        // The frame is on its way: now what earlier frames let go of.
+        renderer.free_finished();
         // Planned by the timer; a frame drawn without it (after a pause)
         // from when it began, for no vblank.
         let plan = self.planned.take();

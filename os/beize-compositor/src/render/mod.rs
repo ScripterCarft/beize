@@ -323,6 +323,24 @@ impl VkRenderer {
         self.submitted
     }
 
+    /// Destroys what the GPU is done with: the pictures, glass and clients'
+    /// buffers that went away. Called once a frame is committed to KMS,
+    /// never between a frame's begin and its commit – each memory freed
+    /// waits in the kernel (`Shared::collect`). 0.5.132 freed them before
+    /// recording, and the frames of closing menus and dialogs came late.
+    /// wgpu frees in `poll` after `submit` in the same way.
+    pub fn free_finished(&mut self) {
+        let began = Instant::now();
+        let count = self.shared.collect();
+        let took = began.elapsed();
+        if took >= Duration::from_millis(1) {
+            info!(
+                "freed {count} GPU objects in {:.2} ms",
+                took.as_secs_f64() * 1000.0
+            );
+        }
+    }
+
     /// How long the GPU worked on `submission` (`GpuTime`): once it is
     /// done (a frame on the screen is), while its frame's objects are not
     /// yet used again. None without timestamps.
@@ -1119,7 +1137,7 @@ impl Renderer for VkRenderer {
             .map_err(|e| error(format!("waiting for a fence: {e}")))
     }
 
-    // Also done by each submission (`submit`).
+    // Also done after each frame (`submit`, `free_finished`).
     fn cleanup_texture_cache(&mut self) -> Result<()> {
         self.dmabufs.retain(|weak, _| !weak.is_gone());
         self.shared.collect();
@@ -1422,9 +1440,9 @@ impl VkRenderer {
         // window's old size, a closed app), as Smithay's GLES renderer does
         // each frame: Smithay asks for it only in its DrmCompositor, which
         // Beize does not use. Kept, every resize held the buffers of each
-        // size until the GPU's memory ran out (0.5.103).
+        // size until the GPU's memory ran out (0.5.103). That only queues
+        // them: they are destroyed after the frame's commit (`free_finished`).
         self.dmabufs.retain(|weak, _| !weak.is_gone());
-        self.shared.collect();
         let d = self.shared.device.clone();
         let commands = self.in_flight[i].commands;
         let submission = self.submitted + 1;
