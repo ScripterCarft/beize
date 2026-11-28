@@ -39,6 +39,15 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes: der Gesamtplan (28.11.)
 
+**Nächster Schritt: B3.1 Material** – `beize-draw::tokens` mit dem Kontrast-Test anlegen;
+`beize_glass_v1` mit den Dichten `dense`/`medium`/`thin` statt `Base`/`Live`/`Menu`/`Clear`/
+`Liquid`/`Preview` (Protokoll, `beize-ui/src/desktop.rs`, `beize-compositor/src/glass.rs`,
+`backdrop.rs`); Dock und Kontrollzentrum (`os/beize-shell/src/dock.rs`, `control_center.rs`)
+darauf; `clear_glass`/`liquid_tone` in `quad.frag`/`quad.vert`, Rauchmaske und ihre
+Smoke-Prüfungen (`glass.rs` im Smoke) entfernen; ADR 0028 §5/§6 auf 0033 bringen; Galerie vorher
+und nachher, Gutachter, dann **ein** Messbau für den Besitzer: Material ansehen und dabei die
+späten Bilder nach A1 messen (Journal „freed N GPU objects“).
+
 Grundlage: Bestandsaufnahme vom 28.11. mit 28 Bildschirmfotos aller Zustände (hell und dunkel)
 sowie den Gutachten von `beize-design-auditor` (Werte, Material, Abläufe) und `beize-reviewer`
 (Render-Pfad, Struktur, Tests). Die Reihenfolge folgt einer Regel: **erst das, worauf alles
@@ -75,20 +84,12 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
 
 ### Phase B: Formensprache
 
-- **B1 ADR 0033 Formensprache** (Claude schreibt es und zeigt es dem Besitzer):
-  - ein 4-px-Raster;
-  - konzentrische Radien in einer Skala;
-  - zwei Schriftgrößen und drei Gewichte (heute fünf);
-  - semantische Farben mit WCAG-AA-Prüfung;
-  - **ein Material**: Beize-Glas aus dem Menü-Glas in drei Dichten (dicht ~80 % für Menüs,
-    Dialoge, Alt+Tab, Kontrollzentrum und Mitteilungen; mittel für das Dock; dünn für das
-    Grundglas);
-  - zwei Schattenstufen;
-  - Bewegung bleibt ADR 0032.
-
-  Flüssiges Glas, Rauch und Tonkurve entfallen; das System wird einfacher und billiger.
-- **B2 Mock-ups mit dem echten Renderer**: zwei bis drei Token-Sätze über die Galerie. Claude
-  wählt und zeigt sie.
+- **B1 erledigt (28.11.):** `docs/adr/0033-formensprache.md` – 4-px-Raster, Radien 28/16/12 nach
+  „außen = innen + Abstand“, Kapseln 32, Text ab 20; 15/13 px, Gewichte 400/500/600; Farben als
+  Tokens (Akzent #0064d2); Beize-Glas in drei Dichten; zwei Höhen; Kontrast-Unit-Test in
+  linearem Licht über dem schwersten Hintergrund.
+- **B2 entfällt als eigener Schritt:** Mock-ups mit dem echten Renderer sind die Galerie eines
+  Zweigs; die eine offene Wahl (Dichte des Docks 50/60/70 %) fällt auf Hardware.
 - **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
   der Messung der späten Bilder.
   1. Material: Dock und Kontrollzentrum auf Beize-Glas, eine Glasfläche mit Kacheln, dunkle
