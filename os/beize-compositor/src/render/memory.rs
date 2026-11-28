@@ -10,7 +10,7 @@ impl VkRenderer {
         size: u64,
         usage: vk::BufferUsageFlags,
         cached: bool,
-    ) -> Result<(vk::Buffer, vk::DeviceMemory, *const u8)> {
+    ) -> Result<(vk::Buffer, beize_vulkan::memory::Memory, *const u8)> {
         let b = self.host_buffer_full(size, usage, cached)?;
         Ok((b.buffer, b.memory, b.pointer))
     }

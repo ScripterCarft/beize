@@ -7,6 +7,7 @@ use beize_vulkan::buffer::HostBuffer;
 use beize_vulkan::device::Garbage;
 use beize_vulkan::error::Result;
 use beize_vulkan::image::{self, own_image};
+use beize_vulkan::memory::Memory;
 
 use crate::gpu::Gpu;
 use crate::renderer::{After, Renderer, Target};
@@ -19,7 +20,7 @@ pub struct Offscreen {
     size: (u32, u32),
     image: vk::Image,
     view: vk::ImageView,
-    memory: vk::DeviceMemory,
+    memory: Memory,
     readback: HostBuffer,
 }
 
@@ -48,10 +49,8 @@ impl Offscreen {
             Ok(made) => made,
             Err(e) => {
                 // SAFETY: never used.
-                unsafe {
-                    shared.device.destroy_image(image, None);
-                    shared.device.free_memory(memory, None);
-                }
+                unsafe { shared.device.destroy_image(image, None) };
+                shared.free(memory);
                 return Err(e);
             }
         };

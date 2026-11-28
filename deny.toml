@@ -46,7 +46,8 @@ allow-wildcard-paths = true
 deny = [
   { crate = "smithay", wrappers = ["beize-compositor"], reason = "the compositor alone speaks Wayland's server side (ADR 0027)" },
   { crate = "wayland-client", wrappers = ["beize-ui", "beize-testclient", "beize-protocols", "wayland-protocols", "wayland-protocols-wlr"], reason = "apps reach Wayland through Beize UI (ADR 0027 §9)" },
-  { crate = "ash", wrappers = ["beize-vulkan", "beize-ui", "smithay"], reason = "Vulkan through beize-vulkan; Beize UI loads it for its windows" },
+  { crate = "ash", wrappers = ["beize-vulkan", "beize-ui", "smithay", "gpu-allocator"], reason = "Vulkan through beize-vulkan; Beize UI loads it for its windows; beize-vulkan's sub-allocator binds memory with it" },
+  { crate = "gpu-allocator", wrappers = ["beize-vulkan"], reason = "GPU memory only through beize-vulkan's `memory`" },
   { crate = "beize-vulkan", wrappers = ["beize-draw", "beize-ui", "beize-compositor"], reason = "the GPU ground of Beize UI and the compositor" },
   { crate = "beize-draw", wrappers = ["beize-ui", "beize-compositor"], reason = "what Beize UI and the compositor draw alike (ADR 0028 §2)" },
   { crate = "beize-ui", wrappers = ["beize-shell", "beize-terminal"], reason = "the toolkit of Beize's apps; the compositor draws without it" },

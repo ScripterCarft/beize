@@ -62,6 +62,7 @@ pub fn create(phd: &PhysicalDevice) -> Result<Created> {
             phd.handle(),
             Box::new(phd.instance().clone()),
             &extensions,
+            beize_vulkan::memory::Blocks::COMPOSITOR,
         )
     }?;
     let device = &created.shared.device;

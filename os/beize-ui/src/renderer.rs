@@ -666,7 +666,7 @@ impl Drop for Renderer {
                 d.destroy_semaphore(frame.acquired, None);
                 for buffer in [frame.quads, frame.staging].into_iter().flatten() {
                     d.destroy_buffer(buffer.buffer, None);
-                    d.free_memory(buffer.memory, None);
+                    self.gpu.shared.free(buffer.memory);
                 }
             }
             d.destroy_command_pool(self.pool, None);

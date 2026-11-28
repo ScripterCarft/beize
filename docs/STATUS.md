@@ -25,9 +25,13 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   ein Kernel-Aufruf mit Warten je Bild. Jedes `Picture` und jede Blur-Kette hat eigenen Speicher
   (`image.rs:170`, `target.rs:209`), entsteht je Animation neu und wird beim Ende freigegeben,
   passend zu „dialog closes“ 57, „menu closes“ 52, „comes back“ 44. Beim Live-Resize geben alte
-  dmabuf-Importe frei. Belegt ist der Mechanismus, nicht die Millisekunden: `collect()`
-  getrennt messen, im nächsten ohnehin geplanten Messbau. „flip event repeated“ verfälscht
-  „late“ nicht (`pacing.rs:213`, ein wiederholtes Ereignis kann ein spätes Bild nur verstecken).
+  dmabuf-Importe frei. „flip event repeated“ verfälscht „late“ nicht (`pacing.rs:213`).
+  **Seit 28.11. auf `main`, auf Hardware noch nicht gesehen:** Freigaben laufen erst nach dem
+  Commit an KMS (`free_finished`), Beizes Bilder und Puffer liegen in Blöcken des
+  Sub-Allokators `gpu-allocator` (`beize-vulkan/src/memory.rs`; dmabuf-Importe bleiben eigen,
+  Upload-Puffer bevorzugen jetzt CPU-sichtbaren VRAM wie bei wgpu). Dauert eine Freigabe ≥ 1 ms,
+  steht „freed N GPU objects in X ms“ im Journal – der nächste Hardware-Test belegt damit die
+  Millisekunden ohne eigenen Messbau.
 - **Upstream:** `docs/upstream.md` (27.11. geprüft): nouveau GSP-IRQDEST in Mainline (7.4, Cc
   stable); systemd #44842 „needs-rework“, v2 und die run0-Fassung für main liegen in `~/upstream`.
 - **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren.
@@ -43,17 +47,11 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
 
 ### Phase A: Fundament (unsichtbar, macht alles Spätere billiger)
 
-- **A1 GPU-Speicher wie ein Profi-Renderer.**
-  1. Freigeben nach dem Commit an KMS statt vor dem Aufzeichnen: klein, sofort.
-  2. Sub-Allokator `gpu-allocator`, wie bei wgpu: Freigeben wird Buchhaltung, kein Kernel-Aufruf.
-  3. Pool für Bildziele und Blur-Ketten nach Größe, wiederverwendet über Öffnen und Schließen
-     (niri `OffscreenBuffer`, KWin `OffscreenEffect`).
-
-  Warum jetzt: Der Umbau bringt neue Materialien und Bilder, die sollen auf dem fertigen System
-  entstehen. dmabuf-Importe lassen sich nicht sub-allozieren, für sie reicht Schritt 1.
-- **A2 Struktur.** Erst die Teilung, dann die Umbauten in sauberen Modulen.
-  - `render/mod.rs` → `memory.rs` (Heimat des Allokators), `submit.rs`, `glass.rs`, `smithay.rs`,
-    `timing.rs`.
+- **A1 GPU-Speicher:** Freigeben nach dem Commit und der Sub-Allokator sind gebaut (oben). Offen
+  nur, wenn die Hardware danach noch späte Bilder beim Öffnen zeigt: ein Pool für Bildziele und
+  Blur-Ketten nach Größe (niri `OffscreenBuffer`, KWin `OffscreenEffect`). Ohne Beleg nicht bauen.
+- **A2 Struktur.** Erst die Teilung, dann die Umbauten in sauberen Modulen. `render/` ist geteilt
+  (28.11.).
   - `animation.rs` → `animation/`; `picture.rs` ist die Heimat des Pools.
   - `state.rs` → `session`, `frame`, `idle`, `focus`, `handlers/` (Vorbild niri).
   - `windows.rs` → `placement`, `lifecycle`, `states`, `grabs` (anvil).

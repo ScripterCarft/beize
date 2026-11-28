@@ -80,6 +80,7 @@ impl Gpu {
                 physical,
                 Box::new(instance.clone()),
                 &device_extensions,
+                beize_vulkan::memory::Blocks::APP,
             )
         }?;
         if let Some(display) = display

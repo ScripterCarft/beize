@@ -24,6 +24,7 @@ use super::device::{Garbage, Shared};
 use super::texture::{self, VkTexture, vk_format};
 use crate::error::{Context, Result, error};
 use beize_vulkan::image;
+use beize_vulkan::memory::Memory;
 
 const USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
     vk::ImageUsageFlags::COLOR_ATTACHMENT.as_raw()
@@ -35,7 +36,7 @@ pub struct Target {
     pub(super) shared: Arc<Shared>,
     pub(super) image: vk::Image,
     pub(super) view: vk::ImageView,
-    memory: vk::DeviceMemory,
+    memory: Memory,
     pub(super) readback: Option<Readback>,
     pub(super) size: Size<i32, Buffer>,
     pub(super) format: vk::Format,
@@ -117,7 +118,7 @@ impl VkRenderer {
     fn target(
         &self,
         image: vk::Image,
-        memory: vk::DeviceMemory,
+        memory: Memory,
         fourcc: Fourcc,
         size: Size<i32, Buffer>,
     ) -> Result<Target> {
@@ -128,10 +129,8 @@ impl VkRenderer {
             Ok(v) => v,
             Err(e) => {
                 // SAFETY: never used.
-                unsafe {
-                    d.destroy_image(image, None);
-                    d.free_memory(memory, None);
-                }
+                unsafe { d.destroy_image(image, None) };
+                self.shared.free(memory);
                 return Err(e);
             }
         };
@@ -217,10 +216,8 @@ impl VkRenderer {
             Ok(view) => view,
             Err(e) => {
                 // SAFETY: never used.
-                unsafe {
-                    d.destroy_image(image, None);
-                    d.free_memory(memory, None);
-                }
+                unsafe { d.destroy_image(image, None) };
+                self.shared.free(memory);
                 return Err(e);
             }
         };
@@ -231,7 +228,7 @@ impl VkRenderer {
             shared: self.shared.clone(),
             image,
             view,
-            memory: vk::DeviceMemory::null(),
+            memory: Memory::None,
             readback: None,
             size,
             format,
@@ -258,7 +255,7 @@ fn opaque(code: Fourcc) -> Fourcc {
 pub(super) struct Readback {
     shared: Arc<Shared>,
     pub(super) buffer: vk::Buffer,
-    memory: vk::DeviceMemory,
+    memory: Memory,
     pointer: *const u8,
     dmabuf: Dmabuf,
     mapping: DmabufMapping,

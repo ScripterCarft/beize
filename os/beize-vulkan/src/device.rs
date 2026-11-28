@@ -6,7 +6,8 @@
 //!
 //! What the GPU may still use is freed only once it is done with it: every
 //! submission signals the next value of one timeline semaphore, and objects
-//! wait in `garbage` for the value of their last use.
+//! wait in `garbage` for the value of their last use. Memory comes from the
+//! sub-allocator (`memory`).
 
 use std::any::Any;
 use std::ffi::{CStr, c_char};
@@ -16,6 +17,7 @@ use ash::vk;
 use tracing::{info, warn};
 
 use crate::error::{Context, Result, error};
+use crate::memory::{Blocks, Memory, Pool};
 
 /// Textures the bindless array holds at most.
 const MAX_TEXTURES: u32 = 4096;
@@ -25,11 +27,11 @@ pub enum Garbage {
     Image {
         image: vk::Image,
         view: vk::ImageView,
-        memory: vk::DeviceMemory,
+        memory: Memory,
     },
     Buffer {
         buffer: vk::Buffer,
-        memory: vk::DeviceMemory,
+        memory: Memory,
     },
     Semaphore(vk::Semaphore),
     /// A second view of an image, destroyed before the image.
@@ -47,6 +49,7 @@ pub struct Shared {
     pub timeline: vk::Semaphore,
     garbage: Mutex<Vec<(u64, Garbage)>>,
     slots: Mutex<Slots>,
+    pub(crate) pool: Mutex<Pool>,
     /// The instance outlives the device (Vulkan requires it; Mesa frees its
     /// shader compiler's type cache with the last instance). Dropped after
     /// `Drop` has destroyed the device.
@@ -135,11 +138,11 @@ impl Shared {
                 } => {
                     d.destroy_image_view(view, None);
                     d.destroy_image(image, None);
-                    d.free_memory(memory, None);
+                    self.free(memory);
                 }
                 Garbage::Buffer { buffer, memory } => {
                     d.destroy_buffer(buffer, None);
-                    d.free_memory(memory, None);
+                    self.free(memory);
                 }
                 Garbage::Semaphore(semaphore) => d.destroy_semaphore(semaphore, None),
                 Garbage::View(view) => d.destroy_image_view(view, None),
@@ -198,6 +201,10 @@ impl Drop for Shared {
         for (_, g) in garbage {
             self.destroy(g);
         }
+        // The blocks go before the device.
+        if let Ok(pool) = self.pool.get_mut() {
+            pool.close();
+        }
         // SAFETY: as above; every other object of the device is destroyed.
         unsafe {
             self.device.destroy_semaphore(self.timeline, None);
@@ -224,7 +231,8 @@ pub struct Created {
     pub optional: Vec<bool>,
 }
 
-/// The device on `physical`, with one graphics queue.
+/// The device on `physical`, with one graphics queue; its memory comes in
+/// `blocks`.
 ///
 /// # Safety
 /// `physical` belongs to `instance`, and `keep` keeps `instance` alive.
@@ -233,6 +241,7 @@ pub unsafe fn create(
     physical: vk::PhysicalDevice,
     keep: Box<dyn Any + Send + Sync>,
     extensions: &Extensions<'_>,
+    blocks: Blocks,
 ) -> Result<Created> {
     let mut props12 = vk::PhysicalDeviceVulkan12Properties::default();
     let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut props12);
@@ -373,6 +382,17 @@ pub unsafe fn create(
         };
         (timeline, device.get_device_queue(family, 0))
     };
+    let pool = match Pool::new(instance, &device, physical, blocks) {
+        Ok(pool) => pool,
+        Err(e) => {
+            // SAFETY: nothing else was made from the device yet.
+            unsafe {
+                device.destroy_semaphore(timeline, None);
+                device.destroy_device(None);
+            }
+            return Err(e);
+        }
+    };
     let shared = Arc::new(Shared {
         device,
         memory,
@@ -383,6 +403,7 @@ pub unsafe fn create(
             next: 0,
             max,
         }),
+        pool: Mutex::new(pool),
         _instance: keep,
     });
     Ok(Created {

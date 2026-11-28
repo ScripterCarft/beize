@@ -16,6 +16,7 @@ use smithay::reexports::ash::vk;
 use smithay::utils::{Buffer, Size};
 
 use beize_vulkan::image::{Sampled, image_info};
+use beize_vulkan::memory::Memory;
 
 use super::device::{Ext, Garbage, Shared};
 use crate::error::{Context, Result, error};
@@ -141,7 +142,7 @@ pub fn import_image(
     dmabuf: &Dmabuf,
     format: vk::Format,
     usage: vk::ImageUsageFlags,
-) -> Result<(vk::Image, vk::DeviceMemory)> {
+) -> Result<(vk::Image, Memory)> {
     let d = &shared.device;
     if dmabuf.num_planes() != 1 {
         return Err(error("only dmabufs with one plane"));
@@ -177,7 +178,8 @@ pub fn import_image(
     let image = unsafe { d.create_image(&info, None) }.context("importing a dmabuf")?;
     let result = bind_dmabuf(shared, ext, modifiers, dmabuf, image, stride, offset);
     match result {
-        Ok(memory) => Ok((image, memory)),
+        // Imported memory is the dmabuf's own, never in a block.
+        Ok(memory) => Ok((image, Memory::Own(memory))),
         Err(e) => {
             // SAFETY: never used.
             unsafe { d.destroy_image(image, None) };
@@ -260,7 +262,7 @@ fn bind_dmabuf(
 pub(super) fn wrap(
     shared: &Arc<Shared>,
     image: vk::Image,
-    memory: vk::DeviceMemory,
+    memory: Memory,
     fourcc: Fourcc,
     size: Size<i32, Buffer>,
     dmabuf: Option<WeakDmabuf>,
@@ -275,10 +277,8 @@ pub(super) fn wrap(
     let Some((format, has_alpha)) = vk_format(fourcc) else {
         destroy_attachment();
         // SAFETY: never used.
-        unsafe {
-            shared.device.destroy_image(image, None);
-            shared.device.free_memory(memory, None);
-        }
+        unsafe { shared.device.destroy_image(image, None) };
+        shared.free(memory);
         return Err(error(format!("format {fourcc} is not taken")));
     };
     let gpu = match Sampled::new(shared, image, memory, format, has_alpha) {

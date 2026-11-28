@@ -1,4 +1,5 @@
-//! Images: made with memory of their own, and – for the shaders to sample –
+//! Images: bound to memory of the sub-allocator (`memory`), and – for the
+//! shaders to sample –
 //! given a place in the bindless array for as long as they live, destroyed
 //! only after the last submission that used them (`device::Garbage`).
 
@@ -8,7 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ash::vk;
 
 use crate::device::{Garbage, Shared};
-use crate::error::{Context, Result, error};
+use crate::error::{Context, Result};
+use crate::memory::Memory;
 
 /// An image the shaders sample, with its view and its place in the array;
 /// the caller writes that place (`Pipelines::write`).
@@ -16,7 +18,7 @@ pub struct Sampled {
     shared: Arc<Shared>,
     pub image: vk::Image,
     pub view: vk::ImageView,
-    memory: vk::DeviceMemory,
+    memory: Memory,
     pub slot: u32,
     /// The submission that last used it.
     last_used: AtomicU64,
@@ -29,17 +31,15 @@ impl Sampled {
     pub fn new(
         shared: &Arc<Shared>,
         image: vk::Image,
-        memory: vk::DeviceMemory,
+        memory: Memory,
         format: vk::Format,
         has_alpha: bool,
     ) -> Result<Sampled> {
         let d = &shared.device;
         let destroy = || {
             // SAFETY: never used.
-            unsafe {
-                d.destroy_image(image, None);
-                d.free_memory(memory, None);
-            }
+            unsafe { d.destroy_image(image, None) };
+            shared.free(memory);
         };
         let view = match view(d, image, format, has_alpha) {
             Ok(v) => v,
@@ -133,13 +133,13 @@ pub const COLOR: vk::ImageSubresourceRange = vk::ImageSubresourceRange {
     layer_count: 1,
 };
 
-/// An image with memory of its own, bound.
+/// An image on the GPU, bound to memory of the sub-allocator.
 pub fn own_image(
     shared: &Shared,
     format: vk::Format,
     size: (u32, u32),
     usage: vk::ImageUsageFlags,
-) -> Result<(vk::Image, vk::DeviceMemory)> {
+) -> Result<(vk::Image, Memory)> {
     own_image_with(shared, format, size, usage, vk::ImageCreateFlags::empty())
 }
 
@@ -151,43 +151,20 @@ pub fn own_image_with(
     size: (u32, u32),
     usage: vk::ImageUsageFlags,
     flags: vk::ImageCreateFlags,
-) -> Result<(vk::Image, vk::DeviceMemory)> {
+) -> Result<(vk::Image, Memory)> {
     let d = &shared.device;
     let info = image_info(format, size, usage)
         .tiling(vk::ImageTiling::OPTIMAL)
         .flags(flags);
-    // SAFETY: the create info lives until the call returns; on failure the
-    // image is destroyed again.
-    unsafe {
-        let image = d.create_image(&info, None).context("image")?;
-        let requirements = d.get_image_memory_requirements(image);
-        let memory = shared
-            .memory_type(
-                requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            )
-            .and_then(|kind| {
-                d.allocate_memory(
-                    &vk::MemoryAllocateInfo::default()
-                        .allocation_size(requirements.size)
-                        .memory_type_index(kind),
-                    None,
-                )
-                .context("image memory")
-            });
-        let memory = match memory {
-            Ok(m) => m,
-            Err(e) => {
-                d.destroy_image(image, None);
-                return Err(e);
-            }
-        };
-        if let Err(e) = d.bind_image_memory(image, memory, 0) {
-            d.destroy_image(image, None);
-            d.free_memory(memory, None);
-            return Err(error(format!("binding an image: {e}")));
+    // SAFETY: the create info lives until the call returns.
+    let image = unsafe { d.create_image(&info, None) }.context("image")?;
+    match shared.bind_image(image, "an image") {
+        Ok(memory) => Ok((image, memory)),
+        Err(e) => {
+            // SAFETY: never used.
+            unsafe { d.destroy_image(image, None) };
+            Err(e)
         }
-        Ok((image, memory))
     }
 }
 

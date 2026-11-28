@@ -11,6 +11,9 @@ license.workspace = true
 # The ash Smithay re-exports (its backend_vulkan): the compositor hands its
 # handles over unchanged. Loading Vulkan is the caller's.
 ash = { version = "0.38", default-features = false, features = ["std"] }
+# Beize's images and buffers share large blocks of GPU memory (wgpu uses it
+# too): making or freeing one is no call into the kernel (`memory`).
+gpu-allocator = { version = "0.28", default-features = false, features = ["std", "vulkan"] }
 tracing = "0.1"
 
 [lints]

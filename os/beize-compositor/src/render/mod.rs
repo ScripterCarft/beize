@@ -341,7 +341,7 @@ impl Drop for VkRenderer {
                 }
                 for b in [f.quads, f.staging].into_iter().flatten() {
                     d.destroy_buffer(b.buffer, None);
-                    d.free_memory(b.memory, None);
+                    self.shared.free(b.memory);
                 }
             }
             d.destroy_command_pool(self.pool, None);

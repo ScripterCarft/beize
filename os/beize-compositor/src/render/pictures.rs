@@ -100,10 +100,8 @@ impl VkRenderer {
             Ok(view) => view,
             Err(e) => {
                 // SAFETY: never used.
-                unsafe {
-                    d.destroy_image(image, None);
-                    d.free_memory(memory, None);
-                }
+                unsafe { d.destroy_image(image, None) };
+                self.shared.free(memory);
                 return Err(e);
             }
         };
