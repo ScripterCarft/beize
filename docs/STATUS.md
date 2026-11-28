@@ -50,20 +50,14 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
 - **A1 GPU-Speicher:** Freigeben nach dem Commit und der Sub-Allokator sind gebaut (oben). Offen
   nur, wenn die Hardware danach noch späte Bilder beim Öffnen zeigt: ein Pool für Bildziele und
   Blur-Ketten nach Größe (niri `OffscreenBuffer`, KWin `OffscreenEffect`). Ohne Beleg nicht bauen.
-- **A2 Struktur.** Erst die Teilung, dann die Umbauten in sauberen Modulen. `render/` ist geteilt
-  (28.11.).
-  - `animation.rs` → `animation/`; `picture.rs` ist die Heimat des Pools.
-  - `state.rs` → `session`, `frame`, `idle`, `focus`, `handlers/` (Vorbild niri).
-  - `windows.rs` → `placement`, `lifecycle`, `states`, `grabs` (anvil).
-  - Shell: `run()` (860 Zeilen, alles lokale Variablen) wird `struct Shell` mit `bar`, `menus`,
-    `dialogs`. Die Menü-Logik wird dann ohne VM testbar.
-  - `beize-ui/app.rs` → `wayland`, `surfaces`, `desktop`.
-  - Aufräumen:
-    - tote `None`-Zweige: `windows.rs:108`, `decorations.rs:68`, `app_menu.rs:70`;
-    - `popup_grab_ended` doppelt zu `active_window`;
-    - die Begrenzung in `rescan` durch `on_screen` ersetzen.
-  - Ein allgemeiner Weg im Compositor: „eine Fläche geht mit ihrem Bild“ statt fünf Funktionen
-    je Art (`state.rs:1693-1915`). Mitteilungen brauchen ihn.
+- **A2 Struktur.** Geteilt (28.11.): Compositor `render/`, `animation/`, `state/`, `windows/`; die
+  Shell hat `struct Shell` mit `turn()` (`shell.rs`, eine Methode je Quelle) statt eines
+  860-Zeilen-`run()`; die Aufräumliste ist erledigt. Offen:
+  - `beize-ui/app.rs` → `wayland`, `surfaces`, `desktop`;
+  - Shell: Leiste und Menü-Bausteine aus `main.rs` in `bar.rs`, `menus.rs`; die Menü-Logik
+    dann ohne VM testbar;
+  - ein allgemeiner Weg im Compositor: „eine Fläche geht mit ihrem Bild“ statt fünf Funktionen
+    je Art (`state/pictures.rs`). Mitteilungen brauchen ihn.
 - **A3 Tests schneller und als Galerie.**
   - Ein Journal-Leser auf dem Host, der einmal folgt, statt ~260 Abfragen, die je 200 ms das
     ganze Journal neu lesen.
