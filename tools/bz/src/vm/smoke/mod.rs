@@ -70,6 +70,7 @@ enum Scenario {
     Desktop,
     DesktopMenus,
     Animations,
+    Gallery,
 }
 
 use Scenario::*;
@@ -81,6 +82,9 @@ use Scenario::*;
 /// release the broken update waits for. Those that start from a copy of
 /// the installation only if it passed, and only those that
 /// [`Scenario::applies`] to the variant.
+/// What runs only when named (`--only`): not a test, a tool.
+const ON_REQUEST: [Scenario; 1] = [Gallery];
+
 const AFTER_INSTALL: [Scenario; 19] = [
     Update,
     InterruptedUpdate,
@@ -151,6 +155,7 @@ impl Scenario {
             DesktopMenus => {
                 "The shell's menus and dialogs open, act and close as on macOS, polkit's too"
             }
+            Gallery => "The gallery: every state of the desktop, light and dark, as pictures",
             Animations => {
                 "Windows open and close as animations that hold up neither keys nor frames"
             }
@@ -161,7 +166,7 @@ impl Scenario {
     fn applies(self, paths: &Paths) -> bool {
         match self {
             WithoutAdditions => paths.variant.extended().is_some(),
-            Desktop | DesktopMenus | Animations => paths
+            Desktop | DesktopMenus | Animations | Gallery => paths
                 .variant
                 .packages()
                 .iter()
@@ -208,6 +213,7 @@ impl Scenario {
             ),
             Desktop => desktop::desktop(paths, smoke.installed()?),
             DesktopMenus => desktop::desktop_menus(paths, smoke.installed()?),
+            Gallery => desktop::gallery(paths, smoke.installed()?),
             Animations => desktop::animations(paths, smoke.installed()?),
             InterruptedUpdate => {
                 updates::interrupted_update(paths, smoke.installed()?, smoke.next_release()?)
@@ -286,9 +292,14 @@ fn chosen(names: &[String]) -> Result<Vec<Scenario>> {
         .map(|wanted| {
             AFTER_INSTALL
                 .into_iter()
+                .chain(ON_REQUEST)
                 .find(|s| name(*s) == *wanted)
                 .with_context(|| {
-                    let all: Vec<String> = AFTER_INSTALL.into_iter().map(name).collect();
+                    let all: Vec<String> = AFTER_INSTALL
+                        .into_iter()
+                        .chain(ON_REQUEST)
+                        .map(name)
+                        .collect();
                     format!("no scenario {wanted:?}; there are: {}", all.join(", "))
                 })
         })
@@ -403,10 +414,14 @@ impl Smoke<'_> {
             eprintln!("{line}");
         }
         if scenario == Install && !self.quick {
-            let next = AFTER_INSTALL.into_iter().filter(|s| {
+            let next = AFTER_INSTALL.into_iter().chain(ON_REQUEST).filter(|s| {
                 s.applies(self.paths)
                     && (passed || !s.needs_installation())
-                    && (self.only.is_empty() || self.only.contains(s))
+                    && if ON_REQUEST.contains(s) {
+                        self.only.contains(s)
+                    } else {
+                        self.only.is_empty() || self.only.contains(s)
+                    }
             });
             state.waiting.extend(next);
         }

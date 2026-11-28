@@ -123,6 +123,8 @@ gut ist ein Start, wenn `beize-boot-health` alle Units aus `running-units.txt` o
 
 ```sh
 ./bz check · ./bz gate · ./bz smoke [--quick] [--only desktop] · ./bz build
+./bz smoke --only gallery                 # jeder Zustand hell/dunkel als PNG in build/gallery/
+#   (Beleg für den Design-Gutachter; nicht im Gate)
 ./bz debug 'journalctl -b -p warning' …    # Root-Shell einer VM; --machine <smoke-…> nimmt die
 #   liegengelassene Maschine eines roten Laufs; '@wait N' '@screendump build/x.png'
 #   '@keys ctrl+alt+t' '@click X Y' · --screen 2560x1440

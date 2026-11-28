@@ -62,9 +62,9 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
     App“.
   - Erledigt 28.11.: der Desktop in zwei Szenarien (`desktop`, `desktop-menus`), `bz gate`
     324 → 229 s. Ein dritter Teil lohnt erst mit dem Journal-Leser (jeder Teil zahlt ~50 s Start).
-  - Neu: ein Teil **Galerie**, der jeden Zustand hell und dunkel als PNG ablegt. Er ersetzt die
-    Handaufnahmen und ist der Beleg des Gutachters für jede Design-Stufe (VISION:
-    Screenshot-Vergleiche).
+  - Erledigt 28.11.: die **Galerie** (`bz smoke --only gallery`, ~2 min): 24 Bilder, 12 Zustände
+    hell und dunkel, in `build/gallery/`; der Beleg des Gutachters für jede Design-Stufe. Mit
+    neuen Zuständen (Mitteilungen, Snap-Vorschau, Beize UI) wächst sie mit.
   - Bauen: `cargo --timings` messen, dann gemeinsames Target je gleiche Features, lld.
 - **A4 Ein Token-Modul** `beize-draw::tokens`: Radien, Abstände, Schrift, Farben, Bewegung an
   einer Stelle, erst mit den heutigen Werten (pixelgleich, Galerie vergleicht). Heute sind sie
