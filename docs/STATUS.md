@@ -60,8 +60,8 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
     ganze Journal neu lesen.
   - Positive Marken statt ~45 fester Pausen, allein 29 in `menus.rs`: „Menü offen“, „Taste an
     App“.
-  - Das Desktop-Szenario in eigenständige Teile auf 2–3 parallelen VMs (mehr verträgt lavapipe
-    auf 4 vCPU nicht).
+  - Erledigt 28.11.: der Desktop in zwei Szenarien (`desktop`, `desktop-menus`), `bz gate`
+    324 → 229 s. Ein dritter Teil lohnt erst mit dem Journal-Leser (jeder Teil zahlt ~50 s Start).
   - Neu: ein Teil **Galerie**, der jeden Zustand hell und dunkel als PNG ablegt. Er ersetzt die
     Handaufnahmen und ist der Beleg des Gutachters für jede Design-Stufe (VISION:
     Screenshot-Vergleiche).

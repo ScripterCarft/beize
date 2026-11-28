@@ -140,7 +140,8 @@ gut ist ein Start, wenn `beize-boot-health` alle Units aus `running-units.txt` o
   Konsolen `build/work/logs/boot/NN-<maschine>.log`, Journal je Start `.journal.json`. Ein roter
   Desktop-Check gibt Warnungen ins Konsolen-Log; die Maschine bleibt liegen.
 - Zeiten: nichts geändert 0,1 s; eine Datei in einer eigenen Crate ~35 s (Cargo-Target bleibt je
-  Rezept); Smoke ~4 min, Desktop-Szenario ~190 s (`time:` je Teil); Bau von null ~10 min.
+  Rezept); Smoke ~3,8 min, `bz gate` ~230 s; der Desktop in zwei Szenarien
+  (`desktop` ~150 s, `desktop-menus` ~120 s, `time:` je Teil); Bau von null ~10 min.
 - **Messbau für den PC des Besitzers:** `ci/measure.sh start 0.5.N` (Zweig von `main` mit
   `hw-test.sh` und `kernel/measure` des letzten) → `hw-test.sh` auf das kürzen, was dieser Bau
   misst, Messzeilen `MEASURE 0.5.N` einbauen → `ci/measure.sh finish` (Tag, Bau, Smoke,

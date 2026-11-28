@@ -424,7 +424,7 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     let qmp = machine.qmp();
 
     sign_in(&shell, &machine, &qmp)?;
-    let terminal = screenshot_and_terminals(paths, &shell, &machine, &qmp)?;
+    screenshot_and_terminals(paths, &shell, &machine, &qmp)?;
     phases.done("boot and sign-in");
     // A client started by the service manager, which knows the socket only
     // from beize-session; its desktop file names its icon.
@@ -734,6 +734,52 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     load(&shell, &machine, &qmp, screen)?;
     phases.done("Beize UI and load");
 
+    layout_follows(&shell)?;
+    phases.done("layout");
+    still_and_signed_out(&shell, &qmp, screen)?;
+    phases.done("still and sign-out");
+    screen_goes_off(&shell, &machine, &qmp)?;
+    phases.done("screen off");
+    journal.passed = true;
+    drop(journal);
+    shell.stop()?;
+    remove_screens(&machine.logs)?;
+    machine.remove()
+}
+
+/// The shell's menus and dialogs, on a desktop of their own beside
+/// `desktop` (they share nothing but the installation): the dock starts a
+/// terminal once none runs, the Beize menu, the control center, context
+/// and app menus, the confirmation and polkit's dialog.
+pub(super) fn desktop_menus(paths: &Paths, installed: &Installed) -> Result<()> {
+    let mut phases = Phases(Instant::now());
+    let mut machine = installed.machine.copy_as(paths, "smoke-desktop-menus")?;
+    machine.test_medium = test_medium(paths)?;
+    // Clicks land on the pixel (`console::click`).
+    machine.tablet = true;
+    machine.memory_mib = DESKTOP_MEMORY_MIB;
+    ensure!(
+        machine.test_medium.is_some(),
+        "no test medium: the test client is missing"
+    );
+    // run0 asks for the owner's password: to unplug the screen before the
+    // login and plug it in after, and to mount the test medium.
+    let shell = Shell::boot(
+        &machine,
+        &Answers::passwords(&[SMOKE_PASSWORD; 3]),
+        &OWNER_CONSOLE_CREDENTIALS,
+        false,
+    )?;
+    let mut journal = JournalOnFailure {
+        shell: &shell,
+        passed: false,
+    };
+    let qmp = machine.qmp();
+    sign_in(&shell, &machine, &qmp)?;
+    let terminal = screenshot_and_terminals(paths, &shell, &machine, &qmp)?;
+    let screen = screen_size(&machine)?;
+    phases.done("boot and sign-in");
+
     // Over the second terminal where it covers only the desktop, its text
     // cursor; the terminals stop under the still pointer: the arrow.
     let ((x, y), (w, h)) = terminal;
@@ -775,12 +821,6 @@ pub(super) fn desktop(paths: &Paths, installed: &Installed) -> Result<()> {
     phases.done("authentication");
     app_menus(&shell, &machine, &qmp, screen)?;
     phases.done("app menus");
-    layout_follows(&shell)?;
-    phases.done("layout");
-    still_and_signed_out(&shell, &qmp, screen)?;
-    phases.done("still and sign-out");
-    screen_goes_off(&shell, &machine, &qmp)?;
-    phases.done("screen off");
     journal.passed = true;
     drop(journal);
     shell.stop()?;
