@@ -50,14 +50,11 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
 - **A1 GPU-Speicher:** Freigeben nach dem Commit und der Sub-Allokator sind gebaut (oben). Offen
   nur, wenn die Hardware danach noch späte Bilder beim Öffnen zeigt: ein Pool für Bildziele und
   Blur-Ketten nach Größe (niri `OffscreenBuffer`, KWin `OffscreenEffect`). Ohne Beleg nicht bauen.
-- **A2 Struktur.** Geteilt (28.11.): Compositor `render/`, `animation/`, `state/`, `windows/`; die
-  Shell hat `struct Shell` mit `turn()` (`shell.rs`, eine Methode je Quelle) statt eines
-  860-Zeilen-`run()`; die Aufräumliste ist erledigt. Offen:
-  - `beize-ui/app.rs` → `wayland`, `surfaces`, `desktop`;
-  - Shell: Leiste und Menü-Bausteine aus `main.rs` in `bar.rs`, `menus.rs`; die Menü-Logik
-    dann ohne VM testbar;
-  - ein allgemeiner Weg im Compositor: „eine Fläche geht mit ihrem Bild“ statt fünf Funktionen
-    je Art (`state/pictures.rs`). Mitteilungen brauchen ihn.
+- **A2 Struktur:** erledigt (28.11.). Compositor `render/`, `animation/`, `state/`, `windows/`;
+  Beize UI `app/`; die Shell `struct Shell` mit `turn()` (eine Methode je Quelle), `bar.rs`,
+  `menus.rs`; die Aufräumliste. Der allgemeine Weg „eine Fläche geht mit ihrem Bild“ kommt mit
+  den Mitteilungen (C1), wenn es die sechste Art gibt – vorher wäre es eine Abstraktion ohne
+  Anlass.
 - **A3 Tests schneller und als Galerie.**
   - Ein Journal-Leser auf dem Host, der einmal folgt, statt ~260 Abfragen, die je 200 ms das
     ganze Journal neu lesen.
