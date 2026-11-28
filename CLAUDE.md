@@ -37,7 +37,9 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
   solange nichts kaputtgeht oder schlechter wird. Jede Änderung mit Begründung und Vorbild,
   geprüft vom Gutachter (`beize-design-auditor`); der Besitzer nimmt das Ergebnis auf Hardware
   ab, sein Urteil gilt. Grenzen bleiben VISION (keine Apple-Icons, kein „macOS-Look“-Set) und
-  die Architekturregeln.
+  die Architekturregeln. **Überwältigen durch ein System, nicht durch Effekte:** wenige Grundwerte
+  und Materialien, konsequent überall, ruhig und hochwertig – die Richtung der Bediensysteme von
+  smart (#1/#3) oder Li Auto (L9), nicht zehn Effekte nebeneinander.
 - **Hardware-Schritte** für den Besitzer nummeriert: wer, wo (WSL/Beize), was er sieht, was ein
   Fehlschlag bedeutet. Aussehen prüft er selbst (Hinweis in der Nachricht), der Hardware-Test
   misst nur.
