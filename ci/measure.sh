@@ -30,10 +30,10 @@ start)
     last=$(git tag -l 'measure/desktop-*' --sort=-v:refname | head -n 1)
     git checkout -q -b "measure/desktop-$version"
     mkdir -p measure
-    git show "$last:measure/hw-test.sh" | sed "s/0\.5\.[0-9]\+/$version/g" > measure/hw-test.sh
+    git show "refs/tags/$last:measure/hw-test.sh" | sed "s/0\.5\.[0-9]\+/$version/g" > measure/hw-test.sh
     chmod +x measure/hw-test.sh
-    if git cat-file -e "$last:kernel/measure" 2>/dev/null; then
-        git checkout "$last" -- kernel/measure
+    if git cat-file -e "refs/tags/$last:kernel/measure" 2>/dev/null; then
+        git checkout "refs/tags/$last" -- kernel/measure
         # One main took since (kernel/patches) would be applied twice.
         for patch in kernel/measure/*.patch; do
             if cmp -s "$patch" "kernel/patches/$(basename "$patch")"; then
