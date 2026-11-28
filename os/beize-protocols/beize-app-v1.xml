@@ -37,8 +37,9 @@
 
     <request name="get_glass">
       <description summary="glass below a surface">
-        Glass below part of a panel's surface or of a popup: base glass, the
-        background blurred once, until set otherwise (ADR 0028 §6). Its shapes
+        Beize glass below part of a panel's surface or of a popup: what lies
+        behind it, windows too, blurred and tinted, thin until set otherwise
+        (ADR 0033 §6). Its shapes
         are double-buffered state of the surface: they apply with the
         surface's next commit. One per surface; it may lie in several places
         (add_shape), as the control center's tiles. A toplevel gets none.
@@ -72,20 +73,18 @@
       <arg name="rim" type="uint"/>
     </request>
 
-    <enum name="material">
-      <entry name="base" value="0" summary="the background, blurred once: costs next to nothing"/>
-      <entry name="live" value="1" summary="what lies behind it, windows too, blurred when it changes"/>
-      <entry name="menu" value="2" summary="live glass tinted thickly, as macOS' menus: calm, what lies behind barely shows"/>
-      <entry name="clear" value="3" summary="liquid glass, its tone held so white ink reads on it: the control center's"/>
-      <entry name="liquid" value="4" summary="liquid glass without ink on it: the dock's"/>
+    <enum name="density">
+      <entry name="thin" value="0" summary="what lies behind shows clearly: the menu bar's"/>
+      <entry name="medium" value="1" summary="between the two: the dock's"/>
+      <entry name="dense" value="2" summary="calm, ink reads on it over anything: menus, dialogs, the control center"/>
     </enum>
 
-    <request name="set_material">
-      <description summary="base, live, menu, clear or liquid glass">
-        Base glass until set otherwise (ADR 0028 §6). Double-buffered as
-        the shape.
+    <request name="set_density">
+      <description summary="how much of what lies behind shows">
+        One glass, three densities of its tint (ADR 0033 §6); thin until
+        set. Double-buffered as the shape.
       </description>
-      <arg name="material" type="uint" enum="material"/>
+      <arg name="density" type="uint" enum="density"/>
     </request>
 
     <request name="destroy" type="destructor"/>
@@ -93,7 +92,7 @@
     <request name="add_shape">
       <description summary="more glass">
         Glass in one more place, as set_shape describes, besides those set
-        before (set_shape starts again with one). Of the same material, and
+        before (set_shape starts again with one). Of the same density, and
         each with a shadow if the glass has one.
       </description>
       <arg name="x" type="int"/>
@@ -111,20 +110,6 @@
         set. Double-buffered as the shape.
       </description>
       <arg name="shadow" type="uint"/>
-    </request>
-
-    <request name="set_smoke">
-      <description summary="what lies around the glass, blurred">
-        Whether what lies behind the glass's shapes and around them is
-        blurred too, beyond the surface: from each shape's edge outwards,
-        less and less over falloff px, by strength px (the Gaussian's
-        standard deviation) at most – a smoke that keeps what lies behind
-        from showing sharp between the shapes. It lies behind the panel
-        too, and takes no input. A falloff or strength of 0: none, as until
-        set. Double-buffered as the shape.
-      </description>
-      <arg name="falloff" type="fixed"/>
-      <arg name="strength" type="fixed"/>
     </request>
   </interface>
 

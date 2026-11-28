@@ -587,17 +587,7 @@ pub(super) fn menus(
     wait_for_shell_count(shell, "ControlCenter open", 1)?;
     // The light/dark tile: the second row's first, below the bar and a gap
     // (os/beize-shell/src/control_center.rs).
-    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
-    let tile = (
-        i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
-        i32::try_from(
-            MENU_BAR
-                + CONTROL_CENTER_GAP
-                + CONTROL_CENTER_TILE
-                + CONTROL_CENTER_GAP
-                + CONTROL_CENTER_TILE / 2,
-        )?,
-    );
+    let tile = appearance_tile(screen)?;
     thread::sleep(Duration::from_millis(500));
     self::screen(machine, "control-center")?
         .write_png(&machine.logs.join("control-center-light.png"))?;
@@ -696,8 +686,7 @@ pub(super) fn menus(
         "  ok: the control center, opened while the Escape that closed the Beize menu was held, \
          stayed when it was let go"
     );
-    liquid_glass(shell, machine, qmp, screen, centre)?;
-    control_center_smoke(shell, machine, qmp, screen, centre)
+    control_center_glass(shell, machine, qmp, screen, centre)
 }
 
 /// How far the drag with the Beize menu open moves the terminal: clear of

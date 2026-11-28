@@ -1,6 +1,6 @@
 //! A menu (ADR 0028 §3): a list of commands with separators, drawn on menu
 //! glass – live, tinted thickly, with a shadow, which the compositor draws
-//! (`Material::Menu`) – in a popup (`App::popup`), as macOS' menus: the
+//! (`Density::Dense`) – in a popup (`App::popup`), as macOS' menus: the
 //! Beize menu, the app menus, context and dock menus.
 //!
 //! Its measures are macOS 26's, measured in the menus of Apple's Human
@@ -24,7 +24,7 @@ use beize_draw::measures::SCALE;
 use beize_draw::{Color, Family, Rect, Scene, Style, Text};
 
 use crate::Appearance;
-use crate::desktop::{Glass, GlassShape, Material};
+use crate::desktop::{Density, Glass, GlassShape};
 use crate::input::{Button, Input, Key, KeyState, Keysym, Pointer};
 use crate::theme::{self, ACCENT, ON_ACCENT, TEXT_SIZE};
 
@@ -337,9 +337,8 @@ impl Menu {
                 radius: RADIUS,
                 rim: true,
             }],
-            material: Material::Menu,
+            density: Density::Dense,
             shadow: true,
-            smoke: None,
         }
     }
 

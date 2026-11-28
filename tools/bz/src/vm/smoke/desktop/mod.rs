@@ -131,24 +131,28 @@ const _: () = assert!(APP_NAME_WIDTH >= POINTER_SIZE);
 /// The dock (os/beize-shell, `dock`): this high, this far above the bottom
 /// of the screen, its tiles this wide with this gap and padding; windows
 /// stay above it, so the window area ends `DOCK_ZONE` above the bottom.
-const DOCK_HEIGHT: usize = 90;
+const DOCK_HEIGHT: usize = 84;
 const DOCK_MARGIN: usize = 6;
 const DOCK_TILE: usize = 70;
 const DOCK_GAP: usize = 0;
-const DOCK_PADDING: usize = 10;
+const DOCK_PADDING: usize = 7;
 const DOCK_ZONE: usize = DOCK_HEIGHT + DOCK_MARGIN;
+/// How far the dock's shadow reaches above it: three sigmas less its offset
+/// (ADR 0033 §7, floating: 8 / 24).
+const DOCK_SHADOW_ABOVE: usize = 3 * 24 - 8;
 /// The menu bar has no background (ADR 0028 §3), the dock lies on glass
 /// (§6): what shows there is the background, the scrim over it, blurred
 /// glass – no colour to compare with, but soft: no pixel further than this
 /// from its neighbour in a channel (a gradient's slope, grain, dithering).
 const GLASS_SMOOTH: u8 = 6;
-/// Liquid glass's edge at its sides (`quad.frag`, `SIDE`): its outermost
-/// pixel lies below the screen RIM_OUT px outside and the glass RIM_IN px
-/// inside by at least RIM_BELOW (the mean of the channels; ~13 over the
-/// light background, as Apple's dock's dark edge).
+/// The dock's glass at its sides (ADR 0033 §6): RIM_IN px inside, past its
+/// rim, it differs from the screen RIM_OUT px outside by at least
+/// GLASS_STEP (the mean of the channels; medium glass over the light
+/// background some 20) – the background's slope over those 7 px stays far
+/// below it.
 const RIM_OUT: usize = 3;
 const RIM_IN: usize = 4;
-const RIM_BELOW: f64 = 4.0;
+const GLASS_STEP: f64 = 8.0;
 /// Without a background, the mean of a row changes by less than this
 /// across the bar's lower edge (the scrim's slope; glass there stepped by
 /// some 20).
@@ -952,13 +956,10 @@ mod tests {
         for y in y0..y0 + DOCK_HEIGHT {
             for x in x0..x0 + width {
                 let corner = round && (x - x0).min(x0 + width - 1 - x) < 3 && y - y0 < 3;
-                // The dark edge at the sides, the line of light at the top.
-                let side = (x - x0).min(x0 + width - 1 - x) == 0;
+                // The rim of light at the top.
                 let rim = y - y0 == 1;
                 let c = if corner {
                     BACKGROUND
-                } else if side {
-                    [0x50, 0x58, 0x70]
                 } else if rim {
                     [0xe8, 0xf0, 0xff]
                 } else {

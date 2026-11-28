@@ -63,7 +63,7 @@ impl BarLook {
 }
 
 /// The bar's glass (`BarLook::Glass`): all of it, square, without a rim –
-/// it runs along the screen's edge –, base glass: no window lies behind it.
+/// it runs along the screen's edge –, thin.
 pub(super) fn bar_glass((w, h): (u32, u32)) -> Glass {
     let all = Rect {
         x: 0.0,
@@ -71,7 +71,7 @@ pub(super) fn bar_glass((w, h): (u32, u32)) -> Glass {
         w: w as f32,
         h: h as f32,
     };
-    Glass::one(all, 0.0, false, Material::Base)
+    Glass::one(all, 0.0, false, Density::Thin)
 }
 
 /// What the bar shows.

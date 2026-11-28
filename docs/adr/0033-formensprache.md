@@ -78,12 +78,17 @@ nie nach dem Wert.
 | Token | Hell | Dunkel | Rolle |
 | --- | --- | --- | --- |
 | Tinte | #1d1d1d | #f2f2f2 | Text, Symbole |
-| Tinte 2 | Tinte 65 % | Tinte 60 % | Nebentext, Kürzel, Unterzeilen |
+| Tinte 2 | #5e5e5e | #a3a3a3 | Nebentext, Kürzel, Unterzeilen |
 | Tinte 3 | Tinte 30 % | Tinte 35 % | gesperrt |
-| Fläche | Schwarz 7 % | Weiß 9 % | neutrale Kachel, Knopf, Feld auf Glas |
+| Fläche | Schwarz 7 % | Weiß 8 % | neutrale Kachel, Knopf, Feld auf Glas |
 | Fläche gewählt | Schwarz 12 % | Weiß 16 % | offener Knopf der Leiste, gewählte Kachel |
 | Akzent | #0064d2 | #0064d2 | Auswahl, Hauptaktion; Weiß darauf 5,6 : 1 |
-| Gefahr | #c4001a | #ff6961 | Fehlertext, zerstörende Aktion; ≥ 4,5 : 1 auf dichtem Glas |
+| Gefahr | #c4001a | #ffb3ae | Fehlertext, zerstörende Aktion; ≥ 4,5 : 1 auf dichtem Glas |
+
+Tinte 2 ist eine eigene Farbe, keine verblasste Tinte: In linearem Licht gemischt, wie der
+Compositor mischt, hält Tinte zu 65 % über hellem Glas über Schwarz nur 2,5 : 1; ebenso
+setzt der Test (§9) das dunkle Fehlerrot und die dunkle Fläche fest (gerechnet 28.11.:
+#ff6961 hielt 2,8 : 1, Weiß 9 % unter Tinte 4,4 : 1).
 | Linie | Schwarz 8 % | Weiß 10 % | Trennlinie in Menüs und Flächen |
 
 Der Akzent ist Beizes eigener, ein tieferes, ruhigeres Blau als Apples #007aff (Weiß darauf
@@ -102,9 +107,9 @@ Ein Rezept, das des Menü-Glases von heute: Dual Kawase über das, was dahinter 
 
 | Dichte | Tönung | Wo |
 | --- | --- | --- |
-| dicht | hell 80 %, dunkel 80–90 % (der Test unten legt es fest) | Menüs, Kontextmenüs, Dialoge, Alt+Tab, Kontrollzentrum, Mitteilungen |
+| dicht | hell 80 %, dunkel 94 % (der Test unten legt es fest) | Menüs, Kontextmenüs, Dialoge, Alt+Tab, Kontrollzentrum, Mitteilungen |
 | mittel | 60 % (auf Hardware zwischen 50/60/70 % gewählt) | Dock |
-| dünn | 30 % | Menüleiste mit Hintergrund, Einrast-Vorschau, Grundglas |
+| dünn | 30 % | Menüleiste mit Hintergrund und über Vollbild |
 
 Das **Kontrollzentrum** wird *eine* dichte Glasfläche (Radius 28, Abstand 12) mit Kacheln aus
 „Fläche“ darauf, statt einzeln schwebender Kacheln aus klarem Glas mit Rauch dazwischen. Seine
@@ -144,11 +149,16 @@ statt mit heute sechs Materialien.
 Ein Unit-Test in `tokens` rechnet jedes Paar aus Tinte und Untergrund in linearem Licht, wie der
 Compositor mischt, und zwar über dem schwersten Fall jedes Erscheinungsbilds: helles Glas über
 Schwarz (ein Terminal dahinter), dunkles Glas über Weiß (ein helles Fenster dahinter). Tinte,
-Gefahr und Weiß auf Akzent müssen dort WCAG AA halten (4,5 : 1), Tinte 2 dort 3 : 1 und über dem
-eigenen Hintergrundbild AA; gesperrte Einträge sind ausgenommen. Ein neuer Wert, der das bricht,
+Gefahr und Weiß auf Akzent müssen dort WCAG AA halten (4,5 : 1), auf „Fläche“ ebenso, auf
+„Fläche gewählt“ 3 : 1 (Beschriftung von Bedienelementen, WCAG 1.4.11; in jedem anderen Fall weit
+mehr), Tinte 2 dort 3 : 1 und über Glas über dem eigenen Hintergrundbild AA; gesperrte Einträge
+sind ausgenommen. Ein neuer Wert, der das bricht,
 kommt nicht durch `bz check`. Gerechnet am 28.11.: Das dunkle Menü-Glas von heute (80 %) hält
 über einem weißen Fenster weiße Schrift nur mit etwa 3,5 : 1 – das Dunkle braucht mehr Dichte als
-das Helle, wie Apples dunkle Menüs deckender sind.
+das Helle, wie Apples dunkle Menüs deckender sind; mit „Fläche“ darauf hält erst 94 %.
+Dünnes und mittleres Glas tragen keinen Text, außer der Menüleiste über Vollbild: Dort hält
+helle Schrift auf dunklem dünnem Glas über einem weißen Vollbild nur ~1,3 : 1 (vor ADR 0033
+ebenso, Grundglas 45 %); das gehört zu Stufe 3 (Menüleiste).
 
 ## Umsetzung
 

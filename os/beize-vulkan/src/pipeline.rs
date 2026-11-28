@@ -49,8 +49,7 @@ pub struct Quad {
     pub sigma: f32,
     /// A `GRADIENT`'s premultiplied colour at the bottom of `clip`; a
     /// `SHADOW`'s shape that hides it (x, y, width, height, with `radius`);
-    /// for `GLASS`, `[0]` how far it has faded out (0 whole), for `CLEAR`
-    /// glass a pixel's step, ink and appearance.
+    /// for `GLASS`, `[0]` how far it has faded out (0 whole).
     pub bottom: [f32; 4],
 }
 
@@ -69,7 +68,7 @@ pub const SHADOW: u32 = 8;
 /// its bottom (ADR 0028 §8, the apps' symbols), interpolated as CSS does
 /// by default: premultiplied, in sRGB as encoded.
 pub const GRADIENT: u32 = 16;
-/// Base glass (ADR 0028 §6): the texture is the backdrop's blurred copy,
+/// Glass (ADR 0033 §6): the texture is the blurred copy of what lies behind,
 /// with grain of strength `sigma` (the noise's reach, as encoded: 1/255 is
 /// one 8-bit step) and a rim of light in `color` (premultiplied; alpha 0:
 /// none) along the rounded rectangle `clip`, whose corners of `radius` cut
@@ -102,19 +101,6 @@ pub const ROUND: u32 = 4096;
 /// A triangle in `color`, as `STROKE`: its corners `bottom[0..2]`,
 /// `bottom[2..4]` and `texel`.
 pub const TRIANGLE: u32 = 8192;
-/// A pass of a Gaussian blur from the texture (`backdrop`), across or down,
-/// on the colours as encoded: by `sigma` – or, with `bottom[3]` 1, per
-/// pixel by the mask in slot `bottom[2]` (its red, the smoke's) up to
-/// `sigma`. With `bottom[0]` 2 it halves its source in both directions as
-/// it reads it, `sigma` in the target's texels.
-pub const GAUSS_ACROSS: u32 = 16384;
-pub const GAUSS_DOWN: u32 = 32768;
-/// With `GLASS`: liquid glass (ADR 0028 §6; the control center's tiles, the
-/// dock) instead of grain and the plain rim – its curved edge, tone, line
-/// of light. `bottom[0..2]` the glass texture's step per pixel
-/// (normalised), `bottom[2]` 1 with white ink on it, `bottom[3]` 1 in the
-/// dark appearance.
-pub const CLEAR: u32 = 65536;
 /// With `GLASS`: the rim is one line of 1 px, the same all round.
 pub const FLAT_RIM: u32 = 131072;
 /// With `SOLID`: only a line `bottom[0]` px wide along the shape's edge.

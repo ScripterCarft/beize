@@ -21,10 +21,10 @@ mod window;
 pub use app::{Align, App, Dispatched, Edge, Events, Overlay, Panel, Popup, Watch, WindowId};
 pub use beize_draw::{
     AppIcon, Appearance, Cells, Color, Family, Motion, Rect, Scene, Spring, Style, Text, draw,
-    icon, measures, text,
+    icon, measures, text, tokens,
 };
 pub use desktop::{
-    DesktopPlace, DesktopWindow, DesktopWindowId, Glass, GlassShape, Material, Smoke, SwitcherNews,
+    Density, DesktopPlace, DesktopWindow, DesktopWindowId, Glass, GlassShape, SwitcherNews,
 };
 pub use input::{Input, Key, KeyState, Keysym, Modifiers};
 pub use offscreen::Offscreen;

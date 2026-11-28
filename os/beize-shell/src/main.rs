@@ -48,7 +48,7 @@ use beize_ui::draw::Cap;
 use beize_ui::input::{Button, KeyState, Pointer};
 use beize_ui::menu::{Entry, Menu, Outcome};
 use beize_ui::{
-    Align, App, Appearance, Color, DesktopPlace, Edge, Family, Glass, Input, Material, Overlay,
+    Align, App, Appearance, Color, Density, DesktopPlace, Edge, Family, Glass, Input, Overlay,
     Panel, Popup, Rect, Scene, Style, Text, Watch, WindowId, measures,
 };
 use tracing::{info, warn};

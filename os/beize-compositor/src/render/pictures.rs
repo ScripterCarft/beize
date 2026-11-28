@@ -59,12 +59,6 @@ impl VkRenderer {
         Ok(texture)
     }
 
-    /// An 8-bit texture of `size` holding `values`, a byte a texel, rows
-    /// tightly packed: a smoke's mask (`backdrop`).
-    pub fn mask_texture(&mut self, values: &[u8], size: Size<i32, Buffer>) -> Result<VkTexture> {
-        self.memory_texture(values, size.w.max(0) as usize, Fourcc::R8, size)
-    }
-
     /// Beize's background for a screen of `size`, in `appearance` (0
     /// light, 1 dark): computed by the backdrop's shader (ADR 0028 §6), no
     /// image file. Drawn with the next submission, ahead of its frame.

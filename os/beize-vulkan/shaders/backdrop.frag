@@ -2,9 +2,7 @@
 // The backdrop's passes (ADR 0028 §6), drawn once per change, not per frame:
 // Beize's background, computed, and its blur for the base glass – Dual
 // Kawase (Marius Bjørge, ARM, SIGGRAPH 2015; as KWin blurs), its last pass
-// lifting and tinting the colours; and the Gaussian passes of clear glass
-// and of the smoke around it, the smoke's with a sigma per pixel (as games
-// blur by depth). A shader of its own, so the one that
+// lifting and tinting the colours. A shader of its own, so the one that
 // draws every frame (quad.frag) stays small. Out through an sRGB view: in
 // linear light, encoded on the way out.
 
@@ -121,103 +119,7 @@ vec3 tap(vec2 at) {
     return decoded3(textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), at, 0.0).rgb);
 }
 
-// The smoke's blur at its mask's `t` (src/backdrop.rs in the compositor),
-// up to `strength`: from t's place among six steps – 0, 0.075, 0.15, 0.3,
-// 0.6 and 1 of it, as approved on mock-ups (29.10.) –, between them
-// linear. A sum, not a table: NVK has misread a table indexed per pixel
-// (quad.frag, EXTENT).
-float smoke_sigma(float t, float strength) {
-    float at = clamp(t, 0.0, 1.0) * 5.0;
-    return strength * (0.075 * clamp(at, 0.0, 1.0) + 0.075 * clamp(at - 1.0, 0.0, 1.0)
-        + 0.15 * clamp(at - 2.0, 0.0, 1.0) + 0.3 * clamp(at - 3.0, 0.0, 1.0)
-        + 0.4 * clamp(at - 4.0, 0.0, 1.0));
-}
-
-// Below this a Gaussian keeps a pixel as it is (its neighbours' weight
-// under 1/2^24); beyond 3 sigmas it adds less than an 8-bit step.
-const float SIGMA_LEAST = 0.17;
-const int REACH_MOST = 24;
-
-// A texel of the source as stored: encoded. Halving (`halving`), the mean of
-// the source's two by two texels below the target's texel `p`: one
-// bilinear read at their shared corner.
-vec3 fetch(ivec2 p, ivec2 last, bool halving) {
-    if (halving) {
-        vec2 size = vec2(last + 1);
-        vec2 at = clamp(vec2(p) * 2.0 + 1.0, vec2(1.0), size - 1.0);
-        return textureLod(sampler2D(textures[nonuniformEXT(texture)], linear), at / size, 0.0).rgb;
-    }
-    return texelFetch(sampler2D(textures[nonuniformEXT(texture)], linear),
-                      clamp(p, ivec2(0), last), 0).rgb;
-}
-
-// One pass of a Gaussian blur, across or down (`step`), on the colours as
-// encoded – as the approved mock-ups blurred, and the passes need no
-// conversion per tap. Its weights normalised over the taps taken, each from
-// the one before (GPU Gems 3, ch. 40), no exp per tap. Two neighbours read
-// at once where the filter can: their weighted mean is one bilinear read
-// between them (Rong Guodong), exact as the filter mixes the colours as
-// encoded too. With `bottom.x` 2 the pass also halves its source in both
-// directions (liquid glass: a wide blur at a quarter of the pixels and half
-// the taps), its reads taken singly: a bilinear read covers two by two
-// texels only; its sigma is then in the target's texels.
-vec3 gauss(ivec2 step) {
-    ivec2 p = ivec2(gl_FragCoord.xy);
-    ivec2 last = textureSize(sampler2D(textures[nonuniformEXT(texture)], linear), 0) - 1;
-    bool halving = bottom.x > 1.5;
-    float sigma = rounding.y;
-    if (bottom.w > 0.0) {
-        float t = textureLod(sampler2D(textures[nonuniformEXT(uint(bottom.z))], linear),
-                             gl_FragCoord.xy * texel, 0.0).r;
-        sigma = smoke_sigma(t, sigma);
-    }
-    vec3 c = fetch(p, last, halving);
-    if (sigma < SIGMA_LEAST) {
-        return c;
-    }
-    int reach = min(int(ceil(3.0 * sigma)), REACH_MOST);
-    // exp(k i²): the weight of tap i, what takes it to the next, and what
-    // takes that one on.
-    float a = exp(-0.5 / (sigma * sigma));
-    float w = a;
-    float r = a * a * a;
-    float b = a * a;
-    float total = 1.0;
-    if (halving) {
-        for (int i = 1; i <= reach; i++) {
-            c += w * (fetch(p + i * step, last, true) + fetch(p - i * step, last, true));
-            total += 2.0 * w;
-            w *= r;
-            r *= b;
-        }
-        return c / total;
-    }
-    vec2 size = vec2(last + 1);
-    vec2 centre = vec2(p) + 0.5;
-    for (int i = 1; i <= reach; i += 2) {
-        float next = i < reach ? w * r : 0.0;
-        float both = w + next;
-        vec2 by = vec2(step) * (float(i) + next / both);
-        c += both * (textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
-                                (centre + by) / size, 0.0).rgb
-            + textureLod(sampler2D(textures[nonuniformEXT(texture)], linear),
-                         (centre - by) / size, 0.0).rgb);
-        total += 2.0 * both;
-        w *= r;
-        r *= b;
-        w *= r;
-        r *= b;
-    }
-    return c / total;
-}
-
 void main() {
-    if ((flags & (GAUSS_ACROSS | GAUSS_DOWN)) != 0u) {
-        vec3 c = gauss((flags & GAUSS_ACROSS) != 0u ? ivec2(1, 0) : ivec2(0, 1));
-        // Stored through the sRGB view: decoded here, so it holds `c`.
-        result = vec4(decoded3(c), 1.0);
-        return;
-    }
     if ((flags & WALLPAPER) != 0u) {
         vec3 c = wallpaper(gl_FragCoord.xy, clip.zw, texture);
         // Dithered against banding in the soft gradient: half an 8-bit

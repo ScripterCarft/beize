@@ -15,6 +15,7 @@ pub mod measures;
 pub mod spring;
 pub mod text;
 pub mod titlebar;
+pub mod tokens;
 
 pub use draw::{Atlases, Cap, Color, Rect, Scene};
 pub use glyphs::Glyphs;

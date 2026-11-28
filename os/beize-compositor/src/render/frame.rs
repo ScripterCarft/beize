@@ -25,14 +25,12 @@ use super::geometry::{self, Mapping, Mesh, Quad, Space};
 use super::sync;
 use super::target::{Target, VkFramebuffer};
 use super::texture::VkTexture;
-use super::{Blur, Liquid, Pass, Upload, VkRenderer};
+use super::{Material, Pass, Upload, VkRenderer};
 use crate::error::{Context, Error, Result, error};
 use beize_vulkan::barrier::{
     COLOR_WRITE, NONE, SAME, SHADER_READ, TRANSFER_READ, TRANSFER_WRITE, barrier, barriers,
 };
-use beize_vulkan::pipeline::{
-    Attachment, CLEAR, GLASS, Pipelines, SHADOW, STRIP, Strips, corner_extent,
-};
+use beize_vulkan::pipeline::{Attachment, GLASS, Pipelines, SHADOW, STRIP, Strips, corner_extent};
 
 /// Round corners for what a frame draws (`VkFrame::set_rounding`), in the
 /// framebuffer: the rectangle, the radius, the corners' squares.
@@ -272,12 +270,11 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         }
     }
 
-    /// Glass (ADR 0028 §6) in the rounded rectangle `shape` (the output's
+    /// Glass (ADR 0033 §6) in the rounded rectangle `shape` (the output's
     /// space) with corners of `radius`: `glass` – a blurred copy of what
     /// lies in `covers`, smaller – read where it lies, with `grain` and a
-    /// `rim` of light (premultiplied; alpha 0: none; `flat_rim`: one line of it,
-    /// the same all round); or, `liquid`, as
-    /// liquid glass – its curved edge, tone and line of light. In `dst`, cut to its
+    /// `rim` of light (premultiplied; alpha 0: none; `flat_rim`: one line of
+    /// it, the same all round). In `dst`, cut to its
     /// `damage`; opaque but at the corners, and but while it fades
     /// (`opacity`).
     #[allow(clippy::too_many_arguments)]
@@ -292,7 +289,6 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         grain: f32,
         rim: [f32; 4],
         flat_rim: bool,
-        liquid: Option<Liquid>,
         opacity: f32,
     ) {
         let size = glass.0.size;
@@ -340,22 +336,8 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             quad.radius = radius;
             quad.sigma = grain;
             let fading = opacity < 1.0;
-            if fading && liquid.is_none() {
+            if fading {
                 quad.bottom[0] = 1.0 - opacity.clamp(0.0, 1.0);
-            }
-            if let Some(liquid) = liquid {
-                // A pixel of the screen in the glass's normalised
-                // coordinates: the refraction's and the tone's step.
-                quad.flags |= CLEAR;
-                quad.bottom = [
-                    1.0 / covers.size.w as f32,
-                    1.0 / covers.size.h as f32,
-                    if liquid.ink { 1.0 } else { 0.0 },
-                    if liquid.dark { 1.0 } else { 0.0 },
-                ];
-                // How far it has faded out (the control center coming and
-                // going), where liquid glass has no grain.
-                quad.sigma = 1.0 - opacity.clamp(0.0, 1.0);
             }
             // Opaque but where its corners let what is below show.
             let blend = fading || corners.iter().any(|c| overlaps(&quad, c));
@@ -408,7 +390,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
         self.uses(texture);
     }
 
-    /// Live glass (ADR 0028 §6): blurs what this frame has drawn so far in
+    /// Live glass (ADR 0033 §6): blurs what this frame has drawn so far in
     /// `region` (the output's space) – what lies behind the glass, the frame
     /// drawing back to front – through `chain`, prepared for its size
     /// (`VkRenderer::prepare_glass`), in this frame's submission. `copy`
@@ -417,7 +399,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
     pub fn blur_behind(
         &mut self,
         region: Rectangle<i32, Physical>,
-        blur: &Blur,
+        material: &Material,
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture> {
@@ -435,7 +417,7 @@ impl<'frame, 'buffer> VkFrame<'frame, 'buffer> {
             *copy = Some(self.renderer.copy_texture_for(target, size)?);
         }
         let copy = copy.clone().context("live glass's copy")?;
-        let passes = super::glass::glass_passes(&copy, blur, chain)?;
+        let passes = super::glass::glass_passes(&copy, material, chain)?;
         let glass = passes
             .last()
             .map(|p| p.texture.clone())

@@ -40,7 +40,8 @@ pub(super) fn content(((x, y), (w, h)): Window) -> Window {
 }
 
 /// Waits until the test client's window `at` shows exactly its pattern in
-/// `size`; if it does not, the screen and the difference are in the logs.
+/// `size` – above the dock's shadow, which falls on what lies near it as on
+/// macOS; if it does not, the screen and the difference are in the logs.
 pub(super) fn wait_for_pattern(
     shell: &Shell,
     machine: &Machine,
@@ -50,8 +51,9 @@ pub(super) fn wait_for_pattern(
 ) -> Result<()> {
     let difference = machine.logs.join(format!("{name}-difference.ppm"));
     let looked = poll_screen(machine, name, |screen| {
+        let clear = (screen.height - DOCK_ZONE - DOCK_SHADOW_ABOVE).saturating_sub(at.1);
         compare(
-            &screen.crop(at, size)?,
+            &screen.crop(at, (size.0, size.1.min(clear)))?,
             |x, y| expected(x, y, size.0, size.1),
             "the client's pattern",
             &difference,
@@ -123,8 +125,8 @@ pub(super) fn wait_for_screen(
 }
 
 /// Waits until `window` on the screen shows exactly `wanted` (named `what`
-/// in errors); if it does not, the last window is `<name>-screen.png` in
-/// the logs.
+/// in errors) above the dock's shadow (`wait_for_pattern`); if it does not,
+/// the last window is `<name>-screen.png` in the logs.
 pub(super) fn wait_for_image(
     machine: &Machine,
     (at, size): Window,
@@ -144,7 +146,11 @@ pub(super) fn wait_for_image(
                 r.width,
                 r.height
             )),
-            Some(r) => compare(&window, |x, y| r.pixel(x, y), what, &difference),
+            Some(r) => {
+                let clear = (screen.height - DOCK_ZONE - DOCK_SHADOW_ABOVE).saturating_sub(at.1);
+                let above = window.crop((0, 0), (window.width, window.height.min(clear)))?;
+                compare(&above, |x, y| r.pixel(x, y), what, &difference)
+            }
         }
     });
     let Err((screen, e)) = looked? else {
@@ -307,19 +313,22 @@ pub(super) fn dock(screen: &Image) -> Result<usize> {
                 .sum::<u32>(),
         ) / 3.0
     };
-    // The edge's pixel at `x` dark, the outside lying `outward` of it.
+    // The glass's edge at `x`, the outside lying `outward` of it: lighter or
+    // darker inside than out.
     let edge = |x: usize, outward: bool| {
         let (out, inside) = if outward {
             (x + RIM_OUT, x - RIM_IN)
         } else {
             (x - RIM_OUT, x + RIM_IN)
         };
-        mean(x) + RIM_BELOW <= mean(out).min(mean(inside))
+        (mean(inside) - mean(out)).abs() >= GLASS_STEP
     };
-    // Rightwards from the screen's left edge to the first such pair.
+    // Rightwards from the screen's left edge to the first such pair: its
+    // inside pixel is the glass's first.
     let left = (RIM_OUT..centre - RIM_IN)
         .find(|&x| edge(x, false) && edge(2 * centre - 1 - x, true))
-        .ok_or_else(|| anyhow::anyhow!("no dock along the bottom of the screen"))?;
+        .ok_or_else(|| anyhow::anyhow!("no dock along the bottom of the screen"))?
+        + RIM_IN;
     let width = 2 * (centre - left);
     let step = (DOCK_TILE + DOCK_GAP) as f64;
     let tiles = (((width + DOCK_GAP) as f64 - (2 * DOCK_PADDING) as f64) / step).round();

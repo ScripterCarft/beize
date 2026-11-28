@@ -1,5 +1,5 @@
-//! Glass: the dock's live and liquid glass, the control center's clear glass
-//! and smoke.
+//! Glass: the dock's live glass, the control center's dense glass (ADR 0033
+//! §6).
 
 use super::*;
 
@@ -12,13 +12,14 @@ pub(super) fn dock_glass(
     moved: (usize, usize),
     grown: (usize, usize),
 ) -> Result<()> {
-    // The dock's glass is live (ADR 0028 §6): dragged behind it, the window
-    // shows through, blurred – base glass would stay as it was. Then back.
-    // Left of the middle, over the window's blue quarter: in the middle its
-    // blue and white blur into about what the background was there; between
-    // the dots of the dock's two apps.
+    // The dock's glass is live (ADR 0033 §6): dragged behind it, the window
+    // shows through, blurred. Then back.
+    // Left of the middle, over the window's blue quarter, below the first
+    // app's icon: nearer the middle its blue and white blur, through the
+    // glass's tint, into about what the background was there (20 px off it
+    // the two differed by 3 in red); clear of the dock's round corner.
     let glass_at = (
-        screen.0 / 2 - 20,
+        screen.0 / 2 - 60,
         screen.1 - DOCK_ZONE + DOCK_PADDING + DOCK_TILE + 1,
     );
     let file = machine.logs.join("dock-glass-screen.ppm");
@@ -43,12 +44,12 @@ pub(super) fn dock_glass(
         .write_png(&machine.logs.join("dock-over-window.png"))?;
     // For comparing glass before and after a change to its rendering: the
     // window's hard edge beside the dock, within and past the blur's reach
-    // (30 px, ADR 0028 §6). The dock of two apps ends 80 px from the middle.
+    // (ADR 0033 §6). The dock of two apps ends 77 px from the middle.
     let mut there = by(grip, behind);
     for (name, past) in [("dock-edge-20", 20), ("dock-edge-36", 36)] {
         // Its left edge lay half its width left of the middle.
         let next = (
-            by(grip, behind).0 + i32::try_from(80 + past + grown.0 / 2)?,
+            by(grip, behind).0 + i32::try_from(77 + past + grown.0 / 2)?,
             there.1,
         );
         drag(qmp, screen, there, next, true)?;
@@ -72,148 +73,219 @@ pub(super) fn dock_glass(
     Ok(())
 }
 
-/// The control center's liquid glass over the light background (ADR 0028
-/// §6), where nothing else lies: the network capsule's tone is the one its
-/// curve gives for what lies behind – about as light as that over midtones,
-/// not grey smoke (0.5.118's glass came out at a third of it) – and white
-/// ink keeps 3:1 on it (Apple's tiles ~3.4:1, measured); the round tile's
-/// line of light at its top is never darker than either side of it (a grey
-/// stroke) and brighter than at its side, which has none. Its screen is in
-/// the logs for the owner (`control-center-liquid.png`).
-pub(super) fn liquid_glass(
+/// The control center's dense glass (ADR 0033 §6) over the terminal
+/// maximized behind it and full of text – the hardest case of the light
+/// appearance: the text behind it is gone (blurred and tinted), the glass
+/// comes out at the tone of its recipe for what lies behind, and the
+/// network tile's title is dark ink holding 4.5:1 on it; in the dark
+/// appearance the same with light ink. Its screens are in the logs for the
+/// owner (`control-center-light.png`, `control-center-dark.png`). The
+/// terminal's text cursor sits below the last line, far from where it
+/// compares.
+pub(super) fn control_center_glass(
     shell: &Shell,
     machine: &Machine,
     qmp: &Path,
     screen: (usize, usize),
     centre: (i32, i32),
 ) -> Result<()> {
-    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
-    let top = MENU_BAR + CONTROL_CENTER_GAP;
-    let capsule = (
+    let (_, lines) = shell.capture(PLACED)?;
+    let ((x, y), (w, _)) = lines
+        .iter()
+        .rev()
+        .find_map(|l| placement(l, "beize-terminal"))
+        .ok_or_else(|| anyhow::anyhow!("no terminal's window was placed"))?;
+    // Where the drag with the menu open left its title bar (`menus`).
+    let grip = by(
+        (i32::try_from(x + w / 2)?, i32::try_from(y + TITLE_BAR / 2)?),
+        MENU_DRAG_BY,
+    );
+    let (left, top) = control_center_at(screen);
+    let surface = (
         left..left + CONTROL_CENTER_WIDTH,
-        top..top + CONTROL_CENTER_TILE,
+        top..top + CONTROL_CENTER_HEIGHT,
     );
-    // Right of the capsule's text, more than its curved edge inside.
-    let clear_of_ink = (
-        left + CONTROL_CENTER_WIDTH - 28..left + CONTROL_CENTER_WIDTH - 18,
-        top + 30..top + 45,
+    // Glass alone: right of the light/dark tile, in from the edges.
+    let row = top + CONTROL_CENTER_INSET + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+    let column = left + CONTROL_CENTER_INSET + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+    let glass = (
+        column + 8..column + CONTROL_CENTER_TILE - 8,
+        row + 8..row + CONTROL_CENTER_TILE - 8,
     );
-    let closed = self::screen(machine, "liquid-closed")?;
-    let behind = mean_luminance(&closed, capsule.0.clone(), capsule.1.clone());
-    ensure!(
-        behind > LIQUID_KNEE + 0.05,
-        "behind the control center the screen is not light ({behind:.3}): the check would prove \
-         nothing"
+    // The network tile's title and state, right of its round button.
+    let tile_top = top + CONTROL_CENTER_INSET;
+    let title = (
+        left + CONTROL_CENTER_INSET + 72..left + CONTROL_CENTER_WIDTH - CONTROL_CENTER_INSET - 4,
+        tile_top + 16..tile_top + CONTROL_CENTER_TILE - 16,
     );
-    let expected = liquid_tone(behind);
-    click(qmp, screen, centre, 1)?;
-    wait_for_shell_count(shell, "ControlCenter open", 3)?;
-    wait_for_control_center_grown(shell, 3)?;
-    let radius = CONTROL_CENTER_TILE as f64 / 2.0;
-    let round = (
-        left as f64 + radius,
-        (top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP) as f64 + radius,
-    );
-    // Where the edge's outward normal points at `degrees` (0 right, 90
-    // down): the brightest pixel across the edge – the line lies ~1.3 px
-    // in, so every pixel from 3.5 px inside to half a pixel out –, and how
-    // far it stands above the lighter of the glass 8 px inside and the
-    // screen 4 px outside (the mean of the channels).
-    let line_at = |image: &Image, degrees: f64| {
-        let (dx, dy) = (degrees.to_radians().cos(), degrees.to_radians().sin());
-        let at = |r: f64| {
-            let p = image.pixel((round.0 + dx * r) as usize, (round.1 + dy * r) as usize);
-            (p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3) as i32
-        };
-        let peak = (0..=16)
-            .map(|i| at(radius + 0.5 - 0.25 * f64::from(i)))
-            .max()
-            .unwrap_or(0);
-        (peak, peak - at(radius - 8.0).max(at(radius + 4.0)))
-    };
-    let seen = std::cell::Cell::new((0.0, 0, 0));
-    wait_until_screen(machine, "liquid", |shown| {
-        let tile = mean_luminance(shown, clear_of_ink.0.clone(), clear_of_ink.1.clone());
-        let contrast = 1.05 / (tile + 0.05);
+    let dark = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3 < WINDOW_DARK;
+    click(qmp, screen, grip, 2)?;
+    park(qmp, screen)?;
+    let behind_at = (screen.0 - BAR_MARGIN - 4, top + CONTROL_CENTER_TILE / 2);
+    wait_until_screen(machine, "glass-maximized", |shown| {
+        let p = shown.pixel(behind_at.0, behind_at.1);
         ensure!(
-            (tile - expected).abs() <= expected * LIQUID_TOLERANCE,
-            "the capsule's tone is {tile:.3} over {behind:.3} behind it, not {expected:.3} \
-             (its curve)"
+            dark(p),
+            "the terminal is not maximized behind the control center: {p:?}"
         );
-        ensure!(
-            contrast >= 3.0,
-            "white ink keeps only {contrast:.2}:1 on the capsule"
-        );
-        let ((lit, above), (across, across_above)) = (line_at(shown, -90.0), line_at(shown, 0.0));
-        ensure!(
-            above >= LINE_ABOVE,
-            "the round tile's line of light at its top is darker than a side of it ({lit}, \
-             {above} over the lighter): a stroke, not light"
-        );
-        ensure!(
-            above >= across_above + LINE_LIT_BY,
-            "the round tile's line of light is not brighter at its top than at its side: {lit} \
-             at the top, {across} at the side"
-        );
-        let (edge, outside) = (along_top(shown, left, top), along_top(shown, left, top - 3));
-        ensure!(
-            edge >= outside - TOP_EDGE_BELOW,
-            "the capsule's outermost pixel at its top is {edge}, {outside} outside it: the \
-             glass's grey above the line of light"
-        );
-        seen.set((tile, lit, across));
         Ok(())
     })?;
-    self::screen(machine, "liquid-open")?
-        .write_png(&machine.logs.join("control-center-liquid.png"))?;
+    let (unit, _) = terminals(shell)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no terminal runs"))?;
+    // Lines of text across the screen, written to the shell's terminal.
+    let (_, said) = shell.capture(&format!(
+        "d=/sys/fs/cgroup$(systemctl --user show -P ControlGroup '{unit}'); t=; \
+         for p in $(cat \"$d/cgroup.procs\"); do [ \"$(cat /proc/$p/comm)\" = bash ] && \
+         t=/proc/$p/fd/1; done; l=$(printf 'Wm#8%.0s' $(seq 60)); \
+         [ -n \"$t\" ] && for i in $(seq 40); do echo \"$l\"; done > \"$t\"; \
+         echo BEIZE-TEXT-${{t:+written}}"
+    ))?;
+    ensure!(
+        said.iter().any(|l| l == "BEIZE-TEXT-written"),
+        "no text went to the terminal's shell: {said:?}"
+    );
+    thread::sleep(Duration::from_secs(1));
+    let closed = self::screen(machine, "glass-closed")?;
+    let sharp = detail(&closed, glass.0.clone(), glass.1.clone());
+    ensure!(
+        sharp >= TEXT_DETAIL,
+        "the terminal shows no text behind the control center ({sharp:.1}): the check would \
+         prove nothing"
+    );
+    let behind = mean_luminance(&closed, surface.0.clone(), surface.1.clone());
+    let opened = shell_count(shell, "ControlCenter open")?;
+    click(qmp, screen, centre, 1)?;
+    wait_for_shell_count(shell, "ControlCenter open", opened + 1)?;
+    wait_for_control_center_grown(shell, opened + 1)?;
+    let measured = std::cell::Cell::new((0.0, 0.0, 0.0));
+    let check = |shown: &Image, tint: f64, density: f64, light: bool| -> Result<()> {
+        let tone = mean_luminance(shown, glass.0.clone(), glass.1.clone());
+        let expected = tint * density + behind * (1.0 - density);
+        let left_of_text = detail(shown, glass.0.clone(), glass.1.clone());
+        ensure!(
+            left_of_text < sharp * GLASS_KEEPS,
+            "the text behind the control center shows through: detail {left_of_text:.1}, \
+             {sharp:.1} without"
+        );
+        ensure!(
+            (tone - expected).abs() <= GLASS_TOLERANCE,
+            "the control center's glass is {tone:.3}, not {expected:.3} (dense over {behind:.3})"
+        );
+        // The title's strongest ink: its darkest pixel in the light, its
+        // lightest in the dark.
+        let ink = extreme_luminance(shown, title.0.clone(), title.1.clone(), light);
+        let contrast = (tone.max(ink) + 0.05) / (tone.min(ink) + 0.05);
+        ensure!(
+            contrast >= 4.5 && (ink < tone) == light,
+            "the network tile's title is {ink:.3} on glass of {tone:.3}: {contrast:.2}:1, not \
+             {} ink holding 4.5:1",
+            if light { "dark" } else { "light" }
+        );
+        measured.set((tone, expected, contrast));
+        Ok(())
+    };
+    wait_until_screen(machine, "glass-light", |shown| {
+        check(shown, GLASS_TINT_LIGHT, GLASS_DENSE_LIGHT, true)
+    })?;
+    self::screen(machine, "glass-open")?
+        .write_png(&machine.logs.join("control-center-light.png"))?;
+    let (light_tone, light_expected, light_contrast) = measured.get();
+    let tile = appearance_tile(screen)?;
+    let (darks, lights) = (
+        shell_count(shell, "appearance Dark")?,
+        shell_count(shell, "appearance Light")?,
+    );
+    click(qmp, screen, tile, 1)?;
+    wait_for_shell_count(shell, "appearance Dark", darks + 1)?;
+    wait_until_screen(machine, "glass-dark", |shown| {
+        check(shown, GLASS_TINT_DARK, GLASS_DENSE_DARK, false)
+    })?;
+    self::screen(machine, "glass-dark-open")?
+        .write_png(&machine.logs.join("control-center-dark.png"))?;
+    let (dark_tone, dark_expected, dark_contrast) = measured.get();
+    click(qmp, screen, tile, 1)?;
+    wait_for_shell_count(shell, "appearance Light", lights + 1)?;
+    let closed_before = shell_count(shell, "ControlCenter closed")?;
     keys(qmp, &["esc"])?;
-    wait_for_shell_count(shell, "ControlCenter closed", 3)?;
-    let (tile, lit, across) = seen.get();
+    wait_for_shell_count(shell, "ControlCenter closed", closed_before + 1)?;
     say!(
-        "  ok: the control center's liquid glass: over {behind:.3} behind it the capsule came \
-         out at {tile:.3} ({expected:.3} by its curve, white ink {:.2}:1), its line of light \
-         {lit} at the top, {across} at the side",
-        1.05 / (tile + 0.05)
+        "  ok: over a terminal full of text the control center's dense glass hid the text and \
+         came out at {light_tone:.3} light ({light_expected:.3} by its recipe), {dark_tone:.3} \
+         dark ({dark_expected:.3}); its title held {light_contrast:.1}:1 and \
+         {dark_contrast:.1}:1"
     );
     Ok(())
 }
 
-/// Liquid glass's tone with white ink on it (`quad.vert`, `liquid_tone`):
-/// what lies behind as it is up to KNEE, above eased towards CAP.
-pub(super) fn liquid_tone(behind: f64) -> f64 {
-    if behind <= LIQUID_KNEE {
-        return behind;
+/// The darkest (`darkest`) or lightest pixel's relative luminance in `xs` ×
+/// `ys`.
+pub(super) fn extreme_luminance(
+    screen: &Image,
+    xs: std::ops::Range<usize>,
+    ys: std::ops::Range<usize>,
+    darkest: bool,
+) -> f64 {
+    let mut found = if darkest { f64::MAX } else { 0.0 };
+    for y in ys {
+        for x in xs.clone() {
+            let l = mean_luminance(screen, x..x + 1, y..y + 1);
+            found = if darkest { found.min(l) } else { found.max(l) };
+        }
     }
-    LIQUID_KNEE + (LIQUID_CAP - LIQUID_KNEE) * (1.0 - (-(behind - LIQUID_KNEE) / 0.15).exp())
+    found
 }
 
-/// As `quad.vert`'s KNEE and CAP. The screen's tile differs from the curve
-/// by its saturation, the milk and the frost's mean against the screen's:
-/// within a quarter of it.
-pub(super) const LIQUID_KNEE: f64 = 0.22;
-pub(super) const LIQUID_CAP: f64 = 0.27;
-pub(super) const LIQUID_TOLERANCE: f64 = 0.25;
-/// The line of light, in 8-bit steps (the mean of the channels): at the
-/// top never below the lighter of its two sides, and above them by more
-/// than at the side, which has no line (Apple's: light at the top and the
-/// bottom, a dark edge at the sides). Over the light background, where the
-/// glass is pulled down for its ink, it lies on what is outside it: some
-/// 2 steps above it at the top (Apple's over white: 3), while a line on the
-/// glass would come out ~15 below it.
-pub(super) const LINE_ABOVE: i32 = 0;
-pub(super) const LINE_LIT_BY: i32 = 6;
-/// How far the outermost pixel along a capsule's top may lie below the
-/// screen outside it, in the same steps: the frost's mean against the
-/// screen's (the owner saw the glass's grey there, 30.10.).
-pub(super) const TOP_EDGE_BELOW: i32 = 2;
+/// How much of the text's detail dense glass keeps (`detail`): blurred and
+/// four fifths tinted, nearly nothing.
+pub(super) const GLASS_KEEPS: f64 = 0.1;
+/// The glass's tone against its recipe (relative luminance): the blur's
+/// mean against the surface's, the grain.
+pub(super) const GLASS_TOLERANCE: f64 = 0.04;
+/// Dense Beize glass's tint and its alpha, as `beize-draw`'s tokens (the
+/// set in use): #F2F2F2 at 80 %, #2D2D2D at 94 %, the tint's relative
+/// luminance.
+pub(super) const GLASS_TINT_LIGHT: f64 = 0.8879;
+pub(super) const GLASS_DENSE_LIGHT: f64 = 0.80;
+pub(super) const GLASS_TINT_DARK: f64 = 0.0262;
+pub(super) const GLASS_DENSE_DARK: f64 = 0.94;
 
-/// A row's mean of the channels along the top of the capsule at `left`.
-pub(super) fn along_top(image: &Image, left: usize, y: usize) -> i32 {
-    let mid = left + CONTROL_CENTER_WIDTH / 2;
-    let sum: u32 = (mid - 10..mid + 10)
-        .map(|x| image.pixel(x, y).iter().map(|&c| u32::from(c)).sum::<u32>())
-        .sum();
-    (sum / 60) as i32
+/// The control center's measures in the VM, as the shell's (`tokens`): its
+/// surface below the bar and a gap, the inset all round and between its
+/// cells; as wide as its columns used, two while network and light/dark are
+/// its only tiles; its right edge where the menu bar's margin ends.
+pub(super) const CONTROL_CENTER_TOP: usize = 12;
+pub(super) const CONTROL_CENTER_INSET: usize = 12;
+pub(super) const CONTROL_CENTER_GAP: usize = 12;
+pub(super) const CONTROL_CENTER_TILE: usize = 76;
+pub(super) const BAR_MARGIN: usize = 20;
+pub(super) const CONTROL_CENTER_WIDTH: usize =
+    2 * CONTROL_CENTER_INSET + 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+pub(super) const CONTROL_CENTER_HEIGHT: usize =
+    2 * CONTROL_CENTER_INSET + 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
+
+/// The control center's surface's top left corner.
+pub(super) fn control_center_at(screen: (usize, usize)) -> (usize, usize) {
+    (
+        screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH,
+        MENU_BAR + CONTROL_CENTER_TOP,
+    )
+}
+
+/// The light/dark tile's centre: the second row's first
+/// (os/beize-shell/src/control_center.rs).
+pub(super) fn appearance_tile(screen: (usize, usize)) -> Result<(i32, i32)> {
+    let (left, top) = control_center_at(screen);
+    Ok((
+        i32::try_from(left + CONTROL_CENTER_INSET + CONTROL_CENTER_TILE / 2)?,
+        i32::try_from(
+            top + CONTROL_CENTER_INSET
+                + CONTROL_CENTER_TILE
+                + CONTROL_CENTER_GAP
+                + CONTROL_CENTER_TILE / 2,
+        )?,
+    ))
 }
 
 /// The mean relative luminance (linear light) of `xs` × `ys`.
@@ -241,162 +313,6 @@ pub(super) fn mean_luminance(
     sum / f64::max(n, 1.0)
 }
 
-/// The control center's clear glass and the smoke around it (ADR 0028 §5,
-/// §6), over the terminal maximized behind it and full of text: beside and
-/// between its tiles the text blurs; where the smoke ends – 112 to 130 px
-/// from them, a blur below a hundredth of a pixel – the screen is as it was,
-/// so no seam, no grain and never the background shows there; the bar's ink
-/// stays sharp over it (the smoke lies behind the bar). Its screens are in
-/// the logs for the owner (`control-center-smoke-*.png`). The terminal's
-/// text cursor sits below the last line, far from where it compares.
-pub(super) fn control_center_smoke(
-    shell: &Shell,
-    machine: &Machine,
-    qmp: &Path,
-    screen: (usize, usize),
-    centre: (i32, i32),
-) -> Result<()> {
-    let (_, lines) = shell.capture(PLACED)?;
-    let ((x, y), (w, _)) = lines
-        .iter()
-        .rev()
-        .find_map(|l| placement(l, "beize-terminal"))
-        .ok_or_else(|| anyhow::anyhow!("no terminal's window was placed"))?;
-    // Where the drag with the menu open left its title bar (`menus`).
-    let grip = by(
-        (i32::try_from(x + w / 2)?, i32::try_from(y + TITLE_BAR / 2)?),
-        MENU_DRAG_BY,
-    );
-    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
-    let top = MENU_BAR + CONTROL_CENTER_GAP;
-    let behind = (screen.0 - BAR_MARGIN - 4, top + CONTROL_CENTER_TILE / 2);
-    let dark = |p: [u8; 3]| p.iter().map(|&c| u32::from(c)).sum::<u32>() / 3 < WINDOW_DARK;
-    click(qmp, screen, grip, 2)?;
-    park(qmp, screen)?;
-    wait_until_screen(machine, "smoke-maximized", |shown| {
-        let p = shown.pixel(behind.0, behind.1);
-        ensure!(
-            dark(p),
-            "the terminal is not maximized behind the control center: {p:?}"
-        );
-        Ok(())
-    })?;
-    let (unit, _) = terminals(shell)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("no terminal runs"))?;
-    // Lines of text across the screen, written to the shell's terminal.
-    let (_, said) = shell.capture(&format!(
-        "d=/sys/fs/cgroup$(systemctl --user show -P ControlGroup '{unit}'); t=; \
-         for p in $(cat \"$d/cgroup.procs\"); do [ \"$(cat /proc/$p/comm)\" = bash ] && \
-         t=/proc/$p/fd/1; done; l=$(printf 'Wm#8%.0s' $(seq 60)); \
-         [ -n \"$t\" ] && for i in $(seq 40); do echo \"$l\"; done > \"$t\"; \
-         echo BEIZE-TEXT-${{t:+written}}"
-    ))?;
-    ensure!(
-        said.iter().any(|l| l == "BEIZE-TEXT-written"),
-        "no text went to the terminal's shell: {said:?}"
-    );
-    thread::sleep(Duration::from_secs(1));
-    let closed = self::screen(machine, "smoke-closed")?;
-    // Beside the round tile, right of it; the bar's clock, left of the
-    // control center's pill (its half, 27 px, and 8 px between); where the
-    // smoke ends, left of the tiles.
-    let beside = (
-        left + CONTROL_CENTER_TILE + 10..screen.0 - BAR_MARGIN - 10,
-        {
-            let round = top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
-            round + 5..round + CONTROL_CENTER_TILE - 5
-        },
-    );
-    let clock_end = usize::try_from(centre.0)? - 35;
-    let clock = (clock_end - 100..clock_end, 8..24);
-    let fading = (left - 128..left - 112, MENU_BAR + TITLE_BAR + 8..330);
-    for (what, (xs, ys)) in [("beside the tiles", &beside), ("where it ends", &fading)] {
-        let there = detail(&closed, xs.clone(), ys.clone());
-        ensure!(
-            there >= TEXT_DETAIL,
-            "the terminal shows no text {what} ({there:.1}): the check would prove nothing"
-        );
-    }
-    click(qmp, screen, centre, 1)?;
-    wait_for_shell_count(shell, "ControlCenter open", 4)?;
-    wait_for_control_center_grown(shell, 4)?;
-    let sharp = detail(&closed, beside.0.clone(), beside.1.clone());
-    wait_until_screen(machine, "smoke", |shown| {
-        let blurred = detail(shown, beside.0.clone(), beside.1.clone());
-        ensure!(
-            blurred < sharp * SMOKE_KEEPS,
-            "the text beside the tiles is not blurred: detail {blurred:.1}, {sharp:.1} without"
-        );
-        Ok(())
-    })?;
-    thread::sleep(Duration::from_millis(500));
-    let open = self::screen(machine, "smoke-open")?;
-    open.write_png(&machine.logs.join("control-center-smoke-light.png"))?;
-    // Over the dark window the glass is lighter than what is outside: above
-    // the top line it would stand as a grey row, more than half way up to it.
-    let (edge, outside, lit) = (
-        along_top(&open, left, top),
-        along_top(&open, left, top - 3),
-        along_top(&open, left, top + 1),
-    );
-    ensure!(
-        (edge - outside) * 2 < lit - outside,
-        "over the dark window the capsule's outermost pixel at its top is {edge}, between \
-         {outside} outside it and {lit} on the line: the glass's grey above the line of light"
-    );
-    let (xs, ys) = &fading;
-    let (mut most, mut differ) = (0, 0);
-    for py in ys.clone() {
-        for px in xs.clone() {
-            let (a, b) = (closed.pixel(px, py), open.pixel(px, py));
-            let d = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
-            most = most.max(d);
-            differ += usize::from(d > 0);
-        }
-    }
-    let all = xs.len() * ys.len();
-    ensure!(
-        most <= 1 && differ * 50 <= all,
-        "where the smoke ends the screen changed: by up to {most}, in {differ} of {all} pixels \
-         (a seam, grain or the background)"
-    );
-    let (ink_before, ink) = (
-        detail(&closed, clock.0.clone(), clock.1.clone()),
-        detail(&open, clock.0.clone(), clock.1.clone()),
-    );
-    ensure!(
-        ink > ink_before * 0.9,
-        "the bar's clock is blurred over the smoke: detail {ink:.1}, {ink_before:.1} without"
-    );
-    // For the owner: the same in dark.
-    let tile = (
-        i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
-        i32::try_from(top + CONTROL_CENTER_TILE + CONTROL_CENTER_GAP + CONTROL_CENTER_TILE / 2)?,
-    );
-    let (darks, lights) = (
-        shell_count(shell, "appearance Dark")?,
-        shell_count(shell, "appearance Light")?,
-    );
-    click(qmp, screen, tile, 1)?;
-    wait_for_shell_count(shell, "appearance Dark", darks + 1)?;
-    thread::sleep(Duration::from_millis(500));
-    self::screen(machine, "smoke-dark")?
-        .write_png(&machine.logs.join("control-center-smoke-dark.png"))?;
-    click(qmp, screen, tile, 1)?;
-    wait_for_shell_count(shell, "appearance Light", lights + 1)?;
-    keys(qmp, &["esc"])?;
-    wait_for_shell_count(shell, "ControlCenter closed", 4)?;
-    say!(
-        "  ok: over a terminal the control center's smoke blurred the text beside its tiles \
-         (detail {sharp:.1} -> {:.1}), left it as it was where it ends ({differ} of {all} \
-         pixels by 1 at most) and the bar's clock sharp",
-        detail(&open, beside.0.clone(), beside.1.clone())
-    );
-    Ok(())
-}
-
 /// How much the screen changes from pixel to pixel in `xs` × `ys`: the
 /// mean step in brightness (the mean of the channels) to the right
 /// neighbour – text has many, a blur few.
@@ -419,19 +335,6 @@ pub(super) fn detail(
 /// Text shows at least this much detail (`detail`): a terminal's glyphs on
 /// its dark ground, many times more than its ground alone.
 pub(super) const TEXT_DETAIL: f64 = 8.0;
-/// The smoke beside the tiles keeps less than this share of the text's
-/// detail (a Gaussian of 1.5 to 3 px there).
-pub(super) const SMOKE_KEEPS: f64 = 0.5;
-
-/// The control center's measures in the VM, as the shell's (macOS' 12 and
-/// 64 pt at Beize's 1.25, 6.5 % smaller): as wide as its columns used, two
-/// while network and light/dark are its only tiles; its right edge where
-/// the menu bar's margin ends.
-pub(super) const CONTROL_CENTER_GAP: usize = 14;
-pub(super) const CONTROL_CENTER_TILE: usize = 75;
-pub(super) const BAR_MARGIN: usize = 20;
-pub(super) const CONTROL_CENTER_WIDTH: usize = 2 * CONTROL_CENTER_TILE + CONTROL_CENTER_GAP;
-
 /// Waits until the dock's glass at `at` shows something else than
 /// `before`, by more than `GLASS_SHOWS` in a channel: a window behind it.
 /// The screen then is in the logs as `live-glass-screen.png`.

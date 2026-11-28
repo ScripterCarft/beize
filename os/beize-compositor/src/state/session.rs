@@ -243,9 +243,6 @@ impl State {
         // A dialog or the switcher goes with the shell that asked for it.
         panels.retain(|panel| !panel.overlay);
         for panel in &mut panels {
-            panel
-                .elements
-                .retain(|e| !matches!(e, Element::Glass(glass) if !glass.keeps()));
             for element in &mut panel.elements {
                 if let Element::Glass(glass) = element {
                     glass.freeze();

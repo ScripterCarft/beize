@@ -1,15 +1,12 @@
-//! Where clients want glass (beize-app-v1, `beize_glass_v1`; ADR 0028 §6):
-//! rounded rectangles below parts of a panel or of a popup – one below a
-//! menu, several below the control center's tiles –, base, live, menu or
-//! liquid glass, with a shadow or not, as macOS' WindowServer draws a
-//! material below a view for any app; around the shapes a smoke if asked
-//! for: what lies behind blurred less and less away from them. Shapes,
-//! material, shadow and smoke are the surface's double-buffered state,
-//! applied with its commit (Smithay's cached state); the glass itself is
-//! drawn by `backdrop`.
+//! Where clients want Beize glass (beize-app-v1, `beize_glass_v1`; ADR 0033
+//! §6): rounded rectangles below parts of a panel or of a popup, at one of
+//! three densities, with a shadow or not, as macOS' WindowServer draws a
+//! material below a view for any app. Shapes, density and shadow are the
+//! surface's double-buffered state, applied with its commit (Smithay's
+//! cached state); the glass itself is drawn by `backdrop`.
 //!
-//! An app's glass stays inside its own surface and has no smoke (`confined`):
-//! only the shell's reaches beyond it. Shapes are limited for every client.
+//! An app's glass stays inside its own surface (`confined`). Shapes are
+//! limited for every client.
 
 use std::cell::RefCell;
 
@@ -34,39 +31,22 @@ pub struct Shape {
     pub rim: bool,
 }
 
-/// What a glass shows (`beize_glass_v1.material`).
+/// What a glass shows: Beize glass at one of its densities
+/// (`beize_glass_v1.density`), or the snap preview's.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Material {
-    /// The background, blurred once.
+    /// The menu bar's.
     #[default]
-    Base,
-    /// What lies behind it, windows too.
-    Live,
-    /// Live, tinted thickly: a menu's.
-    Menu,
-    /// Liquid glass with white ink on it, its tone held for the ink: the
-    /// control center's tiles.
-    Clear,
-    /// Liquid glass without ink on it: the dock.
-    Liquid,
+    Thin,
+    /// The dock's.
+    Medium,
+    /// Menus, dialogs, Alt+Tab, the control center.
+    Dense,
     /// The place a dragged window would snap to (`Backdrop::snap_preview`); no
     /// client asks for it.
     Preview,
 }
 
-/// The smoke around a glass's shapes (`beize_glass_v1.set_smoke`): over
-/// `falloff` px from their edges, blurred by `strength` px at most.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Smoke {
-    pub falloff: f32,
-    pub strength: f32,
-}
-
-/// The most a smoke reaches and blurs: twice what the control center asks
-/// (130 px, 4 px), so its kernel and the region it reads stay small
-/// whatever a client asks.
-const MAX_FALLOFF: f32 = 260.0;
-pub const MAX_STRENGTH: f32 = 8.0;
 /// The most shapes a glass has: more than the control center's tiles, so a
 /// client cannot make a frame's glass as long as it likes.
 const MAX_SHAPES: usize = 32;
@@ -162,13 +142,12 @@ impl Dispatch<BeizeGlassManagerV1, ()> for State {
 }
 
 /// A surface's glass, double-buffered: its shapes (none: no glass), what
-/// it shows, whether each shape casts a shadow, and the smoke around them.
+/// it shows and whether each shape casts a shadow.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GlassState {
     pub shapes: Vec<Shape>,
     pub material: Material,
     pub shadow: bool,
-    pub smoke: Option<Smoke>,
     /// An app's: its shapes are cut to its surface when drawn.
     pub confined: bool,
 }
@@ -238,28 +217,16 @@ impl Dispatch<BeizeGlassV1, WlSurface> for State {
                     }
                 });
             }
-            beize_glass_v1::Request::SetMaterial { material } => {
-                let material = match material {
-                    WEnum::Value(beize_glass_v1::Material::Live) => Material::Live,
-                    WEnum::Value(beize_glass_v1::Material::Menu) => Material::Menu,
-                    WEnum::Value(beize_glass_v1::Material::Clear) => Material::Clear,
-                    WEnum::Value(beize_glass_v1::Material::Liquid) => Material::Liquid,
-                    _ => Material::Base,
+            beize_glass_v1::Request::SetDensity { density } => {
+                let material = match density {
+                    WEnum::Value(beize_glass_v1::Density::Medium) => Material::Medium,
+                    WEnum::Value(beize_glass_v1::Density::Dense) => Material::Dense,
+                    _ => Material::Thin,
                 };
                 set_pending(surface, |state| state.material = material);
             }
             beize_glass_v1::Request::SetShadow { shadow } => {
                 set_pending(surface, |state| state.shadow = shadow != 0);
-            }
-            beize_glass_v1::Request::SetSmoke { falloff, strength } => {
-                let (falloff, strength) = (falloff as f32, strength as f32);
-                let smoke = (falloff > 0.0 && strength > 0.0).then(|| Smoke {
-                    falloff: falloff.min(MAX_FALLOFF),
-                    strength: strength.min(MAX_STRENGTH),
-                });
-                set_pending(surface, |state| {
-                    state.smoke = smoke.filter(|_| !state.confined);
-                });
             }
             _ => {}
         }

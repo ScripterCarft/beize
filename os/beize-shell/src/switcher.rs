@@ -23,7 +23,7 @@ use std::time::Instant;
 use beize_ui::menu::fitted;
 use beize_ui::theme::{self, ACCENT, ON_ACCENT, SMALL_TEXT_SIZE};
 use beize_ui::{
-    AppIcon, Appearance, DesktopWindow, DesktopWindowId, Family, Glass, Material, Motion, Rect,
+    AppIcon, Appearance, Density, DesktopWindow, DesktopWindowId, Family, Glass, Motion, Rect,
     Scene, Spring, Style, Text,
 };
 use tracing::info;
@@ -239,7 +239,7 @@ impl Switcher {
         };
         Glass {
             shadow: true,
-            ..Glass::one(all, RADIUS, true, Material::Menu)
+            ..Glass::one(all, RADIUS, true, Density::Dense)
         }
     }
 

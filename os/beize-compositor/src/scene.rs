@@ -339,7 +339,7 @@ pub fn panels(
     at: Duration,
 ) -> Vec<PanelFrame> {
     let mut drawn: Vec<PanelFrame> = animations
-        .dialogs_closing(renderer, backdrop.as_deref_mut(), at)
+        .dialogs_closing(backdrop.as_deref_mut(), at)
         .into_iter()
         .map(|(place, elements)| PanelFrame {
             place,
@@ -355,9 +355,6 @@ pub fn panels(
             continue;
         };
         let mut elements = Vec::new();
-        // The smoke around a glass lies behind the panel – the bar's ink
-        // stays sharp over it –, in front of what lies below.
-        let mut smokes = Vec::new();
         // Its popups in front – the shell's menus, the control center –,
         // each with its glass and shadows, placed as Smithay's
         // `LayerSurface` places them.
@@ -377,12 +374,6 @@ pub fn panels(
                 pose,
                 &mut elements,
             );
-            smokes.extend(
-                backdrop
-                    .as_deref_mut()
-                    .and_then(|b| b.smoke(popup.wl_surface(), popup_at))
-                    .map(|smoke| smoke.faded(pose.opacity)),
-            );
         }
         if panel.layer() == Layer::Overlay && !numbered.is_empty() {
             for (number, at) in crate::switcher::current(panel.wl_surface()) {
@@ -394,7 +385,7 @@ pub fn panels(
         }
         // The menu bar's own glass gives way to the plate over a fullscreen
         // window.
-        let mut own = backdrop
+        let own = backdrop
             .as_deref_mut()
             .filter(|_| !plate.is_some_and(|band| band.contains_rect(place)));
         let pose = animations.pose(panel.wl_surface(), place, at);
@@ -402,12 +393,10 @@ pub fn panels(
             renderer,
             panel.wl_surface(),
             place.loc,
-            own.as_deref_mut(),
+            own,
             pose,
             &mut elements,
         );
-        smokes.extend(own.and_then(|b| b.smoke(panel.wl_surface(), place.loc)));
-        elements.extend(smokes.into_iter().map(Element::Glass));
         drawn.push(PanelFrame {
             place,
             upper: matches!(panel.layer(), Layer::Overlay | Layer::Top),
@@ -466,7 +455,7 @@ fn surface_with_glass(
                 .map(|s| Element::Moved(crate::animation::Posed::new(s, &pose))),
         );
     }
-    if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(renderer, surface, at, pose)) {
+    if let Some((glass, shadows)) = backdrop.and_then(|b| b.glass(surface, at, pose)) {
         // Its shadows in front of it, so they are not part of what it shows
         // (live glass blurs what was drawn behind it): they fall only outside
         // it (`draw_shadow`).

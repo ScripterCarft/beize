@@ -10,7 +10,8 @@
 //! maximized window has neither, its edges are the screen's.
 
 use crate::render::geometry::Mesh;
-use crate::render::{Blur, Liquid, VkFrame, VkRenderer, VkTexture};
+use crate::render::{Material, VkFrame, VkRenderer, VkTexture};
+use beize_draw::tokens::{self, Elevation};
 use beize_vulkan::pipeline::CORNER_EXTENT;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
@@ -30,55 +31,13 @@ fn corner() -> i32 {
     (RADIUS as f32 * CORNER_EXTENT).ceil() as i32
 }
 
-/// The shadow of the active window and of the others: how far it falls
-/// down, its blur, its darkness and how far its caster is narrowed on
-/// either side (as CSS's negative spread), so none falls beside it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Look {
-    offset: i32,
-    sigma: f32,
-    alpha: f32,
-    inset: i32,
-}
-
-const ACTIVE: Look = Look {
-    offset: 10,
-    sigma: 14.0,
-    alpha: 0.35,
-    inset: 0,
-};
-const INACTIVE: Look = Look {
-    offset: 4,
-    sigma: 8.0,
-    alpha: 0.2,
-    inset: 0,
-};
-/// Below a menu, and below other glass that asks for one
-/// (`Shadow::below_glass`).
-const MENU: Look = Look {
-    offset: 6,
-    sigma: 12.0,
-    alpha: 0.25,
-    inset: 0,
-};
-const TILE: Look = Look {
-    offset: 3,
-    sigma: 8.0,
-    alpha: 0.12,
-    inset: 0,
-};
-/// Below liquid glass: tight and only below it, as macOS 26's dock on a
-/// Mac's screen (the owner's, 29.10.): nothing above its top edge (at it
-/// 2 sigmas from the shadow's: under an 8-bit step) nor beside it (the
-/// caster narrowed by a sigma); smaller and fainter than Apple's, some 10 %
-/// darker within 2 pt below it over light (the owner, 30.10., on hardware).
-const LIQUID: Look = Look {
-    offset: 3,
-    sigma: 1.5,
-    alpha: 0.12,
-    inset: 2,
-};
-
+/// The shadow of the active window and of the others, and of everything
+/// floating (ADR 0033 §7): how far it falls down, its blur and darkness.
+const ACTIVE: Elevation = tokens::WINDOW_ACTIVE;
+const INACTIVE: Elevation = tokens::WINDOW_INACTIVE;
+/// Below Beize glass that asks for one – menus, dialogs, the dock, the
+/// control center, Alt+Tab: one height for everything that floats.
+const FLOATING: Elevation = tokens::FLOATING;
 /// The renderer's part: round corners, shadows and glass (`backdrop`) in
 /// a frame. A trait, as the frame's elements are generic over the renderer
 /// (`state::scene`).
@@ -110,7 +69,6 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
         grain: f32,
         rim: [f32; 4],
         flat_rim: bool,
-        liquid: Option<Liquid>,
         opacity: f32,
     );
     /// Blurs what the frame drew so far in `region` (live glass,
@@ -118,7 +76,7 @@ pub trait Effects: Renderer<TextureId = VkTexture> {
     fn blur_behind(
         frame: &mut Self::Frame<'_, '_>,
         region: Rectangle<i32, Physical>,
-        blur: &Blur,
+        material: &Material,
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture, Self::Error>;
@@ -134,11 +92,11 @@ impl Effects for VkRenderer {
     fn blur_behind(
         frame: &mut VkFrame<'_, '_>,
         region: Rectangle<i32, Physical>,
-        blur: &Blur,
+        material: &Material,
         chain: &[VkTexture],
         copy: &mut Option<VkTexture>,
     ) -> Result<VkTexture, Self::Error> {
-        frame.blur_behind(region, blur, chain, copy)
+        frame.blur_behind(region, material, chain, copy)
     }
 
     fn set_rounding(
@@ -172,11 +130,10 @@ impl Effects for VkRenderer {
         grain: f32,
         rim: [f32; 4],
         flat_rim: bool,
-        liquid: Option<Liquid>,
         opacity: f32,
     ) {
         frame.draw_glass(
-            dst, damage, shape, radius, glass, covers, grain, rim, flat_rim, liquid, opacity,
+            dst, damage, shape, radius, glass, covers, grain, rim, flat_rim, opacity,
         );
     }
 }
@@ -328,7 +285,7 @@ pub struct Shadow {
     commit: CommitCounter,
     caster: Rectangle<i32, Physical>,
     radius: i32,
-    look: Look,
+    look: Elevation,
     /// Fades with what casts it (a dialog coming and going).
     opacity: f32,
 }
@@ -372,28 +329,20 @@ impl Shadow {
     }
 
     /// The shadow below a glass's piece `rect` with corners of `radius`:
-    /// a menu's larger, as Apple's menus cast one (black about 15 % at the
-    /// edge in the HIG's images, fading over some 8 pt; offset and blur
-    /// estimated), liquid glass's tight below it (`LIQUID`), other glass's
-    /// faint (the owner, 28.10., on mock-ups). The glass's `id` and `commit`
-    /// tell when it changes.
+    /// everything floating casts the same (`FLOATING`). The glass's `id` and
+    /// `commit` tell when it changes.
     pub fn below_glass(
         id: Id,
         commit: CommitCounter,
         rect: Rectangle<i32, Physical>,
         radius: f32,
-        shows: crate::glass::Material,
     ) -> Shadow {
         Shadow {
             id,
             commit,
             caster: rect,
             radius: radius.round() as i32,
-            look: match shows {
-                crate::glass::Material::Menu => MENU,
-                crate::glass::Material::Clear | crate::glass::Material::Liquid => LIQUID,
-                _ => TILE,
-            },
+            look: FLOATING,
             opacity: 1.0,
         }
     }
@@ -414,17 +363,11 @@ impl Shadow {
         )
     }
 
-    /// The rectangle that casts it: the frame, moved down by the offset
-    /// and narrowed by the inset.
+    /// The rectangle that casts it: the frame, moved down by the offset.
     fn cast(&self) -> Rectangle<i32, Physical> {
-        let inset = self.look.inset;
         Rectangle::new(
-            (
-                self.caster.loc.x + inset,
-                self.caster.loc.y + self.look.offset,
-            )
-                .into(),
-            (self.caster.size.w - 2 * inset, self.caster.size.h).into(),
+            (self.caster.loc.x, self.caster.loc.y + self.look.offset).into(),
+            self.caster.size,
         )
     }
 }

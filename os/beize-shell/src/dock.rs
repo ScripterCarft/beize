@@ -14,10 +14,10 @@
 //! as the menu bar (`measures`), its corners the continuous ones of
 //! `beize_vulkan`'s shader. Beize's apps show their
 //! symbols (`AppIcon`), others their icons (hicolor, `apps`), an app
-//! without one a tile with its initial. It lies on live glass with a rim
-//! of light, which the compositor draws (`glass`, ADR 0028 §6): a window
-//! behind it shows through, blurred, as on macOS. The dock draws only its
-//! content.
+//! without one a tile with its initial. It lies on Beize glass of medium
+//! density with a rim of light, which the compositor draws (`glass`, ADR
+//! 0033 §6): a window behind it shows through, blurred, as on macOS. The
+//! dock draws only its content.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,8 +27,8 @@ use beize_ui::DesktopPlace;
 use beize_ui::measures::{SCALE, scaled};
 use beize_ui::menu::{Entry, Mark};
 use beize_ui::{
-    AppIcon, Appearance, Color, DesktopWindow, DesktopWindowId, Family, Glass, Material, Rect,
-    Scene, Style, Text, icon,
+    AppIcon, Appearance, Color, Density, DesktopWindow, DesktopWindowId, Family, Glass, Rect,
+    Scene, Style, Text, icon, tokens,
 };
 
 /// Pinned when the desktop starts (ADR 0028 §4); more apps come as Beize
@@ -41,11 +41,11 @@ const PINNED: [&str; 1] = ["beize-terminal"];
 /// found the icons small and the spaces large (25.10.): the icons larger
 /// and the tiles side by side – the icon grid's margin alone parts them,
 /// about 14 px. One padding all round, so the icons keep the same space to
-/// the rim above, below and at the sides: 17 px (the owner: a little more
-/// than 15; the dock 90 high).
+/// the rim above, below and at the sides: the design's dock inset (ADR 0033
+/// §3: 14, so the dock's radius is that and the icons' own; 84 high).
 pub const TILE: u32 = 70;
 pub const GAP: u32 = 0;
-pub const PADDING: u32 = 10;
+pub const PADDING: u32 = tokens::DOCK_INSET as u32 - (TILE - ICON_PIXELS) / 2;
 /// The dock's height: tile and padding above and below, the dot in the
 /// lower padding.
 pub const HEIGHT: u32 = TILE + 2 * PADDING;
@@ -53,10 +53,8 @@ pub const HEIGHT: u32 = TILE + 2 * PADDING;
 /// 5.1 pt.
 pub const MARGIN: u32 = scaled(5.0);
 
-/// Its corners: measured 20.4 pt on a dock 76.3 pt high in a screenshot
-/// of macOS 27 (macOS 26 rounded it more), kept in proportion as the dock
-/// grows with its tiles.
-const RADIUS: f32 = HEIGHT as f32 * 20.4 / 76.3;
+/// Its corners: a large floating surface's (ADR 0033 §3).
+const RADIUS: f32 = tokens::RADIUS_SURFACE;
 /// The icon on its tile, as Apple's icon grid: 824 of 1024, on whole
 /// pixels (as AppKit aligns to the backing store): its soft edge lies
 /// within the quad, none of it cut off. Beize's app symbols with their
@@ -77,10 +75,6 @@ const INITIAL_SIZE: f32 = 22.0 * TILE as f32 / 48.0;
 
 const TILE_COLOR: Color = Color::rgb(0x3a3a3c);
 const INITIAL: Color = Color::rgb(0xffffff);
-/// The dot below a running app: dark on light glass, light on dark, solid
-/// (the owner, 25.10.: blacker than macOS' 60 %).
-const RUNNING_LIGHT: Color = Color::rgb(0x000000);
-const RUNNING_DARK: Color = Color::rgb(0xffffff);
 /// Over a tile while it is pressed: darker, as macOS shows it.
 const PRESSED: Color = Color {
     a: 0x40,
@@ -349,8 +343,8 @@ impl Dock {
         shown.iter().map(|w| w.id).collect()
     }
 
-    /// Its glass in `(w, h)`: all of it, liquid, with round corners, its
-    /// line of light and a shadow (over a white window it is what shows the
+    /// Its glass in `(w, h)`: all of it, medium, with round corners, its rim
+    /// and the floating shadow (over a white window it is what shows the
     /// glass, as Apple's).
     pub fn glass((w, h): (u32, u32)) -> Glass {
         let all = Rect {
@@ -361,7 +355,7 @@ impl Dock {
         };
         Glass {
             shadow: true,
-            ..Glass::one(all, RADIUS, true, Material::Liquid)
+            ..Glass::one(all, RADIUS, true, Density::Medium)
         }
     }
 
@@ -376,9 +370,11 @@ impl Dock {
             w,
             h,
         });
+        // The dot below a running app: the ink, solid (the owner, 25.10.:
+        // blacker than macOS' 60 %).
         let running = match appearance {
-            Appearance::Light => RUNNING_LIGHT,
-            Appearance::Dark => RUNNING_DARK,
+            Appearance::Light => tokens::LIGHT.ink,
+            Appearance::Dark => tokens::DARK.ink,
         };
         let style = Style {
             family: Family::Sans,

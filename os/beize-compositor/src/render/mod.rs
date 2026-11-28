@@ -92,7 +92,7 @@ struct Pass {
     reads: Vec<VkTexture>,
 }
 
-/// How the base glass is made of the backdrop (ADR 0028 §6): blurred by
+/// How Beize glass is made of what lies behind it (ADR 0033 §6): blurred by
 /// Dual Kawase `down` halvings and `up` doublings back (the glass keeps
 /// 1/2^(down - up) of the size: it is soft, and the frame's filter scales
 /// it up), the taps `offset` texels apart; then its saturation times
@@ -104,41 +104,6 @@ pub struct Material {
     pub offset: f32,
     pub saturation: f32,
     pub tint: [f32; 4],
-}
-
-/// How glass blurs what lies behind it: base, live and menu glass by Dual
-/// Kawase (`Material`), clear glass and the smoke around it by a Gaussian
-/// (`Gauss`).
-#[derive(Clone)]
-pub enum Blur {
-    Kawase(Material),
-    Gauss(Gauss),
-}
-
-/// A Gaussian blur in two passes – across, then down –, on the colours as
-/// encoded: by `sigma` px, or per pixel by a `mask` (8 bits, stretched over
-/// the source; `backdrop.frag`, `smoke_sigma`) up to it. A Gaussian, not
-/// Kawase stages mixed by the mask: those leave blocks and ghost edges, as
-/// stacked CSS backdrop filters do. `half`: at half the size, the first
-/// pass halving the source as it reads it (liquid glass's wide frost: a
-/// quarter of the pixels, half the taps; its result is soft enough for the
-/// frame's filter to scale it up). `keeps`: of a half-size blur, the source's
-/// part anything reads; the passes draw only what that needs.
-#[derive(Clone)]
-pub struct Gauss {
-    pub sigma: f32,
-    pub mask: Option<VkTexture>,
-    pub half: bool,
-    pub keeps: Option<Rectangle<i32, Physical>>,
-}
-
-/// How liquid glass is drawn (`beize_vulkan::pipeline::CLEAR`): with white
-/// ink on it – its tone held for the ink – or none (the dock), in the dark
-/// appearance or not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Liquid {
-    pub ink: bool,
-    pub dark: bool,
 }
 
 /// Where the CPU's time went in the submissions since it was last taken
@@ -179,10 +144,6 @@ pub struct GpuTime {
 
 /// How many live glasses of a frame get timestamps of their own.
 const BLURS_TIMED: usize = 4;
-
-/// What liquid glass's frost keeps around its shape, in texels at half size:
-/// what the refraction and the filter read of it (some 4), with some to spare.
-const FROST_KEEPS: i32 = 5;
 
 /// How often the GPU's clock is set against CLOCK_MONOTONIC: they drift by
 /// microseconds a second.

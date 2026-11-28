@@ -192,17 +192,7 @@ fn set_dark(shell: &Shell, qmp: &Path, screen: (usize, usize), dark: bool) -> Re
     let (_, centre) = bar_buttons(shell)?;
     open(shell, qmp, screen, centre, "ControlCenter open")?;
     // The light/dark tile: the second row's first (as `menus`).
-    let left = screen.0 - BAR_MARGIN - CONTROL_CENTER_WIDTH;
-    let tile = (
-        i32::try_from(left + CONTROL_CENTER_TILE / 2)?,
-        i32::try_from(
-            MENU_BAR
-                + CONTROL_CENTER_GAP
-                + CONTROL_CENTER_TILE
-                + CONTROL_CENTER_GAP
-                + CONTROL_CENTER_TILE / 2,
-        )?,
-    );
+    let tile = appearance_tile(screen)?;
     let before = shell_count(shell, wanted)?;
     click(qmp, screen, tile, 1)?;
     wait_for_shell_count(shell, wanted, before + 1)?;

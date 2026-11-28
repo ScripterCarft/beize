@@ -23,24 +23,14 @@ use crate::Rect;
 use crate::app::{State, WindowId};
 use crate::menu::{AppMenu, Entry as MenuEntry};
 
-/// Glass below parts of a window (`App::set_glass`): where it lies, what it
-/// shows, whether each of its shapes casts a shadow, and the smoke around
-/// them.
+/// Beize glass below parts of a window (`App::set_glass`; ADR 0033 §6):
+/// where it lies, how dense it is, and whether each of its shapes casts a
+/// shadow.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Glass {
     pub shapes: Vec<GlassShape>,
-    pub material: Material,
+    pub density: Density,
     pub shadow: bool,
-    pub smoke: Option<Smoke>,
-}
-
-/// What lies behind a glass's shapes and around them, blurred by the
-/// compositor beyond the window: less and less over `falloff` px from their
-/// edges, by `strength` px at most (beize_glass_v1.set_smoke).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Smoke {
-    pub falloff: f32,
-    pub strength: f32,
 }
 
 /// One place of a glass: a rectangle in the window's coordinates with round
@@ -52,31 +42,26 @@ pub struct GlassShape {
     pub rim: bool,
 }
 
-/// What a glass shows.
+/// How much of what lies behind a glass shows: one glass, three densities
+/// of its tint (`beize_draw::tokens`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Material {
-    /// The background, blurred once: costs next to nothing.
-    Base,
-    /// What lies behind it, windows too.
-    Live,
-    /// Live, tinted thickly: calm, as macOS' menus.
-    Menu,
-    /// Liquid glass, as macOS 26's: what lies behind frosted, a curved edge
-    /// with a line of light, its tone held so white ink reads on it – the
-    /// control center's tiles.
-    Clear,
-    /// Liquid glass without ink on it: the dock's.
-    Liquid,
+pub enum Density {
+    /// What lies behind shows clearly: the menu bar's.
+    Thin,
+    /// The dock's.
+    Medium,
+    /// Calm, ink reads on it over anything: menus, dialogs, Alt+Tab, the
+    /// control center.
+    Dense,
 }
 
 impl Glass {
     /// Glass in one place, without a shadow.
-    pub fn one(rect: Rect, radius: f32, rim: bool, material: Material) -> Glass {
+    pub fn one(rect: Rect, radius: f32, rim: bool, density: Density) -> Glass {
         Glass {
             shapes: vec![GlassShape { rect, radius, rim }],
-            material,
+            density,
             shadow: false,
-            smoke: None,
         }
     }
 }
@@ -337,19 +322,12 @@ impl Glasses {
                 proxy.add_shape(x, y, w, h, radius, rim);
             }
         }
-        proxy.set_material(match glass.material {
-            Material::Base => beize_glass_v1::Material::Base,
-            Material::Live => beize_glass_v1::Material::Live,
-            Material::Menu => beize_glass_v1::Material::Menu,
-            Material::Clear => beize_glass_v1::Material::Clear,
-            Material::Liquid => beize_glass_v1::Material::Liquid,
+        proxy.set_density(match glass.density {
+            Density::Thin => beize_glass_v1::Density::Thin,
+            Density::Medium => beize_glass_v1::Density::Medium,
+            Density::Dense => beize_glass_v1::Density::Dense,
         });
         proxy.set_shadow(u32::from(glass.shadow));
-        let smoke = glass.smoke.unwrap_or(Smoke {
-            falloff: 0.0,
-            strength: 0.0,
-        });
-        proxy.set_smoke(f64::from(smoke.falloff), f64::from(smoke.strength));
     }
 }
 

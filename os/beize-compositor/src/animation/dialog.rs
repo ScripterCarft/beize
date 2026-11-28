@@ -250,7 +250,6 @@ impl Animations {
 
     pub fn dialogs_closing(
         &mut self,
-        renderer: &mut VkRenderer,
         mut backdrop: Option<&mut Backdrop>,
         at: Duration,
     ) -> Vec<(Rectangle<i32, Logical>, Vec<scene::Element>)> {
@@ -275,8 +274,7 @@ impl Animations {
             let mut elements: Vec<scene::Element> =
                 picture.map(scene::Element::Picture).into_iter().collect();
             if let (Some(backdrop), Some(ghost)) = (backdrop.as_deref_mut(), &mut closing.ghost)
-                && let Some((glass, shadows)) =
-                    backdrop.ghost_glass(renderer, ghost, closing.place.loc, pose)
+                && let Some((glass, shadows)) = backdrop.ghost_glass(ghost, closing.place.loc, pose)
             {
                 elements.extend(shadows.into_iter().map(scene::Element::Shadow));
                 elements.push(scene::Element::Glass(glass));

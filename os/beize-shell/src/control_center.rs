@@ -1,86 +1,38 @@
-//! The control center (ADR 0028 §5): tiles of clear glass under the menu
-//! bar's right end, without a panel around them – each floats, what lies
-//! behind shows blurred through it and, softer, around it (the smoke), as
-//! macOS 26's. A popup of the menu bar (`App::popup`): a click elsewhere
-//! closes it; the smoke takes no input.
+//! The control center (ADR 0028 §5, ADR 0033 §6): one surface of dense
+//! Beize glass under the menu bar's right end, its tiles on it – neutral
+//! fills, not glass of their own –, as the control centers of tvOS and of
+//! the cars Beize takes its manner from: one calm plane, the tiles in it.
+//! A popup of the menu bar (`App::popup`): a click beside it closes it.
 //!
-//! Its grid is macOS 26's, measured in Apple's press image of it (3840 px,
-//! ~3.94 px per pt by the menu bar's cap height; as its commit says): four
-//! columns of 64 pt with 12 pt between – 292 pt across, which the image
-//! confirms –, at Beize's scale (`measures::SCALE`), 6.5 % smaller (`SIZE`,
-//! the owner's); its right edge under the clock's. A tile is one cell
-//! (a circle), two across (a capsule), two by two (corners of 21 pt) or a
-//! row of four (a slider, corners of 16.5 pt). The layout is the owner's
-//! (28.10.): network top left, the media player beside it, Bluetooth below
-//! the network, light/dark below that, then brightness and volume. Only
-//! tiles whose service is there show (no empty tiles, §5): network and
-//! light/dark now; Bluetooth, media and volume come with PipeWire and BlueZ
-//! (#17), brightness with them. Rows left empty close up.
+//! Its values are the design tokens' (`tokens`): the surface's radius, the
+//! tiles' (the element's: surface less the inset, so they sit concentric in
+//! it), the inset all round and between tiles. A tile is one cell (a
+//! toggle), two across (a button with a title and a line below), two by two
+//! or a row of four. The layout is the owner's (28.10.): network top left,
+//! the media player beside it, Bluetooth below the network, light/dark
+//! below that, then brightness and volume. Only tiles whose service is
+//! there show (no empty tiles, §5): network and light/dark now; Bluetooth,
+//! media and volume come with PipeWire and BlueZ (#17), brightness with
+//! them. Rows left empty close up.
 
-use beize_ui::measures::SCALE;
-use beize_ui::{
-    Appearance, Color, Family, Glass, GlassShape, Material, Rect, Scene, Smoke, Style, Text,
-};
+use beize_ui::tokens::{self, Palette};
+use beize_ui::{Appearance, Color, Density, Family, Glass, GlassShape, Rect, Scene, Style, Text};
 
 use crate::network::{Kind, Status};
 
-/// macOS' measures in pt (`SCALE` and `SIZE` make them Beize's).
-const CELL: f32 = 64.0;
-const GAP: f32 = 12.0;
+/// A cell of the grid: about macOS 26's 64 pt at Beize's scale and the
+/// owner's size (28.10.: 75 px), on the grid.
+const CELL: f32 = 19.0 * tokens::GRID;
 /// Below the menu bar, as between tiles.
-const TOP: f32 = 12.0;
-const BIG_RADIUS: f32 = 21.0;
-/// A capsule's round button and where its centre and the text lie.
-const BUTTON: f32 = 36.0;
-const BUTTON_AT: f32 = 32.0;
-const TEXT_AT: f32 = 56.0;
-/// The owner's size (28.10.): 6.5 % below macOS' at Beize's scale – a cell
-/// 75 px instead of 80; what lies in a tile shrinks with it.
-const SIZE: f32 = 0.935;
-/// A capsule's title and the line below, in px at `SCALE`, shrunk by
-/// `SIZE`; the title 10 % lighter than semibold, and a little space
-/// between the lines (both the owner's, 28.10.).
-const TITLE: (f32, f32) = (15.0, 540.0);
-const SUBTITLE: (f32, f32) = (13.0, 400.0);
-const LINE_GAP: f32 = 1.5;
-
-/// The text and symbols on the glass: white in both appearances, the line
-/// below at 70 % (approved on mock-ups, 29.10.) – the clear glass holds its
-/// light down for it.
-const INK: Color = Color::rgb(0xffffff);
-const SUB: Color = Color {
-    r: 0xff,
-    g: 0xff,
-    b: 0xff,
-    a: 178,
-};
-/// A switch that is on: a white disc, its symbol in the accent colour.
-const ON: Color = Color::rgb(0xffffff);
-const ACCENT: Color = Color::rgb(0x007aff);
-/// A switch that is off: a faint disc on the glass.
-const OFF: Color = Color {
-    r: 0xff,
-    g: 0xff,
-    b: 0xff,
-    a: 38,
-};
-/// The smoke around the tiles: what lies behind and between them blurred,
-/// less and less over 130 px from their edges, by 4 px at most – a window
-/// behind does not show sharp beside them (the owner, 29.10., on mock-ups;
-/// macOS 26's press image blurs there too).
-const SMOKE: Smoke = Smoke {
-    falloff: 130.0,
-    strength: 4.0,
-};
-
-fn px(pt: f32) -> f32 {
-    (pt * SCALE * SIZE).round()
-}
-
-/// A symbol's square, given in px at `SCALE`.
-fn symbol_size(size: f32) -> u32 {
-    (size * SIZE).round() as u32
-}
+const TOP: f32 = tokens::INSET;
+/// A wide tile's round button: its margin to the tile's edge the same all
+/// round, and its symbol.
+const BUTTON: f32 = 11.0 * tokens::GRID;
+const SYMBOL: u32 = 5 * tokens::GRID as u32;
+/// A toggle's symbol, larger: it fills its tile alone.
+const TOGGLE_SYMBOL: u32 = 7 * tokens::GRID as u32;
+/// Between a title and the line below it.
+const LINE_GAP: f32 = 2.0;
 
 /// The tiles there are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,14 +64,16 @@ pub enum Action {
 }
 
 pub struct ControlCenter {
-    /// Each tile there is, with its rectangle in the popup and its corners.
-    tiles: Vec<(Tile, Rect, f32)>,
+    /// Each tile there is, with its rectangle in the popup.
+    tiles: Vec<(Tile, Rect)>,
+    /// The glass surface the tiles lie on.
+    surface: Rect,
     size: (u32, u32),
 }
 
 impl ControlCenter {
     pub fn new() -> ControlCenter {
-        let (cell, gap) = (px(CELL), px(GAP));
+        let (cell, gap, inset) = (CELL, tokens::INSET, tokens::INSET);
         let shown: Vec<_> = LAYOUT
             .iter()
             .filter_map(|&(tile, col, row, w, h)| Some((tile?, col, row, w, h)))
@@ -130,65 +84,63 @@ impl ControlCenter {
         let rows = (0..ROWS).filter(|&r| used(r)).count() as f32;
         // As wide as the columns used, so it lies under its button.
         let columns = shown.iter().map(|t| t.1 + t.3).max().unwrap_or(1) as f32;
-        let top = px(TOP);
         let tiles = shown
             .iter()
             .map(|&(tile, col, row, w, h)| {
                 let rect = Rect {
-                    x: col as f32 * (cell + gap),
-                    y: top + row_of(row) * (cell + gap),
+                    x: inset + col as f32 * (cell + gap),
+                    y: TOP + inset + row_of(row) * (cell + gap),
                     w: w as f32 * cell + (w - 1) as f32 * gap,
                     h: h as f32 * cell + (h - 1) as f32 * gap,
                 };
-                let radius = if h == 1 { rect.h / 2.0 } else { px(BIG_RADIUS) };
-                (tile, rect, radius)
+                (tile, rect)
             })
             .collect();
-        let width = columns * (cell + gap) - gap;
-        let height = top + rows * (cell + gap) - gap;
+        let surface = Rect {
+            x: 0.0,
+            y: TOP,
+            w: 2.0 * inset + columns * (cell + gap) - gap,
+            h: 2.0 * inset + rows * (cell + gap) - gap,
+        };
         ControlCenter {
             tiles,
-            size: (width as u32, height as u32),
+            surface,
+            size: (surface.w as u32, (surface.y + surface.h) as u32),
         }
     }
 
-    /// The popup's size: the grid, and the space above it below the bar.
+    /// The popup's size: the surface, and the space above it below the bar.
     pub fn size(&self) -> (u32, u32) {
         self.size
     }
 
-    /// Where it takes the pointer: its tiles. Beside them a click goes to
+    /// Where it takes the pointer: its surface. Beside it a click goes to
     /// what lies below, and closes it.
     pub fn input(&self) -> Vec<Rect> {
-        self.tiles.iter().map(|&(_, rect, _)| rect).collect()
+        vec![self.surface]
     }
 
-    /// The tiles' glass: clear, with a rim and a shadow each, the smoke
-    /// around them.
+    /// Its glass: one dense surface with the surface's radius, a rim and the
+    /// floating shadow.
     pub fn glass(&self) -> Glass {
         Glass {
-            shapes: self
-                .tiles
-                .iter()
-                .map(|&(_, rect, radius)| GlassShape {
-                    rect,
-                    radius,
-                    rim: true,
-                })
-                .collect(),
-            material: Material::Clear,
+            shapes: vec![GlassShape {
+                rect: self.surface,
+                radius: tokens::RADIUS_SURFACE,
+                rim: true,
+            }],
+            density: Density::Dense,
             shadow: true,
-            smoke: Some(SMOKE),
         }
     }
 
     /// What a click at `(x, y)` does, on a desktop in `appearance`.
     pub fn click(&self, (x, y): (f64, f64), appearance: Appearance) -> Option<Action> {
         let (x, y) = (x as f32, y as f32);
-        let (tile, _, _) = self
+        let (tile, _) = self
             .tiles
             .iter()
-            .find(|(_, r, _)| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)?;
+            .find(|(_, r)| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)?;
         match tile {
             Tile::Appearance => Some(Action::Appearance(match appearance {
                 Appearance::Light => Appearance::Dark,
@@ -199,9 +151,10 @@ impl ControlCenter {
         }
     }
 
-    /// The tiles' content for the `network` and `appearance`; the rest is
-    /// transparent, the glass below shows.
+    /// The tiles for the `network` and `appearance` on the glass; the rest
+    /// is transparent, the glass below shows.
     pub fn draw(&self, text: &mut Text, network: Status, appearance: Appearance) -> Scene {
+        let p = palette(appearance);
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
         let mut scene = Scene::new();
         scene.clear(Rect {
@@ -210,19 +163,21 @@ impl ControlCenter {
             w,
             h,
         });
-        for &(tile, r, _) in &self.tiles {
+        for &(tile, r) in &self.tiles {
             match tile {
                 Tile::Network => {
-                    let centre = [r.x + px(BUTTON_AT), r.y + r.h / 2.0];
+                    scene.rounded(r, tokens::RADIUS_ELEMENT, p.fill);
+                    // On: the accent with a white symbol, as every switch.
+                    let margin = ((r.h - BUTTON) / 2.0).round();
+                    let centre = [r.x + margin + BUTTON / 2.0, r.y + r.h / 2.0];
                     let (disc, symbol, color) = if network.connected {
-                        (ON, "globe-simple", ACCENT)
+                        (p.accent, "globe-simple", WHITE)
                     } else {
-                        (OFF, "globe-simple-x", INK)
+                        (p.fill_chosen, "globe-simple-x", p.ink)
                     };
-                    scene.circle(centre, px(BUTTON) / 2.0, disc);
-                    let size = symbol_size(22.0);
-                    let half = size as f32 / 2.0;
-                    scene.symbol(symbol, centre[0] - half, centre[1] - half, size, color);
+                    scene.circle(centre, BUTTON / 2.0, disc);
+                    let half = SYMBOL as f32 / 2.0;
+                    scene.symbol(symbol, centre[0] - half, centre[1] - half, SYMBOL, color);
                     let title = match network.kind {
                         Some(Kind::Ethernet) => "Ethernet",
                         Some(Kind::WiFi) => "Wi-Fi",
@@ -233,32 +188,33 @@ impl ControlCenter {
                     } else {
                         "Not Connected"
                     };
-                    let x = r.x + px(TEXT_AT);
-                    let title = text.layout(title, &style(TITLE, INK), None);
-                    let state = text.layout(state, &style(SUBTITLE, SUB), None);
-                    let gap = px(LINE_GAP);
-                    let block = title.height() + gap + state.height();
+                    let x = r.x + margin + BUTTON + tokens::INSET;
+                    let title =
+                        text.layout(title, &style(tokens::TEXT, tokens::SEMIBOLD, p.ink), None);
+                    let state = text.layout(
+                        state,
+                        &style(tokens::TEXT_SMALL, tokens::REGULAR, p.ink_secondary),
+                        None,
+                    );
+                    let block = title.height() + LINE_GAP + state.height();
                     let y = (r.y + (r.h - block) / 2.0).round();
                     scene.text(&title, x, y);
-                    scene.text(&state, x, (y + title.height() + gap).round());
+                    scene.text(&state, x, (y + title.height() + LINE_GAP).round());
                 }
                 Tile::Appearance => {
-                    let centre = [r.x + r.w / 2.0, r.y + r.h / 2.0];
-                    // On – a white disc – when dark is on, as macOS' switch.
-                    let color = if appearance == Appearance::Dark {
-                        scene.circle(centre, r.w / 2.0, ON);
-                        ACCENT
+                    // On – the accent – when dark is on, as macOS' switch.
+                    let (fill, color) = if appearance == Appearance::Dark {
+                        (p.accent, WHITE)
                     } else {
-                        INK
+                        (p.fill, p.ink)
                     };
-                    // A pixel larger each way than at `SIZE` (owner, 28.10.).
-                    let size = symbol_size(30.0) + 2;
-                    let half = size as f32 / 2.0;
+                    scene.rounded(r, tokens::RADIUS_ELEMENT, fill);
+                    let half = TOGGLE_SYMBOL as f32 / 2.0;
                     scene.symbol(
                         "circle-half-fill",
-                        centre[0] - half,
-                        centre[1] - half,
-                        size,
+                        (r.x + r.w / 2.0 - half).round(),
+                        (r.y + r.h / 2.0 - half).round(),
+                        TOGGLE_SYMBOL,
                         color,
                     );
                 }
@@ -268,10 +224,20 @@ impl ControlCenter {
     }
 }
 
-fn style((size, weight): (f32, f32), color: Color) -> Style {
+/// White on the accent (`tokens`: 5.6 : 1).
+const WHITE: Color = Color::rgb(0xffffff);
+
+fn palette(appearance: Appearance) -> Palette {
+    match appearance {
+        Appearance::Light => tokens::LIGHT,
+        Appearance::Dark => tokens::DARK,
+    }
+}
+
+fn style(size: f32, weight: f32, color: Color) -> Style {
     Style {
         family: Family::Sans,
-        size: size * SIZE,
+        size,
         weight,
         color,
     }

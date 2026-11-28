@@ -57,7 +57,7 @@ Titel und Zustand (aktiv, minimiert), das Aktivieren, das ein minimiertes Fenste
 zurückholt, Schließen, das Erscheinungsbild (hell, dunkel), Alt+Tab (Abschnitt 7); der
 Ursprung von Animationen kommt mit (g). **`beize-app-v1`** bekommt jede App, wie AppKit es dem
 WindowServer gibt: Glas unter Popups (`beize_glass_v1`, Abschnitt 6; einer App bleibt es auf
-ihrer Fläche, höchstens 32 Formen, kein Rauch), das Erscheinungsbild, ihre Menüs (Abschnitt 3).
+ihrer Fläche, höchstens 32 Formen), das Erscheinungsbild, ihre Menüs (Abschnitt 3).
 Minimiert wird vom Fenster aus (`xdg_toplevel.set_minimized`). Beize UI hält die Verbindung
 einer App mit allen ihren Fenstern (`App`, wie NSApplication), so sind Menüleiste und Dock zwei
 Fenster eines Prozesses auf einer Verbindung. Beides bekommt nur die
@@ -119,8 +119,8 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
 - **Snap:** Ziehen an einen Bildschirmrand, Super+Pfeiltaste oder das Window-Menü gibt die halbe
   Fläche bzw. maximiert. Halbe Fenster halten rundum und zueinander 10 px Abstand, wie macOS'
   „Tiled windows have margins“ (dort Standard; die Zahl ist geschätzt, Besitzer 31.10.: vorerst).
-  Die Vorschau zeigt den Platz vorab, auch beim Maximieren mit diesen 10 px: lebendiges Grundglas
-  Blur Sigma 20 (`Material::Preview`, drei statt vier Halbierungen, das Grundglas hat 44), Weiß 18 %,
+  Die Vorschau zeigt den Platz vorab, auch beim Maximieren mit diesen 10 px: lebendiges Glas mit
+  Blur Sigma 20 (`Material::Preview`, drei statt vier Halbierungen, Beize-Glas hat 44), Weiß 18 %,
   Fenster dahinter verschwimmen mit, Fensterecken, ein Strich von 1 px, kaum dunkler als das Glas
   (Schwarz 10 %, ohne Licht; Besitzer, 31.10., Mock-up).
   Ein Fenster stoppt an der Menüleiste; zieht man es mit dem Zeiger bis an
@@ -145,7 +145,7 @@ bleiben. Der Compositor startet sie nicht selbst, sie wäre sonst ein Kind in se
   wieder da (wie bei Windows); nach vorn geholt ist es sofort wieder Vollbild (Besitzer, 24.10.).
   Liegt ein Vollbild unter der Menüleiste, vorn oder zurückgetreten, liegt sie auf lebendigem
   Glas wie das Dock, das sich dem Vollbild darunter anpasst (Besitzer, 24.10.: einheitlich mit
-  dem Dock statt macOS' deckender Leiste), auch statt des Grundglases der Einstellung unten; die
+  dem Dock statt macOS' deckender Leiste): dünnes Beize-Glas wie bei der Einstellung unten; die
   Schrift folgt dann dem Erscheinungsbild, ohne Messung. Eingeblendet verdecken Leiste und Dock das Vollbild, sie
   verschieben es nicht (wie macOS): Die App behält ihre Größe, kein Neuzeichnen und kein Springen
   bei Video und Spiel. Die Leisten behalten ihre Streifen,
@@ -187,9 +187,9 @@ die Schrift bis zu einem Kontrast von 2:1 (mittlere relative Luminanz der Leiste
 ≤ 0,475; bewusst unter WCAGs 3:1, wie macOS); nur auf sehr hellem Hintergrund wird sie dunkel. Kein Schatten an der Schrift (Besitzer).
 
 **Einstellung „Transparente Menüleiste“** (Besitzer, 24.10.: beide gefallen ihm; kommt mit den
-Einstellungen, Vorgabe an): aus heißt die Leiste auf Grundglas, genau wie am 24.10. gebaut
-(Commit c93184b: Grundglas über die ganze Leiste ohne Lichtkante, Schrift nach dem
-Erscheinungsbild, dunkel auf hellem Glas); an heißt ohne Hintergrund wie oben. Modular: die
+Einstellungen, Vorgabe an): aus heißt die Leiste auf dünnem Beize-Glas (§6) über die ganze
+Leiste ohne Lichtkante, Schrift nach dem Erscheinungsbild, dunkel auf hellem Glas (gebaut
+24.10., Commit c93184b, damals als Grundglas); an heißt ohne Hintergrund wie oben. Modular: die
 Shell bestellt Glas für die Leiste (`beize_glass_v1`) oder nicht; hat die Leiste Glas, folgt
 die Schrift dem Erscheinungsbild statt dem gemessenen Ton, und der Verlauf darunter wird nie
 gezeichnet (das Glas ist deckend, Smithays Schadensverfolgung überspringt Verdecktes). Bis zu
@@ -273,7 +273,7 @@ Einstellung, die dann zur Laufzeit umschaltet.
 
 ### 4. Dock (unten)
 
-Schwebend, mittig, mit runden Ecken, aus flüssigem Glas (§6): angeheftete Apps, dann laufende Apps mit
+Schwebend, mittig, mit runden Ecken, auf Beize-Glas mittlerer Dichte (§6): angeheftete Apps, dann laufende Apps mit
 Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 - **Vorgaben wie macOS:** keine Vergrößerung beim Überfahren, nicht automatisch
@@ -289,11 +289,12 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 - **Ecken wie Apples:** stetig gekrümmt (die Kurve der Maske aus Apples App-Icon-Vorlage) für
   Fenster, Dock und App-Symbole, alle aus einer Abstandsfunktion im Shader; Kreisbögen nur, wo
   die Kurve nicht passt (Punkte, Kapseln). Maße des Docks an Apples Bildern gemessen, für
-  Beize größer (Besitzer, 25.10.; `beize-draw` `measures`): 90 hoch, Symbole 56 px dicht
-  nebeneinander, ringsum 17 px zum Rand, der Punkt schwarz mittig darunter.
+  Beize größer (Besitzer, 25.10.), seit ADR 0033 aus den Tokens (`beize-draw` `tokens`):
+  Symbole 56 px dicht nebeneinander, ringsum 14 px zum Rand, also 84 hoch, Radius 28 (die
+  große Fläche), der Punkt in der Tinte mittig darunter.
 - Beizes Apps zeigen ihr Symbol (siehe 8), andere ihr Symbol aus hicolor, eine App ohne Symbol
-  eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf flüssigem Glas ohne Schrift
-  (`liquid`, siehe 6), dasselbe wie das Kontrollzentrum (Besitzer 29.10.), der Punkt laufender Apps ist dunkel auf hellem, hell auf dunklem Glas.
+  eine Kachel mit ihrem Anfangsbuchstaben. Das Dock liegt auf Beize-Glas mittlerer Dichte mit
+  dem schwebenden Schatten (siehe 6).
 - Zum Start angeheftet: Terminal. Weitere Apps kommen, sobald es sie gibt.
 - **Rechtsklick auf eine Kachel** (macOS' Dock-Menü), mittig darüber: ihre Fenster mit Titel (das Terminal nennt
   sich nach dem Ordner, `PS1`), ein Strich, Neues Fenster, Beenden; läuft sie nicht: Öffnen. Beim Überfahren
@@ -301,23 +302,21 @@ Punkt darunter, rechts der Papierkorb (kommt mit dem Dateimanager).
 
 ### 5. Kontrollzentrum
 
-Kacheln aus flüssigem Glas (§6) unter dem rechten Ende der Menüleiste, **ohne Panel**: jede
-schwebt für sich, dahinter scheint verschwommen durch, was dort liegt, wie das Kontrollzentrum
-von macOS 26 (Apples Pressebild bestätigt es; Besitzer 28.10.). Um die Kacheln liegt Rauch
-(§6): auch zwischen und neben ihnen ist, was dahinter liegt, verwischt, ab ihrem Rand nach außen
-weich auslaufend über 130 px, bis unter die Leiste – ein Fenster dahinter macht sie nicht
-schwer lesbar (Besitzer 29.10., an Mock-ups; Apples Pressebild zeigt es so). Kein Schatten.
-Ein Popup der Leiste; ein Klick daneben schließt es, und daneben fällt er durch (Eingabe-Region
-nur auf den Kacheln; das Popup wächst nicht mit dem Rauch).
+**Eine Fläche** aus dichtem Beize-Glas (§6) unter dem rechten Ende der Menüleiste, die Kacheln
+darauf aus „Fläche“ (ADR 0033 §5), nicht aus eigenem Glas – wie das Kontrollzentrum von tvOS
+und die Bediensysteme von smart und Li Auto: eine ruhige Ebene, die Kacheln darin. Bis 0.6
+schwebten Kacheln aus flüssigem Glas einzeln mit Rauch dazwischen; der Besitzer (28.11.):
+„nichts Ganzes“, weiße Schrift auf hellem Glas hielt nur 3,3 : 1 (ADR 0033, Kontext). Ein Popup
+der Leiste; ein Klick daneben schließt es (Eingabe-Region: die Fläche).
 
-- **Raster** gemessen an Apples Pressebild (3840 px, ~3,94 px je pt über die Versalhöhe der
-  Leiste): vier Spalten zu 64 pt mit 12 pt Abstand, 292 pt breit – das Bild bestätigt die Summe –,
-  in Beize × 1,25 und 6,5 % kleiner (Besitzer 28.10., alles in der Kachel mit): Kachel 75,
-  Abstand 14, 14 unter der Leiste; rechts bündig mit dem Ende der Uhr (20 px Rand der Leiste).
-  Eine Zelle ist ein Kreis, 2 × 1 eine Kapsel, 2 × 2 hat Ecken von 21 pt (25), eine Reihe aus
-  vier (Regler) 16,5 pt (19). Runde Knöpfe in Kapseln 36 pt (42), „an“ ist eine weiße Scheibe mit
-  dem Symbol in Akzentblau. Titel der Kapsel 10 % leichter als halbfett (540), 2 px über der
-  Zeile darunter; das Symbol von Hell/Dunkel 30 px (Besitzer).
+- **Werte aus den Tokens** (ADR 0033 §3): Radius der Fläche 28, Kacheln 16 (Element:
+  konzentrisch, Fläche − Abstand), Abstand 12 ringsum und zwischen den Kacheln, 12 unter der
+  Leiste; Zelle 76 (Apples 64 pt × 1,25 × 0,935 = 75 des Besitzers vom 28.10., aufs Raster);
+  rechts bündig mit dem Ende der Uhr (20 px Rand der Leiste). Eine Zelle ist ein Schalter, 2 × 1
+  ein Knopf mit Titel und Zeile darunter, 2 × 2 und eine Reihe aus vier (Regler) kommen mit
+  ihren Diensten. Der runde Knopf in einer breiten Kachel 44, ringsum gleich weit vom Rand;
+  „an“ ist der Akzent mit weißem Symbol (5,6 : 1), „aus“ „Fläche gewählt“ mit Tinte. Titel 15
+  halbfett, Zeile darunter 13 in Tinte 2.
 - **Anordnung** (Besitzer, 28.10.): Netz oben links (2 × 1), daneben der Mediaplayer (2 × 2),
   darunter Bluetooth (2 × 1), darunter Hell/Dunkel (1 × 1), dann Helligkeit und Lautstärke je
   über die ganze Breite. Gebaut 28.10.: **Netz** (networkd über Varlink
@@ -328,48 +327,42 @@ nur auf den Kacheln; das Popup wächst nicht mit dem Rauch).
   Einstellungen.
 - Leere Kacheln für noch fehlende Dienste gibt es nicht: Reihen ohne Kachel rücken zusammen,
   und das Kontrollzentrum ist so breit wie die belegten Spalten, also rechts unter seinem Knopf.
-- Die Schrift auf dem Glas ist in beiden Erscheinungsbildern weiß, die Zeile darunter zu 70 %
-  (Apple 54 %, gemessen; über Beizes hellerem Hintergrund 70 %, Besitzer 29.10.); das Glas hält
-  dafür seine Helligkeit über Hellem (§6), die Schrift springt nicht um.
+- Die Schrift folgt dem Erscheinungsbild: dunkle Tinte im hellen, helle im dunklen Modus (ADR
+  0033 §5); der Kontrast-Test der Tokens hält sie über dem schwersten Hintergrund.
 - Der Knopf in der Leiste liegt, solange es offen ist, auf einer flachen Pille, kein Glas: helles
   Grau (225) zu 34 % unter weißer Schrift – heller als die Leiste wie Apples (dort ~1,45-mal so hell
   wie dahinter, gemessen) –, Schwarz zu 10 % unter dunkler (Besitzer 29.10./31.10.); ebenso unter
-  dem Beize-Menü.
+  dem Beize-Menü. Mit ADR 0033 Stufe 2 werden beide „Fläche gewählt“.
 
 ### 6. Material, Animation, Hintergrund
 
 Die drei Stufen der VISION, umgesetzt im Renderer des Compositors. Das Material zeichnet
 der Compositor, nicht die App, wie macOS' WindowServer und Windows' DWM: Die Shell sagt über
-`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, das Material,
-Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
+`beize_glass_v1`, wo Glas liegt (Rechteck der Fläche, Radius, Lichtkante ja/nein, die Dichte,
+Schatten; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren Inhalt.
 
-- **Grundglas** (heute keine Fläche; gerechnet erst, wenn eine Fläche es will): Der
-  Hintergrund wird einmal pro Wechsel
-  (Bildschirmgröße, Erscheinungsbild) weichgezeichnet – Dual Kawase wie bei KWin, vier
-  Halbierungen und zwei Verdopplungen zurück, das Glas hat ¼ der Größe –, seine Sättigung
-  ×1,8 angehoben und getönt: Hell `#F6F6F6` zu 30 %, Dunkel `#1E1E20` zu 45 % (Anhalt:
-  Mica mit `#F3F3F3` zu 50 % und `#202020` zu 80 %; geschätzt, vom Besitzer am 24.10. an
-  Entwürfen und Bildschirmfotos abgenommen). Danach wird es nur noch gelesen (Mica). Ein Bild
-  fügt je Pixel nur Korn (±1,5 Stufen) und die Lichtkante hinzu; das Glas gilt als deckend,
-  darunter wird nichts gezeichnet. Hintergrund und Blur haben einen eigenen Shader
-  (`backdrop.frag`), damit der Shader jedes Bildes klein bleibt.
-- **Lebendiges Glas** (Dock – Besitzer, 24.10.: Fenster dahinter scheinen verschwommen durch
-  wie bei macOS –, Menüleiste über Vollbild, Kontrollzentrum, Menüs, später Suche; Dock und
-  Kontrollzentrum als flüssiges Glas, unten): was dahinter liegt – Fenster, ihre
-  Schatten, der Hintergrund –, im selben Durchgang wie das Bild. Der Compositor zeichnet dafür die
-  Elemente hinter dem Glas (das Glas und 64 px darum, für den Rand des Blurs) in ein eigenes
-  kleines Bild mit eigener Schadensverfolgung, nie aus dem Bildschirmpuffer, in dem das Glas
-  selbst schon liegt. Nur wenn sich dort etwas geändert hat, läuft derselbe Blur wie beim
-  Grundglas, mit Anhebung und Tönung, so sehen beide über dem Hintergrund allein gleich aus.
-  Sonst kostet es ein Bild nichts als das Lesen. Ist das Budget knapp, sinkt die Auflösung,
-  statt dass ein Bild verloren geht (mit dem Lasttest messen).
-- **Fläche:** getönt mit feinem Korn, ohne Blur.
-- **Lichtkante:** ein Ring von etwa 1,5 px innen am Rand. Ihre Helligkeit folgt der Richtung
-  zum Licht (oben links), schwächer auf der Gegenseite, dazwischen fast keine – wie Apples
-  Liquid Glass; je Pixel aus der Abstandsfunktion der Ecken, kostet praktisch nichts.
-  Gleichmäßig rundum ist ein Schalter im Shader (`RIM_FOLLOWS_LIGHT`), damit man es später
-  vergleichen kann (Besitzer). Flüssiges Glas (unten) hat stattdessen seine eigene Lichtlinie
-  und Lichtbrechung.
+- **Beize-Glas** (ADR 0033 §6; wie NSVisualEffectView: ein Mechanismus, Materialien als
+  Dichten): was hinter dem Glas liegt – Fenster, ihre Schatten, der Hintergrund –, im selben
+  Durchgang wie das Bild, wie KWins Blur: Der Compositor zeichnet von hinten nach vorn, hält am
+  Glas an, kopiert, was er im Bereich des Glases und 64 px darum (für den Rand des Blurs)
+  gezeichnet hat, und zeichnet es weich – Dual Kawase, vier Halbierungen und zwei Verdopplungen
+  zurück, das Glas hat ¼ der Größe –, Sättigung ×1,8, dann die neutrale Tönung des
+  Erscheinungsbilds in der Deckkraft der Dichte (`dense`, `medium`, `thin`; Werte in
+  `beize-draw` `tokens`). Nur wenn sich dahinter etwas geändert hat; sonst kostet es ein Bild
+  nichts als das Lesen. Ein Bild fügt je Pixel nur Korn (±1,5 Stufen) und die Lichtkante hinzu;
+  das Glas gilt als deckend, darunter wird nichts gezeichnet. Hintergrund und Blur haben einen
+  eigenen Shader (`backdrop.frag`), damit der Shader jedes Bildes klein bleibt. Glas kann den
+  schwebenden Schatten werfen (`set_shadow`, ADR 0033 §7) und an mehreren Stellen einer Fläche
+  liegen (`add_shape`). Das frühere Grundglas (der Hintergrund einmal weichgezeichnet) ist mit
+  dem dünnen Glas entfallen: die Menüleiste mit Hintergrund ist das einzige dünne Glas, ihr
+  Blur läuft einmal und bleibt.
+- **Lichtkante:** ein Ring von etwa 1,5 px innen am Rand, je Dichte gleich (hell 0,3, dunkel
+  0,12). Ihre Helligkeit folgt der Richtung zum Licht (oben links), schwächer auf der
+  Gegenseite, dazwischen fast keine; je Pixel aus der Abstandsfunktion der Ecken, kostet
+  praktisch nichts. Gleichmäßig rundum ist ein Schalter im Shader (`RIM_FOLLOWS_LIGHT`).
+- **Entfallen mit ADR 0033** (bis 0.6 gebaut, Verlauf in den Commits): das flüssige Glas des
+  Docks und der Kacheln (Wölbung, Lichtbrechung, Lichtlinien, Schein, Milch, Tonkurve), der
+  Rauch um die Kacheln und die Gauß-Pässe dafür.
 - **Erscheinungsbild:** Hell oder Dunkel ist eine Systemeinstellung, nicht eine Eigenschaft
   des Bildes; Vorgabe Hell wie macOS. Das Glas nimmt die Tönung dazu, der Hintergrund seine
   Fassung, die Shell ihre Schrift (der Compositor sagt es ihr über `beize-shell-v1`). Die
@@ -378,69 +371,6 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
   `ConfigurationDirectory`, wie GNOME sein Farbschema in dconf). `BEIZE_APPEARANCE=dark` oder
   `light` in `~/.config/environment.d` geht vor (Tests, Bilder). Apps' eigene Fenster folgen
   noch nicht.
-- **Menü-Glas** (`beize_glass_v1.material` `menu`, wie NSVisualEffectView `.menu`): lebendiges
-  Glas, dicht getönt (§3, Menüs), mit schwacher Lichtkante; Glas kann Schatten werfen
-  (`set_shadow`) und an mehreren Stellen einer Fläche liegen (`add_shape`, die Kacheln).
-- **Flüssiges Glas** (`material` `clear` mit weißer Schrift darauf – die Kacheln des
-  Kontrollzentrums –, `liquid` ohne – das Dock), wie macOS 26' Liquid Glass. Gemessen (lineares
-  Licht, Profile senkrecht zur Kante) an macOS 26' Dock auf einem echten Mac-Bildschirm (2 px je
-  pt, Bildschirmfoto des Besitzers, 29.10.), Apples Glasknöpfen über einem weißen Fenster
-  (Pressebild macOS 27) und dem Kontrollzentrum (Pressebild macOS 26, 3,94 px je pt); das Licht
-  bewusst etwas unter Apples (Besitzer: subtil, minimalistisch, im Dunklen nicht grell); ein
-  Prüf-Agent hat es gegen Apple nachgemessen (`quad.frag` `clear_glass` nennt jeden Wert).
-  Lebendig, mattiert durch einen Gauß von 10 px auf halber Größe – klar, Formen dahinter bleiben
-  erkennbar (0.5.119: 14/16) –, der erste Durchgang halbiert beim Lesen, ¼ der Pixel, halbe
-  Taps; nur die Form und 40 px darum (was ein Pixel der Form höchstens liest), die Durchgänge
-  zeichnen nur, was die Form braucht, der zweite liest bilinear je zwei Nachbarn auf einmal. Je Pixel im Bild, in linearem Licht:
-  - **gewölbter Rand:** über 5 px biegt sich die Fläche zum Rand, ihre Normale kippt nach außen
-    (aus dem Gradienten der Abstandsfunktion); dort zeigt das Glas, was entlang der Normalen
-    weiter außen liegt (Lichtbrechung);
-  - **eine Tönung je Form** aus dem Mittel dahinter (neun Lesezugriffe auf das mattierte Bild,
-    einmal je Quad im Vertex-Shader, kein Zurücklesen): mit weißer Schrift über Dunklem
-    unverändert, über Hellem ab 0,22 sanft gegen 0,27 – Weiß behält ~3,4 : 1 wie bei Apple
-    (Apples Focus-Kachel 0,255, gemessen); wo heruntergezogen, wird die Farbe tiefer statt grau
-    (Chroma × Zug^−0,6, höchstens ×1,3); ohne Schrift nur das Erscheinungsbild. Dunkel ×0,72.
-    Die frühere feste Decke (`L/(1+aL)` auf kodierten Werten, 0,52) ist entfernt: sie drückte
-    jeden Mittelton auf ein Drittel, das Glas wirkte immer grau;
-  - Chroma ×1,25 in Oklab (Apple ×1,1–1,3);
-  - **Milch:** 10 % des Wegs zu einem hellen Grau (0,6; dunkel 0,25) – über Dunklem heller
-    (Apples Dock 47 → 83, Beize ~85), Mitteltöne kaum, Weiß ein Hauch grau (Apple 245 von 253,
-    Beize 250). Das Aufhellen gegen Weiß von 0.5.119 ist entfernt: über einem weißen Fenster
-    verschwand das Dock ganz (Befund des Besitzers);
-  - **Seiten:** das äußerste Pixel dunkler als das Dunklere von Glas und Umfeld (×0,55, nach
-    der Normalen hoch vier, so drehen die Ecken von Licht zu Dunkel), dazu überall dunkler, je
-    heller es außen ist (bis 10 %) – Apples Dock: 47 → 12 über Dunklem, 172 → 100 über Hellem,
-    über Weiß 252 → 240 → Glas;
-  - **Lichtlinie** ein Pixel innen (Mitte 1,3 px, Breite 0,6), nur oben (+0,4, Licht von
-    −100°) und unten (+0,35), an den Seiten keine; oben und unten liegt sie auf dem Helleren von
-    Glas und Umfeld (auf heruntergezogenem Glas käme sie sonst als grauer Strich zwischen
-    beiden heraus). Über der oberen Linie zeigt Glas mit Schrift, was außen liegt: sonst steht
-    dort ein graues Pixel, sichtbar an der geraden Oberkante der Kapsel (Besitzer, 30.10.).
-    Darunter ein Schein, der nach ~2 pt ausläuft (oben 0,12, unten 0,06; Apple
-    über Dunklem: 68 außen, 175 Linie, 140, 113, 106 … 96 Glas). Dunkel das Licht ×0,3.
-  - **Schatten** nur unten (`corners.rs` `LIQUID`: 3 px tiefer, σ 1,5, 12 %, seitlich um 2 px
-    eingerückt; Besitzer 30.10.: subtiler als Apples): Apples Dock wirft keinen nach oben und
-    keinen zur Seite, unten ~15 %. Er liegt
-    in der Reihenfolge vor seinem Glas und fällt nur außerhalb der Form (der Shader schneidet
-    die runde Form exakt aus): sonst sähe das lebendige Glas seinen eigenen Schatten und
-    verwischte ihn in die Ecken (grau; beim Bauen gefunden, 29.10.).
-  Kein Korn. Bis es einmal unscharf ist, zeigt es nichts statt des scharfen Hintergrunds. Smoke
-  (`liquid_glass`): Tönung der Kapsel über dem hellen Hintergrund nach der Kurve (±25 %),
-  Weiß ≥ 3 : 1, Lichtlinie oben nie unter einer ihrer Seiten und ≥ 6 Stufen heller als an der
-  Seite (Gegenprobe ohne „auf dem Helleren“: rot), über der oberen Linie der Kapsel kein Grau,
-  über Hellem und über einem dunklen Fenster (Gegenproben: rot); das Dock wird an seiner dunklen Kante
-  erkannt; Bild `dock-over-window.png` (Dock über Blau und Weiß des Testfensters). Nicht belegt
-  (keine Referenz): Apples dunkles Erscheinungsbild.
-- **Rauch** (`set_smoke(falloff, strength)`): was hinter den Formen einer Fläche und um sie liegt,
-  verwischt – ab dem Rand jeder Form nach außen `t = (1 − d/falloff)^1,6`, σ aus t über die
-  Stufen 0; 0,075; 0,15; 0,3; 0,6; 1 × `strength` (Kontrollzentrum: 130 px, 4 px); nur
-  Unschärfe, keine Tönung, kein Rand, kein Korn. Ein eigenes lebendiges Glas hinter der Leiste
-  (deren Schrift bleibt scharf), vor Fenstern; die Maske t rechnet die CPU nur bei Änderung von
-  Formen oder Lage (¼ Auflösung), dann zwei trennbare Gauß-Pässe mit σ je Pixel (wie die
-  Tiefenunschärfe in Spielen; keine gemischten Kawase-Stufen, die Blöcke und Geisterkanten
-  hinterlassen wie gestapelte CSS-`backdrop-filter`), nur wenn sich dahinter etwas ändert – sonst
-  ein Textur-Quad je Bild. Ohne gültige Unschärfe zeichnet er nichts und deckt nichts; stürzt die
-  Shell ab, bleiben Rauch und klares Glas nicht stehen.
 - **Start aus einem Guss** (gebaut 24.10., `os/beize-compositor/src/opening.rs`): Beim
   Übernehmen des Bildschirms setzt der Compositor den Modus sofort mit einem schwarzen Bild, so
   rastet der Monitor ein, während die Shell startet und der Hintergrund dahinter entsteht. Den
@@ -461,7 +391,7 @@ Schatten, Rauch; gilt mit ihrem nächsten Commit), und zeichnet darauf nur ihren
 - **Hintergrund:** ein eigenes Standardbild, im Shader berechnet (keine Bilddatei im
   Image), vom Besitzer am 24.10. an Entwürfen gewählt: vier Farbpunkte, in Oklab gemischt (so
   werden Übergänge nicht trüb), darüber vier geschwungene Bänder mit scharfer, heller
-  Oberkante. Ohne sie wäre Grundglas unsichtbar: ein weicher Verlauf sieht weichgezeichnet
+  Oberkante. Ohne sie wäre Glas über dem Hintergrund unsichtbar: ein weicher Verlauf sieht weichgezeichnet
   aus wie vorher. Das oberste Band liegt unter der Menüleiste, damit ihre Kante sichtbar
   bleibt. Je eine helle und eine dunkle Fassung mit denselben Formen, wie macOS' dynamische
   Bilder; Dithering gegen Streifen. Lage nach der Bildschirmhöhe, so behält es auf jedem
