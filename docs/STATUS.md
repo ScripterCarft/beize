@@ -93,16 +93,18 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
   `build/gallery/ohne-ref/` und `build/gallery/mit-ref/` (die Galerie bekommt dafür einen
   Unterordner je Satz). Der Besitzer wählt (oder „Mischung“), der gewählte Satz geht auf Hardware.
   - **ohne-ref:** nur ADR 0033.
-  - **mit-ref:** aus den 16 Bildern in `D:\beize-ref\` (am 28.11. angesehen: visionOS Nachrichten,
-    Notizen, Things, Steuerzentrale; smart, Li Auto, Zeekr, Volvo, Rivian; tvOS-Kontrollzentrum;
-    Sperrbildschirme macOS/Windows; PS5). Gemeinsam: mattes, warm-neutrales Glas, durch das die
-    Farbe des Hintergrunds weich scheint, ohne Lichtkanten; sehr große Radien und viel Luft;
-    Pillen-Knöpfe; **Auswahl als hellere bzw. dunklere Fläche, nicht Akzentblau** (Menüzeile,
-    Alt+Tab, gewählte Kachel); Farbe sparsam; dünne Symbole; große Zahlen fürs Wichtige; das
-    tvOS-Kontrollzentrum ist eine Glasfläche mit Kacheln als Flächen (wie ADR 0033). Also:
-    wärmere Tönung (etwa #F2F1EF / #2E2D2B), dicht etwas weniger (~70 %, Kontrast-Test
-    entscheidet), Radien eine Stufe größer (Fläche 32, Element 20, Detail 12), Abstände großzügiger,
-    Menü-Hervorhebung als „Fläche gewählt“. Bilder selbst ansehen, nicht nur dieser Notiz folgen.
+  - **mit-ref:** angeregt von den 16 Bildern in `D:\beize-ref\` – **keine Designvorlage**
+    (Besitzer, 28.11.): Sie zeigen UIs, die ihm gefallen, mal wegen des Layouts, mal wegen des
+    Designs, mal einfach wegen der Stimmigkeit; nicht alles davon passt zu einem PC-Betriebssystem
+    oder ist seine Vorstellung davon. Aufnehmen, was zu einem Desktop für Maus und Tastatur passt,
+    nichts übernehmen, weil es dort so aussieht. Am 28.11. gesehen (visionOS, smart, Li Auto,
+    Zeekr, Volvo, Rivian, tvOS-Kontrollzentrum, Sperrbildschirme, PS5), gemeinsam und
+    desktop-tauglich: mattes, warm-neutrales Glas, durch das die Farbe des Hintergrunds weich
+    scheint, ohne Lichtkanten; große Radien und viel Luft; Auswahl als Fläche statt Akzentblau;
+    Farbe sparsam; ein Kontrollzentrum als eine Fläche mit Kacheln. Ein möglicher Satz: wärmere
+    Tönung (etwa #F2F1EF / #2E2D2B), dicht ~70 % (Kontrast-Test entscheidet), Radien eine Stufe
+    größer (32/20/12), großzügigere Abstände, Menü-Hervorhebung als „Fläche gewählt“. Die Bilder
+    selbst ansehen und eigen urteilen.
 - **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
   der Messung der späten Bilder.
   1. Material: Dock und Kontrollzentrum auf Beize-Glas, eine Glasfläche mit Kacheln, dunkle
