@@ -28,9 +28,16 @@ QEMU ✓ · M2 echte Hardware ✓ · **M3 Compositor (läuft)** · M4 alltagstau
   Reihenfolge so legen, dass nichts doppelt gebaut oder später umgebaut wird. Ursachen im Code
   belegen statt mit vielen Messbauten; schwer lesbaren Code umstrukturieren. Dem Besitzer sagen,
   was er parallel tun kann.
-- Neue Architektur: ADR vorab abstimmen. **Werte und Aussehen**, die der Besitzer abgenommen hat,
-  ändern sich nur nach seinem Ja (Mock-ups vorher). Bei Problemen einen Schritt zurück,
-  Alternativen mit Empfehlung vorlegen.
+- Neue Architektur: ADR vorab abstimmen. Bei Problemen einen Schritt zurück, Alternativen mit
+  Empfehlung vorlegen.
+- **Claude ist Design-Direktor** (Besitzer, 28.11.): verantwortlich dafür, dass Beize sein Look
+  and Feel bekommt und es so rüberkommt, wie es soll – zufrieden mit jedem Element, Ziel: der
+  Besitzer ist beim Testen überwältigt. Claude entscheidet Aussehen, Bedienung und die nächsten
+  Design-Schritte selbst und darf **jedes** Element und jeden früher abgenommenen Wert ändern,
+  solange nichts kaputtgeht oder schlechter wird. Jede Änderung mit Begründung und Vorbild,
+  geprüft vom Gutachter (`beize-design-auditor`); der Besitzer nimmt das Ergebnis auf Hardware
+  ab, sein Urteil gilt. Grenzen bleiben VISION (keine Apple-Icons, kein „macOS-Look“-Set) und
+  die Architekturregeln.
 - **Hardware-Schritte** für den Besitzer nummeriert: wer, wo (WSL/Beize), was er sieht, was ein
   Fehlschlag bedeutet. Aussehen prüft er selbst (Hinweis in der Nachricht), der Hardware-Test
   misst nur.

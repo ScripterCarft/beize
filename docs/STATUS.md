@@ -50,16 +50,17 @@ Die Stränge, mit dem, was schon bekannt ist:
   schließt mit Bild im selben Frame (`state.rs` ~1884), „flip event repeated the vblank before“
   häuft sich. Größte Dateien: `state.rs` 2719 Zeilen, `animation.rs` 1816, `render/mod.rs` 1719,
   `windows.rs` 1688, `beize-ui/app.rs` 1597, `beize-shell/main.rs` 1507.
-2. **UI-Overhaul mit eigener Formensprache (neues ADR, vorab abgestimmt).** Besitzer: Beize soll
+2. **UI-Overhaul mit eigener Formensprache (neues ADR), Claude als Design-Direktor** (CLAUDE.md
+  §2: entscheidet selbst, darf jedes Element ändern, Ziel „überwältigt“). Besitzer: Beize soll
   Eigenes haben, alles aus einem Guss; das Liquid Glass (Dock, Kacheln des Kontrollzentrums) ist
   „nichts Ganzes“, schwer, überladen; das **Menü-Glas** (80 % #F2F2F2/#2D2D2D über Unschärfe,
   `backdrop.rs` `menu_material`) ist „mega“. Ablauf: Bestandsaufnahme (eigene Screenshots aller
   Zustände über `bz debug … '@screendump'`, seine aus `~/hw-logs`), Agent
   `beize-design-auditor` plus eine UX-Prüfung der Abläufe → ADR mit Grundwerten (Abstände,
   Radien, Schrift, Farben, Bewegung) und **einem** Materialsystem → zwei, drei Richtungen als
-  Mock-up mit dem echten Renderer, der Besitzer wählt → schrittweise umbauen, jede Stufe vom
-  Gutachter geprüft und vom Besitzer auf Hardware abgenommen. Abgenommene Werte (Liste unten,
-  ADR 0028/0032) ändern sich nur nach seinem Ja.
+  Mock-up mit dem echten Renderer, Claude entscheidet und zeigt sie dem Besitzer → schrittweise
+  umbauen, jede Stufe vom Gutachter geprüft und vom Besitzer auf Hardware abgenommen. Frühere
+  Abnahmen (Liste unten, ADR 0028/0032) sind Ausgangspunkt, keine Sperre.
 3. **UX-Lücken:** Ein Dock-Klick holt ein minimiertes Fenster nur zurück, wenn alle Fenster der
   App minimiert sind (`dock.rs` `release`); sonst nur per Rechtsklick – macOS zeigt Minimiertes als
   eigene Kacheln, Windows 11 Vorschauen; Lösung mit Vorbild vorschlagen. Die Raute für
@@ -73,8 +74,6 @@ Die Stränge, mit dem, was schon bekannt ist:
   Klären, was davon Compositor, Shell oder Beize UI jetzt schon anders zuschneiden würde.
 6. **systemd-Entwürfe** (`docs/upstream.md`): kompilieren, logind v2 mit Test, dann trägt Beize
   die gesendete Fassung.
-7. Offene Frage an den Besitzer: Schließen 0,2 s oder 0,15 s – er hat es in 0.5.132 zum ersten
-  Mal gesehen, noch keine Antwort.
 
 ## Offen, mit Ort
 
@@ -117,4 +116,4 @@ Die Stränge, mit dem, was schon bekannt ist:
 - **Entscheidungen, die nur hier stehen:** Menüleiste über Vollbild darf dunkel satter/hell
   blasser wirken; fremde App-Symbole behalten ihre Form; Apples Icons und „macOS-Look“-Sets
   tabu (VISION); Kontrollzentrum-Pille grau 34 %, Menüleiste weiß 12 %, Menü-Glas 80 %;
-  Animationswerte von 0.5.131 (27.11., „viel besser“), Alt+Tab-Ring 0,1 s (28.11.).
+  Animationswerte von 0.5.131 (27.11., „viel besser“), Alt+Tab-Ring 0,1 s, Schließen 0,2 s (28.11.: „gut wie es war“).
