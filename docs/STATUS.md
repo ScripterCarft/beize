@@ -45,7 +45,7 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 `backdrop.rs`); Dock und Kontrollzentrum (`os/beize-shell/src/dock.rs`, `control_center.rs`)
 darauf; `clear_glass`/`liquid_tone` in `quad.frag`/`quad.vert`, Rauchmaske und ihre
 Smoke-Prüfungen (`glass.rs` im Smoke) entfernen; ADR 0028 §5/§6 auf 0033 bringen; dann die zwei
-Mock-up-Sätze (B2) in den Downloads-Ordner, der Besitzer wählt, Gutachter, dann **ein** Messbau für den Besitzer: Material ansehen und dabei die
+Mock-up-Sätze (B2) als Galerien, der Besitzer wählt, Gutachter, dann **ein** Messbau für den Besitzer: Material ansehen und dabei die
 späten Bilder nach A1 messen (Journal „freed N GPU objects“).
 
 Grundlage: Bestandsaufnahme vom 28.11. mit 28 Bildschirmfotos aller Zustände (hell und dunkel)
@@ -88,13 +88,21 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
   „außen = innen + Abstand“, Kapseln 32, Text ab 20; 15/13 px, Gewichte 400/500/600; Farben als
   Tokens (Akzent #0064d2); Beize-Glas in drei Dichten; zwei Höhen; Kontrast-Unit-Test in
   linearem Licht über dem schwersten Hintergrund.
-- **B2 Mock-ups (Besitzer, 28.11.): zwei Wertesätze, nach B3.1:** Die Mechanik (Tokens, Glas in
-  drei Dichten) wird einmal gebaut, dann zwei Token-Sätze: **ohne** den Einfluss des Besitzers
-  (nur ADR 0033) und **mit** seinen Referenzbildern (`D:\beize-ref\`, vorher ansehen: Akzent,
-  Dichten, Radien, Abstände daran ausrichten). Je Satz die Galerie in
-  `C:\Users\Joe\Downloads\beize-mockups\ohne-ref\` bzw. `mit-ref\` (aus WSL:
-  `/mnt/c/Users/Joe/Downloads/...`). Der Besitzer wählt (oder „Mischung“), der gewählte Satz geht
-  auf Hardware; die Dichte des Docks (50/60/70 %) fällt dort.
+- **B2 Mock-ups (Besitzer, 28.11.): zwei Wertesätze, nach B3.1.** Die Mechanik (Tokens, Glas in
+  drei Dichten) wird einmal gebaut, dann zwei Token-Sätze, je Satz die Galerie am üblichen Ort:
+  `build/gallery/ohne-ref/` und `build/gallery/mit-ref/` (die Galerie bekommt dafür einen
+  Unterordner je Satz). Der Besitzer wählt (oder „Mischung“), der gewählte Satz geht auf Hardware.
+  - **ohne-ref:** nur ADR 0033.
+  - **mit-ref:** aus den 16 Bildern in `D:\beize-ref\` (am 28.11. angesehen: visionOS Nachrichten,
+    Notizen, Things, Steuerzentrale; smart, Li Auto, Zeekr, Volvo, Rivian; tvOS-Kontrollzentrum;
+    Sperrbildschirme macOS/Windows; PS5). Gemeinsam: mattes, warm-neutrales Glas, durch das die
+    Farbe des Hintergrunds weich scheint, ohne Lichtkanten; sehr große Radien und viel Luft;
+    Pillen-Knöpfe; **Auswahl als hellere bzw. dunklere Fläche, nicht Akzentblau** (Menüzeile,
+    Alt+Tab, gewählte Kachel); Farbe sparsam; dünne Symbole; große Zahlen fürs Wichtige; das
+    tvOS-Kontrollzentrum ist eine Glasfläche mit Kacheln als Flächen (wie ADR 0033). Also:
+    wärmere Tönung (etwa #F2F1EF / #2E2D2B), dicht etwas weniger (~70 %, Kontrast-Test
+    entscheidet), Radien eine Stufe größer (Fläche 32, Element 20, Detail 12), Abstände großzügiger,
+    Menü-Hervorhebung als „Fläche gewählt“. Bilder selbst ansehen, nicht nur dieser Notiz folgen.
 - **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
   der Messung der späten Bilder.
   1. Material: Dock und Kontrollzentrum auf Beize-Glas, eine Glasfläche mit Kacheln, dunkle
