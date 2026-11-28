@@ -17,63 +17,128 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
   26.3.1, LLVM 23.1.6, Vulkan 1.4.369, linux-firmware 20261124, neun Basis-Pakete, Rust-Locks.
   xkeyboard-config bleibt 2.48 (#20). Dependabot #45 (parley 0.13, skrifa 0.49, resvg 0.50,
   xkbcommon 0.9) rot: parleys API (`Layout::align`) – gehört zur Schrift im UI-Overhaul.
-- **Späte Bilder seit 0.5.132 deutlich mehr** (Hardware, gleiche Handgriffe): 223 statt 81
-  während Animationen, 317 statt 102 je Sitzung. GPU-spät vor allem bei „dialog closes“ 57 (0.5.131:
-  10), „comes back“ 44 (5), „menu closes“ 52 (13), „dialog appears“ 38 (31); neu 92 „late (drawing)“
-  (vorher 2), fast alle in der Phase `begin` von `render/mod.rs` `submit()` (bis 21 ms; dort
-  laufen `dmabufs.retain`, `shared.collect()` = Freigaben, Uploads, `write_quads`) – beim
-  Einrasten/Maximieren ~25 ms nach „moves“ und beim Live-Resize. Ursache nicht belegt; neuer
-  Grafik-Stack und Kernel sind der einzige Unterschied zu 0.5.131.
+- **Späte Bilder seit 0.5.132: Mechanismus im Code belegt** (Gutachter 28.11.). Die Phase
+  `begin` von `render/mod.rs` `submit()` enthält nur eine Arbeit, die Millisekunden kosten kann:
+  `shared.collect()` (`beize-vulkan/src/device.rs`) zerstört vor dem Aufzeichnen alles, was die
+  GPU nicht mehr braucht, je Bild ein `vkFreeMemory`. NVK (Mesa 26.3.1,
+  `nvkmd_nouveau_va_free`) hebt dabei die Abbildung mit `DRM_NOUVEAU_VM_BIND` synchron auf, also
+  ein Kernel-Aufruf mit Warten je Bild. Jedes `Picture` und jede Blur-Kette hat eigenen Speicher
+  (`image.rs:170`, `target.rs:209`), entsteht je Animation neu und wird beim Ende freigegeben,
+  passend zu „dialog closes“ 57, „menu closes“ 52, „comes back“ 44. Beim Live-Resize geben alte
+  dmabuf-Importe frei. Belegt ist der Mechanismus, nicht die Millisekunden: `collect()`
+  getrennt messen, im nächsten ohnehin geplanten Messbau. „flip event repeated“ verfälscht
+  „late“ nicht (`pacing.rs:213`, ein wiederholtes Ereignis kann ein spätes Bild nur verstecken).
 - **Upstream:** `docs/upstream.md` (27.11. geprüft): nouveau GSP-IRQDEST in Mainline (7.4, Cc
   stable); systemd #44842 „needs-rework“, v2 und die run0-Fassung für main liegen in `~/upstream`.
 - **1Password läuft auf Beize noch nicht:** kein Weg, Apps zu installieren.
 - **CI:** schneller Lauf je Push, nachts voll; zuletzt alles grün. Push braucht entsperrtes 1Password.
 
-## Als Nächstes: erst der Gesamtplan, dann bauen
+## Als Nächstes: der Gesamtplan (28.11.)
 
-Der Besitzer (28.11.) will keinen Problemen einzeln hinterherlaufen, sondern einen Stand, auf dem
-Beize ohne Sorgen aufbaut. **Erster Auftrag des nächsten Chats: einen Plan vorlegen**, der die
-Stränge unten verbindet – Reihenfolge so, dass nichts doppelt gebaut oder später wieder umgebaut
-wird, mit Blick auf künftige Systeme. Leitfragen des Besitzers:
-- Brauchen wir für ein Problem ohnehin bald ein professionelleres System? Dann jetzt umsteigen
-  statt flicken.
-- Ursachen im Code suchen und belegen, **nicht mit vielen Messbauten**; wo man lange lesen muss,
-  umstrukturieren (Trennung der Zuständigkeiten, guter Stil).
-- Was kann der Besitzer parallel tun, während die KI arbeitet (Entscheidungen, Mock-ups wählen,
-  Upstream senden, Hardware-Tests bündeln)?
-- Wie werden Bauen, Smoke und Tests schneller?
+Grundlage: Bestandsaufnahme vom 28.11. mit 28 Bildschirmfotos aller Zustände (hell und dunkel)
+sowie den Gutachten von `beize-design-auditor` (Werte, Material, Abläufe) und `beize-reviewer`
+(Render-Pfad, Struktur, Tests). Die Reihenfolge folgt einer Regel: **erst das, worauf alles
+Spätere steht, dann die Formensprache, dann die Systeme, die sie brauchen.** Nach jeder Stufe
+läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
 
-Die Stränge, mit dem, was schon bekannt ist:
-1. **Späte Bilder** (Zahlen oben): Render-Pfad durchgehen – was in `submit()` vor dem Aufzeichnen
-  passiert, gehört es in den Bildpfad (Freigaben/Importe aus dem Takt nehmen, wie Mutter/KWin es
-  halten)?; bekannt: neues `Picture`/`LiveGlass` je Öffnen (`animation.rs`, `scene.rs:207`), Menü
-  schließt mit Bild im selben Frame (`state.rs` ~1884), „flip event repeated the vblank before“
-  häuft sich. Größte Dateien: `state.rs` 2719 Zeilen, `animation.rs` 1816, `render/mod.rs` 1719,
-  `windows.rs` 1688, `beize-ui/app.rs` 1597, `beize-shell/main.rs` 1507.
-2. **UI-Overhaul mit eigener Formensprache (neues ADR), Claude als Design-Direktor** (CLAUDE.md
-  §2: entscheidet selbst, darf jedes Element ändern, Ziel „überwältigt“). Besitzer: Beize soll
-  Eigenes haben, alles aus einem Guss; das Liquid Glass (Dock, Kacheln des Kontrollzentrums) ist
-  „nichts Ganzes“, schwer, überladen; das **Menü-Glas** (80 % #F2F2F2/#2D2D2D über Unschärfe,
-  `backdrop.rs` `menu_material`) ist „mega“. Ablauf: Bestandsaufnahme (eigene Screenshots aller
-  Zustände über `bz debug … '@screendump'`, seine aus `~/hw-logs`), Agent
-  `beize-design-auditor` plus eine UX-Prüfung der Abläufe → ADR mit Grundwerten (Abstände,
-  Radien, Schrift, Farben, Bewegung) und **einem** Materialsystem → zwei, drei Richtungen als
-  Mock-up mit dem echten Renderer, Claude entscheidet und zeigt sie dem Besitzer → schrittweise
-  umbauen, jede Stufe vom Gutachter geprüft und vom Besitzer auf Hardware abgenommen. Frühere
-  Abnahmen (Liste unten, ADR 0028/0032) sind Ausgangspunkt, keine Sperre.
-3. **UX-Lücken:** Ein Dock-Klick holt ein minimiertes Fenster nur zurück, wenn alle Fenster der
-  App minimiert sind (`dock.rs` `release`); sonst nur per Rechtsklick – macOS zeigt Minimiertes als
-  eigene Kacheln, Windows 11 Vorschauen; Lösung mit Vorbild vorschlagen. Die Raute für
-  minimierte Fenster im Dock-Menü (`Mark::Diamond`) wirkt fremd.
-4. **Code und Tests:** Aufräumen (Liste „Compositor“ unten); Desktop-Szenario in eigenständige
-  Teile mit parallelen VMs (heute 232 s + 124 s Animationen); ein Journal-Leser statt ~170
-  Abfragen; Menü-Ereignisse statt fester Pausen.
-5. **Künftige Systeme, die heute Entscheidungen beeinflussen:** Apps installieren (Paketformat,
-  Sandbox, Portale – Voraussetzung für 1Password und jede Drittanbieter-App), Updates über das
-  Internet (#15), Töne und Mitteilungen (je ADR; Mitteilungen brauchen die neue Formensprache).
-  Klären, was davon Compositor, Shell oder Beize UI jetzt schon anders zuschneiden würde.
-6. **systemd-Entwürfe** (`docs/upstream.md`): kompilieren, logind v2 mit Test, dann trägt Beize
-  die gesendete Fassung.
+### Phase A: Fundament (unsichtbar, macht alles Spätere billiger)
+
+- **A1 GPU-Speicher wie ein Profi-Renderer.**
+  1. Freigeben nach dem Commit an KMS statt vor dem Aufzeichnen: klein, sofort.
+  2. Sub-Allokator `gpu-allocator`, wie bei wgpu: Freigeben wird Buchhaltung, kein Kernel-Aufruf.
+  3. Pool für Bildziele und Blur-Ketten nach Größe, wiederverwendet über Öffnen und Schließen
+     (niri `OffscreenBuffer`, KWin `OffscreenEffect`).
+
+  Warum jetzt: Der Umbau bringt neue Materialien und Bilder, die sollen auf dem fertigen System
+  entstehen. dmabuf-Importe lassen sich nicht sub-allozieren, für sie reicht Schritt 1.
+- **A2 Struktur.** Erst die Teilung, dann die Umbauten in sauberen Modulen.
+  - `render/mod.rs` → `memory.rs` (Heimat des Allokators), `submit.rs`, `glass.rs`, `smithay.rs`,
+    `timing.rs`.
+  - `animation.rs` → `animation/`; `picture.rs` ist die Heimat des Pools.
+  - `state.rs` → `session`, `frame`, `idle`, `focus`, `handlers/` (Vorbild niri).
+  - `windows.rs` → `placement`, `lifecycle`, `states`, `grabs` (anvil).
+  - Shell: `run()` (860 Zeilen, alles lokale Variablen) wird `struct Shell` mit `bar`, `menus`,
+    `dialogs`. Die Menü-Logik wird dann ohne VM testbar.
+  - `beize-ui/app.rs` → `wayland`, `surfaces`, `desktop`.
+  - Aufräumen:
+    - tote `None`-Zweige: `windows.rs:108`, `decorations.rs:68`, `app_menu.rs:70`;
+    - `popup_grab_ended` doppelt zu `active_window`;
+    - die Begrenzung in `rescan` durch `on_screen` ersetzen.
+  - Ein allgemeiner Weg im Compositor: „eine Fläche geht mit ihrem Bild“ statt fünf Funktionen
+    je Art (`state.rs:1693-1915`). Mitteilungen brauchen ihn.
+- **A3 Tests schneller und als Galerie.**
+  - Ein Journal-Leser auf dem Host, der einmal folgt, statt ~260 Abfragen, die je 200 ms das
+    ganze Journal neu lesen.
+  - Positive Marken statt ~45 fester Pausen, allein 29 in `menus.rs`: „Menü offen“, „Taste an
+    App“.
+  - Das Desktop-Szenario in eigenständige Teile auf 2–3 parallelen VMs (mehr verträgt lavapipe
+    auf 4 vCPU nicht).
+  - Neu: ein Teil **Galerie**, der jeden Zustand hell und dunkel als PNG ablegt. Er ersetzt die
+    Handaufnahmen und ist der Beleg des Gutachters für jede Design-Stufe (VISION:
+    Screenshot-Vergleiche).
+  - Bauen: `cargo --timings` messen, dann gemeinsames Target je gleiche Features, lld.
+- **A4 Ein Token-Modul** `beize-draw::tokens`: Radien, Abstände, Schrift, Farben, Bewegung an
+  einer Stelle, erst mit den heutigen Werten (pixelgleich, Galerie vergleicht). Heute sind sie
+  verstreut, zum Beispiel drei Schwarz-Tinten und die Akzentfarbe doppelt. Materialien bleiben
+  beim Compositor und werden per Name bestellt (wie `NSVisualEffectView.Material`). Danach
+  ändert der Umbau nur Werte.
+
+### Phase B: Formensprache
+
+- **B1 ADR 0033 Formensprache** (Claude schreibt es und zeigt es dem Besitzer):
+  - ein 4-px-Raster;
+  - konzentrische Radien in einer Skala;
+  - zwei Schriftgrößen und drei Gewichte (heute fünf);
+  - semantische Farben mit WCAG-AA-Prüfung;
+  - **ein Material**: Beize-Glas aus dem Menü-Glas in drei Dichten (dicht ~80 % für Menüs,
+    Dialoge, Alt+Tab, Kontrollzentrum und Mitteilungen; mittel für das Dock; dünn für das
+    Grundglas);
+  - zwei Schattenstufen;
+  - Bewegung bleibt ADR 0032.
+
+  Flüssiges Glas, Rauch und Tonkurve entfallen; das System wird einfacher und billiger.
+- **B2 Mock-ups mit dem echten Renderer**: zwei bis drei Token-Sätze über die Galerie. Claude
+  wählt und zeigt sie.
+- **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
+  der Messung der späten Bilder.
+  1. Material: Dock und Kontrollzentrum auf Beize-Glas, eine Glasfläche mit Kacheln, dunkle
+     Schrift im hellen Modus. Das behebt 3,3:1 und 2,4:1 sowie das unsichtbare Dock.
+  2. Menüs, Dialog, Feld, Alt+Tab und Pillen auf Tokens:
+     - konzentrisch;
+     - Fehlerrot mit 4,5:1;
+     - Alt+Tab-Auswahl leiser als Vollblau.
+  3. Fenster, Titelleiste und Menüleiste.
+  4. Schrift: parley 0.13 (Dependabot #45) zusammen mit der Schriftskala.
+- **B4 Abläufe:**
+  - „Ausblenden“ als eigener Zustand (heute minimiert es; „Alle einblenden“ holt auch absichtlich
+    Minimiertes);
+  - Dock-Klick holt das zuletzt benutzte Fenster, auch minimiert (GNOME-Regel);
+  - keine Raute, stattdessen „Minimiert“ in der Kürzelspalte;
+  - Terminal-Titel mit Ordner;
+  - polkit-Text in menschlicher Sprache statt `run-p….service` (VISION 4).
+
+### Phase C: Systeme, je mit eigenem ADR, auf A und B
+
+1. **Mitteilungen:** Server `org.freedesktop.Notifications` in der Shell (wie GNOME Shell und
+   plasmashell), auf Beize-Glas, mit dem allgemeinen Bildweg aus A2.
+2. **Ton:** erst PipeWire (#17, es gibt noch kein Rezept), dann Systemklänge in der Shell.
+3. **Apps installieren:**
+   - `wp_security_context_v1` (Flatpak, Mutter, KWin, niri) vor der cgroup-Erkennung in einem
+     Modul „Client-Identität“;
+   - xdg-desktop-portal mit Beize-Backend;
+   - Bundle-Format: Zeitpunkt und Wahl Flatpak oder eigenes beim Besitzer.
+4. **Updates übers Internet** (ADR 0020, #15): zuerst das Zurück-ADR; die Frage erscheint als
+   Mitteilung.
+
+**Nebenher, in Wartezeiten auf Hardware:** systemd-Entwürfe (`docs/upstream.md`) kompilieren,
+logind v2 mit TEST-35, danach trägt Beize die gesendete Fassung.
+
+**Der Besitzer parallel:**
+1. Upstream senden (`docs/upstream.md`).
+2. Bilder sammeln, die ihm gefallen (smart, Li Auto, Apps, Fotos), in `D:\beize-ref\`. Sie
+   fließen ins ADR.
+3. Hardware-Abnahmen je B3-Stufe, gebündelt.
+4. Später den Zeitpunkt für Apps installieren wählen.
 
 ## Offen, mit Ort
 
@@ -85,18 +150,12 @@ Die Stränge, mit dem, was schon bekannt ist:
   „TPM entsperrt“ (`main.rs:149`); Recovery-Keys in beize-tpm als `String`; ein abgestürzter
   Compositor führt zurück in die angemeldete Konsole (vor dem Sperrbildschirm lösen).
 - **Compositor:** Glas der Vorschau meldet sich als undurchsichtig, `take_shown` löst FIFO der
-  Fenster dahinter (`backdrop.rs` `opaque_regions`); Aufräumen: `with_place`/`with_menus`/`with_bar`
-  mit toten `None`-Zweigen, `popup_grab_ended` doppelt zu `active_window`, Zeiger-Begrenzung in
-  `rescan` doppelt. Beim Einrasten wird der Schatten mitgestreckt (`animation.rs` `stretched`);
-  Popups eines Fensters liegen während des Trichters ungebogen am Ziel (`scene.rs` ~115);
-  „flip event repeated the vblank before“ häuft sich bei Animationen – prüfen, ob es „late“
-  verfälscht.
+  Fenster dahinter (`backdrop.rs` `opaque_regions`). Beim Einrasten wird der Schatten mitgestreckt (`animation.rs` `stretched`);
+  Popups eines Fensters liegen während des Trichters ungebogen am Ziel (`scene.rs` ~115).
 - **Terminal:** Schrift-Verzeichnis je Zelle neu gelesen (`beize-draw/src/text.rs:183`).
 - **NVK:** Tabelle im Shader las Unsinn (Index belegt im Bereich) – Treiberfehler erschlossen,
   Reproduzierer auf Hardware fehlt; Kommentare in `quad.frag`, `backdrop.frag`, `quad.vert`.
-- **Tests:** Desktop-Szenario in eigenständige Teile (parallele VMs); ein Journal-Leser statt
-  ~170 Abfragen; Menü-Ereignisse statt fester Pausen. Der Dialog-Test wartet jetzt 26 s
-  (das prüft polkits Timeout echt).
+- **Tests:** Der Dialog-Test wartet 26 s (prüft polkits Timeout echt); alles Übrige in Plan A3.
 - **VM / Smoke, je einmal:** #41 vCPU steht bis 21 s; 17.11. erster Start wartete auf
   `/dev/gpt-auto-root-luks` (`build/work/install-hang-02-smoke.log`); 16.11. Snap ohne Vorschau
   (VM überlastet); 18.11. Terminal zeigte nur „/r“ – der Smoke zählt jetzt die IRQ-1-Bytes
