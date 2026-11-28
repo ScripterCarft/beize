@@ -39,17 +39,18 @@ Messwerte der Hardware-Tests in `~/hw-logs/results-*`. Hier wird ersetzt, nicht 
 
 ## Als Nächstes: der Gesamtplan (28.11.)
 
-**Nächster Schritt: die Wahl des Besitzers (B2).** B3.1 ist gebaut (unten). Die zwei
-Wertesätze liegen als Galerien in `build/gallery/ohne-ref/` und `build/gallery/mit-ref/`, zum
-Vergleichen auf https://claude.ai/artifact/WjCCN4wXQXKg8ZdvYFGbkw (privat). Wählt er:
-1. in `os/beize-draw/src/tokens.rs` den gewählten Satz behalten (bei „Mischung“ die Werte
-   zusammenführen), den anderen Satz, das `pub use` und den Absatz über zwei Sätze löschen;
-   ADR 0033 §3/§5/§6 auf die Werte bringen;
-2. mit-ref gewählt: in `tools/bz/src/vm/smoke/desktop/mod.rs` `DOCK_HEIGHT` 92,
-   `DOCK_PADDING` 11, in `glass.rs` `GLASS_TINT_LIGHT`/`GLASS_DENSE_LIGHT` auf #F2F1EF zu 72 %
-   (relative Luminanz rechnen), die Galerie lief damit grün;
-3. Gutachter (`beize-design-auditor`) über die Galerie, dann **ein** Messbau für den Besitzer:
-   Material ansehen und dabei die späten Bilder nach A1 messen (Journal „freed N GPU objects“).
+**Nächster Schritt: das Urteil des Besitzers über den zweiten Anlauf**, dann **ein** Messbau:
+Material ansehen und dabei die späten Bilder nach A1 messen (Journal „freed N GPU objects“). Die
+Galerie (28 Bilder, mit drei Apps im Dock) liegt in `build/gallery/` und auf
+https://claude.ai/artifact/WjCCN4wXQXKg8ZdvYFGbkw (privat). Danach B3.2.
+
+Der erste Anlauf von B3.1 (Kontrollzentrum als eine Fläche, Dock 84/R28, ein breiter Schatten)
+gefiel dem Besitzer nicht („hingerotzt“); zwei Wertesätze (B2) erübrigten sich. Gebaut ist jetzt:
+abgenommenes Layout auf dem neuen System, Gutachten 28.11. eingearbeitet (ein Akzent, Haarlinie,
+Dock-Menü an der Dock-Kante). Offen aus dem Gutachten für B3.2: Dialog-Werte (Ränder 20 statt 12,
+Knopf 35 statt 32, Text bei 28), Menüzeilen 30 statt 28, Alt+Tab-Auswahl „Fläche gewählt“; die
+Tinte der transparenten Menüleiste (weiß auf hellem Hintergrund 2,3 : 1, Regel aus ADR 0028 §3,
+bewusst wie macOS) zur Entscheidung des Besitzers.
 
 Grundlage: Bestandsaufnahme vom 28.11. mit 28 Bildschirmfotos aller Zustände (hell und dunkel)
 sowie den Gutachten von `beize-design-auditor` (Werte, Material, Abläufe) und `beize-reviewer`
@@ -110,13 +111,11 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
     selbst ansehen und eigen urteilen.
 - **B3 Umbau in Stufen**, jede vom Gutachter geprüft. Die Hardware-Abnahme läuft gebündelt mit
   der Messung der späten Bilder.
-  1. **Material: gebaut 28.11. (dda690c)**, auf Hardware noch nicht gesehen. `beize-draw::tokens`
-     mit Kontrast-Test (er setzte dunkles dichtes Glas 94 %, Tinte 2 als eigene Farbe, dunkle
-     Fläche 8 %, dunkles Fehlerrot #ffb3ae); `beize_glass_v1` mit `thin`/`medium`/`dense`;
-     flüssiges Glas, Grundglas, Rauch und die Gauß-Pässe entfernt (−1200 Zeilen); Kontrollzentrum
-     eine dichte Fläche mit Kacheln, Dock mittleres Glas 84 hoch; ein schwebender Schatten
-     8/24/0,18 (er reicht 64 px über das Dock, die Mustervergleiche im Smoke lassen ihn aus).
-     Smoke `control_center_glass` ersetzt die Prüfungen von flüssigem Glas und Rauch.
+  1. **Material: gebaut 28.11.**, auf Hardware noch nicht gesehen. `beize-draw::tokens` mit
+     Kontrast-Test (Compile-Zeit-Prüfung für Raster und Radien); `beize_glass_v1` mit Dichten
+     und Schattenhöhen (`floating`, `resting`); flüssiges Glas, Grundglas, Rauch und Gauß-Pässe
+     entfernt; Kontrollzentrum und Dock im abgenommenen Layout auf Beize-Glas, Haarlinie,
+     Menüleiste über Vollbild dicht. Smoke `control_center_glass`.
   2. Menüs, Dialog, Feld, Alt+Tab und Pillen auf Tokens (Radien aus `tokens`, bei mit-ref die
      Menü-Hervorhebung als „Fläche gewählt“):
      - konzentrisch;
@@ -135,6 +134,13 @@ läuft Beize (`bz gate` grün). Erledigte Stufen werden hier gelöscht.
   - polkit-Text in menschlicher Sprache statt `run-p….service` (VISION 4).
 
 ### Phase C: Systeme, je mit eigenem ADR, auf A und B
+
+0. **Skalierung je Bildschirm** (Besitzer 28.11.: in HD groß, auf 1440p wie heute, auf 4K
+   kleiner): heute ist `measures::SCALE` 1,25 fest einkompiliert und gilt für jeden Bildschirm.
+   Vorbild Mutter/KWin/niri: Skalierung je Ausgang nach physischer Größe und Abstand
+   (EDID-mm → ppi), gebrochen über `wp_fractional_scale_v1` + `wp_viewporter`; Beize UI zeichnet
+   in logischen Punkten. Eigenes ADR, vor den Einstellungen (dort wählbar). Die Tokens sind dafür
+   schon logische Größen.
 
 1. **Mitteilungen:** Server `org.freedesktop.Notifications` in der Shell (wie GNOME Shell und
    plasmashell), auf Beize-Glas, mit dem allgemeinen Bildweg aus A2.
